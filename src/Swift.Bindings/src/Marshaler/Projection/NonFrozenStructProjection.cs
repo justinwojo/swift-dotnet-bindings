@@ -72,4 +72,6 @@ public class NonFrozenStructProjection : ITypeProjection
     /// construction via ISwiftObject.NewFromPayload. When used standalone, GetReturnPlan handles it.
     /// </summary>
     public string? GetReturnElementConversion(string elementVar) => null;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

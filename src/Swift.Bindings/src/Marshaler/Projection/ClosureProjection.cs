@@ -308,4 +308,6 @@ public class ClosureProjection : ITypeProjection
     /// </summary>
     private static bool IsCastablePInvokeType(string pInvokeType) =>
         pInvokeType is not "IntPtr" and not "SafeHandle" and not "SwiftClosureData";
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

@@ -707,223 +707,48 @@ namespace BindingsGeneration
             return typeSpec.ToString();
         }
 
-        // Getter/setter conversion helpers — same logic as PropertyHandler
+        // Getter/setter conversion helpers — delegates to shared AccessorConversionVisitors
 
         internal static (string? conversion, bool requiresDisposal) GetAccessorGetterConversion(
             ITypeProjection projection, string resultExpr)
         {
-            return projection switch
-            {
-                StringProjection => ($"{resultExpr}.ToString()", true),
-                DataProjection => ($"{resultExpr}.ToByteArray()", false),
-                NativeRemappedProjection nrp => ($"{resultExpr}.{nrp.ToConversionMethod}()", nrp.RequiresDisposal),
-                OptionalProjection opt => GetOptionalAccessorGetterConversion(opt, resultExpr),
-                ArrayProjection arr => GetArrayAccessorGetterConversion(arr, resultExpr),
-                DictionaryProjection dict => GetDictAccessorGetterConversion(dict, resultExpr),
-                SetProjection set => GetSetAccessorGetterConversion(set, resultExpr),
-                _ => (null, false)
-            };
+            return projection.Accept(new AccessorGetterConversionVisitor(resultExpr));
         }
 
         internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorGetterConversion(
             OptionalProjection opt, string resultExpr)
         {
-            var inner = opt.InnerProjection;
-            return inner switch
-            {
-                StringProjection => ($"((SwiftString?){resultExpr})?.ToString()", true),
-                DataProjection => ($"((Swift.Data?){resultExpr})?.ToByteArray()", true),
-                ArrayProjection arr => GetOptionalContainerGetterConversion(arr, resultExpr),
-                DictionaryProjection dict => GetOptionalContainerGetterConversion(dict, resultExpr),
-                SetProjection set => GetOptionalContainerGetterConversion(set, resultExpr),
-                NativeRemappedProjection nrp => ($"(({nrp.SwiftWrapperType}?){resultExpr})?.{nrp.ToConversionMethod}()", true),
-                ClosureProjection => (null, false),
-                // Optional<ObjC>: nullable pointer ABI (nil = IntPtr.Zero)
-                ObjCBridgedProjection objc =>
-                    ($"({resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, resultExpr)})", false),
-                // Existentials, classes, non-frozen structs: accessor already returns
-                // the projected type — no conversion or disposal needed.
-                ExistentialProjection or ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection => (null, false),
-                _ => ($"(({inner.PublicType}?){resultExpr})", true)
-            };
-        }
-
-        private static (string? conversion, bool requiresDisposal) GetOptionalContainerGetterConversion(
-            ITypeProjection innerContainer, string resultExpr)
-        {
-            var innerHasConversion = innerContainer switch
-            {
-                ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
-                DictionaryProjection dict => dict.KeyProjection.GetReturnElementConversion("k") != null
-                    || dict.ValueProjection.GetReturnElementConversion("v") != null,
-                SetProjection set => set.ElementProjection.GetReturnElementConversion("e") != null,
-                _ => false
-            };
-            var idiomaticType = innerContainer.PublicType;
-            var someExpr = innerHasConversion
-                ? innerContainer.GetReturnContainerConversion($"{resultExpr}.Some") ?? $"{resultExpr}.Some"
-                : $"{resultExpr}.Some";
-            return ($"({resultExpr}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})", true);
-        }
-
-        private static (string? conversion, bool requiresDisposal) GetArrayAccessorGetterConversion(
-            ArrayProjection arr, string resultExpr)
-        {
-            var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
-            if (elemConv != null)
-                return ($"{resultExpr}.AsProjected(e => {elemConv})", false);
-            return (null, false);
+            return AccessorGetterConversionVisitor.OptionalAccessorGetterConversion(opt, resultExpr);
         }
 
         internal static (string? conversion, bool requiresDisposal) GetDictAccessorGetterConversion(
             DictionaryProjection dict, string resultExpr)
         {
-            var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
-            var valConv = dict.ValueProjection.GetReturnElementConversion("v");
-            if (keyConv == null && valConv == null)
-                return (null, false);
-
-            // SwiftDictionary has two AsProjected overloads:
-            // 1-arg (value-only): AsProjected(v => conversion)
-            // 3-arg (key+reverse+value): AsProjected(k => conv, k => reverse, v => conv)
-            string asProjected;
-            if (keyConv != null)
-            {
-                var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
-                var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
-                asProjected = $"{resultExpr}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
-            }
-            else
-            {
-                asProjected = $"{resultExpr}.AsProjected(v => {valConv})";
-            }
-            return (asProjected, false);
+            return AccessorGetterConversionVisitor.DictGetterConversion(dict, resultExpr);
         }
 
         internal static (string? conversion, bool requiresDisposal) GetSetAccessorGetterConversion(
             SetProjection set, string resultExpr)
         {
-            var elemConv = set.ElementProjection.GetReturnElementConversion("e");
-            if (elemConv != null)
-                return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
-            return (null, false);
+            return AccessorGetterConversionVisitor.SetGetterConversion(set, resultExpr);
         }
 
         internal static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
             ITypeProjection projection, string valueExpr)
         {
-            return projection switch
-            {
-                StringProjection => ($"new SwiftString({valueExpr})", true),
-                DataProjection => ($"Swift.Data.FromByteArray({valueExpr})", false),
-                NativeRemappedProjection nrp => (
-                    nrp.FromFactoryMethod != null
-                        ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({valueExpr})"
-                        : $"new {nrp.SwiftWrapperType}({valueExpr})",
-                    nrp.RequiresDisposal),
-                ArrayProjection arr => GetArrayAccessorSetterConversion(arr, valueExpr),
-                DictionaryProjection dict => GetDictAccessorSetterConversion(dict, valueExpr),
-                SetProjection set => GetSetAccessorSetterConversion(set, valueExpr),
-                OptionalProjection opt => GetOptionalAccessorSetterConversion(opt, valueExpr),
-                _ => (null, false)
-            };
-        }
-
-        private static (string? conversion, bool requiresDisposal) GetArrayAccessorSetterConversion(
-            ArrayProjection arr, string valueExpr)
-        {
-            var rawElem = arr.ElementProjection.MarshalFromSwiftType;
-            var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
-                ? null
-                : arr.ElementProjection.GetParameterElementConversion("e");
-            if (elemConv != null)
-                return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
-            return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
-        }
-
-        private static (string? conversion, bool requiresDisposal) GetDictAccessorSetterConversion(
-            DictionaryProjection dict, string valueExpr)
-        {
-            var rawK = dict.KeyProjection.MarshalFromSwiftType;
-            var rawV = dict.ValueProjection.MarshalFromSwiftType;
-            var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
-                ? null
-                : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
-            var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
-                ? null
-                : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
-            if (keyConv != null || valConv != null)
-            {
-                var keyExpr = keyConv ?? "kvp.Key";
-                var valExpr = valConv ?? "kvp.Value";
-                return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
-            }
-            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
+            return projection.Accept(new AccessorSetterConversionVisitor(valueExpr));
         }
 
         internal static (string? conversion, bool requiresDisposal) GetSetAccessorSetterConversion(
             SetProjection set, string valueExpr)
         {
-            var rawElem = set.ElementProjection.MarshalFromSwiftType;
-            var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
-                ? null
-                : set.ElementProjection.GetParameterElementConversion("e");
-            if (elemConv != null)
-                return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
-            return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
+            return AccessorSetterConversionVisitor.SetSetterConversion(set, valueExpr);
         }
 
         internal static (string? conversion, bool requiresDisposal) GetOptionalAccessorSetterConversion(
             OptionalProjection opt, string valueExpr)
         {
-            var inner = opt.InnerProjection;
-
-            if (inner is ClosureProjection)
-                return (null, false);
-
-            var optType = inner.MarshalFromSwiftType;
-
-            if (inner is ArrayProjection arr)
-            {
-                var (arrConv, _) = GetArrayAccessorSetterConversion(arr, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
-            }
-            if (inner is DictionaryProjection dict)
-            {
-                var (dictConv, _) = GetDictAccessorSetterConversion(dict, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
-            }
-            if (inner is SetProjection set)
-            {
-                var (setConv, _) = GetSetAccessorSetterConversion(set, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
-            }
-
-            // Existential inner — passthrough. Optional existentials use nullable interface ABI,
-            // not SwiftOptional wrapping of the existential container.
-            if (inner is ExistentialProjection)
-                return (null, false);
-
-            // Class/NonFrozenStruct inner — accessor methods take the public type directly,
-            // not DangerousGetHandle() (IntPtr). Pass the value as-is; P/Invoke marshalling extracts the handle.
-            if (inner is ClassProjection or NonFrozenStructProjection)
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
-
-            // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
-            if (inner is ObjCBridgedProjection)
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
-
-            // ObjC-rooted inner — accessor methods take SwiftOptional<T>, pass as-is
-            if (inner is ObjCRootedClassProjection)
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
-
-            // Element conversion (String, NativeRemapped, etc.)
-            var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");
-            if (innerConv != null)
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())", true);
-
-            // Simple inner type (blittable, enum)
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+            return AccessorSetterConversionVisitor.OptionalSetterConversion(opt, valueExpr);
         }
     }
 }

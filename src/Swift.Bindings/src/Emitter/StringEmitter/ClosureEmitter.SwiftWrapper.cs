@@ -47,56 +47,10 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Returns the Swift parameter type for a Cdecl function pointer.
-    /// Maps Swift types to their C-compatible equivalents.
+    /// Delegates to the canonical implementation in SwiftBuilder.
     /// </summary>
     private static string GetSwiftCdeclParamType(TypeSpec typeSpec, ClosureHandler? closureHandler = null)
-    {
-        if (typeSpec is NamedTypeSpec named)
-        {
-            // Simple enums pass as their underlying integer type
-            if (closureHandler != null)
-            {
-                var enumInfo = closureHandler.GetSimpleEnumInfo(named);
-                if (enumInfo != null)
-                    return enumInfo.Value.swiftScalar;
-            }
-
-            // Optional<Class/ObjC> uses nil-pointer ABI: UnsafeMutableRawPointer?
-            if (closureHandler != null && named.ContainsGenericParameters &&
-                named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
-                closureHandler.IsReferenceType(named.GenericParameters[0]))
-            {
-                return "UnsafeMutableRawPointer?";
-            }
-
-            return named.Name switch
-            {
-                "Swift.Bool" => "UInt8",
-                "Swift.Int" => "Int",
-                "Swift.UInt" => "UInt",
-                "Swift.Int8" => "Int8",
-                "Swift.UInt8" => "UInt8",
-                "Swift.Int16" => "Int16",
-                "Swift.UInt16" => "UInt16",
-                "Swift.Int32" => "Int32",
-                "Swift.UInt32" => "UInt32",
-                "Swift.Int64" => "Int64",
-                "Swift.UInt64" => "UInt64",
-                "Swift.Float" => "Float",
-                "Swift.Double" => "Double",
-                // Pointer types pass through
-                "Swift.UnsafeRawPointer" => "UnsafeRawPointer",
-                "Swift.UnsafeMutableRawPointer" => "UnsafeMutableRawPointer",
-                "Swift.OpaquePointer" => "OpaquePointer",
-                _ => "UnsafeMutableRawPointer" // Structs, classes, etc.
-            };
-        }
-
-        if (typeSpec.IsEmptyTuple)
-            return "Void";
-
-        return "UnsafeMutableRawPointer";
-    }
+        => SwiftBuilder.GetSwiftCdeclParamType(typeSpec, closureHandler);
 
     /// <summary>
     /// Returns the Swift return type for a Cdecl function pointer.

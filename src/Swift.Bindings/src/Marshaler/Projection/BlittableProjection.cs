@@ -25,4 +25,6 @@ public class BlittableProjection : ITypeProjection
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

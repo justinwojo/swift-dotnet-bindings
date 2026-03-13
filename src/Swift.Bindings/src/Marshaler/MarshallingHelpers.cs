@@ -96,101 +96,130 @@ namespace BindingsGeneration
         {
             if (env.MethodDecl.IsAsync) return false;
 
-            // @_cdecl property wrappers can't return Swift structs (SBW_Utf8Slice).
-            // Force indirect result for String so the result is written via resultPtr parameter.
-            // Other types (classes, enums, non-frozen structs) are handled by the checks below.
-            // Frozen structs are caught at the end of this method.
-            // Setters return void — no indirect result needed.
-            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) && !MethodIsSetter(env.MethodDecl))
+            if (IsCdeclNonSetterWrapper(env))
             {
-                var returnTypeForCdecl = env.MethodDecl.CSSignature.First();
-
-                // Void returns never need indirect result
-                if (returnTypeForCdecl.SwiftTypeSpec.IsEmptyTuple)
-                    return false;
-
-                if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
-                    return true;
-
-                // Existential returns: @_cdecl can't return existential containers directly.
-                // Use indirect result buffer (same pattern as non-frozen structs).
-                if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
-                    return true;
-
-                // Optional<value-type>: @_cdecl can't return generics directly.
-                // Wrapper writes full Optional<T> to resultPtr; C# reads SwiftOptional<T>.ToNullable().
-                if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
-                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
-                    return true;
-
-                // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
-                // C# reads SwiftClosureData (funcPtr + context) from the buffer.
-                if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
-                    return true;
-
-                // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.
-                // NOT indirect result — PInvokeEmitter handles IntPtr return type.
-                if (returnTypeForCdecl.SwiftTypeSpec.IsDynamicSelf)
-                    return false;
-
-                // Tuple returns: @_cdecl wrapper writes result to resultPtr buffer.
-                // Tuples aren't C-representable — use indirect result for all tuple sizes.
-                if (returnTypeForCdecl.SwiftTypeSpec is TupleTypeSpec ts && !ts.IsEmptyTuple)
-                    return true;
+                var cdeclResult = IsCdeclIndirectResultRequired(env);
+                if (cdeclResult.HasValue) return cdeclResult.Value;
             }
+
+            var ctorResult = IsConstructorIndirectResultRequired(env);
+            if (ctorResult.HasValue) return ctorResult.Value;
+
+            return IsTypeInherentlyIndirect(env);
+        }
+
+        /// <summary>
+        /// Returns true if the method uses a @_cdecl wrapper and is NOT a setter.
+        /// This guard condition appears repeatedly in indirect-result logic because
+        /// setters return void and never need indirect result handling.
+        /// </summary>
+        internal static bool IsCdeclNonSetterWrapper(MethodEnvironment env)
+        {
+            return (env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper)
+                && !MethodIsSetter(env.MethodDecl);
+        }
+
+        /// <summary>
+        /// Determines indirect result requirements specific to @_cdecl wrappers.
+        /// Checks String, existential, Optional&lt;value&gt;, closure, DynamicSelf, and tuple returns.
+        /// Returns null if no @_cdecl-specific decision applies (fall through to general logic).
+        /// </summary>
+        internal static bool? IsCdeclIndirectResultRequired(MethodEnvironment env)
+        {
+            var returnTypeForCdecl = env.MethodDecl.CSSignature.First();
+
+            // Void returns never need indirect result
+            if (returnTypeForCdecl.SwiftTypeSpec.IsEmptyTuple)
+                return false;
+
+            if (returnTypeForCdecl.SwiftTypeSpec is NamedTypeSpec nts && nts.Name == "Swift.String")
+                return true;
+
+            // Existential returns: @_cdecl can't return existential containers directly.
+            if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
+                return true;
+
+            // Optional<value-type>: @_cdecl can't return generics directly.
+            if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
+                !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                return true;
+
+            // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
+            if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
+                return true;
+
+            // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.
+            if (returnTypeForCdecl.SwiftTypeSpec.IsDynamicSelf)
+                return false;
+
+            // Tuple returns: @_cdecl wrapper writes result to resultPtr buffer.
+            if (returnTypeForCdecl.SwiftTypeSpec is TupleTypeSpec ts && !ts.IsEmptyTuple)
+                return true;
+
+            return null; // No @_cdecl-specific decision — fall through
+        }
+
+        /// <summary>
+        /// Determines indirect result requirements for constructors.
+        /// Failable constructors and non-frozen struct constructors need indirect result.
+        /// Returns null if the method is not a constructor or no constructor-specific rule applies.
+        /// </summary>
+        internal static bool? IsConstructorIndirectResultRequired(MethodEnvironment env)
+        {
+            if (!env.MethodDecl.IsConstructor) return null;
 
             // Failable constructors (init?) always need indirect result because they return
             // Optional<Self> which must be checked for None before extracting the value.
-            if (env.MethodDecl.IsConstructor && env.MethodDecl.IsFailable) return true;
+            if (env.MethodDecl.IsFailable) return true;
 
             // Non-frozen struct constructors use indirect result (struct too large for registers).
-            // Class constructors return a pointer directly in a register — NOT via indirect result.
-            // Enum constructors fall through to the type-based checks below.
-            if (env.MethodDecl.IsConstructor && env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen) return true;
+            // Class constructors return a pointer directly — NOT via indirect result.
+            // Enum constructors fall through to type-based checks.
+            if (env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen) return true;
 
+            return null; // Enum constructors or frozen struct constructors — fall through
+        }
+
+        /// <summary>
+        /// Type-based indirect result determination for non-@_cdecl and non-constructor cases.
+        /// Checks DynamicSelf, closures, existentials, tuples, bound generics, and TypeRecord-based dispatch.
+        /// </summary>
+        internal static bool IsTypeInherentlyIndirect(MethodEnvironment env)
+        {
             var returnType = env.MethodDecl.CSSignature.First();
+            bool isCdeclNonSetter = IsCdeclNonSetterWrapper(env);
 
             // DynamicSelf (Self return type) always requires indirect result.
-            // Currently this works via the accidental path: IsExistentialTypeName("Self") → AnyType → not frozen → true.
-            // This explicit guard prevents breakage if IsExistentialTypeName heuristic changes.
             if (returnType.SwiftTypeSpec.IsDynamicSelf)
                 return true;
 
             // Closure return types: non-cdecl passes as function pointers directly.
-            // @_cdecl closures can't be returned directly — use resultPtr buffer (handled above).
             if (returnType.SwiftTypeSpec is ClosureTypeSpec)
-                return false;  // Only reached for non-@_cdecl paths (handled in @_cdecl block above)
+                return false;
 
-            // Existential return types (protocol types and compositions) are passed via existential containers (IntPtr)
+            // Existential return types (protocol types) are passed via existential containers (IntPtr)
             if (env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
                 return false;
 
             // Non-generic tuple return types are handled by TupleHandler, not via indirect result.
-            // Tuples with generic type parameter elements require indirect result because
-            // element sizes are unknown at compile time — the Swift ABI mandates sret for these.
+            // Tuples with generic type parameter elements require indirect result (sret).
             if (returnType.SwiftTypeSpec is TupleTypeSpec tupleSpec && !tupleSpec.IsEmptyTuple)
             {
                 var tupleHandler = new TupleHandler(env.TypeDatabase);
-                if (tupleHandler.HasGenericTypeParameterElements(tupleSpec))
-                    return true;
-                return false;
+                return tupleHandler.HasGenericTypeParameterElements(tupleSpec);
             }
 
-            // Bound generics that require marshalling (SwiftArray, SwiftOptional, etc.) return IntPtr directly
-            // from PInvoke and don't need indirect result handling. They're marshalled via SwiftMarshal.MarshalFromSwift.
-            // Note: This doesn't apply to constructors (handled above) since failable initializers need special handling.
+            // Bound generics that require marshalling return IntPtr directly from PInvoke.
             if (!env.MethodDecl.IsConstructor &&
                 env.BoundGenericsHandler.IsBoundGeneric(returnType) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType))
             {
                 // @_cdecl Optional<value-type>: force IndirectResult instead of IntPtr marshalling.
-                // The wrapper writes full Optional<T> to resultPtr; C# reads SwiftOptional<T>.ToNullable().
-                if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
-                    !MethodIsSetter(env.MethodDecl) &&
+                if (isCdeclNonSetter &&
                     MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
                     !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
                 {
-                    return true;  // Force IndirectResult
+                    return true;
                 }
                 return false;
             }
@@ -199,35 +228,27 @@ namespace BindingsGeneration
 
             TypeRecord typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
 
-            // @_cdecl property/method wrappers: NSString typedef structs (e.g., CALayerContentsGravity)
-            // are registered as kind="class" in XML but are Swift structs wrapping NSString.
-            // Unmanaged.passRetained() is invalid for these — must use indirect result.
-            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
-                !MethodIsSetter(env.MethodDecl) &&
+            // @_cdecl: NSString typedef structs need indirect result.
+            if (isCdeclNonSetter &&
                 IsObjCBridged(typeRecord) &&
                 returnType.SwiftTypeSpec is NamedTypeSpec nsTypedefSpec &&
                 AppleFrameworkRegistry.TryGetNetTypeName(nsTypedefSpec.Name, out var remappedName) &&
                 remappedName == "Foundation.NSString")
                 return true;
 
-            // Swift classes return pointers directly in registers, not via indirect result
+            // Swift classes return pointers directly in registers
             if (typeRecord.Kind == TypeRecordKind.Class)
                 return false;
 
             // Simple enums are C# value types returned directly in registers
-            // regardless of frozen status — no-payload enums are always register-sized
             if (typeRecord.Kind == TypeRecordKind.Enum &&
                 (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
                 return false;
 
             if (!IsTypeFrozen(typeRecord)) return true;
 
-            // @_cdecl property/method wrappers: frozen structs also need indirect result
-            // because @_cdecl can't return Swift structs (even @frozen ones).
-            // Primitives (Int, Float, Bool, CGFloat) are C-compatible and return directly.
-            // Setters return void — skip.
-            if ((env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper) &&
-                !MethodIsSetter(env.MethodDecl) &&
+            // @_cdecl: frozen structs also need indirect result (except primitives).
+            if (isCdeclNonSetter &&
                 !ConstructorWrapperEmitter.IsCdeclPrimitive(returnType.SwiftTypeSpec))
                 return true;
 

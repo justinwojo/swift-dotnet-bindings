@@ -116,6 +116,12 @@ public interface ITypeProjection
     string MarshalFromSwiftType => SwiftContainerGenericType;
 
     /// <summary>
+    /// Accepts a projection visitor for compile-time exhaustive dispatch.
+    /// Each concrete projection implements this with <c>visitor.Visit(this)</c>.
+    /// </summary>
+    T Accept<T>(IProjectionVisitor<T> visitor);
+
+    /// <summary>
     /// Gets a parameter plan that creates the container object without extracting PayloadBuffer.
     /// Returns null for non-container projections (use GetParameterPlan instead).
     /// Used by OptionalProjection to wrap container objects in SwiftOptional before flattening.

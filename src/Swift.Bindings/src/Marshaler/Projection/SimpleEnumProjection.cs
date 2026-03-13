@@ -50,4 +50,6 @@ public class SimpleEnumProjection : ITypeProjection
     // Standalone parameter/return plans handle the cast to/from underlying type.
     public string? GetParameterElementConversion(string elementVar) => null;
     public string? GetReturnElementConversion(string elementVar) => null;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

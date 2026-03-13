@@ -87,37 +87,15 @@ public class WitnessDispatchEmitter
 
     /// <summary>
     /// Maps Swift type names to C# type names for resolving types without the type database.
+    /// Delegates to <see cref="SwiftBuilder.SwiftToCSharpType"/> (canonical source).
     /// </summary>
-    private static readonly Dictionary<string, string> SwiftToCSharpPrimitiveMap = new()
-    {
-        ["Swift.Int"] = "nint", ["Swift.UInt"] = "nuint",
-        ["Swift.Int8"] = "sbyte", ["Swift.UInt8"] = "byte",
-        ["Swift.Int16"] = "short", ["Swift.UInt16"] = "ushort",
-        ["Swift.Int32"] = "int", ["Swift.UInt32"] = "uint",
-        ["Swift.Int64"] = "long", ["Swift.UInt64"] = "ulong",
-        ["Swift.Float"] = "float", ["Swift.Double"] = "double",
-        ["Swift.Bool"] = "bool",
-    };
+    private static readonly Dictionary<string, string> SwiftToCSharpPrimitiveMap = SwiftBuilder.SwiftToCSharpType;
 
     /// <summary>
     /// Maps C# type names to Swift type names for use in generated Swift code.
+    /// Delegates to <see cref="SwiftBuilder.CSharpToSwiftType"/> (canonical source).
     /// </summary>
-    private static readonly Dictionary<string, string> CSharpToSwiftTypeMap = new()
-    {
-        ["bool"] = "Bool", ["System.Boolean"] = "Bool",
-        ["sbyte"] = "Int8", ["System.SByte"] = "Int8",
-        ["byte"] = "UInt8", ["System.Byte"] = "UInt8",
-        ["short"] = "Int16", ["System.Int16"] = "Int16",
-        ["ushort"] = "UInt16", ["System.UInt16"] = "UInt16",
-        ["int"] = "Int32", ["System.Int32"] = "Int32",
-        ["uint"] = "UInt32", ["System.UInt32"] = "UInt32",
-        ["long"] = "Int64", ["System.Int64"] = "Int64",
-        ["ulong"] = "UInt64", ["System.UInt64"] = "UInt64",
-        ["nint"] = "Int", ["System.IntPtr"] = "Int",
-        ["nuint"] = "UInt", ["System.UIntPtr"] = "UInt",
-        ["float"] = "Float", ["System.Single"] = "Float",
-        ["double"] = "Double", ["System.Double"] = "Double",
-    };
+    private static readonly Dictionary<string, string> CSharpToSwiftTypeMap = SwiftBuilder.CSharpToSwiftType;
 
     public WitnessDispatchEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {

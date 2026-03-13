@@ -128,4 +128,6 @@ public class NativeRemappedProjection : ITypeProjection
         return $"{elementVar}.{_toConversionMethod}()";
     }
     public bool ElementRequiresDisposal => true;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

@@ -244,4 +244,6 @@ public class AsyncProjection : ITypeProjection
         "SwiftString" => "UnsafeRawPointer",  // strings pass as raw pointer in callbacks
         _ => pInvokeType  // fallback — Session 3 emitter provides SwiftCallbackReturnType for complex types
     };
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

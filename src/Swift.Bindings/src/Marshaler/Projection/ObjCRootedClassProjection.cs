@@ -70,4 +70,6 @@ public class ObjCRootedClassProjection : ITypeProjection
         $"{elementVar}.Handle";
 
     public string? GetReturnElementConversion(string elementVar) => null;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

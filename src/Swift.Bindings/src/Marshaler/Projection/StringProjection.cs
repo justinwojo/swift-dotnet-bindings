@@ -56,4 +56,6 @@ public class StringProjection : ITypeProjection
     public string? GetParameterElementConversion(string elementVar) => $"new SwiftString({elementVar})";
     public string? GetReturnElementConversion(string elementVar) => $"{elementVar}.ToString()";
     public bool ElementRequiresDisposal => true;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

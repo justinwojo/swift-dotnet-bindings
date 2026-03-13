@@ -767,38 +767,42 @@ namespace BindingsGeneration
                 pInvokeSignature.HandleReturnType();
                 pInvokeSignature.HandleSwiftAsync();
 
-                // @_cdecl constructor wrappers place errorOut BEFORE regular parameters
-                // in Swift (resultPtr, errorOut, args...), so the C# P/Invoke must match.
-                // Normal methods place the error register AFTER all parameters.
-                if (_env.MethodDecl.UsesCdeclConstructorWrapper && _env.MethodDecl.Throws)
+                // Parameter ordering is determined by the CdeclSignatureContract —
+                // the single source of truth for phase ordering across C# P/Invoke
+                // and Swift wrapper emitters.
+                var order = CdeclSignatureContract.DetermineParameterOrder(_env);
+                foreach (var phase in order.Phases)
+                {
+                    switch (phase)
+                    {
+                        case CdeclPhase.ResultPtr:
+                            break; // Already handled in HandleReturnType
+                        case CdeclPhase.ErrorOut:
+                            pInvokeSignature.HandleSwiftError();
+                            break;
+                        case CdeclPhase.Self:
+                            pInvokeSignature.HandleSwiftSelf();
+                            break;
+                        case CdeclPhase.Arguments:
+                            pInvokeSignature.HandleArguments();
+                            break;
+                        case CdeclPhase.Metadata:
+                            pInvokeSignature.HandleGenericMetadata();
+                            pInvokeSignature.HandleProtocolConformance();
+                            break;
+                    }
+                }
+
+                // For non-throwing methods and non-cdecl constructors, HandleSwiftError
+                // is still needed for the [SwiftError] attribute on the return type.
+                // The contract only includes ErrorOut for throwing methods, so call
+                // HandleSwiftError unconditionally to handle the attribute annotation
+                // (it's a no-op if already called via the ErrorOut phase above).
+                if (!order.Phases.Contains(CdeclPhase.ErrorOut))
                 {
                     pInvokeSignature.HandleSwiftError();
                 }
 
-                // Protocol extension @_silgen_name wrappers place self_ as the first
-                // explicit parameter in Swift. Place it before args to match the ABI.
-                // Other free-function wrappers (@_cdecl closures, optional pointer) put
-                // self LAST in the Swift wrapper, so they follow the normal order.
-                if (_env.MethodDecl.IsProtocolExtensionMethod)
-                {
-                    pInvokeSignature.HandleSwiftSelf();
-                    pInvokeSignature.HandleArguments();
-                    pInvokeSignature.HandleGenericMetadata();
-                    pInvokeSignature.HandleProtocolConformance();
-                }
-                else
-                {
-                    pInvokeSignature.HandleArguments();
-                    pInvokeSignature.HandleGenericMetadata();
-                    pInvokeSignature.HandleProtocolConformance();
-                    pInvokeSignature.HandleSwiftSelf();
-                }
-
-                // Non-cdecl-constructor methods: error goes after all other params
-                if (!(_env.MethodDecl.UsesCdeclConstructorWrapper && _env.MethodDecl.Throws))
-                {
-                    pInvokeSignature.HandleSwiftError();
-                }
                 _pInvokeSignature = pInvokeSignature.Build();
             }
             return _pInvokeSignature;

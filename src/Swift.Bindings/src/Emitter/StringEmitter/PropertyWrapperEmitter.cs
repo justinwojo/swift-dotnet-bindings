@@ -128,34 +128,43 @@ public static class PropertyWrapperEmitter
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx);
         }
 
-        // Build parameter list
-        var swiftParams = new List<string>();
-
         // Check if return needs indirect result (non-frozen struct/complex enum)
         var (returnMapping, needsResultPtr) = GetCdeclReturnMapping(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+
+        // Build parameter list — phase ordering from CdeclSignatureContract.
+        // ResultPtr is handled outside the loop using the emitter's own needsResultPtr logic.
+        var swiftParams = new List<string>();
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
 
         if (needsResultPtr)
         {
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
         }
 
-        // Metadata parameters for generic parent types (accepted but unused)
-        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
-        if (isGenericParent && parentTypeDecl != null)
+        var order = CdeclSignatureContract.DetermineParameterOrder(env,
+            overrideNeedsResultPtr: needsResultPtr, overrideNeedsSelf: !isStatic);
+        foreach (var phase in order.Phases)
         {
-            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            switch (phase)
             {
-                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                case CdeclPhase.ResultPtr:
+                    break; // Already handled above
+                case CdeclPhase.Self:
+                    if (isClass)
+                        swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
+                    else
+                        swiftParams.Add($"_ self_: UnsafeRawPointer");
+                    break;
+                case CdeclPhase.Metadata:
+                    if (isGenericParent && parentTypeDecl != null)
+                    {
+                        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+                        {
+                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                    }
+                    break;
             }
-        }
-
-        // Self parameter (instance properties only)
-        if (!isStatic)
-        {
-            if (isClass)
-                swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
-            else
-                swiftParams.Add($"_ self_: UnsafeRawPointer");
         }
 
         var swiftParamString = string.Join(", ", swiftParams);
@@ -251,62 +260,64 @@ public static class PropertyWrapperEmitter
         bool isStatic = propertyDecl.IsStatic;
         bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec);
 
-        // Build parameter list
+        // Build parameter list — phase ordering from CdeclSignatureContract.
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
-
-        // NewValue parameter(s)
-        if (isString)
-        {
-            // String setter: receive UTF-8 pointer + length
-            swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
-            swiftParams.Add("_ utf8Len: Int");
-            reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
-        }
-        else
-        {
-            // Reuse ConstructorWrapperEmitter's mapping for the newValue parameter
-            var newValueArg = new ArgumentDecl
-            {
-                SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
-                Name = "newValue",
-                PrivateName = "newValue",
-                IsInOut = false,
-                IsGeneric = false,
-                ParentDecl = null,
-                ModuleDecl = null
-            };
-            // omitLabels: false — the third return (callArg) is discarded, but omitLabels: true
-            // triggers ShouldWidenParam bypass in GetCdeclParamMapping which skips .load(as:)
-            // reconstruction for large Optionals. Property setters always need reconstruction
-            // since they assign to Swift properties, not call another wrapper.
-            var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                newValueArg, "newValue", env, omitLabels: false);
-            swiftParams.Add(cdeclParam);
-            if (reconstruction != null)
-            {
-                reconstructionLines.Add(reconstruction);
-            }
-        }
-
-        // Metadata parameters for generic parent types (accepted but unused)
         bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
-        if (isGenericParent && parentTypeDecl != null)
-        {
-            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
-            {
-                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
-            }
-        }
 
-        // Self parameter (instance properties only)
-        if (!isStatic)
+        var order = CdeclSignatureContract.DetermineParameterOrder(env,
+            overrideNeedsResultPtr: false, overrideHasArguments: true, overrideNeedsSelf: !isStatic);
+        foreach (var phase in order.Phases)
         {
-            // Struct setters need mutable self for mutation
-            if (isClass)
-                swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
-            else
-                swiftParams.Add($"_ self_: UnsafeMutableRawPointer"); // mutable for struct setters
+            switch (phase)
+            {
+                case CdeclPhase.Arguments:
+                    // NewValue parameter(s)
+                    if (isString)
+                    {
+                        swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
+                        swiftParams.Add("_ utf8Len: Int");
+                        reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+                    }
+                    else
+                    {
+                        var newValueArg = new ArgumentDecl
+                        {
+                            SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
+                            Name = "newValue",
+                            PrivateName = "newValue",
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = null
+                        };
+                        // omitLabels: false — property setters always need .load(as:) reconstruction
+                        // for large Optionals. omitLabels: true would trigger ShouldWidenParam bypass.
+                        var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                            newValueArg, "newValue", env, omitLabels: false);
+                        swiftParams.Add(cdeclParam);
+                        if (reconstruction != null)
+                        {
+                            reconstructionLines.Add(reconstruction);
+                        }
+                    }
+                    break;
+
+                case CdeclPhase.Metadata:
+                    if (isGenericParent && parentTypeDecl != null)
+                    {
+                        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+                        {
+                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                    }
+                    break;
+
+                case CdeclPhase.Self:
+                    // Both class and struct setters use mutable self
+                    swiftParams.Add($"_ self_: UnsafeMutableRawPointer");
+                    break;
+            }
         }
 
         var swiftParamString = string.Join(", ", swiftParams);

@@ -1,0 +1,273 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+namespace BindingsGeneration;
+
+/// <summary>
+/// Shared visitor for getter conversion dispatch in property and subscript accessors.
+/// Replaces duplicated switches in PropertyHandler and SubscriptHandler.
+/// </summary>
+internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? conversion, bool requiresDisposal)>
+{
+    private readonly string _resultExpr;
+    public AccessorGetterConversionVisitor(string resultExpr) => _resultExpr = resultExpr;
+
+    public (string?, bool) Visit(StringProjection p) => ($"{_resultExpr}.ToString()", true);
+    public (string?, bool) Visit(DataProjection p) => ($"{_resultExpr}.ToByteArray()", false);
+    public (string?, bool) Visit(NativeRemappedProjection p) => ($"{_resultExpr}.{p.ToConversionMethod}()", p.RequiresDisposal);
+    public (string?, bool) Visit(OptionalProjection p) => OptionalAccessorGetterConversion(p, _resultExpr);
+    public (string?, bool) Visit(ArrayProjection p) => ArrayGetterConversion(p, _resultExpr);
+    public (string?, bool) Visit(DictionaryProjection p) => DictGetterConversion(p, _resultExpr);
+    public (string?, bool) Visit(SetProjection p) => SetGetterConversion(p, _resultExpr);
+
+    // Passthrough — no conversion needed
+    public (string?, bool) Visit(BlittableProjection p) => (null, false);
+    public (string?, bool) Visit(BoolProjection p) => (null, false);
+    public (string?, bool) Visit(SimpleEnumProjection p) => (null, false);
+    public (string?, bool) Visit(ClassProjection p) => (null, false);
+    public (string?, bool) Visit(NonFrozenStructProjection p) => (null, false);
+    public (string?, bool) Visit(FrozenWithMemoryProjection p) => (null, false);
+    public (string?, bool) Visit(ExistentialProjection p) => (null, false);
+    public (string?, bool) Visit(ClosureProjection p) => (null, false);
+    public (string?, bool) Visit(AsyncProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCBridgedProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
+    public (string?, bool) Visit(TupleProjection p) => (null, false);
+
+    // --- Shared getter helpers ---
+
+    internal static (string?, bool) ArrayGetterConversion(ArrayProjection arr, string resultExpr)
+    {
+        var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return ($"{resultExpr}.AsProjected(e => {elemConv})", false);
+        return (null, false);
+    }
+
+    internal static (string?, bool) DictGetterConversion(DictionaryProjection dict, string resultExpr)
+    {
+        var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
+        var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+        if (keyConv == null && valConv == null)
+            return (null, false);
+
+        string asProjected;
+        if (keyConv != null)
+        {
+            var reverseKeyConv = dict.KeyProjection.GetParameterElementConversion("k") ?? "k";
+            var valSelector = valConv != null ? $"v => {valConv}" : "v => v";
+            asProjected = $"{resultExpr}.AsProjected(k => {keyConv}, k => {reverseKeyConv}, {valSelector})";
+        }
+        else
+        {
+            asProjected = $"{resultExpr}.AsProjected(v => {valConv})";
+        }
+        return (asProjected, false);
+    }
+
+    internal static (string?, bool) SetGetterConversion(SetProjection set, string resultExpr)
+    {
+        var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+        if (elemConv != null)
+            return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
+        return (null, false);
+    }
+
+    internal static (string?, bool) OptionalAccessorGetterConversion(OptionalProjection opt, string resultExpr)
+    {
+        return opt.InnerProjection.Accept(new OptionalAccessorGetterVisitor(resultExpr));
+    }
+
+    internal static (string?, bool) OptionalContainerGetterConversion(
+        ITypeProjection innerContainer, string resultExpr)
+    {
+        var innerHasConversion = innerContainer switch
+        {
+            ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
+            DictionaryProjection dict => dict.KeyProjection.GetReturnElementConversion("k") != null
+                || dict.ValueProjection.GetReturnElementConversion("v") != null,
+            SetProjection set => set.ElementProjection.GetReturnElementConversion("e") != null,
+            _ => false
+        };
+        var idiomaticType = innerContainer.PublicType;
+        var someExpr = innerHasConversion
+            ? innerContainer.GetReturnContainerConversion($"{resultExpr}.Some") ?? $"{resultExpr}.Some"
+            : $"{resultExpr}.Some";
+        return ($"({resultExpr}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})", true);
+    }
+}
+
+/// <summary>
+/// Visitor for the inner projection of Optional in getter context.
+/// Dispatches on the inner type to determine how to unwrap Optional&lt;T&gt; for the accessor return.
+/// </summary>
+internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conversion, bool requiresDisposal)>
+{
+    private readonly string _resultExpr;
+    public OptionalAccessorGetterVisitor(string resultExpr) => _resultExpr = resultExpr;
+
+    public (string?, bool) Visit(StringProjection p) =>
+        ($"((SwiftString?){_resultExpr})?.ToString()", true);
+    public (string?, bool) Visit(DataProjection p) =>
+        ($"((Swift.Data?){_resultExpr})?.ToByteArray()", true);
+    public (string?, bool) Visit(NativeRemappedProjection p) =>
+        ($"(({p.SwiftWrapperType}?){_resultExpr})?.{p.ToConversionMethod}()", true);
+    public (string?, bool) Visit(ClosureProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCBridgedProjection p) =>
+        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
+    public (string?, bool) Visit(ArrayProjection p) =>
+        AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
+    public (string?, bool) Visit(DictionaryProjection p) =>
+        AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
+    public (string?, bool) Visit(SetProjection p) =>
+        AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
+
+    // Reference types: accessor already returns the projected type — no conversion needed
+    public (string?, bool) Visit(ExistentialProjection p) => (null, false);
+    public (string?, bool) Visit(ClassProjection p) => (null, false);
+    public (string?, bool) Visit(NonFrozenStructProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
+
+    // Default: cast to nullable public type
+    public (string?, bool) Visit(BlittableProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(BoolProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(SimpleEnumProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(FrozenWithMemoryProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(AsyncProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(OptionalProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(TupleProjection p) => DefaultCast(p);
+
+    private (string?, bool) DefaultCast(ITypeProjection inner) =>
+        ($"(({inner.PublicType}?){_resultExpr})", true);
+}
+
+/// <summary>
+/// Shared visitor for setter conversion dispatch in property and subscript accessors.
+/// Replaces duplicated switches in PropertyHandler and SubscriptHandler.
+/// </summary>
+internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? conversion, bool requiresDisposal)>
+{
+    private readonly string _valueExpr;
+    public AccessorSetterConversionVisitor(string valueExpr) => _valueExpr = valueExpr;
+
+    public (string?, bool) Visit(StringProjection p) => ($"new SwiftString({_valueExpr})", true);
+    public (string?, bool) Visit(DataProjection p) => ($"Swift.Data.FromByteArray({_valueExpr})", false);
+    public (string?, bool) Visit(NativeRemappedProjection p) => (
+        p.FromFactoryMethod != null
+            ? $"{p.SwiftWrapperType}.{p.FromFactoryMethod}({_valueExpr})"
+            : $"new {p.SwiftWrapperType}({_valueExpr})",
+        p.RequiresDisposal);
+    public (string?, bool) Visit(ArrayProjection p) => ArraySetterConversion(p, _valueExpr);
+    public (string?, bool) Visit(DictionaryProjection p) => DictSetterConversion(p, _valueExpr);
+    public (string?, bool) Visit(SetProjection p) => SetSetterConversion(p, _valueExpr);
+    public (string?, bool) Visit(OptionalProjection p) => OptionalSetterConversion(p, _valueExpr);
+
+    // Passthrough — no conversion needed
+    public (string?, bool) Visit(BlittableProjection p) => (null, false);
+    public (string?, bool) Visit(BoolProjection p) => (null, false);
+    public (string?, bool) Visit(SimpleEnumProjection p) => (null, false);
+    public (string?, bool) Visit(ClassProjection p) => (null, false);
+    public (string?, bool) Visit(NonFrozenStructProjection p) => (null, false);
+    public (string?, bool) Visit(FrozenWithMemoryProjection p) => (null, false);
+    public (string?, bool) Visit(ExistentialProjection p) => (null, false);
+    public (string?, bool) Visit(ClosureProjection p) => (null, false);
+    public (string?, bool) Visit(AsyncProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCBridgedProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
+    public (string?, bool) Visit(TupleProjection p) => (null, false);
+
+    // --- Shared setter helpers ---
+
+    internal static (string?, bool) ArraySetterConversion(ArrayProjection arr, string valueExpr)
+    {
+        var rawElem = arr.ElementProjection.MarshalFromSwiftType;
+        var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+            ? null
+            : arr.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+        return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
+    }
+
+    internal static (string?, bool) DictSetterConversion(DictionaryProjection dict, string valueExpr)
+    {
+        var rawK = dict.KeyProjection.MarshalFromSwiftType;
+        var rawV = dict.ValueProjection.MarshalFromSwiftType;
+        var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+            ? null
+            : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
+        var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+            ? null
+            : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
+        if (keyConv != null || valConv != null)
+        {
+            var keyExpr = keyConv ?? "kvp.Key";
+            var valExpr = valConv ?? "kvp.Value";
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
+        }
+        return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
+    }
+
+    internal static (string?, bool) SetSetterConversion(SetProjection set, string valueExpr)
+    {
+        var rawElem = set.ElementProjection.MarshalFromSwiftType;
+        var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+            ? null
+            : set.ElementProjection.GetParameterElementConversion("e");
+        if (elemConv != null)
+            return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr}.Select(e => {elemConv}))", true);
+        return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
+    }
+
+    internal static (string?, bool) OptionalSetterConversion(OptionalProjection opt, string valueExpr)
+    {
+        var inner = opt.InnerProjection;
+
+        // Closure inner — passthrough, accessor methods handle their own marshalling
+        if (inner is ClosureProjection)
+            return (null, false);
+
+        // Existential inner — passthrough. Optional existentials use nullable interface ABI.
+        if (inner is ExistentialProjection)
+            return (null, false);
+
+        var optType = inner.MarshalFromSwiftType;
+
+        // Container inner (Array, Dictionary, Set) — wrap with full container creation
+        if (inner is ArrayProjection arr)
+        {
+            var (arrConv, _) = ArraySetterConversion(arr, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+        if (inner is DictionaryProjection dict)
+        {
+            var (dictConv, _) = DictSetterConversion(dict, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+        if (inner is SetProjection set)
+        {
+            var (setConv, _) = SetSetterConversion(set, $"{valueExpr}Val");
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
+        }
+
+        // Class/NonFrozenStruct inner — pass the public type as-is
+        if (inner is ClassProjection or NonFrozenStructProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+
+        // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
+        if (inner is ObjCBridgedProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
+
+        // ObjC-rooted inner — pass as-is
+        if (inner is ObjCRootedClassProjection)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+
+        // Element conversion (String, NativeRemapped, etc.)
+        var innerConv = inner.GetParameterElementConversion($"{valueExpr}Val");
+        if (innerConv != null)
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())", true);
+
+        // Simple inner type (blittable, enum)
+        return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
+    }
+}

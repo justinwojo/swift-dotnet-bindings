@@ -72,4 +72,6 @@ public class ClassProjection : ITypeProjection
     /// construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
     /// </summary>
     public string? GetReturnElementConversion(string elementVar) => null;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

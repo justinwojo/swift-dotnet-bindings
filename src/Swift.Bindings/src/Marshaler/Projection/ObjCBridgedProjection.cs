@@ -46,4 +46,6 @@ public class ObjCBridgedProjection : ITypeProjection
 
     public string? GetParameterElementConversion(string elementVar) => $"{elementVar}.Handle";
     public string? GetReturnElementConversion(string elementVar) => MarshallingHelpers.FormatObjCBridgeCall(_csharpTypeName, elementVar, nonNull: true);
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

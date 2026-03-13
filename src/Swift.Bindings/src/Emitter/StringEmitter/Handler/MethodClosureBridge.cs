@@ -1207,39 +1207,10 @@ public static class MethodClosureBridge
 
     /// <summary>
     /// Gets the Swift cdecl-compatible type for a closure argument.
+    /// Delegates to the canonical implementation in SwiftBuilder.
     /// </summary>
     private static string GetSwiftCdeclParamType(TypeSpec argType, MethodEnvironment env)
-    {
-        if (argType is NamedTypeSpec named)
-        {
-            if (named.Name == "Swift.Bool") return "UInt8";
-
-            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-            {
-                return named.Name switch
-                {
-                    "Swift.Int" => "Int",
-                    "Swift.UInt" => "UInt",
-                    "Swift.Int8" => "Int8",
-                    "Swift.UInt8" => "UInt8",
-                    "Swift.Int16" => "Int16",
-                    "Swift.UInt16" => "UInt16",
-                    "Swift.Int32" => "Int32",
-                    "Swift.UInt32" => "UInt32",
-                    "Swift.Int64" => "Int64",
-                    "Swift.UInt64" => "UInt64",
-                    "Swift.Float" => "Float",
-                    "Swift.Double" => "Double",
-                    _ => "UnsafeMutableRawPointer"
-                };
-            }
-
-            // Class types and value types: UnsafeMutableRawPointer
-            return "UnsafeMutableRawPointer";
-        }
-
-        return "UnsafeMutableRawPointer";
-    }
+        => SwiftBuilder.GetSwiftCdeclParamType(argType, env.ClosureHandler);
 
     /// <summary>
     /// Maps Swift primitive names to C# type names.

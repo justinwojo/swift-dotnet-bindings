@@ -1144,49 +1144,10 @@ public static class NestedClosureBridge
 
     /// <summary>
     /// Gets the Swift cdecl-compatible type for a closure argument.
+    /// Delegates to the canonical implementation in SwiftBuilder.
     /// </summary>
     private static string GetSwiftCdeclParamType(TypeSpec argType, MethodEnvironment env)
-    {
-        if (argType is NamedTypeSpec named)
-        {
-            // Optional<ref> → nullable pointer (nil-pointer ABI)
-            if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
-                named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
-                return "UnsafeMutableRawPointer?";
-
-            if (named.Name == "Swift.Bool") return "UInt8";
-
-            if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
-            {
-                return named.Name switch
-                {
-                    "Swift.Int" => "Int",
-                    "Swift.UInt" => "UInt",
-                    "Swift.Int8" => "Int8",
-                    "Swift.UInt8" => "UInt8",
-                    "Swift.Int16" => "Int16",
-                    "Swift.UInt16" => "UInt16",
-                    "Swift.Int32" => "Int32",
-                    "Swift.UInt32" => "UInt32",
-                    "Swift.Int64" => "Int64",
-                    "Swift.UInt64" => "UInt64",
-                    "Swift.Float" => "Float",
-                    "Swift.Double" => "Double",
-                    _ => "UnsafeMutableRawPointer"
-                };
-            }
-
-            // Simple enum: underlying Swift integer type
-            var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
-            if (enumInfo != null)
-                return enumInfo.Value.swiftScalar;
-
-            // Classes, ObjC: pointer ABI
-            return "UnsafeMutableRawPointer";
-        }
-
-        return "UnsafeMutableRawPointer";
-    }
+        => SwiftBuilder.GetSwiftCdeclParamType(argType, env.ClosureHandler);
 
     /// <summary>
     /// Gets the Swift expression to convert a trampoline cdecl arg back to the original type.

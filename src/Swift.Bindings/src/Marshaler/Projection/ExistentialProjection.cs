@@ -72,4 +72,6 @@ public class ExistentialProjection : ITypeProjection
             : _publicType == "object"
                 ? $"(object){elementVar}"
                 : $"new {_publicType}({elementVar})";
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

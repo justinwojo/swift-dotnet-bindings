@@ -163,46 +163,58 @@ public static class SubscriptWrapperEmitter
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx);
         }
 
-        // Build Swift parameter list
+        // Build Swift parameter list — phase ordering from CdeclSignatureContract.
+        // ResultPtr is handled outside the loop using the emitter's own needsResultPtr logic.
         var swiftParams = new List<string>();
+        var reconstructionLines = new List<string>();
+        var callArgs = new List<string>();
+        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
 
-        // Result buffer parameter (first, for indirect results and string returns)
         if (needsResultPtr)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
-        // Index parameters
-        var reconstructionLines = new List<string>();
-        var callArgs = new List<string>();
-
-        foreach (var param in subscriptDecl.IndexParameters)
+        var order = CdeclSignatureContract.DetermineParameterOrder(env, overrideNeedsResultPtr: needsResultPtr);
+        foreach (var phase in order.Phases)
         {
-            if (param.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
-            var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                param, label, env, omitLabels: false);
-            swiftParams.Add(cdeclParam);
-            if (reconstruction != null)
-                reconstructionLines.Add(reconstruction);
-            callArgs.Add(callArg);
-        }
-
-        // Metadata parameters for generic parent types (accepted but unused)
-        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
-        if (isGenericParent && parentTypeDecl != null)
-        {
-            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            switch (phase)
             {
-                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                case CdeclPhase.ResultPtr:
+                    break; // Already handled above
+
+                case CdeclPhase.Arguments:
+                    foreach (var param in subscriptDecl.IndexParameters)
+                    {
+                        if (param.SwiftTypeSpec.IsEmptyTuple)
+                            continue;
+
+                        var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                            param, label, env, omitLabels: false);
+                        swiftParams.Add(cdeclParam);
+                        if (reconstruction != null)
+                            reconstructionLines.Add(reconstruction);
+                        callArgs.Add(callArg);
+                    }
+                    break;
+
+                case CdeclPhase.Metadata:
+                    if (isGenericParent && parentTypeDecl != null)
+                    {
+                        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+                        {
+                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                    }
+                    break;
+
+                case CdeclPhase.Self:
+                    if (isClass)
+                        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                    else
+                        swiftParams.Add("_ self_: UnsafeRawPointer");
+                    break;
             }
         }
-
-        // Self parameter (last position, instance subscripts only)
-        if (isClass)
-            swiftParams.Add("_ self_: UnsafeMutableRawPointer");
-        else
-            swiftParams.Add("_ self_: UnsafeRawPointer");
 
         var swiftParamString = string.Join(", ", swiftParams);
 
@@ -295,66 +307,78 @@ public static class SubscriptWrapperEmitter
         bool isClass = env.ParentDecl is ClassDecl;
         bool isString = WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec);
 
-        // Build parameter list
+        // Build parameter list — phase ordering from CdeclSignatureContract.
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
-
-        // NewValue parameter(s)
-        if (isString)
-        {
-            swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
-            swiftParams.Add("_ utf8Len: Int");
-            reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
-        }
-        else
-        {
-            var newValueArg = new ArgumentDecl
-            {
-                SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
-                Name = "newValue",
-                PrivateName = "newValue",
-                IsInOut = false,
-                IsGeneric = false,
-                ParentDecl = null,
-                ModuleDecl = null
-            };
-            // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
-            // omitLabels: true would trigger ShouldWidenParam bypass, skipping reconstruction.
-            var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                newValueArg, "newValue", env, omitLabels: false);
-            swiftParams.Add(cdeclParam);
-            if (reconstruction != null)
-                reconstructionLines.Add(reconstruction);
-        }
-
-        // Index parameters
         var callArgs = new List<string>();
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            if (param.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
-            var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                param, label, env, omitLabels: false);
-            swiftParams.Add(cdeclParam);
-            if (reconstruction != null)
-                reconstructionLines.Add(reconstruction);
-            callArgs.Add(callArg);
-        }
-
-        // Metadata parameters for generic parent types (accepted but unused)
         bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
-        if (isGenericParent && parentTypeDecl != null)
+
+        var order = CdeclSignatureContract.DetermineParameterOrder(env,
+            overrideNeedsResultPtr: false, overrideHasArguments: true);
+        foreach (var phase in order.Phases)
         {
-            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            switch (phase)
             {
-                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                case CdeclPhase.Arguments:
+                    // NewValue parameter(s)
+                    if (isString)
+                    {
+                        swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
+                        swiftParams.Add("_ utf8Len: Int");
+                        reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+                    }
+                    else
+                    {
+                        var newValueArg = new ArgumentDecl
+                        {
+                            SwiftTypeSpec = subscriptDecl.ReturnTypeSpec,
+                            Name = "newValue",
+                            PrivateName = "newValue",
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = null
+                        };
+                        // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
+                        var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                            newValueArg, "newValue", env, omitLabels: false);
+                        swiftParams.Add(cdeclParam);
+                        if (reconstruction != null)
+                            reconstructionLines.Add(reconstruction);
+                    }
+
+                    // Index parameters
+                    foreach (var param in subscriptDecl.IndexParameters)
+                    {
+                        if (param.SwiftTypeSpec.IsEmptyTuple)
+                            continue;
+
+                        var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
+                        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                            param, label, env, omitLabels: false);
+                        swiftParams.Add(cdeclParam);
+                        if (reconstruction != null)
+                            reconstructionLines.Add(reconstruction);
+                        callArgs.Add(callArg);
+                    }
+                    break;
+
+                case CdeclPhase.Metadata:
+                    if (isGenericParent && parentTypeDecl != null)
+                    {
+                        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+                        {
+                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                    }
+                    break;
+
+                case CdeclPhase.Self:
+                    // Always mutable for setters
+                    swiftParams.Add("_ self_: UnsafeMutableRawPointer");
+                    break;
             }
         }
-
-        // Self parameter (always mutable for setters)
-        swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         var swiftParamString = string.Join(", ", swiftParams);
         var swiftFuncName = $"_sbw_subset_{EmitterUtility.DeterministicHash8(symbolName)}";

@@ -48,4 +48,6 @@ public class DataProjection : ITypeProjection
     public string? GetParameterElementConversion(string elementVar) => $"Swift.Data.FromByteArray({elementVar})";
     public string? GetReturnElementConversion(string elementVar) => $"{elementVar}.ToByteArray()";
     public bool ElementRequiresDisposal => false;
+
+    public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

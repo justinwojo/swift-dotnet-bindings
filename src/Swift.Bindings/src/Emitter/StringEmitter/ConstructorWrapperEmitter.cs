@@ -250,24 +250,9 @@ public static class ConstructorWrapperEmitter
 
         // Classes return pointers (non-failable: UnsafeMutableRawPointer, failable: UnsafeMutableRawPointer?).
         // Structs write to result buffer (non-failable: T, failable: Optional<T>).
-        bool needsResultBuffer = !isClass;
-
-        // Build Swift parameter list for the @_cdecl wrapper
+        // Build Swift parameter list for the @_cdecl wrapper.
+        // Phase ordering is determined by CdeclSignatureContract.
         var swiftParams = new List<string>();
-
-        // Result buffer parameter (first, for struct constructors)
-        if (needsResultBuffer)
-        {
-            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-        }
-
-        // Error out-pointer parameter (for throwing constructors)
-        if (throws)
-        {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-        }
-
-        // Build parameter reconstruction lines and @_cdecl params
         var reconstructionLines = new List<string>();
         var closureAdapterLines = new List<string>();
         var callArgs = new List<string>();
@@ -277,57 +262,73 @@ public static class ConstructorWrapperEmitter
         // Only direct init calls need argument labels.
         bool omitLabels = silgenTarget != null;
 
-        for (int i = 0; i < keptArgs.Count; i++)
-        {
-            var arg = keptArgs[i];
-            // Skip debug params and empty tuples (already stripped by this point)
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
-                continue;
-            if (arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            // Closure parameters: two @_cdecl params (funcPtr + context) + adapter code
-            var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
-            if (closureTypeSpec != null &&
-                env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
-                !env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
-            {
-                var csName = NameProvider.StripVerbatimPrefix(
-                    NameProvider.GetCSharpParameterName(arg));
-                swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
-                swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
-
-                bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
-                closureAdapterLines.AddRange(
-                    ClosureEmitter.GetSwiftClosureAdapterCode(
-                        csName, closureTypeSpec, env.ClosureHandler, isOptional));
-
-                var adapterName = $"_adapted_{csName}";
-                var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-                callArgs.Add($"{argLabel}{adapterName}");
-                continue;
-            }
-
-            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
-            // Swift's `_` is a discard pattern — it cannot be used as a variable name in the body.
-            // Replace with a positional identifier so reconstruction lines like `let _Val = ...` become `let arg0Val = ...`.
-            if (label == "_")
-                label = $"arg{i}";
-            var (cdeclParam, reconstruction, callArg) = GetCdeclParamMapping(arg, label, env, omitLabels);
-            swiftParams.Add(cdeclParam);
-            if (reconstruction != null)
-                reconstructionLines.Add(reconstruction);
-            callArgs.Add(callArg);
-        }
-
-        // Metadata parameters for generic parent types
         bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
-        if (isGenericParent && parentTypeDecl != null)
+
+        var order = CdeclSignatureContract.DetermineParameterOrder(env);
+        foreach (var phase in order.Phases)
         {
-            for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            switch (phase)
             {
-                swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                case CdeclPhase.ResultPtr:
+                    swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                    break;
+
+                case CdeclPhase.ErrorOut:
+                    swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+                    break;
+
+                case CdeclPhase.Arguments:
+                    for (int i = 0; i < keptArgs.Count; i++)
+                    {
+                        var arg = keptArgs[i];
+                        if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                            continue;
+                        if (arg.SwiftTypeSpec.IsEmptyTuple)
+                            continue;
+
+                        // Closure parameters: two @_cdecl params (funcPtr + context) + adapter code
+                        var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                        if (closureTypeSpec != null &&
+                            env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                            env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                            !env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                        {
+                            var csName = NameProvider.StripVerbatimPrefix(
+                                NameProvider.GetCSharpParameterName(arg));
+                            swiftParams.Add($"_ {csName}FuncPtr: UnsafeMutableRawPointer?");
+                            swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
+
+                            bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
+                            closureAdapterLines.AddRange(
+                                ClosureEmitter.GetSwiftClosureAdapterCode(
+                                    csName, closureTypeSpec, env.ClosureHandler, isOptional));
+
+                            var adapterName = $"_adapted_{csName}";
+                            var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
+                            callArgs.Add($"{argLabel}{adapterName}");
+                            continue;
+                        }
+
+                        var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+                        if (label == "_")
+                            label = $"arg{i}";
+                        var (cdeclParam, reconstruction, callArg) = GetCdeclParamMapping(arg, label, env, omitLabels);
+                        swiftParams.Add(cdeclParam);
+                        if (reconstruction != null)
+                            reconstructionLines.Add(reconstruction);
+                        callArgs.Add(callArg);
+                    }
+                    break;
+
+                case CdeclPhase.Metadata:
+                    if (isGenericParent && parentTypeDecl != null)
+                    {
+                        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+                        {
+                            swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                    }
+                    break;
             }
         }
 
@@ -490,6 +491,9 @@ public static class ConstructorWrapperEmitter
         // label comes from arg.Name, so it's unaffected by this rename.
         if (NameProvider.IsSwiftKeyword(label))
             label = $"{label}Param";
+
+        // Strip type-syntax characters (<>[]()) that could appear in demangled parameter names
+        label = SwiftBuilder.SanitizeIdentifier(label);
 
         // Determine the Swift argument label for the init call
         // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
