@@ -26,7 +26,7 @@ public static class PropertyWrapperEmitter
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
         // 1. xcframework mode required (wrapper library must exist)
-        if (string.IsNullOrEmpty(accessorEnv.TypeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
             return false;
 
         // 2. Generic parent type — allow non-final class instance properties with concrete types
@@ -45,7 +45,7 @@ public static class PropertyWrapperEmitter
             return false;
 
         // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable
-        if (MethodWrapperEmitter.IsMetatypeType(propertyDecl.SwiftTypeSpec))
+        if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return false;
 
         // 3. Skip closure properties
@@ -58,32 +58,28 @@ public static class PropertyWrapperEmitter
 
         // 4b. Skip actor-isolated properties — @_cdecl wrappers are synchronous nonisolated,
         // and protocol conformance for generic class type erasure crosses actor boundaries
-        if (propertyDecl.IsActorIsolated)
-            return false;
-        if (accessorEnv.ParentDecl is TypeDecl parentTd && parentTd.IsMainActorIsolated)
+        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated))
             return false;
 
         // 6. Skip non-copyable (~Copyable) struct parents
-        if (IsNonCopyableStruct(accessorEnv.ParentDecl))
+        if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
             return false;
 
         // 8. Skip nested type properties — @_cdecl can't represent nested Swift types
         //    (e.g., OuterType.InnerType) as parameters. C-compatible structs (CGSize, UIEdgeInsets)
         //    work fine, but pure Swift nested types fail at compilation.
-        if (propertyDecl.SwiftTypeSpec is NamedTypeSpec propNamed &&
-            propNamed.HasModule() &&
-            AppleFrameworkRegistry.IsNestedType(propNamed.Name))
+        if (WrapperValidation.IsNestedType(propertyDecl.SwiftTypeSpec))
             return false;
 
         // 9. Skip unsupported generic container properties (Result<T,E>, Optional<existential>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
-        if (MethodWrapperEmitter.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
+        if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
 
         // 9b. ObjC-bridged Optional accessor setter: C# aliases IntPtr directly, incompatible
         //     with @_cdecl reconstruction. Getter is fine — PropertyHandler's ObjC conversion
         //     is calling-convention agnostic.
-        if (MethodWrapperEmitter.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
+        if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
             MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
@@ -547,14 +543,7 @@ public static class PropertyWrapperEmitter
     /// Checks if a parent decl is a non-copyable struct.
     /// </summary>
     private static bool IsNonCopyableStruct(BaseDecl? parentDecl)
-    {
-        if (parentDecl is StructDecl structDecl)
-        {
-            return structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-                   !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
-        }
-        return false;
-    }
+        => WrapperValidation.IsNonCopyableStructParent(parentDecl);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Generic parent class support — protocol-based type erasure

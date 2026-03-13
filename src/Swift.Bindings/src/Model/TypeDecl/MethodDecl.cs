@@ -204,12 +204,24 @@ namespace BindingsGeneration
         public bool IsProtocolExtensionMethod { get; set; } = false;
 
         /// <summary>
+        /// The wrapper strategy for this method's P/Invoke routing.
+        /// Enforces mutual exclusivity of CdeclConstructor/CdeclProperty/CdeclMethod
+        /// by the type system instead of guard ordering.
+        /// </summary>
+        public WrapperStrategy WrapperStrategy { get; set; } = WrapperStrategy.LegacyCallConvSwift;
+
+        /// <summary>
         /// When true, this constructor uses a @_cdecl Swift wrapper with C calling convention
         /// instead of CallConvSwift. Routes constructor P/Invokes through CallingConvention.Cdecl
         /// to avoid NativeAOT/ARM64 ABI mismatches with struct parameters and indirect results.
         /// Set by ConstructorWrapperEmitter before SignatureHandler construction.
         /// </summary>
-        public bool UsesCdeclConstructorWrapper { get; set; } = false;
+        public bool UsesCdeclConstructorWrapper
+        {
+            get => WrapperStrategy == WrapperStrategy.CdeclConstructor;
+            set { if (value) WrapperStrategy = WrapperStrategy.CdeclConstructor;
+                  else if (WrapperStrategy == WrapperStrategy.CdeclConstructor) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+        }
 
         /// <summary>
         /// When true, this property accessor uses a @_cdecl Swift wrapper with C calling convention
@@ -217,7 +229,12 @@ namespace BindingsGeneration
         /// to avoid NativeAOT/ARM64 ABI mismatches with enum, string, and non-blittable struct properties.
         /// Set by PropertyWrapperEmitter before SignatureHandler construction.
         /// </summary>
-        public bool UsesCdeclPropertyWrapper { get; set; } = false;
+        public bool UsesCdeclPropertyWrapper
+        {
+            get => WrapperStrategy == WrapperStrategy.CdeclProperty;
+            set { if (value) WrapperStrategy = WrapperStrategy.CdeclProperty;
+                  else if (WrapperStrategy == WrapperStrategy.CdeclProperty) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+        }
 
         /// <summary>
         /// When true, this method uses a @_cdecl Swift wrapper with C calling convention
@@ -226,13 +243,20 @@ namespace BindingsGeneration
         /// and remaining Mono JIT crashes on device.
         /// Set by MethodWrapperEmitter before SignatureHandler construction.
         /// </summary>
-        public bool UsesCdeclMethodWrapper { get; set; } = false;
+        public bool UsesCdeclMethodWrapper
+        {
+            get => WrapperStrategy == WrapperStrategy.CdeclMethod;
+            set { if (value) WrapperStrategy = WrapperStrategy.CdeclMethod;
+                  else if (WrapperStrategy == WrapperStrategy.CdeclMethod) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+        }
 
         /// <summary>
         /// Computed property: true if any @_cdecl wrapper is active (constructor, property, or method).
         /// Used in PInvokeEmitter and MethodMarshalPlanBuilder to route through Cdecl calling convention.
         /// </summary>
-        public bool UsesCdeclWrapper => UsesCdeclConstructorWrapper || UsesCdeclPropertyWrapper || UsesCdeclMethodWrapper;
+        public bool UsesCdeclWrapper => WrapperStrategy is WrapperStrategy.CdeclConstructor
+            or WrapperStrategy.CdeclProperty
+            or WrapperStrategy.CdeclMethod;
 
         /// <summary>
         /// Whether this method has closure parameters handled by the @_cdecl wrapper.
@@ -263,5 +287,27 @@ namespace BindingsGeneration
         /// Indicates that the method is a static method.
         /// </summary>
         Static
+    }
+
+    /// <summary>
+    /// Describes how a method's P/Invoke is routed to the Swift library.
+    /// Replaces the previous mutually-exclusive boolean flags on MethodDecl.
+    /// </summary>
+    public enum WrapperStrategy
+    {
+        /// <summary>Default: no wrapper, uses CallConvSwift calling convention.</summary>
+        LegacyCallConvSwift,
+
+        /// <summary>Method intentionally not emitted (skipped by a gate).</summary>
+        None,
+
+        /// <summary>Constructor routed through a @_cdecl Swift wrapper.</summary>
+        CdeclConstructor,
+
+        /// <summary>Property accessor routed through a @_cdecl Swift wrapper.</summary>
+        CdeclProperty,
+
+        /// <summary>Method routed through a @_cdecl Swift wrapper.</summary>
+        CdeclMethod,
     }
 }

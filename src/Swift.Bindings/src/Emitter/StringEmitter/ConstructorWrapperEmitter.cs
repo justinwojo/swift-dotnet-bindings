@@ -28,7 +28,7 @@ public static class ConstructorWrapperEmitter
             return false;
 
         // Only in xcframework mode where the wrapper library exists
-        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
         // Generic parent type — allow class constructors with concrete (non-T-referencing) signatures
@@ -55,9 +55,7 @@ public static class ConstructorWrapperEmitter
         // Skip non-copyable (~Copyable) struct types — defense-in-depth guard.
         // In Swift 6.2+, ALL types explicitly list both Copyable and Escapable in ABI JSON.
         // Non-copyable types list Escapable WITHOUT Copyable.
-        if (env.ParentDecl is StructDecl structDecl &&
-            structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-            !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
+        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
             return false;
 
         // Skip constructors with non-copyable (~Copyable) struct parameters.
@@ -80,15 +78,7 @@ public static class ConstructorWrapperEmitter
     /// Checks whether any closure parameter is an async closure.
     /// </summary>
     private static bool HasAnyAsyncClosure(MethodEnvironment env)
-    {
-        return env.MethodDecl.CSSignature.Skip(1)
-            .Where(env.ClosureHandler.IsClosure)
-            .Any(arg =>
-            {
-                var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-                return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
-            });
-    }
+        => WrapperValidation.HasAnyAsyncClosure(env);
 
     /// <summary>
     /// Checks whether any constructor parameter is a protocol existential type.

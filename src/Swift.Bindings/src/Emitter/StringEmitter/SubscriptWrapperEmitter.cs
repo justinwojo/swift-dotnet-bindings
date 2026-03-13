@@ -24,7 +24,7 @@ public static class SubscriptWrapperEmitter
     public static bool ShouldEmitSubscriptWrapper(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
     {
         // 1. xcframework mode required (wrapper library must exist)
-        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
         // 2. Generic parent type — allow non-final class instance subscripts with concrete signatures
@@ -50,9 +50,11 @@ public static class SubscriptWrapperEmitter
             return false;
 
         // 6. No non-copyable struct parent
-        if (env.ParentDecl is StructDecl structDecl &&
-            structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-            !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
+        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
+            return false;
+
+        // 6b. Actor isolation: actor types, actor-isolated accessors, @MainActor parent types
+        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated))
             return false;
 
         // 7. No opaque return type (some Protocol)
@@ -61,12 +63,12 @@ public static class SubscriptWrapperEmitter
 
         // 8. No unsupported generic container params/returns (Result<T,E>, Optional<existential>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
-        if (MethodWrapperEmitter.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
+        if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
             return false;
 
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            if (MethodWrapperEmitter.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
+            if (WrapperValidation.IsUnsupportedGenericContainer(param.SwiftTypeSpec, env.TypeDatabase))
                 return false;
         }
 
@@ -77,9 +79,7 @@ public static class SubscriptWrapperEmitter
         // 10. Tuple return types: allowed — routed through IndirectResult (resultPtr buffer).
 
         // 11. No nested type returns
-        if (subscriptDecl.ReturnTypeSpec is NamedTypeSpec retNamed &&
-            retNamed.HasModule() &&
-            AppleFrameworkRegistry.IsNestedType(retNamed.Name))
+        if (WrapperValidation.IsNestedType(subscriptDecl.ReturnTypeSpec))
             return false;
 
         // 12. No nested frozen struct index parameters

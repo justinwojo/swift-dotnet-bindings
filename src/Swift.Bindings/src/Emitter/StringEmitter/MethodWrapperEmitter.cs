@@ -43,7 +43,7 @@ public static class MethodWrapperEmitter
             return false;
 
         // 4. xcframework mode required (wrapper library must exist)
-        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
+        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
 
         // 5. Must be on a type or module (free function)
@@ -63,18 +63,8 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.IsGeneric)
             return false;
 
-        // 6b. Actor types — actor-isolated methods require async context, @_cdecl is sync
-        if (parentTypeDecl is ClassDecl { IsActor: true })
-            return false;
-
-        // 6c. Actor-isolated methods (e.g. @ProcessingActor, @MainActor on individual methods)
-        // — cannot be called from a synchronous nonisolated @_cdecl wrapper
-        if (env.MethodDecl.IsActorIsolated)
-            return false;
-
-        // 6d. @MainActor-isolated parent types — all members are actor-isolated,
-        // and protocol conformance for type erasure crosses actor boundaries
-        if (parentTypeDecl is { IsMainActorIsolated: true })
+        // 6b-6d. Actor isolation: actor types, actor-isolated methods, @MainActor parent types
+        if (WrapperValidation.IsActorIsolatedMember(parentTypeDecl, env.MethodDecl.IsActorIsolated))
             return false;
 
         // 7. Not async (async uses its own wrapper pattern)
@@ -92,7 +82,7 @@ public static class MethodWrapperEmitter
         }
 
         // 11. Non-copyable struct guards
-        if (IsNonCopyableStructParent(env.ParentDecl))
+        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
             return false;
 
         // 11b. No inout parameters — @_cdecl wrappers can't handle write-back semantics.
@@ -626,15 +616,7 @@ public static class MethodWrapperEmitter
     /// (even non-throwing ones) are not supported in @_cdecl wrappers.
     /// </summary>
     private static bool HasAnyAsyncClosure(MethodEnvironment env)
-    {
-        return env.MethodDecl.CSSignature.Skip(1)
-            .Where(env.ClosureHandler.IsClosure)
-            .Any(arg =>
-            {
-                var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-                return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
-            });
-    }
+        => WrapperValidation.HasAnyAsyncClosure(env);
 
     /// <summary>
     /// Checks whether any method parameter is a protocol existential type.
@@ -661,119 +643,39 @@ public static class MethodWrapperEmitter
     /// because different wrappers transform different param types before checking.
     /// </summary>
     internal static bool HasCdeclCompatibleFunctionShape(MethodEnvironment env)
-    {
-        // Guard 4: xcframework mode required
-        if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
-            return false;
-        // Guard 5b: Generic parent type — allow non-final class instance methods with concrete signatures
-        var parentTypeDecl = env.ParentDecl as TypeDecl;
-        if (parentTypeDecl?.IsGeneric == true)
-        {
-            if (!CanEmitGenericClassWrapper(env, parentTypeDecl))
-                return false;
-        }
-        // Guard 5c: No inout parameters — write-back semantics incompatible with @_cdecl wrappers.
-        // This is a function-level gate (not per-param) because no wrapper path can handle inout.
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
-            return false;
-        // Guard 6: No method-level generics
-        if (env.MethodDecl.IsGeneric)
-            return false;
-        // Guard 6b: Not actor parent
-        if (parentTypeDecl is ClassDecl { IsActor: true })
-            return false;
-        // Guard 11: Not non-copyable struct parent
-        if (IsNonCopyableStructParent(env.ParentDecl))
-            return false;
-        // Guards 15-15d: Return type checks
-        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return false;
-        // Closure returns: blocked here because wrapper-owned trampoline paths (ClosureEmitter,
-        // OptionalPointerWrapper, ArraySliceNormalization) use this predicate to check function shape.
-        // MethodWrapperEmitter.ShouldEmitWrapper allows closure returns since Session 5, but the
-        // trampoline paths don't handle closure return marshalling (they delegate to the method wrapper).
-        if (returnSpec is ClosureTypeSpec)
-            return false;
-        // Tuple returns: allowed — routed through IndirectResult (resultPtr buffer).
-        // DynamicSelf returns: allowed for class parents — Self resolves to parent class type.
-        // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
-        if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
-            return false;
-        // Guard 17: No nested type returns
-        if (returnSpec is NamedTypeSpec retNamed &&
-            retNamed.HasModule() &&
-            AppleFrameworkRegistry.IsNestedType(retNamed.Name))
-            return false;
-        // Guard 10: No protocol existential return
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
-            return false;
-        return true;
-    }
+        => WrapperValidation.HasCdeclCompatibleFunctionShape(env);
 
     /// <summary>
     /// Per-param check: is this argument a nested frozen struct?
     /// Extracted from HasNestedFrozenStructParameter for reuse by wrapper-owned paths.
     /// </summary>
     internal static bool IsNestedFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
-    {
-        if (arg.SwiftTypeSpec is not NamedTypeSpec namedSpec)
-            return false;
-        if (!typeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord))
-            return false;
-        if (typeRecord.Kind != TypeRecordKind.Struct)
-            return false;
-        if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
-            return false;
-        var name = namedSpec.Name;
-        var dotIndex = name.IndexOf('.');
-        if (dotIndex >= 0 && name.Substring(dotIndex + 1).Contains('.'))
-            return true;
-        return false;
-    }
+        => WrapperValidation.IsNestedFrozenStructParam(arg, typeDatabase);
 
     /// <summary>
     /// Per-param check: is this argument a non-primitive frozen struct?
     /// Extracted from HasNonPrimitiveFrozenStructParameter for reuse by wrapper-owned paths.
     /// </summary>
     internal static bool IsNonPrimitiveFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
-    {
-        var spec = arg.SwiftTypeSpec;
-        if (ConstructorWrapperEmitter.IsCdeclPrimitive(spec))
-            return false;
-        if (spec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
-            return false;
-        if (typeDatabase.TryGetTypeRecord(spec, out var typeRecord) &&
-            typeRecord.Kind == TypeRecordKind.Struct &&
-            MarshallingHelpers.IsTypeFrozen(typeRecord))
-            return true;
-        return false;
-    }
+        => WrapperValidation.IsNonPrimitiveFrozenStructParam(arg, typeDatabase);
 
     /// <summary>
     /// Checks if a parent decl is a non-copyable struct.
     /// </summary>
     private static bool IsNonCopyableStructParent(BaseDecl? parentDecl)
-    {
-        if (parentDecl is StructDecl structDecl)
-        {
-            return structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
-                   !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
-        }
-        return false;
-    }
+        => WrapperValidation.IsNonCopyableStructParent(parentDecl);
 
     /// <summary>
     /// Checks whether any parameter is a nested frozen struct type.
     /// </summary>
     private static bool HasNestedFrozenStructParameter(MethodEnvironment env)
-        => env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNestedFrozenStructParam(arg, env.TypeDatabase));
+        => env.MethodDecl.CSSignature.Skip(1).Any(arg => WrapperValidation.IsNestedFrozenStructParam(arg, env.TypeDatabase));
 
     /// <summary>
     /// Checks whether any parameter is a non-primitive frozen struct type.
     /// </summary>
     private static bool HasNonPrimitiveFrozenStructParameter(MethodEnvironment env)
-        => env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase));
+        => env.MethodDecl.CSSignature.Skip(1).Any(arg => WrapperValidation.IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase));
 
     /// <summary>
     /// Checks whether any parameter or the return type is a generic container type
@@ -803,31 +705,20 @@ public static class MethodWrapperEmitter
     /// Blocks: Result&lt;T,E&gt;, Optional&lt;protocol existential&gt; (needs proxy conversion).
     /// </summary>
     internal static bool IsUnsupportedGenericContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (!ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
-            return false;
-        if (IsOptionalSupportedForCdecl(typeSpec, typeDatabase))
-            return false;  // Optional<value-type/reference>: IndirectResult or nullable pointer
-        if (IsSupportedCollectionType(typeSpec))
-            return false;  // Array, Dictionary, Set pass through via UnsafeRawPointer
-        return true;  // Result<T,E>, Optional<existential> still blocked
-    }
+        => WrapperValidation.IsUnsupportedGenericContainer(typeSpec, typeDatabase);
 
     /// <summary>
     /// Returns true for collection container types that can be transported through @_cdecl
     /// wrappers via UnsafeRawPointer + .load(as:) / resultPtr.initializeMemory(as:).
     /// </summary>
     internal static bool IsSupportedCollectionType(TypeSpec typeSpec)
-    {
-        return typeSpec is NamedTypeSpec named &&
-            named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
-    }
+        => WrapperValidation.IsSupportedCollectionType(typeSpec);
 
     /// <summary>
     /// Returns true for Swift.Optional&lt;T&gt; type specs (any generic parameter count > 0).
     /// </summary>
     internal static bool IsOptionalType(TypeSpec typeSpec)
-        => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: > 0 };
+        => WrapperValidation.IsOptionalType(typeSpec);
 
     /// <summary>
     /// Returns true for metatype types (Any.Type, T.Type, etc.) which are not
@@ -835,15 +726,7 @@ public static class MethodWrapperEmitter
     /// which doesn't exist in Swift, causing compilation errors.
     /// </summary>
     internal static bool IsMetatypeType(TypeSpec typeSpec)
-    {
-        if (typeSpec is NamedTypeSpec named)
-        {
-            // Metatypes appear as "Any.Type", "SomeModule.SomeType.Type", or bare "Type"
-            if (named.Name == "Type" || named.Name.EndsWith(".Type"))
-                return true;
-        }
-        return false;
-    }
+        => WrapperValidation.IsMetatypeType(typeSpec);
 
     /// <summary>
     /// Returns true for Optional types that can be handled by @_cdecl wrappers:
@@ -853,59 +736,14 @@ public static class MethodWrapperEmitter
     /// that the @_cdecl IndirectResult path doesn't handle.
     /// </summary>
     internal static bool IsOptionalSupportedForCdecl(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (!IsOptionalType(typeSpec))
-            return false;
-        // Optional<protocol existential> needs special proxy conversion
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, typeDatabase))
-            return false;
-        return true;
-    }
+        => WrapperValidation.IsOptionalSupportedForCdecl(typeSpec, typeDatabase);
 
     /// <summary>
     /// Returns true for Optional&lt;T&gt; where T is a reference-like type (Class, ObjC-bridged, ObjC-rooted).
     /// These use nullable pointer ABI (UnsafeMutableRawPointer?) in @_cdecl wrappers.
     /// </summary>
     internal static bool IsOptionalWithReferenceInner(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        if (!IsOptionalType(typeSpec))
-            return false;
-
-        var inner = ((NamedTypeSpec)typeSpec).GenericParameters[0];
-        if (inner is not NamedTypeSpec innerNamed)
-            return false;
-
-        // Path 1: Type has a TypeRecord — check kind directly
-        if (typeDatabase.TryGetTypeRecord(inner, out var typeRecord))
-        {
-            // NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType) are
-            // ObjC-bridged in the type database but are Swift structs wrapping NSString, not
-            // class instances. Unmanaged<T> requires a class, so these must NOT be treated
-            // as reference types. Mirrors the exclusion in GetCdeclReturnMapping and
-            // GetCdeclParamMapping.
-            if (MarshallingHelpers.IsObjCBridged(typeRecord) &&
-                AppleFrameworkRegistry.TryGetNetTypeName(innerNamed.Name, out var remapped) &&
-                remapped == "Foundation.NSString")
-                return false;
-
-            return typeRecord.Kind == TypeRecordKind.Class ||
-                   MarshallingHelpers.IsObjCBridged(typeRecord) ||
-                   MarshallingHelpers.IsObjCRooted(typeRecord);
-        }
-
-        // Path 2: Unresolved Apple framework ObjC class fallback.
-        // Delegate to MarshallingHelpers.IsOptionalObjCBridged which handles both the
-        // TypeRecord path AND the fallback heuristic: IsOptionalFallbackModule +
-        // !IsNestedType + !IsKnownAppleValueType + HasObjCClassPrefix.
-        // Since Path 1 already handled the TypeRecord case, this only triggers the
-        // fallback heuristic. Add defense-in-depth checks matching TypeProjectionFactory.
-        if (!innerNamed.ContainsGenericParameters &&
-            !AppleFrameworkRegistry.IsPointerType(innerNamed.Name) &&
-            MarshallingHelpers.IsOptionalObjCBridged(typeSpec, typeDatabase))
-            return true;
-
-        return false;
-    }
+        => WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Generic parent class support — protocol-based type erasure
@@ -958,49 +796,7 @@ public static class MethodWrapperEmitter
     /// Recursively checks whether a TypeSpec references any of the given generic type parameter names.
     /// </summary>
     internal static bool TypeSpecReferencesGenericParam(TypeSpec spec, HashSet<string> genericParamNames)
-    {
-        if (spec is NamedTypeSpec named)
-        {
-            if (genericParamNames.Contains(named.Name))
-                return true;
-            foreach (var gp in named.GenericParameters)
-            {
-                if (TypeSpecReferencesGenericParam(gp, genericParamNames))
-                    return true;
-            }
-        }
-        else if (spec is ClosureTypeSpec closure)
-        {
-            if (TypeSpecReferencesGenericParam(closure.ReturnType, genericParamNames))
-                return true;
-            if (TypeSpecReferencesGenericParam(closure.Arguments, genericParamNames))
-                return true;
-        }
-        else if (spec is TupleTypeSpec tuple)
-        {
-            foreach (var elem in tuple.Elements)
-            {
-                if (TypeSpecReferencesGenericParam(elem, genericParamNames))
-                    return true;
-            }
-        }
-        else if (spec is ProtocolListTypeSpec protocolList)
-        {
-            foreach (var proto in protocolList.Protocols.Keys)
-            {
-                if (TypeSpecReferencesGenericParam(proto, genericParamNames))
-                    return true;
-            }
-        }
-        else if (spec is AssociatedTypeReferenceSpec assocRef)
-        {
-            // Associated type references like τ_0_0.Element reference the base generic param.
-            if (genericParamNames.Contains(assocRef.BaseType))
-                return true;
-        }
-
-        return false;
-    }
+        => WrapperValidation.TypeSpecReferencesGenericParam(spec, genericParamNames);
 
     /// <summary>
     /// Builds the Swift protocol method declaration string for protocol-based type erasure.
@@ -1078,7 +874,5 @@ public static class MethodWrapperEmitter
     /// Used to determine whether protocol-based type erasure is needed in emission.
     /// </summary>
     internal static bool IsGenericClassParent(BaseDecl? parentDecl)
-    {
-        return parentDecl is ClassDecl cd && cd.IsGeneric;
-    }
+        => WrapperValidation.IsGenericClassParent(parentDecl);
 }

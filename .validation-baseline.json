@@ -1,5 +1,5 @@
 {
-  "git_sha": "509db843",
+  "git_sha": "6bf59eab",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -19,9 +19,9 @@
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12058,
+        "lines": 12062,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BRLMPrinterKit": {
         "compile": "ok",
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24636,
+        "lines": 22219,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92547,
+        "lines": 92331,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -61,7 +61,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32083,
+        "lines": 32063,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -264,9 +264,9 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5112,
+        "lines": 5107,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
@@ -322,7 +322,7 @@
         "errors": 0,
         "lines": 17533,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "KeychainSwift": {
         "compile": "ok",
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4515,
+        "lines": 3766,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -425,9 +425,9 @@
       "CocoaLumberjackSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1327,
+        "lines": 1027,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MBProgressHUD": {
         "compile": "ok",

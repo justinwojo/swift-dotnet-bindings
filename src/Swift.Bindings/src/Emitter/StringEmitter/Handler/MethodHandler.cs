@@ -912,6 +912,24 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
             }
 
+            // Log when a method in xcframework mode falls back to CallConvSwift (no wrapper).
+            // Makes silent fallbacks visible for debugging wrapper coverage gaps.
+            if (!methodEnv.MethodDecl.UsesCdeclWrapper &&
+                !methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.IsAccessor &&
+                !isAccessor &&
+                WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
+            {
+                var reason = WrapperValidation.GetRejectionReason(methodEnv);
+                if (reason != null)
+                {
+                    _logger.LogDebug("Method {MethodName} on {ParentName}: falling back to CallConvSwift ({Reason})",
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.ParentDecl?.Name ?? "free",
+                        reason);
+                }
+            }
+
             // ══════════════════════════════════════════════════════════════
             // PHASE 2: PIPELINE — reads flags, emits code.
             // All @_cdecl flags are locked above this point.
