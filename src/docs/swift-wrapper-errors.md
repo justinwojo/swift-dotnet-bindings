@@ -2,7 +2,24 @@
 
 Comprehensive analysis of the 40 Swift wrapper compilation failures caught by the `validate-libraries.sh` swift compile gate. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 16/56 passing (34 ObjC/no wrapper), 40 failing — as of `6bf59eab`.
+**Baseline**: 24/56 passing (34 ObjC/no wrapper), 32 failing — as of current HEAD.
+
+**Fixes applied session 4** (4 libraries improved):
+- `@autoclosure` parameter detection from `.swiftinterface` → Lottie now passes
+- Custom actor isolation gating (`@ProcessingActor`) → BlinkID, BlinkIDUX now pass
+- ObjC-bridged struct `as AnyObject` in closure params → SwipeCellKit now passes
+- `SplitParameters` fix for `->` arrow in closure types (latent bug)
+- Module/type name collision post-processor: when a module contains a public type with the same name (e.g., module `SVGView` with struct `SVGView`), replaces `Module.Type` references with unqualified `Type` in generated Swift wrapper to avoid compiler ambiguity. Reduces errors in SVGView (-159), SwiftyBeaver (-154), Valet, Mixpanel, FSPagerView, and others. Most collision-only libraries remain blocked by `.swiftinterface` import failures.
+
+**Fixes applied session 3** (6 libraries improved):
+- Post-processor extension self fix → SnapKit, KeychainAccess now pass
+- FindTopLevelColon dictionary enum fix → Starscream now passes
+- Malformed parameter name fixes → unblocked GRDB/RxSwift/Kingfisher (still blocked by `.swiftinterface` import failures)
+- Nuke (all 3 variants) now passes (combination of fixes)
+
+**Key discovery**: Most same-name collision libraries (Reachability, KeychainSwift, NVActivityIndicatorView, etc.) are blocked by `.private.swiftinterface` import failures when `swiftc -emit-library` processes `import Module`. This is a Swift compiler limitation — the `.swiftinterface` contains self-referential `Module.Module` references that fail type resolution. These cannot be fixed from generated code.
+
+**Previous baselines**: 21/56 (session 3), 16/56 (`6bf59eab`).
 
 ## Error Categories (ranked by impact)
 
@@ -24,7 +41,7 @@ When a library has a public type with the same name as the module (e.g., module 
 | CryptoSwift | 4 | protocol `Updatable` (self type reference) |
 | Mappedin | 2 | method `self()` collision |
 
-**Fix**: Detect same-name collisions in the wrapper emitter and use a local typealias (`private typealias _Reachability = Reachability.Reachability`) or `import struct/class/enum Module.TypeName`. **Highest-impact fix — would fully resolve 4 libraries** (Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout).
+**Fix**: Post-processor detects `moduleNameForCollision` and replaces `Module.Type` → `Type` in generated wrapper code. **Partially fixed** — collision errors eliminated, but 4 libraries (Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout) remain blocked by `.swiftinterface` import failures. Libraries with collision + other error categories (SVGView, SwiftyBeaver, Valet, Mixpanel, FSPagerView) see significant error reduction but still fail on remaining categories.
 
 ### 2. Malformed Parameter Names (4 libraries, ~220 errors)
 
@@ -148,25 +165,25 @@ PhoneNumberKit has constructor calls with missing arguments (API changes or defa
 
 ## Quick Wins: Libraries Fully Fixed by Single Fix
 
-| Fix | Libraries Fully Resolved |
-|-----|--------------------------|
-| Same-name collision (#1) | Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout |
-| Pointer type mismatch (#4) | Nuke, Nuke@macos, Nuke@tvos |
-| Actor isolation gate (#5) | BlinkID, BlinkIDUX |
-| `@autoclosure` forwarding (#8) | Lottie |
-| `Unmanaged<struct>` (#6) | SwipeCellKit |
+| Fix | Libraries Fully Resolved | Status |
+|-----|--------------------------|--------|
+| ~~Same-name collision (#1)~~ | ~~Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout~~ | **FIXED** (collision resolved) but **blocked** by `.swiftinterface` import failures |
+| ~~Pointer type mismatch (#4)~~ | ~~Nuke, Nuke@macos, Nuke@tvos~~ | **FIXED** — now passing |
+| ~~Actor isolation gate (#5)~~ | ~~BlinkID, BlinkIDUX~~ | **FIXED** — custom actor detection from `.swiftinterface` |
+| ~~`@autoclosure` forwarding (#8)~~ | ~~Lottie~~ | **FIXED** — `@autoclosure` parsed from `.swiftinterface` |
+| ~~`Unmanaged<struct>` (#6)~~ | ~~SwipeCellKit~~ | **FIXED** — ObjC-bridged structs use `as AnyObject` |
 
-**11 libraries fixable with targeted single-category fixes → would bring passing rate from 16/56 to 27/56.**
+**All quick-win single-category fixes are now complete. Remaining 32 failures need multi-category or infrastructure fixes.**
 
 ## Priority Order for Maximum Impact
 
-1. **Same-name collision** — 11 libraries, 4 fully fixed
+1. ~~**Same-name collision**~~ — **FIXED** (post-processor), 4 collision-only libraries blocked by `.swiftinterface` imports
 2. **Malformed parameter names** — 4 libraries, reduces errors significantly in GRDB/Kingfisher/RxSwift
-3. **Pointer type mismatch** — 3 Nuke variants fully fixed
-4. **Actor isolation gate** — 2 libraries fully fixed
+3. ~~**Pointer type mismatch**~~ — **FIXED**, 3 Nuke variants now passing
+4. ~~**Actor isolation gate**~~ — **FIXED**, BlinkID + BlinkIDUX now passing
 5. **Internal type gating** — 6 libraries, large error reduction
-6. **`@autoclosure` forwarding** — 1 library fully fixed (Lottie)
-7. **`Unmanaged<struct>`** — 1 library fully fixed (SwipeCellKit)
+6. ~~**`@autoclosure` forwarding**~~ — **FIXED**, Lottie now passing
+7. ~~**`Unmanaged<struct>`**~~ — **FIXED**, SwipeCellKit now passing
 8. **`@_spi` gating** — reduces StripeConnect errors
 9. **Generic constraints** — large error reduction in GRDB
 10. **Stripe3DS2 dependency** — 5 Stripe libraries

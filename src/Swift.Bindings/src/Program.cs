@@ -482,7 +482,7 @@ namespace BindingsGeneration
                     .Where(d => !d.IsObjCOnly)
                     .Select(d => d.ModuleName)
                     .ToList();
-                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform);
+                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform);
                 if (!success)
                 {
                     context.ExitCode = 1;
@@ -534,7 +534,8 @@ namespace BindingsGeneration
                                 internalTypeNames: internalTypeNames,
                                 simAdditionalSearchPaths: simDepPaths,
                                 deviceAdditionalSearchPaths: deviceDepPaths,
-                                platformInfo: platformInfo);
+                                platformInfo: platformInfo,
+                                moduleNameForCollision: moduleNameForCollision);
                         }
                         else if (wrapperArchNormalized == "device")
                         {
@@ -560,7 +561,8 @@ namespace BindingsGeneration
                                 "device", "iphoneos", logger,
                                 internalTypeNames: internalTypeNames,
                                 additionalFrameworkSearchPaths: deviceDepPaths,
-                                platformInfo: platformInfo);
+                                platformInfo: platformInfo,
+                                moduleNameForCollision: moduleNameForCollision);
                         }
                         else
                         {
@@ -570,7 +572,8 @@ namespace BindingsGeneration
                                 resolution.FrameworkSearchPath, resolution.DylibPath, logger,
                                 internalTypeNames: internalTypeNames,
                                 additionalFrameworkSearchPaths: simDepPaths,
-                                platformInfo: platformInfo);
+                                platformInfo: platformInfo,
+                                moduleNameForCollision: moduleNameForCollision);
                         }
                     }
                     catch (Exception ex)
@@ -720,12 +723,13 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
-            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null)
+        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null)
         {
             internalTypeNames = null;
+            moduleNameForCollision = null;
             try
             {
             var typeDatabase = new TypeDatabase();
@@ -880,6 +884,7 @@ namespace BindingsGeneration
             Dictionary<string, List<string>>? markerProtocolConformances = null;
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null;
             Dictionary<string, List<string?>>? defaultParameterValues = null;
+            Dictionary<string, List<bool>>? autoclosureParameters = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
@@ -896,7 +901,7 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} @MainActor type names from swiftinterface", mainActorTypes.Count);
                 customActorTypes = SwiftInterfaceAccessParser.GetCustomActorTypes(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} custom actor type names from swiftinterface", customActorTypes.Count);
-                actorIsolatedMembers = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath);
+                actorIsolatedMembers = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath, customActorTypes);
                 logger.LogInformation("Loaded {Count} actor-isolated member keys from swiftinterface", actorIsolatedMembers.Count);
                 nonisolatedMembers = SwiftInterfaceAccessParser.GetNonisolatedMembers(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} nonisolated member keys from swiftinterface", nonisolatedMembers.Count);
@@ -906,6 +911,8 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} availability annotation entries from swiftinterface", availabilityAnnotations.Count);
                 defaultParameterValues = SwiftInterfaceAccessParser.GetDefaultParameterValues(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} default parameter value entries from swiftinterface", defaultParameterValues.Count);
+                autoclosureParameters = SwiftInterfaceAccessParser.GetAutoclosureParameters(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} @autoclosure parameter entries from swiftinterface", autoclosureParameters.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -924,7 +931,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
@@ -939,6 +946,16 @@ namespace BindingsGeneration
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
                 internalTypeNames = CollectInternalTypeNames(decl);
+
+                // Detect module/type name collision: a public type whose name matches the module name.
+                // When this occurs, Swift resolves bare "ModuleName" as the type, not the module,
+                // causing "ModuleName.X" to fail (looks for X nested in the class, not in the module).
+                if (decl.Types.Any(t => !t.IsModuleInternal && t.Name == moduleName))
+                {
+                    moduleNameForCollision = moduleName;
+                    logger.LogInformation("Detected module/type name collision: module '{Module}' has a public type with the same name. Will strip module prefixes in Swift wrapper.", moduleName);
+                }
+
                 // Wire publicTypeNames from swiftinterface as keep-override for underscore suppression.
                 // publicTypeNames are dot-qualified (e.g., "_InternalType"); underscore suppression
                 // uses module-qualified names (e.g., "Module._InternalType"). Normalize by prepending module.

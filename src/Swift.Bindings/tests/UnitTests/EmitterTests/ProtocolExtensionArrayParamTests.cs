@@ -136,4 +136,38 @@ public class ProtocolExtensionArrayParamTests
         Assert.Single(conformingType.Methods);
         Assert.True(conformingType.Methods[0].Throws);
     }
+
+    // ─── Unlabeled array param uses "items" not malformed type name ────
+
+    [Fact]
+    public void ArrayParam_Unlabeled_GenericSyntax_WrapperUsesArray()
+    {
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyClass", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("process", "public func process(_ selection: Swift.Array<Swift.Int>)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        // With generic syntax "Swift.Array<Int>", leaf type name "Array" → param name "array"
+        Assert.Contains("_ array:", wrapperLines);
+        Assert.DoesNotContain("]:", wrapperLines);
+    }
+
+    // ─── Labeled array param keeps its label ──────────────────────────
+
+    [Fact]
+    public void ArrayParam_Labeled_WrapperKeepsLabel()
+    {
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyClass", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("select", "public func select(columns items: Swift.Array<Swift.Int>)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.Contains("_ columns:", wrapperLines);
+    }
 }

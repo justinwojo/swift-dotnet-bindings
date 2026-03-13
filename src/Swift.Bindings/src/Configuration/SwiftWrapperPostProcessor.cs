@@ -12,6 +12,7 @@ namespace BindingsGeneration
     {
         public required string CleanedContent { get; init; }
         public required int StrippedBlockCount { get; init; }
+        public int ModuleNameCollisionReplacements { get; init; }
     }
 
     /// <summary>
@@ -33,7 +34,7 @@ namespace BindingsGeneration
         /// </summary>
         public static PostProcessingResult Process(string sourceContent)
         {
-            return Process(sourceContent, internalTypeNames: null, onSafetyNetWarning: null);
+            return Process(sourceContent, internalTypeNames: null, onSafetyNetWarning: null, moduleNameForCollision: null);
         }
 
         /// <summary>
@@ -50,7 +51,13 @@ namespace BindingsGeneration
         /// match in normal operation (they are now prevented at emission time), so a warning indicates
         /// a regression in the emitter.
         /// </param>
-        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null)
+        /// <param name="moduleNameForCollision">
+        /// When non-null, indicates that the module has a public type with the same name as the module
+        /// (e.g., module "Reachability" containing class "Reachability"). All module-qualified type
+        /// references are rewritten to strip the module prefix, since the wrapper file already imports
+        /// the module and Swift resolves the bare module name as the type, not the module.
+        /// </param>
+        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null, string? moduleNameForCollision = null)
         {
             if (string.IsNullOrEmpty(sourceContent))
                 return new PostProcessingResult { CleanedContent = sourceContent, StrippedBlockCount = 0 };
@@ -151,10 +158,40 @@ namespace BindingsGeneration
                 i++;
             }
 
+            // Module/type name collision fix: strip module prefix from type references.
+            // When a module has a public type with the same name (e.g., module "Reachability"
+            // containing class "Reachability"), Swift resolves bare "Reachability" as the type,
+            // not the module. "Reachability.X" fails because it looks for "X" nested in the class.
+            // Fix: strip the module prefix. The wrapper already imports the module, so unqualified
+            // names resolve correctly. The regex captures the rest of the type path (including
+            // nested components) so "Reachability.Reachability.Nested" → "Reachability.Nested".
+            int collisionReplacements = 0;
+            if (!string.IsNullOrEmpty(moduleNameForCollision))
+            {
+                var collisionPattern = new Regex(
+                    @"\b" + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)",
+                    RegexOptions.Compiled);
+
+                for (int j = 0; j < outputLines.Count; j++)
+                {
+                    // Don't modify import lines
+                    if (outputLines[j].TrimStart().StartsWith("import ", StringComparison.Ordinal))
+                        continue;
+
+                    var replaced = collisionPattern.Replace(outputLines[j], "$1");
+                    if (replaced != outputLines[j])
+                    {
+                        collisionReplacements++;
+                        outputLines[j] = replaced;
+                    }
+                }
+            }
+
             return new PostProcessingResult
             {
                 CleanedContent = string.Join("", outputLines),
-                StrippedBlockCount = removedCount
+                StrippedBlockCount = removedCount,
+                ModuleNameCollisionReplacements = collisionReplacements
             };
         }
 
@@ -206,7 +243,12 @@ namespace BindingsGeneration
 
             // (b) self.functionName() in free function (no _self: parameter)
             // Safety net: now prevented by async wrapper fix at emission time.
-            if (!body.Contains("_self:") && !body.Contains("_self :"))
+            // Skip for indented @_silgen_name blocks — these are inside extension { }
+            // scopes where `self` is legitimate (e.g., default-parameter-overload wrappers).
+            // Top-level functions in generated code always start at column 0; indented = nested.
+            var rawStartLine = start < lines.Count ? lines[start] : "";
+            bool isInsideExtension = rawStartLine.Length > 0 && char.IsWhiteSpace(rawStartLine[0]);
+            if (!isInsideExtension && !body.Contains("_self:") && !body.Contains("_self :"))
             {
                 for (int j = start; j <= end && j < lines.Count; j++)
                 {

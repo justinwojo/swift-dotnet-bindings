@@ -644,4 +644,105 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region ObjC-bridged struct closure parameter (IndexPath fix)
+
+    [Fact]
+    public void SwiftClosureAdapter_ObjCBridgedStructArg_EmitsAsAnyObject()
+    {
+        // ObjC-bridged struct types (e.g., IndexPath) need `as AnyObject` before Unmanaged
+        // because Unmanaged requires a class type, and IndexPath is a struct in Swift.
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgedStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (SwipeAction, IndexPath) -> Void — IndexPath is an ObjC-bridged struct
+        var closureTypeSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> {
+                new NamedTypeSpec("TestModule.SwipeAction"),
+                new NamedTypeSpec("Foundation.IndexPath") }),
+            TupleTypeSpec.Empty);
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "handler", closureTypeSpec, closureHandler, isOptional: true);
+
+        var result = string.Join("\n", lines);
+
+        // SwipeAction (native class) should use Unmanaged directly
+        Assert.Contains("Unmanaged.passUnretained(p0).toOpaque()", result);
+
+        // IndexPath (ObjC-bridged struct) should use `as AnyObject` before Unmanaged
+        Assert.Contains("Unmanaged.passUnretained(p1 as AnyObject).toOpaque()", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ObjCBridgedStructReturn_UsesIndirectReturn()
+    {
+        // ObjC-bridged struct return types use indirect return marshalling (buffer-based),
+        // not Unmanaged, because they have RequiresMemoryManagement flag.
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgedStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: () -> IndexPath — ObjC-bridged struct return
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.IndexPath"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        // Indirect return uses buffer-based marshalling, not Unmanaged
+        Assert.Contains("resultBuf", result);
+        Assert.Contains("load(as: IndexPath.self)", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithObjCBridgedStruct()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        // Native Swift class
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.SwipeAction"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SwipeAction"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SwipeAction"),
+                MetadataAccessor = "$s10TestModule11SwipeActionCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        // ObjC-bridged struct: kind="class" + ObjCBridged flag (matches FoundationDatabase.xml)
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.IndexPath"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSIndexPath"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.IndexPath"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
 }

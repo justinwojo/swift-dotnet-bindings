@@ -291,9 +291,14 @@ public static partial class ClosureEmitter
 
             if (closureHandler != null)
             {
-                // Classes and ObjC-bridged: convert to raw pointer via Unmanaged
-                if (closureHandler.IsClassType(named) || closureHandler.IsObjCBridgedClass(named))
+                // Native Swift classes: convert to raw pointer via Unmanaged
+                if (closureHandler.IsClassType(named))
                     return $"Unmanaged.passUnretained({argExpr}).toOpaque()";
+
+                // ObjC-bridged struct types (e.g., IndexPath → NSIndexPath):
+                // Bridge to AnyObject first since Unmanaged requires a class type
+                if (closureHandler.IsObjCBridgedClass(named))
+                    return $"Unmanaged.passUnretained({argExpr} as AnyObject).toOpaque()";
 
                 // Simple enums: bitcast to underlying integer type
                 var enumInfo = closureHandler.GetSimpleEnumInfo(named);
@@ -305,7 +310,13 @@ public static partial class ClosureEmitter
                     named.GenericParameters.Count == 1 &&
                     closureHandler.IsReferenceType(named.GenericParameters[0]))
                 {
-                    return $"{argExpr}.map {{ Unmanaged.passUnretained($0).toOpaque() }}";
+                    var innerSpec = named.GenericParameters[0];
+                    // ObjC-bridged structs need `as AnyObject` before Unmanaged
+                    var bridgeSuffix = (innerSpec is NamedTypeSpec innerNamed &&
+                                       !closureHandler.IsClassType(innerNamed) &&
+                                       closureHandler.IsObjCBridgedClass(innerNamed))
+                        ? " as AnyObject" : "";
+                    return $"{argExpr}.map {{ Unmanaged.passUnretained($0{bridgeSuffix}).toOpaque() }}";
                 }
             }
         }
@@ -326,18 +337,18 @@ public static partial class ClosureEmitter
 
             if (closureHandler != null)
             {
-                // Classes: raw pointer → Unmanaged.fromOpaque.takeUnretainedValue
+                // Native Swift classes: raw pointer → Unmanaged.fromOpaque.takeUnretainedValue
                 if (closureHandler.IsClassType(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
                     return $"Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
                 }
 
-                // ObjC-bridged: same pattern as classes
+                // ObjC-bridged struct types: use AnyObject bridge for Unmanaged, then cast back
                 if (closureHandler.IsObjCBridgedClass(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
+                    return $"(Unmanaged<AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
                 }
 
                 // Simple enums: bitcast from underlying integer
@@ -353,7 +364,15 @@ public static partial class ClosureEmitter
                     named.GenericParameters.Count == 1 &&
                     closureHandler.IsReferenceType(named.GenericParameters[0]))
                 {
-                    var innerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named.GenericParameters[0]);
+                    var innerSpec = named.GenericParameters[0];
+                    var innerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerSpec);
+                    // ObjC-bridged structs need AnyObject bridge for Unmanaged
+                    if (innerSpec is NamedTypeSpec innerNamed &&
+                        !closureHandler.IsClassType(innerNamed) &&
+                        closureHandler.IsObjCBridgedClass(innerNamed))
+                    {
+                        return $"({expr}).map {{ (Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {innerType}) }}";
+                    }
                     return $"({expr}).map {{ Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
                 }
             }

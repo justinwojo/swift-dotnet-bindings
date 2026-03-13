@@ -1428,6 +1428,75 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // ===== GetEnumCaseLabels Tests =====
+
+    [Fact]
+    public void GetEnumCaseLabels_LabeledParam_ExtractsLabel()
+    {
+        var swiftInterface = """
+            public enum WebSocketEvent {
+              case connected([Swift.String : Swift.String])
+              case text(Swift.String)
+              case error(reason: Swift.String)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumCaseLabels(path);
+            Assert.True(result.ContainsKey("WebSocketEvent.error"));
+            Assert.Single(result["WebSocketEvent.error"]);
+            Assert.Equal("reason", result["WebSocketEvent.error"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumCaseLabels_DictionaryType_ColonNotMisparsedAsLabel()
+    {
+        // Regression: [String : String] contains a colon that was misinterpreted as a
+        // label separator, producing label "_ Swift.String" instead of null (unlabeled).
+        // The fix uses FindTopLevelColon which skips colons inside brackets.
+        var swiftInterface = """
+            public enum WebSocketEvent {
+              case connected([Swift.String : Swift.String])
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumCaseLabels(path);
+            Assert.True(result.ContainsKey("WebSocketEvent.connected"));
+            Assert.Single(result["WebSocketEvent.connected"]);
+            // Should be unlabeled (null), not a garbled label from the dictionary colon
+            Assert.Null(result["WebSocketEvent.connected"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumCaseLabels_NestedGenericType_ColonNotMisparsedAsLabel()
+    {
+        // Dictionary inside Optional: Optional<[String : Int]> — colon must not be label separator
+        var swiftInterface = """
+            public enum Config {
+              case headers(Swift.Optional<[Swift.String : Swift.Int]>)
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumCaseLabels(path);
+            Assert.True(result.ContainsKey("Config.headers"));
+            Assert.Single(result["Config.headers"]);
+            Assert.Null(result["Config.headers"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ===== ExtractParameterDefaults Tests =====
 
     [Fact]
@@ -1456,6 +1525,211 @@ public class SwiftInterfaceAccessParserTests
         var defaults = SwiftInterfaceAccessParser.ExtractParameterDefaults(line);
         Assert.NotNull(defaults);
         Assert.Equal("nil", defaults![0]);
+    }
+
+    // ===== ExtractAutoclosureFlags Tests =====
+
+    [Fact]
+    public void ExtractAutoclosureFlags_SingleAutoclosure()
+    {
+        var line = "final public func warn(_ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)";
+        var flags = SwiftInterfaceAccessParser.ExtractAutoclosureFlags(line);
+        Assert.NotNull(flags);
+        Assert.Equal(3, flags!.Count);
+        Assert.True(flags[0]);   // message is @autoclosure
+        Assert.False(flags[1]);  // fileID is not
+        Assert.False(flags[2]);  // line is not
+    }
+
+    [Fact]
+    public void ExtractAutoclosureFlags_MultipleAutoclosures()
+    {
+        var line = "final public func assert(_ condition: @autoclosure () -> Swift.Bool, _ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)";
+        var flags = SwiftInterfaceAccessParser.ExtractAutoclosureFlags(line);
+        Assert.NotNull(flags);
+        Assert.Equal(4, flags!.Count);
+        Assert.True(flags[0]);   // condition is @autoclosure
+        Assert.True(flags[1]);   // message is @autoclosure
+        Assert.False(flags[2]);  // fileID is not
+        Assert.False(flags[3]);  // line is not
+    }
+
+    [Fact]
+    public void ExtractAutoclosureFlags_NoAutoclosure_ReturnsNull()
+    {
+        var line = "public func foo(x: Swift.Int, callback: () -> Swift.Void)";
+        var flags = SwiftInterfaceAccessParser.ExtractAutoclosureFlags(line);
+        Assert.Null(flags);
+    }
+
+    [Fact]
+    public void ExtractAutoclosureFlags_EscapingAutoclosure()
+    {
+        var line = "public func validate(contentType: @autoclosure @escaping @Sendable () -> Swift.Set<Swift.String>) -> Self";
+        var flags = SwiftInterfaceAccessParser.ExtractAutoclosureFlags(line);
+        Assert.NotNull(flags);
+        Assert.Single(flags!);
+        Assert.True(flags[0]);
+    }
+
+    [Fact]
+    public void ExtractAutoclosureFlags_TruncatedMultiLine_ReturnsNull()
+    {
+        // Multi-line free function where only the first line is passed — unmatched paren
+        var line = "public func foo(_ condition: @autoclosure () -> Swift.Bool,";
+        var flags = SwiftInterfaceAccessParser.ExtractAutoclosureFlags(line);
+        Assert.Null(flags);
+    }
+
+    [Fact]
+    public void ExtractParameterDefaults_TruncatedMultiLine_ReturnsNull()
+    {
+        // Same scenario for ExtractParameterDefaults
+        var line = "public func foo(x: Swift.Int = 10,";
+        var defaults = SwiftInterfaceAccessParser.ExtractParameterDefaults(line);
+        Assert.Null(defaults);
+    }
+
+    [Fact]
+    public void GetAutoclosureParameters_MultilineFreeFuncDoesNotCrash()
+    {
+        // Multi-line free function at top level should not crash the scanner
+        var swiftInterface = """
+            public func longSignature(_ condition: @autoclosure () -> Swift.Bool,
+                                      _ message: @autoclosure () -> Swift.String) -> Swift.Void {
+            }
+            final public class SomeLogger {
+              final public func warn(_ message: @autoclosure () -> Swift.String)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            // Should not throw — the multi-line free func is gracefully skipped
+            var result = SwiftInterfaceAccessParser.GetAutoclosureParameters(path);
+            // The class member should still be detected
+            Assert.True(result.ContainsKey("SomeLogger.warn(_:)"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAutoclosureParameters_ParsesFromSwiftInterface()
+    {
+        var swiftInterface = """
+            final public class LottieLogger {
+              final public func assert(_ condition: @autoclosure () -> Swift.Bool, _ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)
+              final public func warn(_ message: @autoclosure () -> Swift.String = String(), fileID: Swift.StaticString = #fileID, line: Swift.UInt = #line)
+              final public func info(_ message: @autoclosure () -> Swift.String = String())
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAutoclosureParameters(path);
+            Assert.Equal(3, result.Count);
+
+            // assert has 2 @autoclosure params out of 4
+            Assert.True(result.ContainsKey("LottieLogger.assert(_:_:fileID:line:)"));
+            var assertFlags = result["LottieLogger.assert(_:_:fileID:line:)"];
+            Assert.Equal(4, assertFlags.Count);
+            Assert.True(assertFlags[0]);
+            Assert.True(assertFlags[1]);
+            Assert.False(assertFlags[2]);
+            Assert.False(assertFlags[3]);
+
+            // warn has 1 @autoclosure param out of 3
+            Assert.True(result.ContainsKey("LottieLogger.warn(_:fileID:line:)"));
+            var warnFlags = result["LottieLogger.warn(_:fileID:line:)"];
+            Assert.True(warnFlags[0]);
+            Assert.False(warnFlags[1]);
+
+            // info has 1 @autoclosure param out of 1
+            Assert.True(result.ContainsKey("LottieLogger.info(_:)"));
+            var infoFlags = result["LottieLogger.info(_:)"];
+            Assert.Single(infoFlags);
+            Assert.True(infoFlags[0]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // ===== GetActorIsolatedMembers with Custom Actors Tests =====
+
+    [Fact]
+    public void GetActorIsolatedMembers_DetectsCustomActorAnnotation()
+    {
+        var swiftInterface = """
+            @_hasMissingDesignatedInitializers @globalActor public actor ProcessingActor {
+              public static let shared: BlinkID.ProcessingActor
+            }
+            @_hasMissingDesignatedInitializers final public class BlinkIDSession {
+              final public func resumeActiveProcessing()
+              @BlinkID.ProcessingActor final public func process(inputImage: BlinkID.InputImage) -> BlinkID.FrameProcessResult
+              @BlinkID.ProcessingActor final public func reset() throws
+              @BlinkID.ProcessingActor final public func getResult() -> BlinkID.BlinkIDScanningResult
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ProcessingActor" };
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+
+            // Should detect 3 custom-actor-isolated methods
+            Assert.Contains("BlinkIDSession.process(inputImage:)", result);
+            Assert.Contains("BlinkIDSession.reset()", result);
+            Assert.Contains("BlinkIDSession.getResult()", result);
+
+            // Non-isolated method should NOT be included
+            Assert.DoesNotContain("BlinkIDSession.resumeActiveProcessing()", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_WithoutCustomActors_OnlyDetectsMainActor()
+    {
+        var swiftInterface = """
+            final public class SomeClass {
+              @BlinkID.ProcessingActor final public func actorMethod() -> Swift.Int
+              @MainActor final public func mainActorMethod() -> Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            // Without custom actors, only @MainActor should be detected
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path);
+            Assert.Contains("SomeClass.mainActorMethod()", result);
+            Assert.DoesNotContain("SomeClass.actorMethod()", result);
+
+            // With custom actors, both should be detected
+            var customActors = new HashSet<string> { "ProcessingActor" };
+            var resultWithCustom = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+            Assert.Contains("SomeClass.mainActorMethod()", resultWithCustom);
+            Assert.Contains("SomeClass.actorMethod()", resultWithCustom);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_CustomActorStaticMethods()
+    {
+        var swiftInterface = """
+            @_hasMissingDesignatedInitializers final public class BlinkIDSdk : Swift.Sendable {
+              @BlinkID.ProcessingActor public static func terminateBlinkIDSdk()
+              public static func refreshLicenseLease() async throws
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ProcessingActor" };
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+            Assert.Contains("BlinkIDSdk.terminateBlinkIDSdk()", result);
+            Assert.DoesNotContain("BlinkIDSdk.refreshLicenseLease()", result);
+        }
+        finally { File.Delete(path); }
     }
 
     private static string WriteTempFile(string content)

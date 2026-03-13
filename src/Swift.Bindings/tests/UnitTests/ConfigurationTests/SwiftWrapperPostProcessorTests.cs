@@ -1249,6 +1249,174 @@ namespace BindingsGeneration.Tests
             Assert.Single(warnings);
             Assert.Contains("raw-generic-param", warnings[0]);
         }
+
+        [Fact]
+        public void Process_IndentedSilgenName_SelfInExtension_NotStripped()
+        {
+            // Default-parameter-overload wrappers are emitted as extension methods with
+            // @_silgen_name. They call self.method() which is legitimate (self is implicit).
+            // The post-processor must NOT strip these despite the self. reference.
+            var code = "extension SnapKit.ConstraintMakerRelatable {\n" +
+                       "    @_silgen_name(\"DBW_equalTo_1234\")\n" +
+                       "    public func _dbw_equalTo_1234(_ other: ConstraintRelatableTarget) -> ConstraintMakerEditable {\n" +
+                       "        return self.equalTo(other)\n" +
+                       "    }\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Empty(warnings);
+            Assert.Contains("self.equalTo", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_TopLevelSilgenName_SelfWithoutSelfParam_StillStripped()
+        {
+            // Top-level (not indented) @_silgen_name with self. but no _self: param
+            // should still be stripped — this IS the broken pattern.
+            var code = "@_silgen_name(\"test\")\n" +
+                       "public func test() {\n" +
+                       "    self.doSomething()\n" +
+                       "}\n";
+            var warnings = new List<string>();
+            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Single(warnings);
+            Assert.Contains("self-without-_self", warnings[0]);
+        }
+    }
+
+    #endregion
+
+    #region H. Module/Type Name Collision
+
+    [Collection("Sequential")]
+    public class PostProcessorModuleNameCollisionTests
+    {
+        [Fact]
+        public void Process_SameNameClass_StripsModulePrefix()
+        {
+            // Module "Reachability" has class "Reachability"
+            // Reachability.Reachability → Reachability
+            var input = "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init() -> UnsafeMutableRawPointer {\n" +
+                        "    let result = Reachability.Reachability()\n" +
+                        "    return Unmanaged.passRetained(result).toOpaque()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("let result = Reachability()", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Reachability", result.CleanedContent);
+            Assert.True(result.ModuleNameCollisionReplacements > 0);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_StripsForOtherTopLevelTypes()
+        {
+            // Module "Reachability" has type "Connection" — Reachability.Connection → Connection
+            var input = "@_cdecl(\"SBW_get\")\n" +
+                        "public func SBW_get(_ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {\n" +
+                        "    let obj = Unmanaged<Reachability.Reachability>.fromOpaque(self_).takeUnretainedValue()\n" +
+                        "    let val: Reachability.Connection = obj.connection\n" +
+                        "    return Unmanaged.passRetained(val).toOpaque()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("Unmanaged<Reachability>", result.CleanedContent);
+            Assert.Contains("let val: Connection =", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Reachability", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Connection", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_PreservesNestedTypes()
+        {
+            // Module "Reachability" class "Reachability" has nested type "ConnectionType"
+            // Reachability.Reachability.ConnectionType → Reachability.ConnectionType
+            var input = "@_cdecl(\"SBW_get\")\n" +
+                        "public func SBW_get() {\n" +
+                        "    let x: Reachability.Reachability.ConnectionType = .wifi\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("Reachability.ConnectionType", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Reachability", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_PreservesImportLines()
+        {
+            var input = "import Reachability\n" +
+                        "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init() -> UnsafeMutableRawPointer {\n" +
+                        "    let result = Reachability.Reachability()\n" +
+                        "    return Unmanaged.passRetained(result).toOpaque()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("import Reachability", result.CleanedContent);
+            Assert.Contains("let result = Reachability()", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_HandlesTypeBoundWithSelf()
+        {
+            // assumingMemoryBound(to: Reachability.Reachability.self) → assumingMemoryBound(to: Reachability.self)
+            var input = "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init(_ resultPtr: UnsafeMutableRawPointer) {\n" +
+                        "    let result = Reachability.Reachability()\n" +
+                        "    resultPtr.assumingMemoryBound(to: Reachability.Reachability.self).initialize(to: result)\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("to: Reachability.self", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Reachability", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_HandlesOptionalType()
+        {
+            // Optional<Reachability.Reachability> → Optional<Reachability>
+            var input = "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init(_ resultPtr: UnsafeMutableRawPointer) {\n" +
+                        "    let result: Reachability.Reachability? = Reachability.Reachability()\n" +
+                        "    resultPtr.assumingMemoryBound(to: Optional<Reachability.Reachability>.self).initialize(to: result)\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "Reachability");
+            Assert.Contains("Optional<Reachability>", result.CleanedContent);
+            Assert.DoesNotContain("Reachability.Reachability", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_NoCollision_LeavesModuleQualifiedNamesIntact()
+        {
+            var input = "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init() -> UnsafeMutableRawPointer {\n" +
+                        "    let result = Nuke.ImagePipeline()\n" +
+                        "    return Unmanaged.passRetained(result).toOpaque()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: null);
+            Assert.Contains("Nuke.ImagePipeline", result.CleanedContent);
+            Assert.Equal(0, result.ModuleNameCollisionReplacements);
+        }
+
+        [Fact]
+        public void Process_SameNameModule_SVGView_StructCollision()
+        {
+            // SVGView module has struct SVGView
+            var input = "@_cdecl(\"SBW_init\")\n" +
+                        "public func SBW_init(_ resultPtr: UnsafeMutableRawPointer) {\n" +
+                        "    let result = SVGView.SVGView()\n" +
+                        "    resultPtr.assumingMemoryBound(to: SVGView.SVGView.self).initialize(to: result)\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, null, null,
+                moduleNameForCollision: "SVGView");
+            Assert.Contains("let result = SVGView()", result.CleanedContent);
+            Assert.Contains("to: SVGView.self", result.CleanedContent);
+            Assert.DoesNotContain("SVGView.SVGView", result.CleanedContent);
+        }
     }
 
     #endregion

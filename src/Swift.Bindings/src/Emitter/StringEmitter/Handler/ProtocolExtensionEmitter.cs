@@ -1387,8 +1387,8 @@ public static class ProtocolExtensionEmitter
             var (label, typeSpec, swiftType) = parameters[i];
             if (i == closureParamIndex)
             {
-                // Replace closure with funcPtr + context
-                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+                // Replace closure with funcPtr + context — use GetClosureParamName for closure types
+                var paramName = SanitizeSwiftParamName(label == "_" ? GetClosureParamName(closureTypeSpec) : label);
                 swiftParams.Add($"_ {paramName}FuncPtr: UnsafeMutableRawPointer");
                 swiftParams.Add($"_ {paramName}Context: UnsafeMutableRawPointer?");
             }
@@ -1471,7 +1471,7 @@ public static class ProtocolExtensionEmitter
         // Build cdecl callback type
         var closureParamLabel = parameters[closureParamIndex].label;
         var closureParamName = SanitizeSwiftParamName(
-            closureParamLabel == "_" ? GetParamNameFromType(parameters[closureParamIndex].swiftType) : closureParamLabel);
+            closureParamLabel == "_" ? GetClosureParamName(closureTypeSpec) : closureParamLabel);
 
         var cdeclArgTypes = new List<string>();
         foreach (var arg in closureArgs)
@@ -2046,8 +2046,18 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static string GetParamNameFromType(string swiftType)
     {
+        var trimmed = swiftType.Trim();
+
+        // Array types: [Element] or [any Module.Type] → "items"
+        if (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))
+            return "items";
+
+        // Closure/function types: (...) -> ... → "closure"
+        if (trimmed.StartsWith("(", StringComparison.Ordinal) || trimmed.Contains("->"))
+            return "closure";
+
         // Strip "any " prefix from existential types
-        var cleaned = swiftType.StartsWith("any ", StringComparison.Ordinal) ? swiftType.Substring(4) : swiftType;
+        var cleaned = trimmed.StartsWith("any ", StringComparison.Ordinal) ? trimmed.Substring(4) : trimmed;
 
         // Strip generic parameters (e.g., "RetryStrategy<T>" → "RetryStrategy")
         var angleIdx = cleaned.IndexOf('<');
@@ -2062,11 +2072,15 @@ public static class ProtocolExtensionEmitter
         if (typeName == "Float" || typeName == "Double" || typeName == "CGFloat") return "value";
         if (typeName == "String") return "str";
 
-        // Lowercase first character
+        // Lowercase first character and sanitize — strip any type-syntax chars (brackets, parens, etc.)
+        string result;
         if (typeName.Length > 0)
-            return char.ToLowerInvariant(typeName[0]) + typeName.Substring(1);
+            result = char.ToLowerInvariant(typeName[0]) + typeName.Substring(1);
+        else
+            return "arg";
 
-        return "arg";
+        result = SwiftBuilder.SanitizeIdentifier(result);
+        return string.IsNullOrEmpty(result) ? "arg" : result;
     }
 
     /// <summary>

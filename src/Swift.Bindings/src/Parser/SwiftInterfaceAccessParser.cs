@@ -319,19 +319,37 @@ public static class SwiftInterfaceAccessParser
     /// Handles multi-line function signatures via continuation buffer.
     /// </summary>
     public static HashSet<string> GetActorIsolatedMembers(string swiftInterfacePath)
+        => GetActorIsolatedMembers(swiftInterfacePath, customActorTypeNames: null);
+
+    /// <summary>
+    /// Extended overload that also detects custom actor annotations (e.g., @BlinkID.ProcessingActor)
+    /// in addition to @MainActor. The customActorTypeNames set contains unqualified actor type names
+    /// (e.g., "ProcessingActor") from GetCustomActorTypes().
+    /// </summary>
+    public static HashSet<string> GetActorIsolatedMembers(string swiftInterfacePath, HashSet<string>? customActorTypeNames)
     {
         var result = new HashSet<string>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
 
+        // Build a regex for custom actor annotations: @Module.ActorName or @ActorName
+        Regex? customActorRegex = null;
+        if (customActorTypeNames != null && customActorTypeNames.Count > 0)
+        {
+            var escapedNames = string.Join("|", customActorTypeNames.Select(Regex.Escape));
+            customActorRegex = new Regex(
+                @"@(?:\w+\.)?(?:" + escapedNames + @")\b",
+                RegexOptions.Compiled);
+        }
+
         var lines = File.ReadAllLines(swiftInterfacePath);
 
         var typeStack = new Stack<(string Name, int Depth)>();
         int braceDepth = 0;
-        bool pendingMainActor = false;
-        // Multi-line continuation: (accumulated line, wasMainActor)
-        (string Line, bool IsMainActor)? continuation = null;
+        bool pendingActorIsolated = false;
+        // Multi-line continuation: (accumulated line, wasActorIsolated)
+        (string Line, bool IsActorIsolated)? continuation = null;
 
         foreach (var line in lines)
         {
@@ -344,30 +362,32 @@ public static class SwiftInterfaceAccessParser
                 if (!HasUnmatchedOpenParen(accumulated))
                 {
                     // Signature complete — process the full line
-                    var wasMainActor = continuation.Value.IsMainActor;
+                    var wasActorIsolated = continuation.Value.IsActorIsolated;
                     continuation = null;
-                    if (wasMainActor && typeStack.Count > 0)
+                    if (wasActorIsolated && typeStack.Count > 0)
                         ProcessActorIsolatedMember(accumulated, typeStack, result);
                 }
                 else
                 {
-                    continuation = (accumulated, continuation.Value.IsMainActor);
+                    continuation = (accumulated, continuation.Value.IsActorIsolated);
                 }
                 continue;
             }
 
             var (openBraces, closeBraces) = CountBraces(line);
 
-            // Check for @MainActor annotation
-            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
-            pendingMainActor = false;
+            // Check for @MainActor or custom actor annotation
+            bool hasActorAnnotation = pendingActorIsolated ||
+                                      MainActorAnnotationRegex.IsMatch(trimmed) ||
+                                      (customActorRegex != null && customActorRegex.IsMatch(trimmed));
+            pendingActorIsolated = false;
 
             // Check for pending annotation (attribute on its own line)
-            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) &&
+            if (hasActorAnnotation && !TypeDeclRegex.IsMatch(trimmed) &&
                 !PublicFuncRegex.IsMatch(trimmed) && !PublicVarRegex.IsMatch(trimmed) &&
                 !PublicInitRegex.IsMatch(trimmed) && openBraces == 0)
             {
-                pendingMainActor = true;
+                pendingActorIsolated = true;
                 braceDepth += openBraces - closeBraces;
                 while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
                     typeStack.Pop();
@@ -395,8 +415,8 @@ public static class SwiftInterfaceAccessParser
                 }
             }
 
-            // Check for member-level @MainActor (only within a type context)
-            if (hasMainActor && typeStack.Count > 0 && !pushedScope)
+            // Check for member-level actor isolation (only within a type context)
+            if (hasActorAnnotation && typeStack.Count > 0 && !pushedScope)
             {
                 // Check for multi-line signature
                 if ((PublicFuncRegex.IsMatch(trimmed) || PublicInitRegex.IsMatch(trimmed)) &&
@@ -1502,6 +1522,11 @@ public static class SwiftInterfaceAccessParser
             }
         }
 
+        // Guard: if the matching close paren was not found (e.g., truncated multi-line
+        // signature), return as zero-param to avoid crashing on Substring.
+        if (parenEnd == parenStart)
+            return $"{funcName}()";
+
         var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
         if (string.IsNullOrWhiteSpace(paramStr))
             return $"{funcName}()";
@@ -1553,7 +1578,9 @@ public static class SwiftInterfaceAccessParser
             if (inString)
                 continue;
             if (c == '<' || c == '(' || c == '[') depth++;
-            if (c == '>' || c == ')' || c == ']') depth--;
+            // Don't treat '>' in '->' (closure return arrow) as a closing bracket
+            if (c == '>' && !(i > 0 && paramStr[i - 1] == '-')) depth--;
+            else if (c == ')' || c == ']') depth--;
             if (c == ',' && depth == 0)
             {
                 result.Add(paramStr.Substring(start, i - start));
@@ -1562,6 +1589,24 @@ public static class SwiftInterfaceAccessParser
         }
         result.Add(paramStr.Substring(start));
         return result;
+    }
+
+    /// <summary>
+    /// Finds the first colon at depth 0 (not inside brackets, parens, or angle brackets).
+    /// Colons inside dictionary types like [String : String] are at depth > 0 and must be skipped.
+    /// </summary>
+    private static int FindTopLevelColon(string text)
+    {
+        int depth = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '<' || c == '(' || c == '[') depth++;
+            if (c == '>' || c == ')' || c == ']') depth--;
+            if (c == ':' && depth == 0)
+                return i;
+        }
+        return -1;
     }
 
     // Regex for enum case declarations with associated values
@@ -1714,7 +1759,7 @@ public static class SwiftInterfaceAccessParser
         foreach (var part in parts)
         {
             var trimPart = part.Trim();
-            var colonIdx = trimPart.IndexOf(':');
+            var colonIdx = FindTopLevelColon(trimPart);
             if (colonIdx < 0)
             {
                 // No colon — unlabeled parameter (e.g., "SwiftBindingsTestLib.FrozenPoint")
@@ -2486,6 +2531,133 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
+    /// Parses @autoclosure annotations from parameter declarations in a .swiftinterface file.
+    /// Returns a dictionary mapping qualified member keys (e.g., "LottieLogger.assert(_:_:fileID:line:)")
+    /// to index-aligned lists of booleans indicating which parameters have @autoclosure.
+    /// </summary>
+    public static Dictionary<string, List<bool>> GetAutoclosureParameters(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<bool>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                              tracker.TypeDepth == 0 &&
+                              SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null;
+
+            if (isMember || isFreeFunc)
+            {
+                var memberText = (isMember ? tracker.CompletedMultiLine : null) ?? trimmed;
+                var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                if (printedName != null)
+                {
+                    var flags = ExtractAutoclosureFlags(memberText);
+                    if (flags != null && flags.Any(f => f))
+                    {
+                        var key = tracker.BuildMemberKey(printedName);
+                        result[key] = flags;
+                    }
+                }
+                tracker.ConsumePendingAnnotations();
+            }
+            else if (kind == SwiftInterfaceContextTracker.LineKind.TypeDeclaration ||
+                     kind == SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration)
+            {
+                tracker.ConsumePendingAnnotations();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts @autoclosure flags from a function/init declaration line.
+    /// Returns a list index-aligned with parameters — true for params with @autoclosure.
+    /// Returns null if the line has no parameter list.
+    /// </summary>
+    internal static List<bool>? ExtractAutoclosureFlags(string memberLine)
+    {
+        // Find the parameter list using the same approach as ExtractParameterDefaults
+        string? funcName = null;
+        var funcMatch = AnyFuncRegex.Match(memberLine);
+        if (funcMatch.Success)
+            funcName = funcMatch.Groups[1].Value;
+        else if (AnyInitRegex.IsMatch(memberLine))
+            funcName = "init";
+        else
+            return null;
+
+        var funcNameIdx = memberLine.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return null;
+
+        var parenStart = memberLine.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return null;
+
+        // Find matching close paren
+        int depth = 0, parenEnd = parenStart;
+        for (int i = parenStart; i < memberLine.Length; i++)
+        {
+            if (memberLine[i] == '(') depth++;
+            if (memberLine[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { parenEnd = i; break; }
+            }
+        }
+
+        // Guard: if the matching close paren was not found (e.g., multi-line signature
+        // where only the first line was passed), bail out instead of crashing on Substring.
+        if (parenEnd == parenStart)
+            return null;
+
+        var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return null;
+
+        var parts = SplitParameters(paramStr);
+        var flags = new List<bool>();
+        bool hasAny = false;
+
+        foreach (var part in parts)
+        {
+            // Check if the type portion (after the colon) contains @autoclosure
+            var trimmedPart = part.Trim();
+            var colonIdx = FindTopLevelColon(trimmedPart);
+            if (colonIdx >= 0)
+            {
+                var typeStr = trimmedPart.Substring(colonIdx + 1).TrimStart();
+                bool isAutoclosure = typeStr.Contains("@autoclosure");
+                flags.Add(isAutoclosure);
+                if (isAutoclosure) hasAny = true;
+            }
+            else
+            {
+                flags.Add(false);
+            }
+        }
+
+        return hasAny ? flags : null;
+    }
+
+    /// <summary>
     /// Extracts default value expressions from a function/init declaration line.
     /// Returns a list index-aligned with parameters — null for params without defaults.
     /// Returns null if the line has no parameter list.
@@ -2528,6 +2700,11 @@ public static class SwiftInterfaceAccessParser
                 if (depth == 0) { parenEnd = i; break; }
             }
         }
+
+        // Guard: if the matching close paren was not found (e.g., multi-line signature
+        // where only the first line was passed), bail out instead of crashing on Substring.
+        if (parenEnd == parenStart)
+            return null;
 
         var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
         if (string.IsNullOrWhiteSpace(paramStr))

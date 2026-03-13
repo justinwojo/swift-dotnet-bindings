@@ -290,6 +290,42 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Applies @autoclosure flags from swiftinterface data to closure parameters.
+        /// Sets the "autoclosure" attribute on ClosureTypeSpec parameters so that wrapper
+        /// emitters can add "()" when forwarding autoclosure arguments.
+        /// </summary>
+        private void ApplyMemberAutoclosureFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        {
+            if (_autoclosureParameters == null) return;
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (!_autoclosureParameters.TryGetValue(key, out var flags))
+                return;
+            ApplyAutoclosureFlagsToSignature(methodDecl, flags);
+        }
+
+        private void ApplyFreeFunctionAutoclosureFlags(MethodDecl methodDecl, string printedName)
+        {
+            if (_autoclosureParameters == null) return;
+            if (!_autoclosureParameters.TryGetValue(printedName, out var flags))
+                return;
+            ApplyAutoclosureFlagsToSignature(methodDecl, flags);
+        }
+
+        private static void ApplyAutoclosureFlagsToSignature(MethodDecl methodDecl, List<bool> flags)
+        {
+            // CSSignature[0] is the return type, [1..] are parameters
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var argIdx = i - 1;
+                if (argIdx < flags.Count && flags[argIdx] &&
+                    methodDecl.CSSignature[i].SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                {
+                    closureSpec.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+                }
+            }
+        }
+
+        /// <summary>
         /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
         /// </summary>
         private bool IsUnavailableFromSwiftInterface(TypeDecl parentTypeDecl, string printedName)
@@ -411,6 +447,13 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, List<string?>>? _defaultParameterValues;
 
+        /// <summary>
+        /// Optional @autoclosure parameter flags from swiftinterface parsing.
+        /// Keys are "QualifiedType.printedName". Values are index-aligned lists of
+        /// booleans indicating which parameters have @autoclosure.
+        /// </summary>
+        private readonly Dictionary<string, List<bool>>? _autoclosureParameters;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -427,7 +470,8 @@ namespace BindingsGeneration
             HashSet<string>? actorIsolatedMembers = null,
             HashSet<string>? nonisolatedMembers = null,
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null,
-            Dictionary<string, List<string?>>? defaultParameterValues = null)
+            Dictionary<string, List<string?>>? defaultParameterValues = null,
+            Dictionary<string, List<bool>>? autoclosureParameters = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -445,6 +489,7 @@ namespace BindingsGeneration
             _nonisolatedMembers = nonisolatedMembers;
             _availabilityAnnotations = availabilityAnnotations;
             _defaultParameterValues = defaultParameterValues;
+            _autoclosureParameters = autoclosureParameters;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1205,9 +1250,15 @@ namespace BindingsGeneration
             // Apply default parameter value expressions from swiftinterface data.
             // Must happen after the argument-construction loop since it mutates CSSignature entries.
             if (parentDecl is TypeDecl parentTypeForDefaults)
+            {
                 ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName);
+                ApplyMemberAutoclosureFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
+            }
             else
+            {
                 ApplyFreeFunctionDefaultValues(methodDecl, node.PrintedName);
+                ApplyFreeFunctionAutoclosureFlags(methodDecl, node.PrintedName);
+            }
 
             return methodDecl;
         }

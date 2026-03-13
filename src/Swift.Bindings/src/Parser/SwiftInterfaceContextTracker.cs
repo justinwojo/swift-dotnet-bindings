@@ -238,6 +238,8 @@ internal sealed class SwiftInterfaceContextTracker
             if (line[i] == '(') depth++;
             if (line[i] == ')') { depth--; if (depth == 0) { parenEnd = i; break; } }
         }
+        if (parenEnd == parenStart)
+            return "subscript()";
         var paramContent = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
         var labels = new List<string>();
         foreach (var param in SplitParameters(paramContent))

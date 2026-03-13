@@ -111,13 +111,14 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? moduleNameForCollision = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 simSlice, logger, commandRunner, internalTypeNames,
-                additionalFrameworkSearchPaths);
+                additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision);
         }
 
         /// <summary>
@@ -135,7 +136,8 @@ namespace BindingsGeneration
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? moduleNameForCollision = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -169,13 +171,20 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning));
+                        warning => logger.LogWarning("{Warning}", warning),
+                        moduleNameForCollision: moduleNameForCollision);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
                     {
                         logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
                             result.StrippedBlockCount, Path.GetFileName(swiftFile));
+                    }
+
+                    if (result.ModuleNameCollisionReplacements > 0)
+                    {
+                        logger.LogInformation("  Fixed {Count} module/type name collision(s) in {File}",
+                            result.ModuleNameCollisionReplacements, Path.GetFileName(swiftFile));
                     }
 
                     if (!string.IsNullOrWhiteSpace(result.CleanedContent))
@@ -288,7 +297,8 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             HashSet<string>? internalTypeNames = null,
-            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+            string? moduleNameForCollision = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -319,13 +329,20 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning));
+                        warning => logger.LogWarning("{Warning}", warning),
+                        moduleNameForCollision: moduleNameForCollision);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
                     {
                         logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
                             result.StrippedBlockCount, Path.GetFileName(swiftFile));
+                    }
+
+                    if (result.ModuleNameCollisionReplacements > 0)
+                    {
+                        logger.LogInformation("  Fixed {Count} module/type name collision(s) in {File}",
+                            result.ModuleNameCollisionReplacements, Path.GetFileName(swiftFile));
                     }
 
                     // Only write files that have content left after processing
@@ -405,13 +422,15 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? moduleNameForCollision = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var slice = pi.GetSlice(isSimulator);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths);
+                slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths,
+                moduleNameForCollision: moduleNameForCollision);
         }
 
         /// <summary>

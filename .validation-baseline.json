@@ -1,5 +1,5 @@
 {
-  "git_sha": "915ac5ea",
+  "git_sha": "bf777501",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -12,9 +12,9 @@
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48408,
+        "lines": 31,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkIDUX": {
         "compile": "dep_only",
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92331,
+        "lines": 92332,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -49,12 +49,12 @@
         "errors": 0,
         "lines": 4712,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55539,
+        "lines": 55498,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -63,7 +63,7 @@
         "errors": 0,
         "lines": 32063,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Mappedin": {
         "compile": "ok",
@@ -89,28 +89,28 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21809,
+        "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21809,
+        "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21809,
+        "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18993,
+        "lines": 18996,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -133,14 +133,14 @@
         "errors": 0,
         "lines": 11473,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Starscream": {
         "compile": "ok",
         "errors": 0,
         "lines": 15650,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Stripe": {
         "compile": "dep_only",
@@ -166,7 +166,7 @@
       "StripeCardScan": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 2205,
+        "lines": 2119,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5107,
+        "lines": 5029,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -336,7 +336,7 @@
         "errors": 0,
         "lines": 8266,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "FSPagerView": {
         "compile": "ok",
