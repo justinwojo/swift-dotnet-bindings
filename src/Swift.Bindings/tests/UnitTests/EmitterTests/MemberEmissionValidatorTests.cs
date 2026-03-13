@@ -361,6 +361,61 @@ public class MemberEmissionValidatorTests
 
     #endregion
 
+    #region CanEmitProperty Tests
+
+    [Fact]
+    public void CanEmitProperty_InternalProperty_ReturnsModuleInternal()
+    {
+        // S4: Internal properties (not public) should be suppressed from bindings.
+        // Without this gate, @_cdecl wrappers reference internal members, causing
+        // "'member' is inaccessible due to 'internal' protection level" errors.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var property = new PropertyDecl
+        {
+            Name = "internalConfig",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            IsModuleInternal = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.ModuleInternal, result);
+        Assert.Contains("Internal", skipDetails!);
+    }
+
+    [Fact]
+    public void CanEmitProperty_PublicProperty_NotGated()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            IsModuleInternal = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out _, out _);
+
+        // Not gated by internal check (may still be null or gated by other checks)
+        Assert.NotEqual(SkipReason.ModuleInternal, result ?? SkipReason.UnsupportedType);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()

@@ -461,13 +461,13 @@ namespace BindingsGeneration
                     useTypedErrorCallback
                         ? "_ errorCallback: @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void"
                         : "_ errorCallback: @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void",
-                    "_ task: Int64"
+                    "_ _sbwTask: Int64"
                 }
                 : new[]
                 {
                     $"callback: @escaping @convention(c) ({callbackParams}Int64) -> Void",
                     errorCallbackSwiftParam,
-                    "task: Int64"
+                    "_sbwTask: Int64"
                 };
 
             // Reconstruction code for @_cdecl converted params (emitted before Task {})
@@ -1470,7 +1470,7 @@ namespace BindingsGeneration
                     $"{indent}}}\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
                     $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
-                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, task)\n" +
+                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask)\n" +
                     $"{indent}}}";
             }
             else
@@ -1478,7 +1478,7 @@ namespace BindingsGeneration
                 return
                     $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
-                    $"{indent}errorMessage.withCString {{ errorCallback($0, _isCancelled, task) }}";
+                    $"{indent}errorMessage.withCString {{ errorCallback($0, _isCancelled, _sbwTask) }}";
             }
         }
 
@@ -1543,17 +1543,17 @@ namespace BindingsGeneration
             {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
-            {{i}}    _sbwRegisterTask(task, _entry)
+            {{i}}    _sbwRegisterTask(_sbwTask, _entry)
             {{i}}    _entry.task = {{taskOpen}}
             {{i}}        defer {
-            {{i}}            _sbwUnregisterTask(task)
+            {{i}}            _sbwUnregisterTask(_sbwTask)
             {{i}}        }
             {{i}}        do {
             {{i}}            {{resultAssign}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
             {{i}}                {{methodCallArgs}}
             {{i}}            )
             {{i}}            {{stringMarshalCode}}
-            {{i}}            callback({{callbackResultArgs}}task)
+            {{i}}            callback({{callbackResultArgs}}_sbwTask)
             {{i}}        } catch {
             {{i}}            {{catchBody}}
             {{i}}        }

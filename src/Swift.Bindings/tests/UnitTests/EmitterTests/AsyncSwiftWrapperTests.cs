@@ -328,6 +328,30 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async _sbwTask Parameter Naming Tests
+
+    [Fact]
+    public void AsyncWrapper_TaskBaseParam_Uses_sbwTask_NotTask()
+    {
+        // S11: Kingfisher's URLSession delegate methods have a parameter named "task",
+        // which collides with the async wrapper's base parameter also named "task".
+        // Fix: renamed base parameter to "_sbwTask".
+        // Uses GenerateAsyncMethodWithComplexReturn (class return) which produces Swift output.
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct);
+
+        // Must use _sbwTask, not bare "task"
+        Assert.Contains("_sbwTask", swiftOutput);
+
+        // The old name "task" should not appear as a standalone parameter
+        // (it may appear as part of _sbwTask, so check for the exact old pattern)
+        Assert.DoesNotContain("_ task:", swiftOutput);
+        Assert.DoesNotContain("task: Int64", swiftOutput);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>

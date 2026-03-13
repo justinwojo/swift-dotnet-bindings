@@ -63,5 +63,13 @@ namespace BindingsGeneration
         /// Whether this property is declared nonisolated (opts out of containing type's isolation).
         /// </summary>
         public bool IsNonisolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this property has internal (non-public) access level.
+        /// Set from ABI JSON's IsInternal flag and swiftinterface cross-reference.
+        /// Internal properties are not accessible from the wrapper module and must be
+        /// excluded from @_cdecl wrapper generation.
+        /// </summary>
+        public bool IsModuleInternal { get; set; } = false;
     }
 }

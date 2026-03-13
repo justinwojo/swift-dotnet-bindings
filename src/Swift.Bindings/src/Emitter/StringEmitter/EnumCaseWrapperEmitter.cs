@@ -260,8 +260,36 @@ public static class EnumCaseWrapperEmitter
     /// </summary>
     private static string BuildCaseConstructionExpr(string enumQualifiedName, EnumCaseDecl caseDecl, List<string> callArgs)
     {
-        // If all associated values have labels, use labeled syntax
-        // callArgs from GetCdeclParamMapping already include labels (e.g., "label: valVar")
+        // When a single associated value is a tuple with multiple elements (e.g.,
+        // case fixed(width: CGFloat, height: CGFloat) → ABI stores as one tuple),
+        // the @_cdecl wrapper loads the entire tuple value from a pointer. The enum
+        // case constructor expects individual arguments, so destructure by field access.
+        if (caseDecl.AssociatedValues.Count == 1 &&
+            caseDecl.AssociatedValues[0] is TupleTypeSpec tuple &&
+            tuple.Elements.Count > 1)
+        {
+            // Extract the value variable name from the callArg (e.g., "width: widthVal" → "widthVal")
+            var singleCallArg = callArgs[0];
+            var colonIdx = singleCallArg.IndexOf(": ");
+            var valName = colonIdx >= 0 ? singleCallArg.Substring(colonIdx + 2) : singleCallArg;
+
+            // Build destructured args: "width: valName.width, height: valName.height"
+            var destructuredArgs = new List<string>();
+            for (int i = 0; i < tuple.Elements.Count; i++)
+            {
+                var element = tuple.Elements[i];
+                var elemAccessor = !string.IsNullOrEmpty(element.TypeLabel)
+                    ? element.TypeLabel
+                    : $"{i}";
+                var elemLabel = !string.IsNullOrEmpty(element.TypeLabel)
+                    ? $"{element.TypeLabel}: "
+                    : "";
+                destructuredArgs.Add($"{elemLabel}{valName}.{elemAccessor}");
+            }
+            return $"{enumQualifiedName}.{caseDecl.Name}({string.Join(", ", destructuredArgs)})";
+        }
+
+        // Standard path: callArgs from GetCdeclParamMapping already include labels
         var argsString = string.Join(", ", callArgs);
         return $"{enumQualifiedName}.{caseDecl.Name}({argsString})";
     }

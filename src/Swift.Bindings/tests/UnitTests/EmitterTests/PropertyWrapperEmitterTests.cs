@@ -203,6 +203,44 @@ public class PropertyWrapperEmitterTests
         Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
+    [Fact]
+    public void ShouldEmitPropertyWrapper_MetatypeProperty_ReturnsFalse()
+    {
+        // S2: Property wrapper emission also gates metatypes
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("myType", new NamedTypeSpec("Any.Type"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitPropertyWrapper_InternalProperty_ReturnsFalse()
+    {
+        // S4: PropertyWrapperEmitter also gates internal properties
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getterMethod = CreateAccessorMethod("getter:internalProp", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "internalProp",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            IsModuleInternal = true,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
     #endregion
 
     #region Symbol Naming Tests
@@ -939,6 +977,65 @@ public class PropertyWrapperEmitterTests
 
         var env = new MethodEnvironment(method, typeDb);
         Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_ObjCBridgedStruct_IndirectResult_NotClassPointer()
+    {
+        // S10: ObjC-bridged/rooted struct types (e.g., PHPickerResult) were incorrectly
+        // routed through the ClassPointer path (Unmanaged.passRetained), which crashes
+        // because Unmanaged requires a class type. Fix: guard with Kind != Struct.
+        var typeDb = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PHPickerResult"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PHPickerResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PHPickerResult"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCRooted,
+                Kind = TypeRecordKind.Struct  // Struct despite being ObjC-rooted
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+            new NamedTypeSpec("TestModule.PHPickerResult"), typeDb);
+
+        // Must use IndirectResult, NOT ClassPointer
+        Assert.True(needsPtr);
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_ObjCBridgedClass_StillUsesClassPointer()
+    {
+        // Non-struct ObjC-bridged types should still use ClassPointer
+        var typeDb = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.UIImage"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "UIImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.UIImage"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+            new NamedTypeSpec("TestModule.UIImage"), typeDb);
+
+        Assert.False(needsPtr);
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.ClassPointer, mapping.Kind);
     }
 
     #endregion

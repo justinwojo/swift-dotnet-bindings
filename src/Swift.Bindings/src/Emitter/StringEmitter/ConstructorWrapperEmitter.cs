@@ -495,6 +495,12 @@ public static class ConstructorWrapperEmitter
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
+        // Swift keywords (in, for, repeat, etc.) can't be used as bare identifiers
+        // in @_cdecl wrapper bodies. Rename to avoid conflicts — the call argument
+        // label comes from arg.Name, so it's unaffected by this rename.
+        if (NameProvider.IsSwiftKeyword(label))
+            label = $"{label}Param";
+
         // Determine the Swift argument label for the init call
         // When calling _dbw_init_* (omitLabels=true), all params use _ (no external label)
         var argLabel = omitLabels ? "" : arg.Name switch

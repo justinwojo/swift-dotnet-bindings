@@ -368,6 +368,110 @@ public class EnumCaseWrapperEmitterTests
         Assert.Contains("code: ", output);
     }
 
+    [Fact]
+    public void EmitWrapper_TupleAssociatedValue_DestructuresByFieldAccess()
+    {
+        // S8: When an enum case has a single associated value that is a tuple
+        // (e.g., case fixed(width: CGFloat, height: CGFloat)), the ABI stores it as
+        // one tuple parameter. The wrapper must destructure it into individual
+        // constructor arguments: .fixed(width: val.width, height: val.height)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Layout", moduleDecl);
+
+        // Create a tuple type with labeled elements (simulating ABI representation)
+        var widthElem = new NamedTypeSpec("CoreFoundation.CGFloat") { TypeLabel = "width" };
+        var heightElem = new NamedTypeSpec("CoreFoundation.CGFloat") { TypeLabel = "height" };
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec> { widthElem, heightElem });
+
+        // The ABI represents this as a single associated value that is a tuple
+        var caseDecl = CreateCaseDecl("fixed", new List<TypeSpec> { tupleSpec }, moduleDecl);
+
+        var dummyMethod = CreateDummyMethod("fixed", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Layout_fixed_12345678", env, ctx);
+
+        var output = sw.ToString();
+
+        // Must destructure by field access, not pass tuple directly
+        Assert.Contains(".width", output);
+        Assert.Contains(".height", output);
+        // Must use labeled constructor arguments
+        Assert.Contains("width:", output);
+        Assert.Contains("height:", output);
+        // Must reference the enum case constructor
+        Assert.Contains("TestModule.Layout.fixed(", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_UnlabeledTupleAssociatedValue_DestructuresByIndex()
+    {
+        // Unlabeled tuple elements use positional index access (.0, .1)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Pair", moduleDecl);
+
+        var elem0 = new NamedTypeSpec("Swift.Int");
+        var elem1 = new NamedTypeSpec("Swift.Bool");
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec> { elem0, elem1 });
+
+        var caseDecl = CreateCaseDecl("values", new List<TypeSpec> { tupleSpec }, moduleDecl);
+
+        var dummyMethod = CreateDummyMethod("values", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Pair_values_12345678", env, ctx);
+
+        var output = sw.ToString();
+
+        // Must use positional index access for unlabeled elements
+        Assert.Contains(".0", output);
+        Assert.Contains(".1", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_NonTupleAssociatedValues_NoDestructuring()
+    {
+        // Multiple separate associated values (not a single tuple) don't need destructuring
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Event", moduleDecl);
+        var caseDecl = CreateCaseDecl("userAction", new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int") { TypeLabel = "code" },
+            new NamedTypeSpec("Swift.Bool") { TypeLabel = "flag" }
+        }, moduleDecl);
+
+        var dummyMethod = CreateDummyMethod("userAction", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Event_userAction_12345678", env, ctx);
+
+        var output = sw.ToString();
+
+        // Standard path: no destructuring needed
+        Assert.Contains("TestModule.Event.userAction(", output);
+        // Should NOT contain tuple field access patterns
+        Assert.DoesNotContain(".width", output);
+        Assert.DoesNotContain(".height", output);
+    }
+
     #endregion
 
     #region Helpers

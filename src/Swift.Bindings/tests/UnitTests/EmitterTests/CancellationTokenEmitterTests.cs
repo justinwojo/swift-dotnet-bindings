@@ -181,7 +181,7 @@ public class CancellationTokenEmitterTests
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
         // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
-        Assert.Contains("_sbwRegisterTask(task, _entry)", swiftOutput);
+        Assert.Contains("_sbwRegisterTask(_sbwTask, _entry)", swiftOutput);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class CancellationTokenEmitterTests
     {
         var (_, swiftOutput) = GenerateAsyncMethod();
         // Uses helper function instead of direct lock/unlock (Swift 6 async safety)
-        Assert.Contains("_sbwUnregisterTask(task)", swiftOutput);
+        Assert.Contains("_sbwUnregisterTask(_sbwTask)", swiftOutput);
         Assert.Contains("defer {", swiftOutput);
     }
 
@@ -299,7 +299,7 @@ public class CancellationTokenEmitterTests
     public void AsyncWrapper_UntypedThrows_ErrorCallbackHas3Params()
     {
         var (csOutput, swiftOutput) = GenerateAsyncMethod();
-        Assert.Contains("_isCancelled, task", swiftOutput);
+        Assert.Contains("_isCancelled, _sbwTask", swiftOutput);
         Assert.Contains("IntPtr, int, IntPtr, void>", csOutput);
     }
 

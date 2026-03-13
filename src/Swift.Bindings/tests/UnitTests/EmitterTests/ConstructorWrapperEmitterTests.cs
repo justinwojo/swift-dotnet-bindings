@@ -1625,6 +1625,78 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("costLimit: costLimit", output);
     }
 
+    [Theory]
+    [InlineData("in")]
+    [InlineData("for")]
+    [InlineData("repeat")]
+    [InlineData("switch")]
+    [InlineData("case")]
+    [InlineData("where")]
+    [InlineData("return")]
+    [InlineData("class")]
+    [InlineData("struct")]
+    [InlineData("protocol")]
+    [InlineData("func")]
+    [InlineData("var")]
+    [InlineData("let")]
+    public void GetCdeclParamMapping_SwiftKeywordLabel_EscapesWithParamSuffix(string keyword)
+    {
+        // S1: Swift keywords (in, for, repeat, etc.) used as parameter labels in @_cdecl
+        // wrappers cause "keyword cannot be used as an identifier here" compilation errors.
+        // Fix: GetCdeclParamMapping renames e.g. "in" -> "inParam".
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            Name = keyword,
+            PrivateName = keyword,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, keyword, env);
+
+        // The cdecl param must use the escaped label, not the raw keyword
+        Assert.Contains($"{keyword}Param", cdeclParam);
+        Assert.DoesNotContain($"_ {keyword}:", cdeclParam);
+    }
+
+    [Fact]
+    public void GetCdeclParamMapping_NonKeywordLabel_NotEscaped()
+    {
+        // Normal labels should pass through unchanged
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            Name = "count",
+            PrivateName = "count",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "count", env);
+
+        Assert.Contains("count", cdeclParam);
+        Assert.DoesNotContain("countParam", cdeclParam);
+    }
+
     #endregion
 
     #region Protocol Existential Parameter Tests

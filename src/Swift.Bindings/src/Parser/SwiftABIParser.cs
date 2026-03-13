@@ -1453,8 +1453,17 @@ namespace BindingsGeneration
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsSpiProtected = IsNodeSpiProtected(node),
+                IsModuleInternal = IsNodeModuleInternal(node),
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
+            // Cross-reference with swiftinterface: if property doesn't appear in the public
+            // interface, it's internal even if not explicitly flagged in the ABI JSON.
+            // Uses unqualified Name (consistent with method path at CreateMethodDecl and with
+            // swiftinterface key format — see IsInternalFromSwiftInterface doc comment).
+            if (!decl.IsModuleInternal && parentDecl is TypeDecl propParentForInternal)
+            {
+                decl.IsModuleInternal = IsInternalFromSwiftInterface(propParentForInternal.Name, sanitizedName);
+            }
             if (parentDecl is TypeDecl propParentType)
             {
                 ApplyPropertyActorIsolation(decl, propParentType);

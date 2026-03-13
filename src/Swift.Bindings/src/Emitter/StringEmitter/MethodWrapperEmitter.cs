@@ -95,6 +95,12 @@ public static class MethodWrapperEmitter
         if (IsNonCopyableStructParent(env.ParentDecl))
             return false;
 
+        // 11b. No inout parameters — @_cdecl wrappers can't handle write-back semantics.
+        // Primitive inout has no reconstruction line (can't make a mutable local), and non-primitive
+        // inout would need post-call store-back through the pointer. Fall back to CallConvSwift.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+            return false;
+
         // 12. No nested frozen struct parameters
         if (HasNestedFrozenStructParameter(env))
             return false;
@@ -114,7 +120,15 @@ public static class MethodWrapperEmitter
         if (HasUnsupportedGenericContainerParamsOrReturn(env))
             return false;
 
+        // 14b. No metatype parameters (Any.Type, T.Type) — not C-representable, renders as bare "Type"
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeType(a.SwiftTypeSpec)))
+            return false;
+
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+
+        // 14c. No metatype return types
+        if (IsMetatypeType(returnSpec))
+            return false;
 
         // 15. No opaque return types (some Protocol)
         if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
@@ -265,6 +279,7 @@ public static class MethodWrapperEmitter
             if (label == "_")
                 label = $"arg{i}";
             var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels);
+
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
                 reconstructionLines.Add(reconstruction);
@@ -657,6 +672,10 @@ public static class MethodWrapperEmitter
             if (!CanEmitGenericClassWrapper(env, parentTypeDecl))
                 return false;
         }
+        // Guard 5c: No inout parameters — write-back semantics incompatible with @_cdecl wrappers.
+        // This is a function-level gate (not per-param) because no wrapper path can handle inout.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+            return false;
         // Guard 6: No method-level generics
         if (env.MethodDecl.IsGeneric)
             return false;
@@ -809,6 +828,22 @@ public static class MethodWrapperEmitter
     /// </summary>
     internal static bool IsOptionalType(TypeSpec typeSpec)
         => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: > 0 };
+
+    /// <summary>
+    /// Returns true for metatype types (Any.Type, T.Type, etc.) which are not
+    /// C-representable in @_cdecl wrappers. The generator renders them as bare "Type"
+    /// which doesn't exist in Swift, causing compilation errors.
+    /// </summary>
+    internal static bool IsMetatypeType(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec named)
+        {
+            // Metatypes appear as "Any.Type", "SomeModule.SomeType.Type", or bare "Type"
+            if (named.Name == "Type" || named.Name.EndsWith(".Type"))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Returns true for Optional types that can be handled by @_cdecl wrappers:

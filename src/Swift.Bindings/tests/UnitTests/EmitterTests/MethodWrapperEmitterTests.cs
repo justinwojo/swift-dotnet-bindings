@@ -516,6 +516,240 @@ public class MethodWrapperEmitterTests
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_MetatypeParameter_ReturnsFalse()
+    {
+        // S2: Methods with Any.Type parameters generate bare "Type" in Swift which
+        // doesn't exist as a type name, causing compilation errors.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("doWork", new NamedTypeSpec("Any.Type"), "metaType", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_QualifiedMetatypeParameter_ReturnsFalse()
+    {
+        // Module.SomeType.Type pattern
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("doWork", new NamedTypeSpec("TestModule.Config.Type"), "configType", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_MetatypeReturn_ReturnsFalse()
+    {
+        // S2: Metatype return types also not C-representable
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithReturn("getType", new NamedTypeSpec("Any.Type"), parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NonMetatypeParameter_ReturnsTrue()
+    {
+        // Normal types should still pass
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("doWork", new NamedTypeSpec("Swift.Int"), "count", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void IsMetatypeType_BareType_ReturnsTrue()
+    {
+        Assert.True(MethodWrapperEmitter.IsMetatypeType(new NamedTypeSpec("Type")));
+    }
+
+    [Fact]
+    public void IsMetatypeType_AnyType_ReturnsTrue()
+    {
+        Assert.True(MethodWrapperEmitter.IsMetatypeType(new NamedTypeSpec("Any.Type")));
+    }
+
+    [Fact]
+    public void IsMetatypeType_QualifiedType_ReturnsTrue()
+    {
+        Assert.True(MethodWrapperEmitter.IsMetatypeType(new NamedTypeSpec("TestModule.Foo.Type")));
+    }
+
+    [Fact]
+    public void IsMetatypeType_NormalType_ReturnsFalse()
+    {
+        Assert.False(MethodWrapperEmitter.IsMetatypeType(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_InoutStringParam_ReturnsFalse()
+    {
+        // S9: inout parameters can't be handled by @_cdecl wrappers — write-back
+        // semantics require post-call store-back through the pointer, which the wrapper
+        // doesn't support. Methods with inout params must fall back to CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "mutate",
+            MangledName = "$s10TestModule_mutate",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    Name = "value",
+                    PrivateName = "value",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_InoutPrimitiveParam_ReturnsFalse()
+    {
+        // Primitive inout (e.g., inout Int) also gated — no reconstruction line
+        // means the parameter is an immutable function param, can't pass with &.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "increment",
+            MangledName = "$s10TestModule_increment",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "count",
+                    PrivateName = "count",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void HasCdeclCompatibleFunctionShape_InoutParam_ReturnsFalse()
+    {
+        // Async path gate: inout params also blocked for async @_cdecl wrappers.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "asyncMutate",
+            MangledName = "$s10TestModule_asyncMutate",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "value",
+                    PrivateName = "value",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
     #endregion
 
     #region Symbol Name Tests

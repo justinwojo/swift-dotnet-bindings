@@ -36,8 +36,16 @@ public static class PropertyWrapperEmitter
                 return false;
         }
 
-        // 2b. Skip @_spi protected properties — wrapper can't access them without @_spi import
+        // 2b. Skip internal properties — not accessible from the wrapper module
+        if (propertyDecl.IsModuleInternal)
+            return false;
+
+        // 2c. Skip @_spi protected properties — wrapper can't access them without @_spi import
         if (propertyDecl.IsSpiProtected)
+            return false;
+
+        // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable
+        if (MethodWrapperEmitter.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return false;
 
         // 3. Skip closure properties
@@ -429,10 +437,12 @@ public static class PropertyWrapperEmitter
                 remapped == "Foundation.NSString")
                 return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
 
-            // Classes and ObjC-bridged: return as retained pointer
+            // Classes and ObjC-bridged: return as retained pointer.
+            // Guard: Unmanaged.passRetained() requires a class type — ObjC-rooted/bridged struct
+            // types (e.g., PHPickerResult) must fall through to IndirectResult instead.
             if (typeRecord.Kind == TypeRecordKind.Class ||
-                MarshallingHelpers.IsObjCBridged(typeRecord) ||
-                MarshallingHelpers.IsObjCRooted(typeRecord))
+                ((MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCRooted(typeRecord))
+                 && typeRecord.Kind != TypeRecordKind.Struct))
                 return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
             // Simple enums: return raw value type

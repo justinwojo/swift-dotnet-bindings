@@ -1,11 +1,11 @@
 {
-  "git_sha": "29662011",
+  "git_sha": "509db843",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50925,
+        "lines": 50924,
         "dep_compile": "none"
       },
       "BlinkID": {
@@ -29,13 +29,13 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 24636,
+        "lines": 22219,
         "dep_compile": "none"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92548,
+        "lines": 92331,
         "dep_compile": "none"
       },
       "KeychainAccess": {
@@ -53,7 +53,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32083,
+        "lines": 32063,
         "dep_compile": "none"
       },
       "Mappedin": {
@@ -107,13 +107,13 @@
       "SmartCardIO": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5333,
+        "lines": 5332,
         "dep_compile": "none"
       },
       "SnapKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11505,
+        "lines": 11473,
         "dep_compile": "none"
       },
       "Starscream": {
@@ -227,7 +227,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5112,
+        "lines": 5107,
         "dep_compile": "none"
       },
       "PhoneNumberKit": {
@@ -311,7 +311,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4515,
+        "lines": 3766,
         "dep_compile": "none"
       },
       "TinyConstraints": {
@@ -365,7 +365,7 @@
       "CocoaLumberjackSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1327,
+        "lines": 1027,
         "dep_compile": "none"
       },
       "MBProgressHUD": {

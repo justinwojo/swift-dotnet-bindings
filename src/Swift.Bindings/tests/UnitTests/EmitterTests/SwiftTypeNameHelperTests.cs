@@ -207,5 +207,66 @@ public class SwiftTypeNameHelperTests
         Assert.Contains("&", result);
     }
 
+    [Fact]
+    public void GetSwiftTypeName_ClosureWithEmptyTupleArgs_RendersParentheses()
+    {
+        // P/SDK: Closures with no parameters like () -> Void were rendered as
+        // "Void -> Void" which is invalid Swift. Must be "() -> Void".
+        var closureType = new ClosureTypeSpec(
+            arguments: TupleTypeSpec.Empty,
+            returnType: TupleTypeSpec.Empty);
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("()", result);
+        Assert.Contains("-> Void", result);
+        // Must NOT start with "Void ->" (the old broken pattern)
+        Assert.DoesNotMatch(result, @"^Void\s*->");
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_ClosureWithEmptyTupleArgs_IntReturn_RendersParentheses()
+    {
+        // () -> Int should render as "() -> Swift.Int", not "Void -> Swift.Int"
+        var closureType = new ClosureTypeSpec(
+            arguments: TupleTypeSpec.Empty,
+            returnType: new NamedTypeSpec("Swift.Int"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.StartsWith("()", result);
+        Assert.Contains("-> Swift.Int", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_ClosureWithSingleArg_StillWrapsInParens()
+    {
+        // (Int) -> String — single non-tuple arg should be wrapped in parens
+        var closureType = new ClosureTypeSpec(
+            arguments: new NamedTypeSpec("Swift.Int"),
+            returnType: new NamedTypeSpec("Swift.String"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.StartsWith("(Swift.Int)", result);
+        Assert.Contains("-> Swift.String", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_EscapingClosureWithEmptyArgs_RendersParentheses()
+    {
+        // @escaping () -> Void
+        var closureType = new ClosureTypeSpec(
+            arguments: TupleTypeSpec.Empty,
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("@escaping", result);
+        Assert.Contains("()", result);
+        Assert.DoesNotMatch(result, @"Void\s*->");
+    }
+
     #endregion
 }

@@ -153,7 +153,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
 
         // Swift side: untyped catch block
-        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
         Assert.DoesNotContain("MemoryLayout<", swiftOutput);
     }
 
@@ -170,7 +170,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, _isCancelled, task)", swiftOutput);
+        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
     }
 
     #endregion

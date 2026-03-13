@@ -71,6 +71,13 @@ public static class MemberEmissionValidator
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
+        // Skip internal properties — not accessible from the wrapper module
+        if (property.IsModuleInternal)
+        {
+            skipDetails = "Internal property suppressed from bindings.";
+            return SkipReason.ModuleInternal;
+        }
+
         // Skip @_spi properties — only visible to SPI consumers
         if (property.IsSpiProtected)
         {

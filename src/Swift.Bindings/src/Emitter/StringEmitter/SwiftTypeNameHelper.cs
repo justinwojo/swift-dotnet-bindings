@@ -78,11 +78,20 @@ public static class SwiftTypeNameHelper
         if (typeSpec is ClosureTypeSpec closureType)
         {
             // Build closure type string: (Args) -> Return or (Args) throws -> Return
-            var argsString = GetSwiftTypeName(closureType.Arguments);
-            // Ensure args are wrapped in parentheses
-            if (closureType.Arguments is not TupleTypeSpec)
+            string argsString;
+            if (closureType.Arguments is TupleTypeSpec argsTuple && argsTuple.IsEmptyTuple)
             {
-                argsString = $"({argsString})";
+                // Empty tuple → "()" not "Void" (Swift requires () -> Return, not Void -> Return)
+                argsString = "()";
+            }
+            else
+            {
+                argsString = GetSwiftTypeName(closureType.Arguments);
+                // Ensure args are wrapped in parentheses
+                if (closureType.Arguments is not TupleTypeSpec)
+                {
+                    argsString = $"({argsString})";
+                }
             }
             var returnString = GetSwiftTypeName(closureType.ReturnType);
             if (closureType.ReturnType.IsEmptyTuple)
