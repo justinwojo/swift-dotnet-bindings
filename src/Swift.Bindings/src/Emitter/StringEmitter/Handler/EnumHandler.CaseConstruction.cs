@@ -408,11 +408,14 @@ namespace BindingsGeneration
                 }
                 pInvokeParams.Add("IntPtr resultPtr"); // Result pointer as last param
 
+                // @_cdecl case factory symbols live in the wrapper library, not the original
+                var caseFactoryLibPath = typeDatabase.AsyncLibraryName ?? libPath;
+
                 if (pinvokeHelperContext != null)
                 {
                     pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
                     {
-                        LibraryPath = libPath,
+                        LibraryPath = caseFactoryLibPath,
                         EntryPoint = cdeclSymbol!,
                         MethodName = pInvokeName,
                         ReturnType = "void",
@@ -426,7 +429,7 @@ namespace BindingsGeneration
                 {
                     PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
                     {
-                        LibraryPath = libPath,
+                        LibraryPath = caseFactoryLibPath,
                         EntryPoint = cdeclSymbol!,
                         MethodName = pInvokeName,
                         ReturnType = "void",

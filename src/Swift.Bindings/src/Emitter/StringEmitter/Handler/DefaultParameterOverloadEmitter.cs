@@ -40,10 +40,10 @@ public static class DefaultParameterOverloadEmitter
         if (methodDecl.IsModuleInternal)
             return;
 
-        // Skip methods on internal parent types
-        if (methodDecl.ParentDecl is TypeDecl parentTypeDecl &&
-            (parentTypeDecl.IsModuleInternal ||
-             !env.TypeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out _)))
+        // Skip methods on internal parent types.
+        // Note: nested types (e.g. ImagePipeline.Cache) are not registered in TypeDatabase,
+        // so only check IsModuleInternal — TryGetTypeRecord would incorrectly reject them.
+        if (methodDecl.ParentDecl is TypeDecl parentTypeDecl && parentTypeDecl.IsModuleInternal)
             return;
 
         // Skip methods on generic parent types — Swift extension syntax can't express
@@ -214,8 +214,11 @@ public static class DefaultParameterOverloadEmitter
                     swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
             }
 
-            // Emit @_cdecl method wrapper that calls the @_silgen_name function
-            if (silgenSymbolForMethodCdecl != null && overloadDecl.UsesCdeclMethodWrapper)
+            // Emit @_cdecl method wrapper that calls the @_silgen_name function.
+            // Skip for async methods — @_cdecl wrappers are synchronous and cannot call
+            // async _dbw_ extension methods (would be missing 'await').
+            if (silgenSymbolForMethodCdecl != null && overloadDecl.UsesCdeclMethodWrapper
+                && !overloadDecl.IsAsync)
             {
                 var trimCount = methodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
                 var rawMethodName = methodDecl.GetSwiftName();

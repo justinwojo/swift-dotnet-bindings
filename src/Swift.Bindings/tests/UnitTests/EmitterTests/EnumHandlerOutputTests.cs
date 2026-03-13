@@ -3186,6 +3186,54 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("_sbw_case_failed", swiftOutput);
     }
 
+    [Fact]
+    public void Emit_CdeclEnumCaseFactory_UsesWrapperLibraryPath()
+    {
+        // Regression test: @_cdecl enum case factory P/Invoke must target the wrapper
+        // library (AsyncLibraryName), not the original library. The SBW_ symbol is
+        // compiled into the wrapper xcframework, not the original framework.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+
+        var activeCase = CreateCase("active");
+        activeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(activeCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The case factory P/Invoke must use the wrapper library
+        Assert.Contains("[LibraryImport(\"TestModuleSwiftBindings\", EntryPoint = \"SBW_TestModule_Status_active_", csOutput);
+        // Must NOT use the original module library for SBW_ symbols
+        Assert.DoesNotContain("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"SBW_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_CdeclEnumCaseFactory_UnlabeledAssocValue_NoColonLabel()
+    {
+        // Regression test: unlabeled associated values must produce no argument label
+        // in the Swift wrapper, not "(: value0)" which is invalid Swift syntax.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Error", moduleDecl, isFrozen: false);
+
+        var errorCase = CreateCase("statusCodeUnacceptable");
+        // Unlabeled: TypeLabel is null
+        errorCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int") { TypeLabel = null });
+        enumDecl.Cases.Add(errorCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must NOT contain "(: " — that's the bug pattern from unlabeled values
+        Assert.DoesNotContain("(: ", swiftOutput);
+        // Must contain the correct unlabeled construction
+        Assert.Contains("statusCodeUnacceptable(value0)", swiftOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol()
     {
         var typeDatabase = CreateTypeDatabaseWithString();

@@ -235,6 +235,34 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_AsyncStreamProperty_UsesAsyncLibraryNameForPInvoke()
+    {
+        // Issue L: AsyncStream P/Invoke should use AsyncLibraryName (wrapper library)
+        // rather than the module's native library path. The @_cdecl wrapper lives
+        // in the Swift wrapper library, not the original framework.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Feed", moduleDecl);
+        var property = new PropertyDecl
+        {
+            Name = "updates",
+            SwiftTypeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int")),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // P/Invoke should import from the wrapper library, not from the native dylib
+        Assert.Contains("LibraryImport(\"TestModuleSwiftBindings\"", csOutput);
+        Assert.DoesNotContain("LibraryImport(\"/tmp/TestModule.dylib\"", csOutput);
+    }
+
+    [Fact]
     public void Emit_PropertyWithUnsupportedClosureFallback_EmitsUnsupportedSwiftTypeAttribute()
     {
         var typeDatabase = CreateTypeDatabaseWithInt();
@@ -1651,6 +1679,27 @@ public class PropertyHandlerTests
         Assert.Contains("IntPtr.Zero", conversion);
         Assert.DoesNotContain("SwiftOptional", conversion);
         Assert.False(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_ObjCBridged_HasDuplicatedResultExpr()
+    {
+        // Issue N: ObjCBridged Optional getter produces a ternary that references
+        // the result expression twice (null check + bridge call). When the result
+        // expression is a method call, this means calling P/Invoke twice.
+        // The PropertyHandler.EmitProjectedGetter detects this and caches the result.
+        var inner = new ObjCBridgedProjection("UIKit.UIImage");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, _) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "PInvoke_get_Foo()");
+
+        Assert.NotNull(conversion);
+        // The conversion contains the method call TWICE (ternary check + bridge)
+        var methodCall = "PInvoke_get_Foo()";
+        var firstIdx = conversion!.IndexOf(methodCall, System.StringComparison.Ordinal);
+        Assert.True(firstIdx >= 0, "Conversion should contain the method call");
+        var secondIdx = conversion.IndexOf(methodCall, firstIdx + 1, System.StringComparison.Ordinal);
+        Assert.True(secondIdx >= 0, "ObjCBridged Optional conversion duplicates the method call (triggers caching in EmitProjectedGetter)");
     }
 
     #endregion

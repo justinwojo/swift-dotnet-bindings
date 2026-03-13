@@ -53,12 +53,53 @@ public static class OptionalPointerWrapperEmitter
         bool isSetter = methodDecl.IsAccessor && MarshallingHelpers.MethodIsSetter(methodDecl);
         bool isGetter = methodDecl.IsAccessor && !isSetter;
 
-        // Build Swift parameter list
+        // Compute return type info BEFORE building params so we know the ordering.
+        // C# PInvokeEmitter puts resultPtr first (via HandleReturnType), so we must match.
+        var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
+        var hasReturn = !returnTypeSpec.IsEmptyTuple && !hasLargeOptionalReturn;
+        var returnSwiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        string returnTypeStr;
+        string throwsStr;
+        bool cdeclNeedsResultPtr = false;
+        bool cdeclIsStringReturn = false;
+        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
+        if (useCdecl && hasReturn && !hasLargeOptionalReturn)
+        {
+            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            cdeclReturnMapping = returnMapping;
+            cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
+            if (cdeclIsStringReturn) needsResultPtr = true;
+            cdeclNeedsResultPtr = needsResultPtr;
+            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+            if (cdeclIsStringReturn)
+                Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
+        }
+        else
+        {
+            returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
+        }
+        throwsStr = (useCdecl && methodDecl.Throws) ? "" : (methodDecl.Throws ? " throws" : "");
+
+        // Build Swift parameter list.
+        // Order must match C# PInvokeSignatureBuilder:
+        //   [resultPtr] [args...] [_resultBuf] [self] [errorOut]
+        // resultPtr is FIRST (matches HandleReturnType at position 0).
+        // _resultBuf is AFTER args (matches HandleArguments _optRetPtr).
+        // errorOut is AFTER self (matches HandleSwiftError for non-constructor methods).
         var swiftParams = new List<string>();
         var callArgs = new List<string>();
         var valueArgs = new List<string>(); // Unlabeled values for setter assignment RHS
         var derefCode = new List<string>();
 
+        // 1. Result ptr parameter (first, for indirect returns — matches C# HandleReturnType)
+        if (cdeclNeedsResultPtr)
+        {
+            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        }
+
+        // 2. Method arguments
+        int argIndex = 0;
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(arg));
@@ -81,6 +122,9 @@ public static class OptionalPointerWrapperEmitter
             {
                 // Non-large param in @_cdecl mode: convert to C-compatible type
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+                // Swift's `_` is a discard pattern — cannot be used as a variable name in the body.
+                if (label_ == "_")
+                    label_ = $"arg{argIndex}";
                 var (cdeclParam, reconstruction, callArg) =
                     ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label_, env, omitLabels: true);
                 swiftParams.Add(cdeclParam);
@@ -99,66 +143,33 @@ public static class OptionalPointerWrapperEmitter
                 callArgs.Add($"{label}{swiftName}");
                 valueArgs.Add(swiftName);
             }
+            argIndex++;
         }
 
-        // Check if the return type is a large Optional that needs an out-buffer
-        bool hasLargeOptionalReturn = env.BoundGenericsHandler.IsLargeOptionalReturn(methodDecl);
-
-        // Add result buffer parameter before self (if large Optional return)
+        // 3. Large Optional result buffer (after args — matches C# _optRetPtr at end of HandleArguments)
         if (hasLargeOptionalReturn)
         {
             swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
         }
 
-        // For instance methods, add self as last param
+        // 4. Self parameter (instance methods only)
         bool isInstance = methodDecl.MethodType != MethodType.Static && parentDecl != null && !methodDecl.IsConstructor;
         if (isInstance)
         {
             swiftParams.Add("_ _self: UnsafeMutableRawPointer");
         }
 
-        var callArgsStr = string.Join(", ", callArgs);
-        // Setter RHS: typically one value, no labels needed
-        var setterValueStr = string.Join(", ", valueArgs);
-
-        // Build return type — void when using result buffer
-        var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
-        var hasReturn = !returnTypeSpec.IsEmptyTuple && !hasLargeOptionalReturn;
-        var returnSwiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
-        string returnTypeStr;
-        string throwsStr;
-        bool cdeclNeedsResultPtr = false;
-        bool cdeclIsStringReturn = false;
-        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
-        if (useCdecl && hasReturn && !hasLargeOptionalReturn)
-        {
-            // @_cdecl: use C-compatible return mapping
-            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
-            cdeclReturnMapping = returnMapping;
-            cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
-            if (cdeclIsStringReturn) needsResultPtr = true;
-            cdeclNeedsResultPtr = needsResultPtr;
-            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
-            // Add result ptr param for indirect returns
-            if (needsResultPtr)
-            {
-                swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-                if (cdeclIsStringReturn)
-                    Utf8SliceEmitter.EmitIfNeeded(swiftWriter, null);
-            }
-        }
-        else
-        {
-            returnTypeStr = hasReturn ? $" -> {returnSwiftTypeName}" : "";
-        }
-        throwsStr = (useCdecl && methodDecl.Throws) ? "" : (methodDecl.Throws ? " throws" : "");
-        // @_cdecl throwing: add errorOut param
+        // 5. Error out-pointer (after self — matches C# HandleSwiftError for non-constructor methods)
         if (useCdecl && methodDecl.Throws)
         {
             swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
         }
 
-        // Build paramsStr AFTER all params (resultPtr, errorOut) have been added
+        var callArgsStr = string.Join(", ", callArgs);
+        // Setter RHS: typically one value, no labels needed
+        var setterValueStr = string.Join(", ", valueArgs);
+
+        // Build paramsStr AFTER all params have been added
         var paramsStr = string.Join(",\n    ", swiftParams);
 
         // Determine whether we need through-pointer self access (mutations preserved)

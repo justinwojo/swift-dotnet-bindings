@@ -528,6 +528,45 @@ public class OperatorHandlerOutputTests
     }
 
     [Fact]
+    public void EmitOperator_IndirectResult_EmitsTryCatchForMemoryCleanup()
+    {
+        // Issue P: Operators with indirect result (non-frozen return) must wrap
+        // NativeMemory.Alloc in try/catch to free the buffer on exception.
+        var typeDatabase = CreateTypeDatabaseWithType("TestModule", "BigNum", TypeRecordFlags.None, TypeRecordKind.Struct);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentType = new StructDecl
+        {
+            Name = "BigNum",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BigNum"),
+            MangledName = "$s10TestModule6BigNumVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule6BigNumVMa"
+        };
+
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.BigNum",
+            "TestModule.BigNum", "TestModule.BigNum");
+
+        var output = EmitOperator(op, typeDatabase);
+
+        // Must have try/catch guarding the NativeMemory.Alloc.
+        // catch-only (not finally) because NewFromPayload takes ownership of the buffer
+        // for non-frozen types — using finally would double-free.
+        Assert.Contains("try", output);
+        Assert.Contains("catch { NativeMemory.Free(payload); throw; }", output);
+        Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
     public void EmitOperator_FrozenReturn_NoUnsafeBlock()
     {
         // Frozen struct return types don't need indirect result, so no unsafe block needed.

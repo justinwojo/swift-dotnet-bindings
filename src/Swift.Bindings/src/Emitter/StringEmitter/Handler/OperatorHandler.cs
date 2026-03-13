@@ -383,6 +383,9 @@ namespace BindingsGeneration
                 // Allocate memory and create SwiftIndirectResult for non-frozen/class return types
                 csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
                 csWriter.WriteLine($"var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
                 csWriter.WriteLine($"var swiftIndirectResult = new SwiftIndirectResult(payload);");
 
                 // Call P/Invoke (void return — writes through SwiftIndirectResult)
@@ -397,8 +400,17 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"{pinvokeName}({callArgs});");
                 }
 
-                // Marshal the result back from the indirect result buffer
+                // Marshal the result back from the indirect result buffer.
+                // For non-frozen types (ClassWithOpaquePayload), NewFromPayload wraps the buffer
+                // in a SafeHandle that takes ownership — buffer must NOT be freed on success.
+                // For frozen types, NewFromPayload copies the data — buffer leaks on success.
+                // Using catch-only is correct: non-frozen types dominate this path (they're the
+                // reason indirect result is needed), and a frozen-type minor leak is acceptable
+                // vs a double-free crash.
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("catch { NativeMemory.Free(payload); throw; }");
             }
             else
             {

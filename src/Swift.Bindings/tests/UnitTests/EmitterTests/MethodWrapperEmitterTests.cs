@@ -468,6 +468,54 @@ public class MethodWrapperEmitterTests
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_ActorIsolatedMethod_ReturnsFalse()
+    {
+        // Regression test (Issue G): @ProcessingActor or @MainActor on individual methods
+        // — cannot be called from synchronous nonisolated @_cdecl wrapper
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Session");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Session", moduleDecl);
+        var method = CreateMethod("process", parentDecl, moduleDecl);
+        method.IsActorIsolated = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_MainActorParent_ReturnsFalse()
+    {
+        // Regression test (Issue H): @MainActor-isolated parent type — all members are
+        // actor-isolated, and protocol conformance for type erasure crosses actor boundaries
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ViewModel");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ViewModel", moduleDecl);
+        parentDecl.IsMainActorIsolated = true;
+        var method = CreateMethod("refresh", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_SpiProtectedMethod_ReturnsFalse()
+    {
+        // Regression test (Issue K): @_spi protected methods — wrapper can't access
+        // them without @_spi import
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("errorCode", parentDecl, moduleDecl);
+        method.IsSpiProtected = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
     #endregion
 
     #region Symbol Name Tests

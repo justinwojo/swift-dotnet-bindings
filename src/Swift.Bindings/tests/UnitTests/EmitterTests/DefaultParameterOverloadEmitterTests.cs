@@ -763,5 +763,136 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Contains("LibraryImport", csOutput);
     }
 
+    [Fact]
+    public void TryEmitOverloads_AsyncMethodWithCdecl_SkipsCdeclWrapper()
+    {
+        // Issue O: Async methods should NOT get @_cdecl wrappers — @_cdecl functions
+        // are synchronous and cannot call async _dbw_ extension methods (missing 'await').
+        var typeDb = new TypeDatabase();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FinalCounter"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+                MetadataAccessor = "$s10TestModule12FinalCounterCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "FinalCounter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalCounter"),
+            MangledName = "$s10TestModule12FinalCounterCN",
+            IsFinal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "fetch",
+            MangledName = "$s10TestModule12FinalCounterC5fetch5limitSi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                CreateArg("limit", hasDefault: false),
+                CreateArg("offset", hasDefault: true),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true, // ASYNC method
+            Visibility = Visibility.Public,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true,
+        };
+        parentDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext();
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+        var env = new MethodEnvironment(method, typeDb);
+        var logger = NullLogger.Instance;
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext);
+
+        var swiftOutput = swiftStringWriter.ToString();
+
+        // Should still emit the @_silgen_name wrapper (synchronous factory calling with defaults)
+        Assert.Contains("@_silgen_name", swiftOutput);
+        Assert.Contains("_dbw_fetch_", swiftOutput);
+
+        // Should NOT emit a synchronous @_cdecl method wrapper (Issue O).
+        // The async callback @_cdecl (with _async suffix + Task { await }) IS expected —
+        // it's the correct way to bridge async methods. What must NOT happen is
+        // MethodWrapperEmitter emitting a synchronous @_cdecl that calls the async _dbw_
+        // extension method without await.
+        // The synchronous wrapper would have symbol like "SBW_TestModule_FinalCounter_fetch_..."
+        // WITHOUT the _async suffix. The async wrapper correctly wraps with Task { await }.
+        var cdeclMatches = System.Text.RegularExpressions.Regex.Matches(swiftOutput, @"@_cdecl\(""([^""]+)""\)");
+        foreach (System.Text.RegularExpressions.Match match in cdeclMatches)
+        {
+            var symbol = match.Groups[1].Value;
+            // Async wrapper symbols end in _async — those are fine
+            Assert.True(symbol.EndsWith("_async"),
+                $"Non-async @_cdecl wrapper found for async method: {symbol}. " +
+                "Synchronous @_cdecl wrappers cannot call async _dbw_ extension methods.");
+        }
+    }
+
     #endregion
 }

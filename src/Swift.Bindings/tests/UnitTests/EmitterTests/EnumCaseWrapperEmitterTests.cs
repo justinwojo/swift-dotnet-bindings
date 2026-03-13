@@ -315,6 +315,59 @@ public class EnumCaseWrapperEmitterTests
         Assert.Equal(1, CountOccurrences(output, $"@_cdecl(\"{symbol}\")"));
     }
 
+    [Fact]
+    public void EmitWrapper_UnlabeledAssociatedValue_NoColonInCallArg()
+    {
+        // Regression test: unlabeled associated values (TypeLabel=null) set Name="_".
+        // GetCdeclParamMapping must produce no argument label, not ": ".
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Error", moduleDecl);
+        // Unlabeled associated value: TypeLabel is null (like Nuke's .statusCodeUnacceptable(Int))
+        var intSpec = new NamedTypeSpec("Swift.Int") { TypeLabel = null };
+        var caseDecl = CreateCaseDecl("statusCodeUnacceptable", new List<TypeSpec> { intSpec }, moduleDecl);
+
+        var dummyMethod = CreateDummyMethod("statusCodeUnacceptable", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Error_statusCodeUnacceptable_12345678", env, ctx);
+
+        var output = sw.ToString();
+        // Must NOT contain "(: value0)" — that's the bug pattern
+        Assert.DoesNotContain("(: ", output);
+        // Must contain the enum case construction without label
+        Assert.Contains("TestModule.Error.statusCodeUnacceptable(value0)", output);
+    }
+
+    [Fact]
+    public void EmitWrapper_LabeledAssociatedValue_HasLabelInCallArg()
+    {
+        // Verify labeled associated values still emit "label: val" correctly
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Event", moduleDecl);
+        var intSpec = new NamedTypeSpec("Swift.Int") { TypeLabel = "code" };
+        var caseDecl = CreateCaseDecl("error", new List<TypeSpec> { intSpec }, moduleDecl);
+
+        var dummyMethod = CreateDummyMethod("error", enumDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        EnumCaseWrapperEmitter.EmitSwiftCaseFactoryWrapper(
+            swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Event_error_12345678", env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("code: ", output);
+    }
+
     #endregion
 
     #region Helpers

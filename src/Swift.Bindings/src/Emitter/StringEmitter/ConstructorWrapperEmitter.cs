@@ -320,6 +320,10 @@ public static class ConstructorWrapperEmitter
             }
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            // Swift's `_` is a discard pattern — it cannot be used as a variable name in the body.
+            // Replace with a positional identifier so reconstruction lines like `let _Val = ...` become `let arg0Val = ...`.
+            if (label == "_")
+                label = $"arg{i}";
             var (cdeclParam, reconstruction, callArg) = GetCdeclParamMapping(arg, label, env, omitLabels);
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
@@ -496,6 +500,7 @@ public static class ConstructorWrapperEmitter
         var argLabel = omitLabels ? "" : arg.Name switch
         {
             var n when n.StartsWith("arg") => "",
+            "_" => "",  // Unlabeled parameter (Name set to "_") — no argument label
             var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
             var n when string.IsNullOrEmpty(n) => "",
             var n => $"{n}: "

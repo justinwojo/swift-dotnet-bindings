@@ -4155,6 +4155,25 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ClassReturnPropertyGetter_FreesPayloadInCatchOnly()
+    {
+        // ClassReturn: NewFromPayload takes ownership of classPayload buffer
+        // (non-ObjC reads it into SafeHandle; ObjC frees it directly).
+        // So classPayload must only be freed on error (catch), NOT on success (finally).
+        // Arc.Release also only on error (on success, retained reference consumed by SafeHandle).
+        RegisterClass("ResponseAPDU");
+        var protocolDecl = CreateProtocolWithProperty("CardChannel", "lastResponse",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.ResponseAPDU"));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // Both NativeMemory.Free and Arc.Release must be in catch (error-only)
+        Assert.Contains("catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }", output);
+        // Must NOT have finally (would double-free the buffer that NewFromPayload owns)
+        Assert.DoesNotContain("finally", output);
+    }
+
+    [Fact]
     public void EmitProxyClass_ClassReturnMethod_UsesFullyQualifiedSwiftMarshal()
     {
         // Must use Swift.Runtime.InteropServices.SwiftMarshal, not local MarshalFromSwift

@@ -748,7 +748,19 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     }
                     else
                     {
-                        csWriter.WriteLine($"get => {conv};");
+                        // Check if the expression references the method call more than once
+                        // (e.g., Optional<ObjC> ternary). Cache to avoid calling P/Invoke twice (ARC leak).
+                        var methodCall = $"{methodName}()";
+                        var firstIdx = conv.IndexOf(methodCall, StringComparison.Ordinal);
+                        if (firstIdx >= 0 && conv.IndexOf(methodCall, firstIdx + 1, StringComparison.Ordinal) >= 0)
+                        {
+                            var (cachedConv, _) = GetAccessorGetterConversion(projection, "__ptr");
+                            csWriter.WriteLine($"get {{ var __ptr = {methodName}(); return {cachedConv}; }}");
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"get => {conv};");
+                        }
                     }
                 }
                 return;
@@ -1085,9 +1097,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Get parent type name for Swift wrapper
         var parentTypeName = propertyDecl.ParentDecl is TypeDecl typeDecl ? typeDecl.Name : "Unknown";
 
-        // Get library path from type database using the parent type's module
+        // Get library path — AsyncStream wrappers are @_cdecl in the wrapper library
         var moduleName = propertyDecl.ParentDecl is TypeDecl td ? td.SwiftTypeName.Module : "Unknown";
-        var libraryPath = propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
+        var libraryPath = propertyEnv.TypeDatabase.AsyncLibraryName
+            ?? propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
 
         // Get containing type name for CS0542 collision detection
         string? asyncContainingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;

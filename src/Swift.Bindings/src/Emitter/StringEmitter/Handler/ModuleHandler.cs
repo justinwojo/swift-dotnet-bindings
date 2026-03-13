@@ -361,7 +361,8 @@ namespace BindingsGeneration
         {
             foreach (var type in types)
             {
-                // Check methods
+                // Check methods — @_cdecl wrappers reference parameter and return types from ALL methods,
+                // not just async ones. Missing imports cause "cannot find type 'X' in scope" errors.
                 var methods = type switch
                 {
                     StructDecl s => s.Methods,
@@ -371,12 +372,23 @@ namespace BindingsGeneration
 
                 foreach (var method in methods)
                 {
-                    // Check async methods - their return types appear in Swift callbacks
-                    if (method.IsAsync && method.CSSignature.Count > 0)
+                    foreach (var sig in method.CSSignature)
                     {
-                        var returnType = method.CSSignature.First();
-                        ScanTypeSpecForImports(returnType.SwiftTypeSpec, neededImports);
+                        ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
                     }
+                }
+
+                // Check properties — @_cdecl wrappers also reference property types
+                var properties = type switch
+                {
+                    StructDecl s => s.Properties,
+                    ClassDecl c => c.Properties,
+                    _ => Enumerable.Empty<PropertyDecl>()
+                };
+
+                foreach (var property in properties)
+                {
+                    ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
                 }
 
                 // Recursively check nested types

@@ -38,6 +38,10 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.UsesCdeclPropertyWrapper)
             return false;
 
+        // 3b. Skip @_spi protected methods — wrapper can't access them without @_spi import
+        if (env.MethodDecl.IsSpiProtected)
+            return false;
+
         // 4. xcframework mode required (wrapper library must exist)
         if (string.IsNullOrEmpty(env.TypeDatabase.AsyncLibraryName))
             return false;
@@ -59,8 +63,18 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.IsGeneric)
             return false;
 
-        // 6b. Actor types (only applies to TypeDecl) — actor-isolated methods require async context, @_cdecl is sync
+        // 6b. Actor types — actor-isolated methods require async context, @_cdecl is sync
         if (parentTypeDecl is ClassDecl { IsActor: true })
+            return false;
+
+        // 6c. Actor-isolated methods (e.g. @ProcessingActor, @MainActor on individual methods)
+        // — cannot be called from a synchronous nonisolated @_cdecl wrapper
+        if (env.MethodDecl.IsActorIsolated)
+            return false;
+
+        // 6d. @MainActor-isolated parent types — all members are actor-isolated,
+        // and protocol conformance for type erasure crosses actor boundaries
+        if (parentTypeDecl is { IsMainActorIsolated: true })
             return false;
 
         // 7. Not async (async uses its own wrapper pattern)
@@ -192,19 +206,17 @@ public static class MethodWrapperEmitter
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx);
         }
 
-        // Build Swift parameter list for the @_cdecl wrapper
+        // Build Swift parameter list for the @_cdecl wrapper.
+        // Order must match C# PInvokeSignatureBuilder:
+        //   [resultPtr] [args...] [metadata] [self] [errorOut]
+        // Constructor wrappers use: resultPtr, errorOut, args, metadata (errorOut before args).
+        // Method wrappers use: resultPtr, args, metadata, self, errorOut (errorOut after self).
         var swiftParams = new List<string>();
 
         // Result buffer parameter (first, for indirect results and string returns)
         if (needsResultPtr)
         {
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
-        }
-
-        // Error out-pointer parameter (for throwing methods)
-        if (throws)
-        {
-            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
         }
 
         // Build parameter reconstruction lines and @_cdecl params
@@ -248,6 +260,10 @@ public static class MethodWrapperEmitter
             }
 
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            // Swift's `_` is a discard pattern — it cannot be used as a variable name in the body.
+            // Replace with a positional identifier so reconstruction lines like `let _Val = ...` become `let arg0Val = ...`.
+            if (label == "_")
+                label = $"arg{i}";
             var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels);
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)
@@ -267,7 +283,7 @@ public static class MethodWrapperEmitter
             }
         }
 
-        // Self parameter (instance methods only, last position)
+        // Self parameter (instance methods only)
         if (!isStatic)
         {
             if (isClass)
@@ -276,6 +292,13 @@ public static class MethodWrapperEmitter
                 swiftParams.Add("_ self_: UnsafeMutableRawPointer");
             else
                 swiftParams.Add("_ self_: UnsafeRawPointer");
+        }
+
+        // Error out-pointer parameter (after self — matches C# PInvokeSignatureBuilder
+        // which places errorOut after all other params for non-constructor methods)
+        if (throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
         }
 
         var swiftParamString = string.Join(", ", swiftParams);

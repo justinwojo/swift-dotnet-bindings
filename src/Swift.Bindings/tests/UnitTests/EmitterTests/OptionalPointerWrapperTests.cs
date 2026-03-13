@@ -1171,6 +1171,48 @@ public class OptionalPointerWrapperTests
 
     #endregion
 
+    #region Issue Q — resultPtr Parameter Ordering
+
+    [Fact]
+    public void EmitSwiftWrapper_CdeclWithIndirectReturn_ResultPtrBeforeArgs()
+    {
+        // Issue Q: OptionalPointerWrapperEmitter must put resultPtr FIRST
+        // to match C# PInvokeEmitter.HandleReturnType which adds it at position 0.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        // Method: func describe(value: String?) -> String
+        // String return requires indirect result, Optional<String> param triggers OptBuf
+        var method = CreateMethodDecl("describe", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.String"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("value", optStringType, moduleDecl));
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        OptionalPointerWrapperEmitter.EmitSwiftWrapper(
+            swiftWriter,
+            new MethodEnvironment(method, typeDatabase),
+            parentDecl,
+            useCdecl: true);
+
+        var output = swiftOutput.ToString();
+
+        // resultPtr must appear BEFORE the value parameter in the function signature
+        var resultPtrIdx = output.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var valueIdx = output.IndexOf("value: UnsafeRawPointer");
+        Assert.True(resultPtrIdx >= 0, "resultPtr not found in wrapper output");
+        Assert.True(valueIdx >= 0, "value param not found in wrapper output");
+        Assert.True(resultPtrIdx < valueIdx,
+            $"resultPtr (pos {resultPtrIdx}) must appear before value param (pos {valueIdx})");
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static MethodDecl CreatePropertyAccessorMethod(string propertyName, TypeSpec returnType,

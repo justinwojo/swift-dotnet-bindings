@@ -1464,5 +1464,50 @@ public class PropertyWrapperEmitterTests
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_ActorIsolatedProperty_ReturnsFalse()
+    {
+        // Regression test (Issue H): actor-isolated properties cannot be accessed
+        // from synchronous nonisolated @_cdecl wrapper
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("state", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+        propertyDecl.IsActorIsolated = true;
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_MainActorParent_ReturnsFalse()
+    {
+        // Regression test (Issue H): @MainActor parent type — all members are actor-isolated,
+        // protocol conformance for type erasure crosses actor boundaries
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ViewModel");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ViewModel", moduleDecl);
+        parentDecl.IsMainActorIsolated = true;
+        var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_SpiProtectedProperty_ReturnsFalse()
+    {
+        // Regression test (Issue K): @_spi protected properties — wrapper can't access
+        // them without @_spi import
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("errorCode", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+        propertyDecl.IsSpiProtected = true;
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
     #endregion
 }

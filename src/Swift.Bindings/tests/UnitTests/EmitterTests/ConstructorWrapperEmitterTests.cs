@@ -2596,4 +2596,45 @@ public class ConstructorWrapperEmitterTests
     }
 
     #endregion
+
+    #region Issue E: Underscore Parameter Name Tests
+
+    [Fact]
+    public void GetCdeclParamMapping_UnderscoreLabel_ProducesUsableIdentifier()
+    {
+        // Regression test (Issue E): When a Swift method parameter has no external name (uses `_`),
+        // the label passed to GetCdeclParamMapping must NOT be `_` because `_` is a discard pattern
+        // in Swift and cannot be used as a variable name in reconstruction lines.
+        // The calling code should convert `_` to `arg{i}` before calling GetCdeclParamMapping.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestType");
+        var parentDecl = CreateStructDecl("TestType", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            Name = "_",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Simulate the fix: convert `_` to `arg0` before calling GetCdeclParamMapping
+        var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+        if (label == "_")
+            label = "arg0";
+
+        var method = CreateMethod("test", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels: true);
+
+        // The param should use a valid identifier, not `_`
+        Assert.Contains("arg0", cdeclParam);
+        Assert.DoesNotContain("_ _:", cdeclParam);
+        // The call arg should not produce `(: arg0)` — no colon for positional
+        Assert.DoesNotContain("(: ", callArg);
+    }
+
+    #endregion
 }

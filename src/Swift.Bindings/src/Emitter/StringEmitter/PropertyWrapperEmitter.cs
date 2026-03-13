@@ -36,12 +36,23 @@ public static class PropertyWrapperEmitter
                 return false;
         }
 
+        // 2b. Skip @_spi protected properties — wrapper can't access them without @_spi import
+        if (propertyDecl.IsSpiProtected)
+            return false;
+
         // 3. Skip closure properties
         if (accessorEnv.ClosureHandler.IsClosure(propertyDecl))
             return false;
 
         // 4. Skip async properties (own wrapper pattern)
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
+            return false;
+
+        // 4b. Skip actor-isolated properties — @_cdecl wrappers are synchronous nonisolated,
+        // and protocol conformance for generic class type erasure crosses actor boundaries
+        if (propertyDecl.IsActorIsolated)
+            return false;
+        if (accessorEnv.ParentDecl is TypeDecl parentTd && parentTd.IsMainActorIsolated)
             return false;
 
         // 6. Skip non-copyable (~Copyable) struct parents
