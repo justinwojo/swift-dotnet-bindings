@@ -197,6 +197,7 @@ namespace BindingsGeneration
 
             var sortedDecl = TopologicallySortTypes(decl);
             var emissionCtx = context.GetEmissionContext();
+            var pipeline = new MemberValidationPipeline(typeDatabase);
             foreach (var baseDecl in sortedDecl)
             {
                 if (baseDecl is TypeDecl typeDecl)
@@ -294,40 +295,25 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is MethodDecl methodDecl)
                 {
-                    // Suppress @_spi methods — these are only visible to SPI consumers
-                    // (e.g., other modules in the same package) and should not be in bindings.
-                    if (methodDecl.IsSpiProtected)
+                    // Pipeline: unified emission validation (replaces inline SPI, implicit+overriding,
+                    // synthesized protocol, ShouldSkipMethodEmission, hard gates, and constraint checks).
+                    // Runs BEFORE dedup to match original behavior — skipped methods must not
+                    // reserve dedup keys (an SPI method shouldn't block a non-SPI method with
+                    // the same signature).
+                    var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
+                    if (!validationResult.ShouldEmit)
                     {
                         if (!methodDecl.IsAccessor)
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.ModuleInternal, "@_spi method suppressed from bindings.");
+                        {
+                            if (validationResult.IsSynthesized)
+                                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl);
+                            else
+                                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
+                        }
                         continue;
                     }
 
-                    // Issue M: Skip implicit+overriding constructors that the parser flagged as
-                    // module-internal because the class defines its own designated initializers.
-                    // These constructors don't actually exist at runtime (Swift's initialization rules).
-                    // We specifically check IsImplicit && IsOverride && IsConstructor rather than
-                    // blanket IsModuleInternal, because IsModuleInternal is also set on
-                    // @usableFromInline methods that may still need to be emitted as protocol
-                    // requirement implementations.
-                    if (methodDecl.IsModuleInternal && methodDecl.IsImplicit && methodDecl.IsOverride && methodDecl.IsConstructor)
-                    {
-                        if (!methodDecl.IsAccessor)
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.ModuleInternal, "Implicit+overriding constructor is module-internal.");
-                        continue;
-                    }
-
-                    // Suppress synthesized protocol methods (e.g., hash(into:) for Hashable)
-                    // whose functionality is provided by .NET equivalents (GetHashCode)
-                    if (methodDecl.ParentDecl is TypeDecl parentType &&
-                        MemberEmissionValidator.IsSynthesizedProtocolMethod(methodDecl, parentType))
-                    {
-                        if (!methodDecl.IsAccessor)
-                            ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl);
-                        continue;
-                    }
-
-                    // Create unique signature key to detect duplicates
+                    // Dedup: primary signature dedup (stays in HandleBaseDecl — stateful, shared with post-processors)
                     var signatureKey = GetMethodSignatureKey(methodDecl, typeDatabase, _logger);
                     if (emittedMethodSignatures.Contains(signatureKey))
                     {
@@ -340,11 +326,7 @@ namespace BindingsGeneration
                     }
                     emittedMethodSignatures.Add(signatureKey);
 
-                    // Skip constructors that become parameterless after empty tuple () params are
-                    // stripped (e.g., init(nilLiteral: ()) from ExpressibleByNilLiteral) when a
-                    // parameterless constructor already exists. Must be checked BEFORE projected key
-                    // reservation to avoid the empty-tuple ctor reserving ctor() and blocking the
-                    // real parameterless constructor.
+                    // Empty-tuple constructor collision (ordering-dependent, dedup-adjacent)
                     if (methodDecl.IsConstructor &&
                         ConstructorHandler.HasOnlyEmptyTupleParams(methodDecl) &&
                         ConstructorHandler.HasParameterlessConstructorSibling(methodDecl))
@@ -355,9 +337,7 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // B15: Secondary dedup based on projected C# public method signature.
-                    // Different Swift overloads (e.g., secret: vs clientSecret:) can produce
-                    // identical C# method names after async normalization and parameter projection.
+                    // B15: Secondary dedup based on projected C# public method signature
                     var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger);
                     if (!emittedProjectedSignatures.Add(projectedKey))
                     {
@@ -365,21 +345,6 @@ namespace BindingsGeneration
                         if (!methodDecl.IsAccessor)
                         {
                             ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
-                        }
-                        continue;
-                    }
-
-                    // Check for specific conditions that cause compilation errors but aren't
-                    // caught by the downstream method handler (which has its own UnsupportedSwiftType fallback).
-                    // NOTE: CanEmitMethod is too strict for main emission (blocks ContainsPlaceholder which
-                    // the handler intentionally emits via [UnsupportedSwiftType]). Only check emission-critical
-                    // conditions: B18 non-simple enum .Buffer, B19 SwiftUI refs, C6 async enum tuple.
-                    var methodSkipReason = MemberEmissionValidator.ShouldSkipMethodEmission(methodDecl, typeDatabase, out var methodSkipDetails);
-                    if (methodSkipReason != null)
-                    {
-                        if (!methodDecl.IsAccessor)
-                        {
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, methodSkipReason.Value, methodSkipDetails ?? "");
                         }
                         continue;
                     }

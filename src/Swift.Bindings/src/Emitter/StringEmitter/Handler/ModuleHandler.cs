@@ -152,13 +152,15 @@ namespace BindingsGeneration
                     // (e.g., Swift count(_:) vs count(distinct:) which both project to GetCount<T0>(T0))
                     var emittedMethodSignatures = new HashSet<string>();
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+                    var pipeline = new MemberValidationPipeline(env.TypeDatabase);
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
-                        // Skip internal and @_spi module-level functions
-                        if (methodDecl.IsModuleInternal || methodDecl.IsSpiProtected)
+                        // Pipeline: unified emission validation (SPI, internal, synthesized, closures, modules)
+                        var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
+                        if (!validationResult.ShouldEmit)
                         {
-                            _logger.LogDebug($"Skipping internal/spi module function '{methodDecl.Name}'");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.ModuleInternal, "Internal or @_spi module-level function suppressed from bindings.");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl,
+                                validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
                             csWriter.WriteLine();
                             continue;
                         }

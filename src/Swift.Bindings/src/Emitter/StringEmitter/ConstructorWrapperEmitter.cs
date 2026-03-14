@@ -105,7 +105,7 @@ public static class ConstructorWrapperEmitter
     /// The wrapper can't call these correctly because Swift overload resolution picks the variadic
     /// overload and rejects the array argument as a non-conforming type.
     /// </summary>
-    private static bool HasVariadicExpansionPattern(MethodEnvironment env)
+    internal static bool HasVariadicExpansionPattern(MethodEnvironment env)
     {
         var args = env.MethodDecl.CSSignature.Skip(1).ToList(); // skip return type
         if (args.Count < 2) return false;
@@ -172,7 +172,7 @@ public static class ConstructorWrapperEmitter
     /// For cross-module types where the StructDecl isn't available, falls back to the
     /// NonCopyable flag on the TypeRecord.
     /// </summary>
-    private static bool HasNonCopyableStructParameter(MethodEnvironment env)
+    internal static bool HasNonCopyableStructParameter(MethodEnvironment env)
     {
         var moduleTypes = env.MethodDecl.ModuleDecl?.Types;
 
@@ -212,7 +212,7 @@ public static class ConstructorWrapperEmitter
     /// the Swift compiler rejects with "type of the parameter cannot be represented in Objective-C".
     /// Non-frozen nested structs are fine because they're passed as UnsafeRawPointer.
     /// </summary>
-    private static bool HasNestedFrozenStructParameter(MethodEnvironment env)
+    internal static bool HasNestedFrozenStructParameter(MethodEnvironment env)
     {
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
@@ -248,7 +248,7 @@ public static class ConstructorWrapperEmitter
     /// UnsafeMutableRawBufferPointer, UnsafeBufferPointer, UnsafeMutableBufferPointer).
     /// These are multi-word structs that can't be represented in the @_cdecl C ABI.
     /// </summary>
-    private static bool HasBufferPointerParameter(MethodEnvironment env)
+    internal static bool HasBufferPointerParameter(MethodEnvironment env)
     {
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
@@ -885,7 +885,7 @@ public static class ConstructorWrapperEmitter
     /// Returns true when a constructor on a generic parent type can be wrapped via @_cdecl
     /// using protocol-based type erasure with metatype dispatch.
     /// </summary>
-    private static bool CanEmitGenericClassConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    internal static bool CanEmitGenericClassConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
     {
         // Only class types — protocol metatype dispatch requires AnyObject
         if (parentTypeDecl is not ClassDecl)
