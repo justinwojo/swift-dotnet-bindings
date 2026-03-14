@@ -223,32 +223,15 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void ClassProjection_ReturnPlan_EmitsTryCatch()
+    public void ClassProjection_ReturnPlan_EmitsDirectMarshalFromSwift()
     {
         var projection = new ClassProjection("TestModule.MyClass");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.True(plan.RequiresUnsafe);
-        // Return is embedded in setup (try block), PInvokeExpression is empty
-        Assert.Equal("", plan.PInvokeExpression);
-        Assert.Equal(3, plan.SetupStatements.Count);
-
-        // First: NativeMemory.Alloc
-        var alloc = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("NativeMemory.Alloc", alloc.Code);
-
-        // Second: try block with pointer store + return
-        var tryBlock = Assert.IsType<MarshalStatement.Block>(plan.SetupStatements[1]);
-        Assert.Equal("try", tryBlock.Header);
-        Assert.Equal(2, tryBlock.Body.Count);
-        var returnLine = Assert.IsType<MarshalStatement.Line>(tryBlock.Body[1]);
-        Assert.Contains("MarshalFromSwift", returnLine.Code);
-        Assert.Contains("return", returnLine.Code);
-
-        // Third: catch block with free + throw
-        var catchBlock = Assert.IsType<MarshalStatement.Block>(plan.SetupStatements[2]);
-        Assert.Equal("catch", catchBlock.Header);
-        Assert.Equal(2, catchBlock.Body.Count);
+        // ARC bridge: no buffer allocation, direct MarshalFromSwift
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Equal("(TestModule.MyClass)SwiftMarshal.MarshalFromSwift<TestModule.MyClass>(result)", plan.PInvokeExpression);
+        Assert.Empty(plan.SetupStatements);
     }
 
     [Fact]

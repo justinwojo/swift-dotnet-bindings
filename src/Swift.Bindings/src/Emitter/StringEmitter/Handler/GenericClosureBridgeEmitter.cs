@@ -420,10 +420,14 @@ public static class GenericClosureBridgeEmitter
             methodDecl, env, closureArg);
 
         // --- Public methods ---
+        var classParent = parentDecl as ClassDecl;
+        var selfExpr = classParent != null
+            ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
+            : "_payload.DangerousGetHandle()";
         EmitPublicReturningMethod(csWriter, methodDecl, methodName, closureArgTypes,
-            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env);
+            callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
         EmitPublicVoidMethod(csWriter, methodDecl, methodName, closureArgTypes,
-            callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env);
+            callbackNameVoid, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr);
     }
 
     private static void EmitReturningCallback(
@@ -668,7 +672,8 @@ public static class GenericClosureBridgeEmitter
         string pInvokeName,
         string csClosureName,
         ClosureTypeSpec closureTypeSpec,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        string selfExpr)
     {
         // Build Func<ArgTypes..., T> type
         var funcTypeParams = new List<string>(closureArgTypes);
@@ -722,7 +727,7 @@ public static class GenericClosureBridgeEmitter
         callArgs.Add("resultBuf");
         AddNonClosurePInvokeCallArgs(callArgs, methodDecl);
         if (methodDecl.MethodType == MethodType.Instance)
-            callArgs.Add("new SwiftSelf((void*)_payload.DangerousGetHandle())");
+            callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
             callArgs.Add("out SwiftError swiftError");
 
@@ -782,7 +787,8 @@ public static class GenericClosureBridgeEmitter
         string pInvokeName,
         string csClosureName,
         ClosureTypeSpec closureTypeSpec,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        string selfExpr)
     {
         var actionType = closureArgTypes.Count > 0
             ? $"Action<{string.Join(", ", closureArgTypes)}>"
@@ -818,7 +824,7 @@ public static class GenericClosureBridgeEmitter
         callArgs.Add("GCHandle.ToIntPtr(gcHandle)");
         AddNonClosurePInvokeCallArgs(callArgs, methodDecl);
         if (methodDecl.MethodType == MethodType.Instance)
-            callArgs.Add("new SwiftSelf((void*)_payload.DangerousGetHandle())");
+            callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
             callArgs.Add("out SwiftError swiftError");
 

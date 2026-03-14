@@ -203,7 +203,8 @@ namespace BindingsGeneration
                 // ObjC-rooted class self: Handle IS the object pointer (no buffer dereference)
                 { Name: "_selfClassObjC" } => "Handle",
                 // Instance methods on free-function wrapper paths pass self as explicit IntPtr.
-                { Name: "_selfClass" } => "*(IntPtr*)_payload.DangerousGetHandle()",
+                // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no dereference).
+                { Name: "_selfClass" } => "_handle.DangerousGetHandle()",
                 { Name: "_selfFixed" } => "(IntPtr)__self",
                 { Name: "_self", Type: MarshalledType.Simple("IntPtr") } => "_payload.DangerousGetHandle()",
                 // Implicit trailing TypeMetadata for generic @_silgen_name wrappers:

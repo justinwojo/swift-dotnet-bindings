@@ -5,9 +5,9 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Projection for Swift class types.
-/// Swift classes return a pointer directly. The return path allocates native memory,
-/// stores the pointer, and wraps via MarshalFromSwift. Parameters pass
-/// Payload.DangerousGetHandle().
+/// Swift classes use SwiftClassHandle (direct ARC-bridged SafeHandle). Returns use
+/// MarshalFromSwift to wrap the pointer directly. Parameters pass
+/// _handle.DangerousGetHandle() (the handle IS the Swift object pointer).
 /// </summary>
 public class ClassProjection : ITypeProjection
 {
@@ -30,6 +30,8 @@ public class ClassProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no buffer).
+        // Payload property returns the SwiftClassHandle, DangerousGetHandle() extracts the IntPtr.
         return new MarshalPlan
         {
             PInvokeExpression = $"{paramName}.Payload.DangerousGetHandle()"
@@ -38,32 +40,19 @@ public class ClassProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
-        // Swift classes return a pointer. We allocate native memory, store the pointer,
-        // and wrap via MarshalFromSwift. The try/catch ensures NativeMemory.Free on failure.
-        // The return is embedded inside the try block (PInvokeExpression is empty).
+        // Swift classes return a pointer directly. Pass to MarshalFromSwift which calls
+        // NewFromPayload to create a SwiftClassHandle. No buffer allocation needed.
         return new MarshalPlan
         {
-            SetupStatements = new List<MarshalStatement>
-            {
-                new MarshalStatement.Line($"var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));"),
-                new MarshalStatement.Block("try", new List<MarshalStatement>
-                {
-                    new MarshalStatement.Line($"*(IntPtr*)classPayload = {resultName};"),
-                    new MarshalStatement.Line($"return ({_typeName})SwiftMarshal.MarshalFromSwift<{_typeName}>(new IntPtr(classPayload));"),
-                }),
-                new MarshalStatement.Block("catch", new List<MarshalStatement>
-                {
-                    new MarshalStatement.Line("NativeMemory.Free(classPayload);"),
-                    new MarshalStatement.Line("throw;"),
-                }),
-            },
-            RequiresUnsafe = true
+            PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
         };
     }
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
+    // SwiftClassHandle: Payload property returns SwiftClassHandle,
+    // DangerousGetHandle() extracts the Swift object pointer directly.
     public string? GetParameterElementConversion(string elementVar) =>
         $"{elementVar}.Payload.DangerousGetHandle()";
 

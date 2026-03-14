@@ -159,7 +159,11 @@ public static class AsyncStreamEmitter
         var staticModifier = isStatic ? "static " : "";
         var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
         var propertyName = NameProvider.GetFinalMemberName(baseName, propertyRenames);
-        var selfArg = isStatic ? "" : "(void*)_payload.DangerousGetHandle(), ";
+        var classParent = propertyDecl.ParentDecl as ClassDecl;
+        var selfExpr = classParent != null
+            ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
+            : "_payload.DangerousGetHandle()";
+        var selfArg = isStatic ? "" : $"(void*){selfExpr}, ";
 
         csWriter.WriteLines($$"""
             public {{staticModifier}}{{asyncEnumerableType}} {{propertyName}}

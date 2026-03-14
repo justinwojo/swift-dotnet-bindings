@@ -43,7 +43,7 @@ public class MethodMarshalPlanBuilderTests
 
         Assert.NotNull(plan.SwiftSelf);
         Assert.Equal(SwiftSelfKind.Class, plan.SwiftSelf!.Kind);
-        Assert.Contains("*(void**)", plan.SwiftSelf.CreationCode);
+        Assert.Contains("(void*)_handle.DangerousGetHandle()", plan.SwiftSelf.CreationCode);
     }
 
     [Fact]

@@ -36,8 +36,8 @@ public class TypeHandlersOutputTests
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
         Assert.Contains("public partial class Loader : ISwiftObject, IDisposable", csOutput);
-        Assert.Contains("SwiftSafeHandle<Loader> _payload", csOutput);
-        Assert.Contains("public SwiftSafeHandle<Loader> Payload => _payload;", csOutput);
+        Assert.Contains("SwiftClassHandle<Loader> _handle", csOutput);
+        Assert.Contains("public SwiftClassHandle<Loader> Payload => _handle;", csOutput);
         Assert.Contains("[LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule6LoaderCNMa\")]", csOutput);
     }
 
@@ -351,7 +351,7 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
-    public void Emit_ClassHandler_Finalizer_EmitsGCSuppressFinalize()
+    public void Emit_ClassHandler_NoFinalizer_UsesSwiftClassHandle()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -373,9 +373,10 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        // Class types should emit finalizer and GC.SuppressFinalize in Dispose
-        Assert.Contains("~Loader()", csOutput);
-        Assert.Contains("GC.SuppressFinalize", csOutput);
+        // ARC bridge: no explicit finalizer — SwiftClassHandle's built-in SafeHandle finalizer handles ARC release
+        Assert.DoesNotContain("~Loader()", csOutput);
+        Assert.Contains("SwiftClassHandle<Loader>", csOutput);
+        Assert.Contains("_handle.Dispose()", csOutput);
     }
 
     [Fact]

@@ -581,9 +581,10 @@ namespace BindingsGeneration
                 {
                     if (!classParent.IsObjCRooted)
                     {
-                        // Swift classes always need ref counting - they use _payload SafeHandle
+                        // Swift classes use SwiftClassHandle — still need DangerousAddRef/Release
+                        // to prevent SafeHandle closure during P/Invoke
                         csWriter.WriteLine($"var success = false;");
-                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                        csWriter.WriteLine($"_handle.DangerousAddRef(ref success);");
                     }
                     // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
                 }
@@ -676,9 +677,9 @@ namespace BindingsGeneration
                 {
                     if (!classParentRel.IsObjCRooted)
                     {
-                        // Swift classes always need ref counting - they use _payload SafeHandle
+                        // Swift classes use SwiftClassHandle
                         csWriter.WriteLine($"if (success)");
-                        csWriter.WriteLine($"   _payload.DangerousRelease();");
+                        csWriter.WriteLine($"   _handle.DangerousRelease();");
                     }
                     // ObjC-rooted: no SafeHandle release — NSObject manages lifecycle
                 }

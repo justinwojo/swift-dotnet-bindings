@@ -136,7 +136,7 @@ public class ConstructorHandlerOutputTests
     public void Emit_ClassConstructor_ReturnsIntPtrDirectly()
     {
         // Class constructors return a pointer in-register (not via SwiftIndirectResult).
-        // The P/Invoke returns IntPtr, which is stored in _payload.
+        // The P/Invoke returns IntPtr, which is stored in _handle via SwiftClassHandle.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
@@ -144,7 +144,7 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("_payload = new SwiftSafeHandle<Animal>", csOutput);
+        Assert.Contains("_handle = new SwiftClassHandle<Animal>", csOutput);
         Assert.DoesNotContain("SwiftIndirectResult", csOutput);
         Assert.Contains("var result =", csOutput);
     }

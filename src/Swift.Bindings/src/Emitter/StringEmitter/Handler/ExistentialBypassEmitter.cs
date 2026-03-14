@@ -704,19 +704,21 @@ public static class ExistentialBypassEmitter
         var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);
 
         // Build call arguments: self handle + passthrough args.
-        // Classes: _payload buffer contains the object reference at offset 0 — dereference.
+        // Classes: _handle IS the Swift object pointer (SwiftClassHandle) — pass directly.
         // Non-frozen structs: _payload buffer IS the struct data — pass directly.
         var callArgsList = new List<string>();
-        callArgsList.Add(isClass
-            ? "*(IntPtr*)_payload.DangerousGetHandle()"
-            : "_payload.DangerousGetHandle()");
+        var classParentDecl = env.ParentDecl as ClassDecl;
+        var selfExpr = classParentDecl != null
+            ? (classParentDecl.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
+            : "_payload.DangerousGetHandle()";
+        callArgsList.Add(selfExpr);
         var passthroughCallArgs = string.Join(", ", marshalledArgs);
         if (!string.IsNullOrEmpty(passthroughCallArgs))
             callArgsList.Add(passthroughCallArgs);
         var callArgs = string.Join(", ", callArgsList);
 
-        // Emit public method (unsafe needed for class pointer dereference or stackalloc marshalling)
-        var unsafeModifier = (isClass || needsUnsafe) ? "unsafe " : "";
+        // Emit public method (unsafe needed for stackalloc marshalling)
+        var unsafeModifier = needsUnsafe ? "unsafe " : "";
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}void {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;

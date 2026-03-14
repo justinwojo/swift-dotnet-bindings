@@ -396,17 +396,28 @@ namespace BindingsGeneration
                 && (typeDecl.Documentation.Remarks.Count > 0 || !string.IsNullOrWhiteSpace(typeDecl.Documentation.Throws)))
                 return;
 
-            var swiftKind = typeDecl switch
+            if (typeDecl is ClassDecl)
             {
-                ClassDecl => "class",
-                EnumDecl => "enum",
-                StructDecl => "struct",
-                _ => "type"
-            };
-            csWriter.WriteLine("/// <remarks>");
-            csWriter.WriteLine($"/// This type wraps a Swift {swiftKind} and must be disposed explicitly.");
-            csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
-            csWriter.WriteLine("/// </remarks>");
+                // Classes use ARC-bridged SwiftClassHandle — disposal is optional.
+                csWriter.WriteLine("/// <remarks>");
+                csWriter.WriteLine("/// This type wraps a Swift class with automatic ARC bridging.");
+                csWriter.WriteLine("/// Dispose() is available for deterministic cleanup but is not required.");
+                csWriter.WriteLine("/// The GC finalizer handles ARC release automatically.");
+                csWriter.WriteLine("/// </remarks>");
+            }
+            else
+            {
+                var swiftKind = typeDecl switch
+                {
+                    EnumDecl => "enum",
+                    StructDecl => "struct",
+                    _ => "type"
+                };
+                csWriter.WriteLine("/// <remarks>");
+                csWriter.WriteLine($"/// This type wraps a Swift {swiftKind} and must be disposed explicitly.");
+                csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
+                csWriter.WriteLine("/// </remarks>");
+            }
         }
 
         /// <summary>

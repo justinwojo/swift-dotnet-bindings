@@ -133,20 +133,18 @@ public class MarshalPlanRendererTests
     #region ClassProjection Integration
 
     [Fact]
-    public void RenderReturnPlan_ClassProjection_EmitsTryCatchPattern()
+    public void RenderReturnPlan_ClassProjection_EmitsDirectMarshalFromSwift()
     {
         var projection = new ClassProjection("MyApp.ViewController");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
         var output = Render(plan);
 
-        Assert.Contains("NativeMemory.Alloc", output);
-        Assert.Contains("try", output);
-        Assert.Contains("*(IntPtr*)classPayload = result;", output);
+        // ARC bridge: direct MarshalFromSwift, no buffer allocation
         Assert.Contains("MarshalFromSwift<MyApp.ViewController>", output);
-        Assert.Contains("catch", output);
-        Assert.Contains("NativeMemory.Free(classPayload);", output);
-        Assert.Contains("throw;", output);
+        Assert.DoesNotContain("NativeMemory", output);
+        Assert.DoesNotContain("try", output);
+        Assert.DoesNotContain("catch", output);
     }
 
     #endregion

@@ -301,22 +301,15 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Class_ReturnPlan_Direct_TryCatchNativeMemory()
+    public void Class_ReturnPlan_Direct_MarshalFromSwift()
     {
         var proj = new ClassProjection("ViewController");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.True(plan.RequiresUnsafe);
-        // PInvokeExpression is empty — return is embedded in setup
-        Assert.Equal("", plan.PInvokeExpression);
-
-        var output = Render(plan);
-        Assert.Contains("NativeMemory.Alloc((nuint)sizeof(IntPtr))", output);
-        Assert.Contains("*(IntPtr*)classPayload = result;", output);
-        Assert.Contains("MarshalFromSwift<ViewController>(new IntPtr(classPayload))", output);
-        Assert.Contains("catch", output);
-        Assert.Contains("NativeMemory.Free(classPayload);", output);
-        Assert.Contains("throw;", output);
+        // ARC bridge: no buffer allocation, just MarshalFromSwift directly
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Equal("(ViewController)SwiftMarshal.MarshalFromSwift<ViewController>(result)", plan.PInvokeExpression);
+        Assert.Empty(plan.SetupStatements);
     }
 
     #endregion
@@ -724,14 +717,11 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
         var output = Render(plan);
 
-        // Verify structured try/catch output
-        Assert.Contains("var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));", output);
-        Assert.Contains("try", output);
-        Assert.Contains("*(IntPtr*)classPayload = result;", output);
-        Assert.Contains("return (ViewController)SwiftMarshal.MarshalFromSwift<ViewController>(new IntPtr(classPayload));", output);
-        Assert.Contains("catch", output);
-        Assert.Contains("NativeMemory.Free(classPayload);", output);
-        Assert.Contains("throw;", output);
+        // ARC bridge: direct MarshalFromSwift, no buffer allocation
+        Assert.Contains("return (ViewController)SwiftMarshal.MarshalFromSwift<ViewController>(result);", output);
+        Assert.DoesNotContain("NativeMemory", output);
+        Assert.DoesNotContain("try", output);
+        Assert.DoesNotContain("catch", output);
     }
 
     [Fact]

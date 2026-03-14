@@ -273,7 +273,7 @@ internal class MethodMarshalPlanBuilder
             return new SwiftSelfSetup
             {
                 Kind = SwiftSelfKind.Class,
-                CreationCode = "var self = new SwiftSelf(*(void**)_payload.DangerousGetHandle());"
+                CreationCode = "var self = new SwiftSelf((void*)_handle.DangerousGetHandle());"
             };
         }
 

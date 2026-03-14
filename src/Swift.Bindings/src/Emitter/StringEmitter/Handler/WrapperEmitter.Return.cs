@@ -39,27 +39,21 @@ namespace BindingsGeneration
             }
 
             // Non-ObjC Swift class: P/Invoke returns IntPtr directly (pointer in register).
-            // Store the pointer in a heap-allocated buffer and wrap in SwiftSafeHandle.
+            // Wrap directly in SwiftClassHandle — no buffer allocation needed.
             if (_env.ParentDecl is ClassDecl classDecl)
             {
                 // Build the full type name including generic parameters (e.g., SpikeBox<TElement>)
-                var safeHandleTypeName = GetResolvedTypeName();
+                var handleTypeName = GetResolvedTypeName();
                 if (classDecl.IsGeneric)
-                    safeHandleTypeName += GenericTypeEmitter.GetGenericParameterList(classDecl);
+                    handleTypeName += GenericTypeEmitter.GetGenericParameterList(classDecl);
 
-                // For effectively derived classes, _payload is declared as SwiftSafeHandle<RootBase>.
+                // For effectively derived classes, _handle is declared as SwiftClassHandle<RootBase>.
                 // Use the same predicate as ClassHandler to avoid referencing a skipped base type.
                 if (ClassHandler.IsEffectivelyDerived(classDecl))
                 {
-                    safeHandleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
+                    handleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
                 }
-                csWriter.WriteLines($$"""
-                    unsafe {
-                        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                        *(IntPtr*)bufferPtr = result;
-                        _payload = new SwiftSafeHandle<{{safeHandleTypeName}}>(bufferPtr);
-                    }
-                    """);
+                csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleTypeName}>(result);");
                 return;
             }
 
@@ -405,22 +399,11 @@ namespace BindingsGeneration
                     return;
                 }
 
-                // Swift classes return pointer directly - allocate buffer and store the pointer
+                // Swift classes return pointer directly — pass to MarshalFromSwift which calls
+                // NewFromPayload to create a SwiftClassHandle wrapping the pointer. No buffer needed.
                 if (typeRecord.Kind == TypeRecordKind.Class)
                 {
-                    csWriter.WriteLines($$"""
-                        var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                        try
-                        {
-                            *(IntPtr*)classPayload = result;
-                            return ({{_wrapperSignature.ReturnType}})SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(classPayload));
-                        }
-                        catch
-                        {
-                            NativeMemory.Free(classPayload);
-                            throw;
-                        }
-                        """);
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(result);");
                     return;
                 }
 

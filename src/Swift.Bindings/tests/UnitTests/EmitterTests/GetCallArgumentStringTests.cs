@@ -100,11 +100,11 @@ public class GetCallArgumentStringTests
     }
 
     [Fact]
-    public void GetCallArgumentString_SelfClass_ReturnsPayloadDeref()
+    public void GetCallArgumentString_SelfClass_ReturnsHandleDeref()
     {
         var param = new Parameter(new MarshalledType.Simple("IntPtr"), "_selfClass");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Equal("*(IntPtr*)_payload.DangerousGetHandle()", result);
+        Assert.Equal("_handle.DangerousGetHandle()", result);
     }
 
     [Fact]

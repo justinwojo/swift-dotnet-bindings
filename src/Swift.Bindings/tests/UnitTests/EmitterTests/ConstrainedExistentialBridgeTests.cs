@@ -208,9 +208,8 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains("ISwiftObject analyzer", cs);
         Assert.Contains("nint sessionNumber", cs);
         Assert.Contains(".SwiftHandle", cs);
-        Assert.Contains("NativeMemory.Alloc", cs);
-        Assert.Contains("new SwiftSafeHandle<ScannerModel>", cs);
-        Assert.Contains("Arc.Release(resultPtr)", cs);
+        Assert.Contains("new SwiftClassHandle<ScannerModel>", cs);
+        Assert.DoesNotContain("NativeMemory.Alloc", cs);
     }
 
     [Fact]
@@ -381,9 +380,9 @@ public class ConstrainedExistentialBridgeTests
 
         Assert.True(result);
         var cs = csOut.ToString();
-        // Derived class should use root base type (BaseModel) for SwiftSafeHandle, not DerivedModel
-        Assert.Contains("new SwiftSafeHandle<BaseModel>", cs);
-        Assert.DoesNotContain("SwiftSafeHandle<DerivedModel>", cs);
+        // Derived class should use root base type (BaseModel) for SwiftClassHandle, not DerivedModel
+        Assert.Contains("new SwiftClassHandle<BaseModel>", cs);
+        Assert.DoesNotContain("SwiftClassHandle<DerivedModel>", cs);
     }
 
     [Fact]
@@ -412,8 +411,8 @@ public class ConstrainedExistentialBridgeTests
 
         Assert.True(result);
         var cs = csOut.ToString();
-        // Non-derived class uses its own type for SwiftSafeHandle
-        Assert.Contains("new SwiftSafeHandle<ScannerModel>", cs);
+        // Non-derived class uses its own type for SwiftClassHandle
+        Assert.Contains("new SwiftClassHandle<ScannerModel>", cs);
     }
 
     #endregion

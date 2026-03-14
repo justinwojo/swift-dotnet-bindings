@@ -225,7 +225,8 @@ public class DotNetIdiomPolishTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Contains("Releases the underlying Swift object", csOutput);
+        // ARC bridge: classes use SwiftClassHandle with automatic ARC release
+        Assert.Contains("deterministic cleanup", csOutput);
     }
 
     [Fact]

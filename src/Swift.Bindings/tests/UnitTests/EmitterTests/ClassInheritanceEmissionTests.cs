@@ -266,9 +266,9 @@ public class ClassInheritanceEmissionTests
             baseClass: CreateClassDecl("Animal"),
             derived: CreateClassDecl("Dog"));
 
-        // Base class should have protected _payload
+        // Base class should have protected _handle
         var baseBody = GetClassBody(output, "Animal");
-        Assert.Contains("protected SwiftSafeHandle<Animal> _payload", baseBody);
+        Assert.Contains("protected SwiftClassHandle<Animal> _handle", baseBody);
     }
 
     #endregion
@@ -310,8 +310,8 @@ public class ClassInheritanceEmissionTests
             derived: CreateClassDecl("Dog"));
 
         var derivedBody = GetClassBody(output, "Dog");
-        // Derived constructor creates SwiftSafeHandle using the ROOT base type
-        Assert.Contains("new SwiftSafeHandle<Animal>(handle)", derivedBody);
+        // Derived constructor creates SwiftClassHandle using the ROOT base type
+        Assert.Contains("new SwiftClassHandle<Animal>(handle)", derivedBody);
     }
 
     [Fact]
@@ -328,7 +328,7 @@ public class ClassInheritanceEmissionTests
 
         var childBody = GetClassBody(output, "UploadRequest");
         // UploadRequest's constructor should use Request (root), not DataRequest (immediate parent)
-        Assert.Contains("new SwiftSafeHandle<Request>(handle)", childBody);
+        Assert.Contains("new SwiftClassHandle<Request>(handle)", childBody);
     }
 
     #endregion
@@ -427,10 +427,10 @@ public class ClassInheritanceEmissionTests
         var output = EmitSingleClass(derived);
         var body = GetClassBody(output, "ConcreteChild");
 
-        // _payload field should be SwiftSafeHandle<ConcreteChild>, not SwiftSafeHandle<GenericBase<V>>
-        Assert.Contains("SwiftSafeHandle<ConcreteChild> _payload", body);
-        // Private constructor should also use SwiftSafeHandle<ConcreteChild>
-        Assert.Contains("new SwiftSafeHandle<ConcreteChild>(handle)", body);
+        // _handle field should be SwiftClassHandle<ConcreteChild>, not SwiftClassHandle<GenericBase<V>>
+        Assert.Contains("SwiftClassHandle<ConcreteChild> _handle", body);
+        // Private constructor should also use SwiftClassHandle<ConcreteChild>
+        Assert.Contains("new SwiftClassHandle<ConcreteChild>(handle)", body);
         // Should NOT reference the non-emittable base type anywhere in the handle types
         Assert.DoesNotContain("SwiftSafeHandle<GenericBase", body);
     }
@@ -447,7 +447,8 @@ public class ClassInheritanceEmissionTests
         var output = EmitSingleClass(classDecl);
 
         Assert.Contains("/// <remarks>", output);
-        Assert.Contains("must be disposed explicitly", output);
+        // ARC bridge: classes use SwiftClassHandle with automatic ARC release
+        Assert.Contains("deterministic cleanup", output);
     }
 
     [Fact]

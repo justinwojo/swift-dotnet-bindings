@@ -469,18 +469,19 @@ public class TypeProjectionConsistencyTests
     }
 
     [Fact]
-    public void SignatureAgreement_Class_ReturnHasNativeMemoryAndMarshalFromSwift()
+    public void SignatureAgreement_Class_ReturnHasDirectMarshalFromSwift()
     {
         var proj = new ClassProjection("MyViewController");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.True(plan.RequiresUnsafe);
+        // ARC bridge: no buffer allocation, direct MarshalFromSwift
+        Assert.False(plan.RequiresUnsafe);
 
         var rendered = RenderPlan(plan);
-        Assert.Contains("NativeMemory.Alloc", rendered);
         Assert.Contains("MarshalFromSwift<MyViewController>", rendered);
-        Assert.Contains("try", rendered);
-        Assert.Contains("catch", rendered);
+        Assert.DoesNotContain("NativeMemory", rendered);
+        Assert.DoesNotContain("try", rendered);
+        Assert.DoesNotContain("catch", rendered);
     }
 
     [Fact]

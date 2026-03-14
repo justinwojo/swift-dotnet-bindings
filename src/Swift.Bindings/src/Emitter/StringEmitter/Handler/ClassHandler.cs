@@ -242,31 +242,19 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Emit private fields and payload.
-                // ObjC-rooted classes skip all payload/Dispose/finalizer — lifecycle managed by NSObject.
+                // Emit private fields and handle.
+                // ObjC-rooted classes skip all handle/Dispose — lifecycle managed by NSObject.
                 if (!isObjCRooted)
                 {
                     // All classes need _payloadSize (per-type metadata size for allocation).
-                    // Only root classes emit _payload, Payload property, Dispose(), and finalizer.
                     WriteClassPayloadSize(csWriter, typeNameWithGenerics, isDerived);
+                    // Only root classes emit _handle, Payload property, Dispose().
+                    // No DestroyWrapper needed — SwiftClassHandle calls Arc.Release directly.
+                    // No generated finalizer needed — SafeHandle's built-in finalizer calls ReleaseHandle.
                     if (!isDerived)
                     {
-                        WriteClassPayloadField(csWriter, typeNameWithGenerics);
-                        WriteClassPayload(csWriter, typeNameWithGenerics);
-
-                        // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
-                        // Only root classes register the destroy action (derived classes inherit _payload).
-                        var simpleName = typeNameWithGenerics.Contains('<')
-                            ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
-                            : typeNameWithGenerics;
-                        DestroyWrapperEmitter.EmitIfNeeded(
-                            csWriter, swiftWriter,
-                            simpleName,
-                            typeNameWithGenerics,
-                            moduleDecl.Name,
-                            classDecl.SwiftTypeName.ToString(),
-                            env.TypeDatabase.AsyncLibraryName,
-                            context.GetEmissionContext());
+                        WriteClassHandleField(csWriter, typeNameWithGenerics);
+                        WriteClassHandleAccessors(csWriter, typeNameWithGenerics);
                     }
                 }
 
@@ -366,38 +354,37 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Writes the _payload instance field (root classes only — derived classes inherit).
+        /// Writes the _handle instance field (root classes only — derived classes inherit).
+        /// Uses SwiftClassHandle&lt;T&gt; which directly holds the Swift object pointer (no buffer).
         /// </summary>
-        private static void WriteClassPayloadField(CSharpWriter csWriter, string typeNameWithGenerics)
+        private static void WriteClassHandleField(CSharpWriter csWriter, string typeNameWithGenerics)
         {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"protected SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
+            csWriter.WriteLine($"protected SwiftClassHandle<{typeNameWithGenerics}> _handle = SwiftClassHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
 
         /// <summary>
-        /// Writes the payload accessor for the class.
+        /// Writes the handle accessor, Payload compatibility property, and Dispose for classes.
+        /// No generated finalizer needed — SwiftClassHandle's built-in SafeHandle finalizer
+        /// calls ReleaseHandle → Arc.Release, which is safe on both Mono and NativeAOT.
         /// </summary>
-        private static void WriteClassPayload(CSharpWriter csWriter, string typeNameWithGenerics)
+        private static void WriteClassHandleAccessors(CSharpWriter csWriter, string typeNameWithGenerics)
         {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"public SwiftSafeHandle<{typeNameWithGenerics}> Payload => _payload;");
-            csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();");
+            csWriter.WriteLine($"public SwiftClassHandle<{typeNameWithGenerics}> Payload => _handle;");
+            csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();");
             csWriter.WriteLine();
-            var simpleName = typeNameWithGenerics.Contains('<')
-                ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
-                : typeNameWithGenerics;
             var disposeMethods = $$"""
-            /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
+            /// <summary>
+            /// Releases the underlying Swift ARC reference. Safe to call multiple times.
+            /// Not required for correctness — the finalizer handles ARC cleanup automatically.
+            /// Use for deterministic cleanup of scarce resources.
+            /// </summary>
             public void Dispose()
             {
-                _payload.Dispose();
+                _handle.Dispose();
                 GC.SuppressFinalize(this);
-            }
-
-            ~{{simpleName}}()
-            {
-                Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
             }
             """;
             csWriter.WriteLines(disposeMethods);
@@ -634,16 +621,17 @@ namespace BindingsGeneration
             }
             else
             {
-                // Derived classes assign to the inherited _payload field using the ROOT base class's
-                // SwiftSafeHandle<T> type parameter. For class types, VWT->Destroy calls swift_release
-                // which operates on the isa pointer inside the Swift object, ignoring the metadata's T.
-                var safeHandleType = _rootBaseTypeNameWithGenerics;
+                // SwiftClassHandle directly holds the Swift object pointer (no buffer).
+                // Derived classes assign to the inherited _handle field using the ROOT base class's
+                // SwiftClassHandle<T> type parameter. Arc.Release operates on the isa pointer
+                // inside the Swift object, ignoring the metadata's T.
+                var handleType = _rootBaseTypeNameWithGenerics;
                 // Derived private constructors chain to the base's protected sentinel constructor
                 var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
                 var text = $$"""
                 {{_constructorName}}(SwiftHandle handle){{baseChain}}
                 {
-                    _payload = new SwiftSafeHandle<{{safeHandleType}}>(handle);
+                    _handle = new SwiftClassHandle<{{handleType}}>(handle);
                 }
                 """;
 
@@ -694,6 +682,10 @@ namespace BindingsGeneration
             }
             else
             {
+                // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no buffer).
+                // VWT->InitializeWithCopy for classes expects a pointer TO the class pointer,
+                // so we take the address of a local copy.
+                // DangerousAddRef/Release prevents concurrent finalizer from releasing the handle.
                 var text = $$"""
                 [EditorBrowsable(EditorBrowsableState.Never)]
                 unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
@@ -705,18 +697,18 @@ namespace BindingsGeneration
                     }
                     fixed (void* swiftDest = swiftDestSpan)
                     {
-                        // Ensure that the instance is valid before making copy
                         bool success = false;
-                        _payload.DangerousAddRef(ref success);
+                        _handle.DangerousAddRef(ref success);
                         try
                         {
-                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                            IntPtr selfPtr = _handle.DangerousGetHandle();
+                            metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, &selfPtr, metadata);
                             return (int)metadata.Size;
                         }
                         finally
                         {
                             if (success)
-                                _payload.DangerousRelease();
+                                _handle.DangerousRelease();
                         }
                     }
                 }

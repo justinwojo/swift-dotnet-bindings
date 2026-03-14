@@ -134,10 +134,14 @@ namespace BindingsGeneration
                 else if (isInstanceMethod && isSwiftClass)
                 {
                     // For Swift classes, retain self and store a RetainedSelfPtr marker
-                    // The payload buffer contains a pointer to the class instance - we need to dereference it
+                    // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no dereference)
+                    // DangerousAddRef prevents concurrent finalizer from releasing handle before Arc.Retain
                     csWriter.WriteLines($$"""
-            IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
+            bool _selfSuccess = false;
+            _handle.DangerousAddRef(ref _selfSuccess);
+            IntPtr _selfPtr = _handle.DangerousGetHandle();
             Arc.Retain(_selfPtr);
+            _handle.DangerousRelease();
             """);
                     selfInHolder = ", new RetainedSelfPtr(_selfPtr), (object)this";
                 }
@@ -175,11 +179,15 @@ namespace BindingsGeneration
                 }
                 else if (isSwiftClass)
                 {
-                    // The payload buffer contains a pointer to the class instance - we need to dereference it
+                    // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no dereference)
+                    // DangerousAddRef prevents concurrent finalizer from releasing handle before Arc.Retain
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            IntPtr _selfPtr = *(IntPtr*)_payload.DangerousGetHandle();
+            bool _selfSuccess = false;
+            _handle.DangerousAddRef(ref _selfSuccess);
+            IntPtr _selfPtr = _handle.DangerousGetHandle();
             Arc.Retain(_selfPtr);
+            _handle.DangerousRelease();
             object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);

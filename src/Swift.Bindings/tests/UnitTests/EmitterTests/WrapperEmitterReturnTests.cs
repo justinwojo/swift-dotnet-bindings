@@ -123,9 +123,9 @@ public class WrapperEmitterReturnTests
     }
 
     [Fact]
-    public void DirectReturn_Class_EmitsTryCatchAroundAlloc()
+    public void DirectReturn_Class_EmitsDirectMarshalFromSwift()
     {
-        // Bug #11 regression: class return must use try/catch to free NativeMemory on failure
+        // ARC bridge: class return uses direct MarshalFromSwift, no buffer allocation
         var typeDatabase = CreateTypeDatabaseWithURL();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Container", moduleDecl);
@@ -141,10 +141,9 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Class return must have try-catch wrapping the allocation with free-on-exception
-        Assert.Contains("try", csOutput);
-        Assert.Contains("catch", csOutput);
-        Assert.Contains("NativeMemory.Free", csOutput);
+        // ARC bridge: direct MarshalFromSwift, no buffer or try/catch
+        Assert.Contains("MarshalFromSwift", csOutput);
+        Assert.DoesNotContain("NativeMemory", csOutput);
     }
 
     [Fact]

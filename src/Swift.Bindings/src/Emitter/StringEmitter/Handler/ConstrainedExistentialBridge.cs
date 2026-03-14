@@ -380,27 +380,10 @@ public static class ConstrainedExistentialBridge
         var callArgString = string.Join(", ", pInvokeArgs);
         csWriter.WriteLine($"var resultPtr = {pInvokeCall}({callArgString});");
 
-        // Class return unmarshal: allocate buffer, store pointer, assign to _payload.
-        // Uses SwiftSafeHandle<RootBase> to match the _payload field type (root class declares
-        // the field, derived classes inherit it). The buffer contains the class pointer,
-        // read via *(void**)handle in MethodMarshalPlanBuilder.
-        var safeHandleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
-        csWriter.WriteLine($"var buffer = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));");
-        csWriter.WriteLine("try");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("*(IntPtr*)buffer = resultPtr;");
-        csWriter.WriteLine($"_payload = new SwiftSafeHandle<{safeHandleType}>(new SwiftHandle(buffer));");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.WriteLine("catch");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("NativeMemory.Free((void*)buffer);");
-        csWriter.WriteLine("Arc.Release(resultPtr);");
-        csWriter.WriteLine("throw;");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
+        // Class return unmarshal: wrap pointer directly in SwiftClassHandle.
+        // No buffer allocation needed — SwiftClassHandle IS the Swift object pointer.
+        var handleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
+        csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleType}>(resultPtr);");
         csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
 
         csWriter.Indent--;
