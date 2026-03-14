@@ -331,6 +331,100 @@ public class ClangAstParserTests
     }
 
     [Fact]
+    public void Parse_ObjCProtocolDecl_OptionalMethodsFallbackCurrentFile()
+    {
+        // When clang omits loc.file from a protocol (because it's defined in an included header
+        // and the file context is inherited from a previous declaration), the parser must fall back
+        // to the currentFile tracked in the main parsing loop. This simulates the umbrella header
+        // scenario: umbrella.h includes DDLog.h, and protocol DDLogger in DDLog.h has no loc.file.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_parser_fallback_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            // The included header that contains the protocol
+            var includedHeader = Path.Combine(tempDir, "DDLog.h");
+            File.WriteAllText(includedHeader, """
+                #import <Foundation/Foundation.h>
+                @protocol DDLogger <NSObject>
+                @required
+                - (void)logMessage:(id)logMessage;
+                @optional
+                - (void)didAddLogger;
+                - (void)willRemoveLogger;
+                @end
+                """);
+
+            // Build AST JSON simulating umbrella-include behavior:
+            // - First node has loc.file pointing to DDLog.h (sets currentFile)
+            // - Protocol node has loc WITHOUT file (only line) — simulates inherited file context
+            var json = $$"""
+            {
+                "kind": "TranslationUnitDecl",
+                "inner": [
+                    {
+                        "kind": "ObjCInterfaceDecl",
+                        "name": "DDAbstractLogger",
+                        "loc": { "file": "{{includedHeader.Replace("\\", "\\\\")}}", "line": 1 },
+                        "super": { "name": "NSObject" },
+                        "inner": []
+                    },
+                    {
+                        "kind": "ObjCProtocolDecl",
+                        "name": "DDLogger",
+                        "loc": { "line": 2 },
+                        "range": { "begin": { "line": 2 }, "end": { "line": 8 } },
+                        "protocols": [{ "name": "NSObject" }],
+                        "inner": [
+                            {
+                                "kind": "ObjCMethodDecl",
+                                "name": "logMessage:",
+                                "loc": { "line": 4 },
+                                "instance": true,
+                                "returnType": { "qualType": "void" },
+                                "inner": [
+                                    { "kind": "ParmVarDecl", "name": "logMessage", "type": { "qualType": "id" } }
+                                ]
+                            },
+                            {
+                                "kind": "ObjCMethodDecl",
+                                "name": "didAddLogger",
+                                "loc": { "line": 6 },
+                                "instance": true,
+                                "returnType": { "qualType": "void" },
+                                "inner": []
+                            },
+                            {
+                                "kind": "ObjCMethodDecl",
+                                "name": "willRemoveLogger",
+                                "loc": { "line": 7 },
+                                "instance": true,
+                                "returnType": { "qualType": "void" },
+                                "inner": []
+                            }
+                        ]
+                    }
+                ]
+            }
+            """;
+
+            var module = ClangAstParser.Parse(json, "TestLib", tempDir);
+            Assert.Single(module.Protocols);
+            var proto = module.Protocols[0];
+            Assert.Equal(3, proto.Methods.Count);
+            Assert.False(proto.Methods[0].IsOptional, "logMessage: should be required (@required section)");
+            Assert.True(proto.Methods[1].IsOptional, "didAddLogger should be optional (@optional section)");
+            Assert.True(proto.Methods[2].IsOptional, "willRemoveLogger should be optional (@optional section)");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    [Fact]
     public void Parse_ObjCCategoryDecl_MergesOntoClass()
     {
         // In real clang AST, the category's owning class is in "interface.name",

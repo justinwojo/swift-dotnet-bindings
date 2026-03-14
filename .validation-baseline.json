@@ -1,18 +1,18 @@
 {
-  "git_sha": "4d4eac6b",
+  "git_sha": "820b8b25",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49662,
+        "lines": 50243,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "BlinkID": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31,
+        "lines": 40,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 90248,
+        "lines": 90249,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12424,
+        "lines": 12425,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 31824,
+        "lines": 31810,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -243,14 +243,14 @@
       "Realm": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6431,
+        "lines": 6423,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
       "Stripe3DS2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1240,
+        "lines": 1238,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -404,7 +404,7 @@
       "SDWebImage": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4527,
+        "lines": 4515,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -418,7 +418,7 @@
       "CocoaLumberjack": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1509,
+        "lines": 1496,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -432,7 +432,7 @@
       "MBProgressHUD": {
         "compile": "ok",
         "errors": 0,
-        "lines": 371,
+        "lines": 370,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -453,14 +453,14 @@
       "FirebaseAppCheck": {
         "compile": "ok",
         "errors": 0,
-        "lines": 268,
+        "lines": 267,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
       "FirebaseAppCheckInterop": {
         "compile": "ok",
         "errors": 0,
-        "lines": 84,
+        "lines": 83,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -537,7 +537,7 @@
       "FirebaseInAppMessaging": {
         "compile": "ok",
         "errors": 0,
-        "lines": 535,
+        "lines": 531,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -551,7 +551,7 @@
       "FirebaseMessaging": {
         "compile": "ok",
         "errors": 0,
-        "lines": 214,
+        "lines": 213,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
@@ -621,14 +621,14 @@
       "GTMSessionFetcher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 722,
+        "lines": 719,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
       "AppAuth": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2132,
+        "lines": 2131,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       }

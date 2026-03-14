@@ -86,6 +86,7 @@ public static class ObjCTypeMapper
         ["SecPolicyRef"] = "IntPtr",
         ["AudioComponentInstance"] = "IntPtr",
         ["AudioUnit"] = "IntPtr",
+        ["CMSampleBufferRef"] = "CMSampleBuffer",
     };
 
     static readonly Dictionary<string, string> PrimitiveTypeMappings = new()

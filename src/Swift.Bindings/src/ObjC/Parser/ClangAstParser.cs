@@ -112,7 +112,7 @@ public static class ClangAstParser
                 case "ObjCProtocolDecl":
                     if (!IsForwardDeclaration(node))
                     {
-                        var protocolDecl = ParseProtocolDecl(node);
+                        var protocolDecl = ParseProtocolDecl(node, currentFile);
                         if (protocolDecl != null)
                             protocols.Add(protocolDecl);
                     }
@@ -322,7 +322,7 @@ public static class ClangAstParser
         };
     }
 
-    private static ObjCProtocolDecl? ParseProtocolDecl(JsonElement element)
+    private static ObjCProtocolDecl? ParseProtocolDecl(JsonElement element, string? currentFile = null)
     {
         var name = GetName(element);
         if (name == null) return null;
@@ -342,7 +342,7 @@ public static class ClangAstParser
         var properties = new List<ObjCPropertyDecl>();
         var availability = new List<ObjCAvailability>();
 
-        ParseContainerChildren(element, methods, properties, availability, isProtocol: true);
+        ParseContainerChildren(element, methods, properties, availability, isProtocol: true, currentFile: currentFile);
 
         var (docComment, _) = ExtractDocComment(element);
 
@@ -683,7 +683,8 @@ public static class ClangAstParser
         List<ObjCMethodDecl> methods,
         List<ObjCPropertyDecl> properties,
         List<ObjCAvailability> availability,
-        bool isProtocol)
+        bool isProtocol,
+        string? currentFile = null)
     {
         if (!element.TryGetProperty("inner", out var inner))
             return;
@@ -691,9 +692,12 @@ public static class ClangAstParser
         // For protocols, build a set of source lines that fall in @optional sections
         // by reading the header file. Clang JSON marks properties with control:"optional"
         // but does NOT mark methods — we need source-level section parsing.
+        // Pass currentFile as fallback: clang omits loc.file when it's inherited from the
+        // previous declaration's file context, which happens when headers are included from
+        // an umbrella header.
         HashSet<int>? optionalLines = null;
         if (isProtocol)
-            optionalLines = BuildOptionalLineSet(element);
+            optionalLines = BuildOptionalLineSet(element, currentFile);
 
         foreach (var child in inner.EnumerateArray())
         {
@@ -728,11 +732,14 @@ public static class ClangAstParser
     /// Builds a set of source line numbers that fall within @optional sections
     /// of a protocol, by reading the header file and finding @optional/@required markers.
     /// Returns null if the source file can't be read.
+    /// <param name="currentFile">Fallback file path from the parser's file tracking.
+    /// Clang omits loc.file when the file is inherited from the previous declaration,
+    /// which happens when protocols are defined in headers included from an umbrella header.</param>
     /// </summary>
-    private static HashSet<int>? BuildOptionalLineSet(JsonElement protocolElement)
+    private static HashSet<int>? BuildOptionalLineSet(JsonElement protocolElement, string? currentFile = null)
     {
-        // Resolve the source file from the protocol's loc
-        var filePath = ResolveLocFile(protocolElement);
+        // Resolve the source file from the protocol's loc, with fallback to currentFile
+        var filePath = ResolveLocFile(protocolElement) ?? currentFile;
         if (filePath == null || !File.Exists(filePath))
             return null;
 

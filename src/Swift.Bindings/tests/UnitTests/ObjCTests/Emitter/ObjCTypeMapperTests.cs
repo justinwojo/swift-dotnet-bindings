@@ -369,6 +369,7 @@ public class ObjCTypeMapperTests
     [InlineData("CGContextRef", "CGContext")]
     [InlineData("dispatch_queue_t", "DispatchQueue")]
     [InlineData("dispatch_data_t", "DispatchData")]
+    [InlineData("CMSampleBufferRef", "CMSampleBuffer")]
     public void MapType_CoreFoundationRef_MapsCorrectly(string objcType, string expected)
     {
         var typeRef = new ObjCTypeRef { Name = objcType };
