@@ -124,6 +124,11 @@ namespace BindingsGeneration
                     env.TypeDatabase,
                     conformanceValidator);
 
+                // Frozen structs projected as C# classes (ref fields) — mark with ISwiftStruct
+                // so the SB1001 analyzer can distinguish them from Swift classes (Warning vs Info).
+                if (isProjectedAsClass)
+                    interfaces.Insert(1, nameof(ISwiftStruct));
+
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, structDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(structDecl, env.TypeDatabase);

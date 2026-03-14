@@ -36,11 +36,12 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
         "ISwiftObject should be disposed";
 
     private static readonly LocalizableString MessageFormat =
-        "ISwiftObject '{0}' should be disposed. Use 'using' declaration or call Dispose() explicitly.";
+        "ISwiftObject '{0}' should be disposed. Use 'using' declaration, SwiftDisposeScope, or call Dispose() explicitly.";
 
     private static readonly LocalizableString Description =
-        "Swift objects hold native handles that must be released deterministically. " +
-        "Use a 'using' declaration or call Dispose() explicitly to ensure proper cleanup.";
+        "Swift objects hold native handles that must be released. " +
+        "Struct types require explicit disposal (Warning). " +
+        "Class types have finalizer-safe ARC cleanup but benefit from deterministic disposal (Info).";
 
     private const string Category = "Usage";
 
@@ -88,7 +89,6 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
             if (variable.Initializer == null)
                 continue;
 
-            var symbolInfo = context.SemanticModel.GetSymbolInfo(variable.Initializer.Value);
             ITypeSymbol? type = null;
 
             // Try to get the type from the declared symbol first
@@ -121,9 +121,18 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
             if (IsReturnedFromMethod(variableName, localDeclaration))
                 continue;
 
+            // Choose severity based on type: struct types (ISwiftStruct) get Warning
+            // (disposal important), class types get Info (finalizer handles ARC cleanup).
+            var effectiveSeverity = ImplementsISwiftStruct(type)
+                ? DiagnosticSeverity.Warning
+                : DiagnosticSeverity.Info;
+
             var diagnostic = Diagnostic.Create(
                 Rule,
                 variable.GetLocation(),
+                effectiveSeverity,
+                additionalLocations: null,
+                properties: null,
                 variableName);
 
             context.ReportDiagnostic(diagnostic);
@@ -135,12 +144,21 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
     /// </summary>
     private static bool ImplementsISwiftObject(ITypeSymbol type)
     {
-        return CheckTypeForISwiftObject(type) || type.AllInterfaces.Any(CheckTypeForISwiftObject);
+        return CheckTypeForInterface(type, "ISwiftObject") || type.AllInterfaces.Any(i => CheckTypeForInterface(i, "ISwiftObject"));
     }
 
-    private static bool CheckTypeForISwiftObject(ITypeSymbol type)
+    /// <summary>
+    /// Checks whether a type implements Swift.Runtime.ISwiftStruct (struct type projected as class).
+    /// Used to determine diagnostic severity: Warning for structs, Info for classes.
+    /// </summary>
+    private static bool ImplementsISwiftStruct(ITypeSymbol type)
     {
-        if (type.Name != "ISwiftObject")
+        return CheckTypeForInterface(type, "ISwiftStruct") || type.AllInterfaces.Any(i => CheckTypeForInterface(i, "ISwiftStruct"));
+    }
+
+    private static bool CheckTypeForInterface(ITypeSymbol type, string interfaceName)
+    {
+        if (type.Name != interfaceName)
             return false;
 
         var ns = type.ContainingNamespace;

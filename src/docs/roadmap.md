@@ -32,15 +32,13 @@ Active roadmap: `swiftui-roadmap.md`
 
 Sessions 1A-3 + 4A + 4C already cover the vast majority of real-world SwiftUI views.
 
-## Ownership Automation (3 sessions)
+## Ownership Automation — Complete
 
-Design doc: `ownership-automation-design.md`. Goal: make consuming bindings as frictionless as Xamarin/ObjC.
+Design doc: `Completed/ownership-automation-design.md`. All 3 sessions shipped.
 
-| Session | Focus | Effort | Notes |
-|---------|-------|--------|-------|
-| **1** | SwiftDisposeScope + SB1001 code fix | Medium | Pure runtime/analyzer addition. Batch disposal for any Swift object. |
-| **2** | ARC bridge end-to-end | Large | `SwiftClassHandle<T>` runtime + generator emission. Class disposal becomes optional (GC handles it). |
-| **3** | Documentation + cleanup | Medium | Wiki rewrite, SB1001 severity split, struct finalizer hardening. |
+- **Session 1** (commit `3551784b`): SwiftDisposeScope + SB1001 DisposeScope recognition
+- **Session 2** (commit `ba0afd9d`): SwiftClassHandle ARC bridge — class disposal optional (GC handles it)
+- **Session 3**: ISwiftStruct marker, SB1001 severity split (Warning for structs, Info for classes), struct finalizer hardening on NativeAOT, wiki rewrite
 
 ## Runtime
 

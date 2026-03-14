@@ -25,6 +25,10 @@ namespace Swift.Runtime
     {
     }
 
+    public interface ISwiftStruct : ISwiftObject
+    {
+    }
+
     public sealed class SwiftDisposeScope : IDisposable
     {
         public void Dispose() { }
@@ -32,6 +36,11 @@ namespace Swift.Runtime
 }
 
 public class FooProxy : Swift.Runtime.ISwiftObject
+{
+    public void Dispose() { }
+}
+
+public class StructProxy : Swift.Runtime.ISwiftStruct
 {
     public void Dispose() { }
 }
@@ -46,13 +55,11 @@ public class RegularDisposable : IDisposable
 }
 ";
 
-    // The variable declarator for "var x = new FooProxy();" in a method at
-    // depth 2 (class > method > block) starts at line 29 after the MockTypes preamble.
-    // Column 13 = start of variable name after "        var " (8 spaces + "var ").
-    // Column 31 = end of declarator "x = new FooProxy()".
+    // Span coordinates: line depends on MockTypes length. Column 13 = start of
+    // variable name after "        var " (8 spaces + "var "). End column varies by type name length.
 
     [Fact]
-    public async Task UndisposedLocal_Warns()
+    public async Task UndisposedClassLocal_ReportsInfo()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -64,8 +71,36 @@ public class TestClass
 }
 ";
 
+        // FooProxy implements ISwiftObject (class type) — Info severity
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 31)
+            .WithArguments("x");
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+            ExpectedDiagnostics = { expected },
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task UndisposedStructLocal_ReportsWarning()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        var x = new StructProxy();
+    }
+}
+";
+
+        // StructProxy implements ISwiftStruct — Warning severity
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 31)
+            .WithSpan(43, 13, 43, 34)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -166,7 +201,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task PassedToMethod_StillWarns()
+    public async Task PassedToMethod_StillReportsDiagnostic()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -181,8 +216,9 @@ public class TestClass
 }
 ";
 
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 31)
+        // FooProxy is a class type — Info severity
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -216,7 +252,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task DerivedType_StillWarns()
+    public async Task DerivedClassType_ReportsInfo()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -228,8 +264,9 @@ public class TestClass
 }
 ";
 
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 35)
+        // DerivedProxy extends FooProxy (ISwiftObject, not ISwiftStruct) — Info severity
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 35)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -242,7 +279,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task ConditionalDispose_StillWarns()
+    public async Task ConditionalDispose_StillReportsDiagnostic()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -255,8 +292,9 @@ public class TestClass
 }
 ";
 
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 31)
+        // FooProxy is a class type — Info severity
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -269,7 +307,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task ConditionalDisposeInBlock_StillWarns()
+    public async Task ConditionalDisposeInBlock_StillReportsDiagnostic()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -285,8 +323,9 @@ public class TestClass
 }
 ";
 
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 31)
+        // FooProxy is a class type — Info severity
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -422,7 +461,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task OutsideSwiftDisposeScope_StillWarns()
+    public async Task OutsideSwiftDisposeScope_StillReportsDiagnostic()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -436,10 +475,10 @@ public class TestClass
 }
 ";
 
-        // x is declared BEFORE the scope — should still warn
-        // y is declared AFTER the scope — should NOT warn
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(34, 13, 34, 31)
+        // x is declared BEFORE the scope — should still report (Info for class type)
+        // y is declared AFTER the scope — should NOT report
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(43, 13, 43, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest

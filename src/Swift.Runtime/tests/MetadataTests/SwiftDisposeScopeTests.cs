@@ -381,6 +381,60 @@ public class SwiftDisposeScopeTests
     }
 
     /// <summary>
+    /// Mock ISwiftStruct for testing — verifies the marker interface works correctly
+    /// with scope tracking (same behavior as ISwiftObject).
+    /// </summary>
+    private sealed class MockSwiftStruct : ISwiftStruct, IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+        public int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+            DisposeCount++;
+        }
+
+        // ISwiftObject stubs
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public void ISwiftStructMarker_WorksWithScopeTracking()
+    {
+        var structObj = new MockSwiftStruct();
+        var classObj = new MockSwiftObject();
+
+        using (new SwiftDisposeScope())
+        {
+            SwiftDisposeScope.TryRegister(structObj);
+            SwiftDisposeScope.TryRegister(classObj);
+        }
+
+        Assert.True(structObj.IsDisposed);
+        Assert.True(classObj.IsDisposed);
+    }
+
+    [Fact]
+    public void ISwiftStructMarker_DetachWorksCorrectly()
+    {
+        var structObj = new MockSwiftStruct();
+
+        using (new SwiftDisposeScope())
+        {
+            SwiftDisposeScope.TryRegister(structObj);
+            structObj.DetachFromScope();
+        }
+
+        // Detached struct should NOT be disposed by scope
+        Assert.False(structObj.IsDisposed);
+    }
+
+    /// <summary>
     /// Helper that records its disposal order ID into a shared list.
     /// </summary>
     private sealed class DisposalOrderTracker : IDisposable

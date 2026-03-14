@@ -5734,7 +5734,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class AcceptsSummable<T> : ISwiftObject, IDisposable where T : ISwiftObject
+    public partial class AcceptsSummable<T> : ISwiftObject, ISwiftStruct, IDisposable where T : ISwiftObject
     {
         private T Item_Get()
         {
@@ -5969,7 +5969,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class IntContainer : ISwiftObject, IDisposable
+    public partial class IntContainer : ISwiftObject, ISwiftStruct, IDisposable
     {
         private int Count_Get()
         {
@@ -6162,7 +6162,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class OpaqueProvider : ISwiftObject, IDisposable
+    public partial class OpaqueProvider : ISwiftObject, ISwiftStruct, IDisposable
     {
         private Utf8Slice Label_Get()
         {
@@ -6852,7 +6852,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class Wrapper<T> : ISwiftObject, IDisposable where T : ISwiftObject
+    public partial class Wrapper<T> : ISwiftObject, ISwiftStruct, IDisposable where T : ISwiftObject
     {
         private T Wrapped_Get()
         {
@@ -7073,7 +7073,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class GenericPair<T, U> : ISwiftObject, IDisposable where T : ISwiftObject where U : ISwiftObject
+    public partial class GenericPair<T, U> : ISwiftObject, ISwiftStruct, IDisposable where T : ISwiftObject where U : ISwiftObject
     {
         private T First_Get()
         {
@@ -7479,7 +7479,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class BoundStringPair : ISwiftObject, IDisposable
+    public partial class BoundStringPair : ISwiftObject, ISwiftStruct, IDisposable
     {
         private Utf8Slice First_Get()
         {
@@ -8040,7 +8040,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class UniqueResource : ISwiftObject, IDisposable
+    public partial class UniqueResource : ISwiftObject, ISwiftStruct, IDisposable
     {
         private int Id_Get()
         {
@@ -8273,7 +8273,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class FileHandle : ISwiftObject, IDisposable
+    public partial class FileHandle : ISwiftObject, ISwiftStruct, IDisposable
     {
         [EditorBrowsable(EditorBrowsableState.Never)]
         static nuint _payloadSize = SwiftObjectHelper<FileHandle>.GetTypeMetadata().Size;
@@ -11584,7 +11584,7 @@ namespace SwiftBindingsTestLib
     /// This type wraps a Swift struct and must be disposed explicitly.
     /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
     /// </remarks>
-    public partial class FrozenStructWithProperties : ISwiftObject, IDisposable
+    public partial class FrozenStructWithProperties : ISwiftObject, ISwiftStruct, IDisposable
     {
         [EditorBrowsable(EditorBrowsableState.Never)]
         private SwiftSafeHandle<FrozenStructWithProperties> _payload = SwiftSafeHandle<FrozenStructWithProperties>.Zero;
@@ -12022,7 +12022,7 @@ namespace SwiftBindingsTestLib
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NonFrozenPoint : ISwiftObject, IDisposable
+public partial class NonFrozenPoint : ISwiftObject, ISwiftStruct, IDisposable
 {
     private double X_Get()
     {
@@ -12302,7 +12302,7 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
+public partial class NonFrozenStructWithProperties : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int ConstantValue_Get()
     {
@@ -12557,7 +12557,7 @@ public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NestedOuter : ISwiftObject, IDisposable
+public partial class NestedOuter : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<NestedOuter> _payload = SwiftSafeHandle<NestedOuter>.Zero;
@@ -13014,7 +13014,7 @@ private static partial int PInvoke_innerValue_8BB53792( IntPtr _self);
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class StructBuilder : ISwiftObject, IDisposable
+public partial class StructBuilder : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int Value_Get()
     {
@@ -13937,7 +13937,7 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class BatchConfig : ISwiftObject, IDisposable
+public partial class BatchConfig : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<BatchConfig> _payload = SwiftSafeHandle<BatchConfig>.Zero;
@@ -16904,7 +16904,7 @@ public partial class RangeError : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class TypedThrowingParser : ISwiftObject, IDisposable
+public partial class TypedThrowingParser : ISwiftObject, ISwiftStruct, IDisposable
 {
     private bool Strict_Get()
     {
@@ -17642,7 +17642,7 @@ public enum MathError : int
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class ThrowingStruct : ISwiftObject, IDisposable
+public partial class ThrowingStruct : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int Value_Get()
     {
@@ -18211,7 +18211,7 @@ public unsafe partial struct TupleReturner : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncConfig : ISwiftObject, IDisposable
+public partial class AsyncConfig : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Name_Get()
     {
@@ -18590,7 +18590,7 @@ public enum AsyncError : int
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
+public partial class AsyncThrowingWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Name_Get()
     {
@@ -19289,7 +19289,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncResult : ISwiftObject, IDisposable
+public partial class AsyncResult : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<AsyncResult> _payload = SwiftSafeHandle<AsyncResult>.Zero;
@@ -20179,7 +20179,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncStringWorker : ISwiftObject, IDisposable
+public partial class AsyncStringWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Prefix_Get()
     {
@@ -21256,7 +21256,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncArrayWorker : ISwiftObject, IDisposable
+public partial class AsyncArrayWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Identifier_Get()
     {
@@ -22817,7 +22817,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncComplexWorker : ISwiftObject, IDisposable
+public partial class AsyncComplexWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice WorkerId_Get()
     {
@@ -24901,7 +24901,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MainActorMethods : ISwiftObject, IDisposable
+public partial class MainActorMethods : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int Value_Get()
     {
@@ -25176,7 +25176,7 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class AsyncWorker : ISwiftObject, IDisposable
+public partial class AsyncWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Swift.SwiftString Name_Get()
     {
@@ -27598,7 +27598,7 @@ public partial class SharedState : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SendablePoint : ISwiftObject, IDisposable
+public partial class SendablePoint : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int X_Get()
     {
@@ -28125,7 +28125,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NetworkConfig : ISwiftObject, IDisposable
+public partial class NetworkConfig : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftBindingsTestLib.NetworkConfig.HttpMethod Method_Get()
     {
@@ -29030,7 +29030,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class OrderContainer : ISwiftObject, IDisposable
+public partial class OrderContainer : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice OrderId_Get()
     {
@@ -29576,7 +29576,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class PaymentContainer : ISwiftObject, IDisposable
+public partial class PaymentContainer : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice PaymentId_Get()
     {
@@ -32006,7 +32006,7 @@ public partial class NetworkResponse : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class VisibilityTest : ISwiftObject, IDisposable
+public partial class VisibilityTest : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int PublicValue_Get()
     {
@@ -32671,7 +32671,7 @@ public partial class DerivedClass : OpenBaseClass, ISwiftObject
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class KeywordTest : ISwiftObject, IDisposable
+public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Event_Get()
     {
@@ -33158,7 +33158,7 @@ public partial class KeywordTest : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutableProps : ISwiftObject, IDisposable
+public partial class MutableProps : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<MutableProps> _payload = SwiftSafeHandle<MutableProps>.Zero;
@@ -33440,7 +33440,7 @@ private static partial SwiftBindingsTestLib.MutableProps.Buffer PInvoke_init_0F8
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
+public partial class NonFrozenMutableProps : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int Value_Get()
     {
@@ -34234,7 +34234,7 @@ public unsafe partial struct ComputedSetterStruct : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class StaticProps : ISwiftObject, IDisposable
+public partial class StaticProps : ISwiftObject, ISwiftStruct, IDisposable
 {
     private static int DefaultValue_Get()
     {
@@ -34483,7 +34483,7 @@ public partial class StaticProps : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class StaticMethods : ISwiftObject, IDisposable
+public partial class StaticMethods : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<StaticMethods>.GetTypeMetadata().Size;
@@ -35031,7 +35031,7 @@ public unsafe partial struct ComputedProps : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class ReadOnlyProps : ISwiftObject, IDisposable
+public partial class ReadOnlyProps : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<ReadOnlyProps> _payload = SwiftSafeHandle<ReadOnlyProps>.Zero;
@@ -35359,7 +35359,7 @@ private static partial SwiftBindingsTestLib.ReadOnlyProps.Buffer PInvoke_init_01
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
+public partial class NonFrozenReadOnlyProps : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int StoredInt_Get()
     {
@@ -35604,7 +35604,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class OptionalConfig : ISwiftObject, IDisposable
+public partial class OptionalConfig : ISwiftObject, ISwiftStruct, IDisposable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     private SwiftSafeHandle<OptionalConfig> _payload = SwiftSafeHandle<OptionalConfig>.Zero;
@@ -36027,7 +36027,7 @@ private static partial void PInvoke_effectiveLabel_04D842F4( IntPtr resultPtr,  
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class PointerWorker : ISwiftObject, IDisposable
+public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Label_Get()
     {
@@ -36302,7 +36302,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class RawMemoryWorker : ISwiftObject, IDisposable
+public partial class RawMemoryWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
     private int Alignment_Get()
     {
@@ -36527,7 +36527,7 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class HandleWrapper : ISwiftObject, IDisposable
+public partial class HandleWrapper : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Name_Get()
     {
@@ -37401,7 +37401,7 @@ public interface IHasValue
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleItem : ISwiftObject, IDisposable
+public partial class SimpleItem : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Id_Get()
     {
@@ -37702,7 +37702,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
+public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHasValue
 {
     private int Value_Get()
     {
@@ -37949,7 +37949,7 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
+public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDisplayable
 {
     private Utf8Slice Text_Get()
     {
@@ -38252,7 +38252,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class Person : ISwiftObject, IDisposable, IAgeable
+public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, IAgeable
 {
     private Utf8Slice Name_Get()
     {
@@ -39218,7 +39218,7 @@ public interface IPriorityHandler
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NamedItem : ISwiftObject, IDisposable
+public partial class NamedItem : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Name_Get()
     {
@@ -39393,7 +39393,7 @@ public partial class NamedItem : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutableNamedItem : ISwiftObject, IDisposable
+public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice Name_Get()
     {
@@ -39600,7 +39600,7 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
+public partial class PrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IPrioritized
 {
     private SwiftBindingsTestLib.TaskPriority Priority_Get()
     {
@@ -39769,7 +39769,7 @@ public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutablePrioritized
+public partial class MutablePrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IMutablePrioritized
 {
     private SwiftBindingsTestLib.TaskPriority Priority_Get()
     {
@@ -39967,7 +39967,7 @@ public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutabl
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleTask : ISwiftObject, IDisposable
+public partial class SimpleTask : ISwiftObject, ISwiftStruct, IDisposable
 {
     private Utf8Slice TaskName_Get()
     {
@@ -40211,7 +40211,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
+public partial class EchoProcessor : ISwiftObject, ISwiftStruct, IDisposable, IStringProcessor
 {
     private Utf8Slice Prefix_Get()
     {
@@ -40479,7 +40479,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHandler
+public partial class SimpleStatusHandler : ISwiftObject, ISwiftStruct, IDisposable, IStatusHandler
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SimpleStatusHandler>.GetTypeMetadata().Size;
@@ -40702,7 +40702,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorityHandler
+public partial class SimplePriorityHandler : ISwiftObject, ISwiftStruct, IDisposable, IPriorityHandler
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SimplePriorityHandler>.GetTypeMetadata().Size;

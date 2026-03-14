@@ -21,13 +21,17 @@ namespace Swift.Runtime
     {
     }
 
+    public interface ISwiftStruct : ISwiftObject
+    {
+    }
+
     public sealed class SwiftDisposeScope : IDisposable
     {
         public void Dispose() { }
     }
 }
 
-public class FooProxy : Swift.Runtime.ISwiftObject
+public class StructProxy : Swift.Runtime.ISwiftStruct
 {
     public void Dispose() { }
 }
@@ -41,7 +45,7 @@ public class TestClass
 {
     public void Method()
     {
-        var x = new FooProxy();
+        var x = new StructProxy();
     }
 }
 ";
@@ -51,13 +55,14 @@ public class TestClass
 {
     public void Method()
     {
-        using var x = new FooProxy();
+        using var x = new StructProxy();
     }
 }
 ";
 
+        // StructProxy implements ISwiftStruct — Warning severity
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(25, 13, 25, 31)
+            .WithSpan(29, 13, 29, 34)
             .WithArguments("x");
 
         var test = new CodeFixTest
@@ -78,7 +83,7 @@ public class TestClass
 {
     public void Method()
     {
-        var x = new FooProxy();
+        var x = new StructProxy();
     }
 }
 ";
@@ -89,13 +94,14 @@ public class TestClass
     public void Method()
     {
         using var _ = new Swift.Runtime.SwiftDisposeScope();
-        var x = new FooProxy();
+        var x = new StructProxy();
     }
 }
 ";
 
+        // StructProxy implements ISwiftStruct — Warning severity
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(25, 13, 25, 31)
+            .WithSpan(29, 13, 29, 34)
             .WithArguments("x");
 
         var test = new CodeFixTest

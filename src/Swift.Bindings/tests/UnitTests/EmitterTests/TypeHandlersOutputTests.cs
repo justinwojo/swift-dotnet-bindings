@@ -201,7 +201,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new NonFrozenStructHandler(new NullLogger<NonFrozenStructHandler>()));
 
-        Assert.Contains("public partial class CacheKey : ISwiftObject, IDisposable", csOutput);
+        Assert.Contains("public partial class CacheKey : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.Contains("SwiftSafeHandle<CacheKey> _payload", csOutput);
         Assert.Contains("public SwiftSafeHandle<CacheKey> Payload => _payload;", csOutput);
     }
@@ -228,7 +228,7 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
 
-        Assert.Contains("public partial class Blob : ISwiftObject, IDisposable", csOutput);
+        Assert.Contains("public partial class Blob : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.Contains("public struct Buffer {", csOutput);
         Assert.Contains("public unsafe PayloadBuffer<Blob.Buffer> PayloadBuffer => new PayloadBuffer<Blob.Buffer>(_payload);", csOutput);
     }

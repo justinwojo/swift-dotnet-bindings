@@ -81,9 +81,19 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
+    /// Cached Mono runtime detection for finalizer safety decisions.
+    /// On Mono, the VWT Destroy path can trigger jit-info.c:918 crashes from the finalizer
+    /// thread. The @_cdecl destroy action uses CallingConvention.Cdecl which avoids this,
+    /// but may still trigger other Mono finalizer issues with Swift runtime calls.
+    /// On NativeAOT (production), both paths are safe from the finalizer thread.
+    /// </summary>
+    private static readonly bool s_isMonoRuntime = Type.GetType("Mono.Runtime") != null;
+
+    /// <summary>
     /// Tracks whether Dispose() was explicitly called.
-    /// If true, we're in explicit disposal and should call Destroy.
-    /// If false when ReleaseHandle runs, we're in finalization and should skip Destroy.
+    /// If true, we're in explicit disposal and should call Destroy via any path.
+    /// If false when ReleaseHandle runs, we're in finalization — the @_cdecl destroy
+    /// action (Cdecl-safe) is called on NativeAOT; on Mono, only the buffer is freed.
     /// </summary>
     private volatile bool _explicitDispose;
 
@@ -106,9 +116,10 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// Also suppresses finalization since cleanup is already handled.
     /// </summary>
     /// <remarks>
-    /// Failing to call Dispose() will cause the finalizer to run, which skips Swift's Destroy
-    /// to avoid crashes during runtime shutdown. This means the Swift ARC reference count won't
-    /// be decremented, leaking native memory. Always use 'using' or call Dispose() explicitly.
+    /// Failing to call Dispose() will cause the finalizer to run. On NativeAOT (production),
+    /// the @_cdecl destroy action is called from the finalizer via SafeHandle, providing the same
+    /// cleanup as explicit Dispose. On Mono (simulator), the finalizer only frees the buffer
+    /// without calling Destroy — use 'using' or call Dispose() explicitly in dev builds.
     /// </remarks>
     public new void Dispose()
     {
@@ -122,10 +133,22 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// This method must not throw exceptions per the SafeHandle contract.
     /// </summary>
     /// <remarks>
-    /// During finalization (when Dispose wasn't explicitly called), calling Swift's Destroy
-    /// can crash if the Swift runtime is shutting down. In that case, we only free the buffer
-    /// and emit a diagnostic warning so developers can identify the leak.
-    /// During explicit disposal, we call Destroy to properly decrement reference counts.
+    /// <para>
+    /// During explicit disposal: calls the @_cdecl destroy action or VWT Destroy to
+    /// properly decrement reference counts, then frees the buffer.
+    /// </para>
+    /// <para>
+    /// During finalization on NativeAOT: if a @_cdecl destroy action is registered
+    /// (CallingConvention.Cdecl — safe from the finalizer thread), calls it to provide
+    /// the same safety net as explicit Dispose. This makes struct lifecycle match class
+    /// lifecycle on NativeAOT: the finalizer is a reliable safety net.
+    /// </para>
+    /// <para>
+    /// During finalization on Mono: skips Destroy (both @_cdecl and VWT) to avoid
+    /// potential crashes from calling into the Swift runtime from Mono's finalizer thread.
+    /// Only the .NET-allocated buffer is freed. This is a dev-only limitation (Mono is
+    /// only used for simulator builds).
+    /// </para>
     /// </remarks>
     protected override unsafe bool ReleaseHandle()
     {
@@ -133,24 +156,22 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
-        // Warn when handle is finalized without explicit Dispose — the Swift ARC
-        // reference count won't be decremented, which may leak native memory.
-        if (!_explicitDispose && handle != IntPtr.Zero)
+        // Warn when handle is finalized without explicit Dispose on Mono,
+        // where the finalizer cannot safely call Destroy.
+        if (!_explicitDispose && s_isMonoRuntime && handle != IntPtr.Zero)
         {
             Debug.WriteLine($"[SwiftSafeHandle] WARNING: SwiftSafeHandle<{typeof(T).Name}> " +
-                $"(0x{handle:X}) was finalized without Dispose(). " +
+                $"(0x{handle:X}) was finalized without Dispose() on Mono. " +
                 "Swift ARC reference count was not decremented. " +
                 "Use 'using' or call Dispose() explicitly.");
         }
 
-        // Only call Destroy during explicit disposal, not during finalization.
-        // During finalization/shutdown, the Swift runtime may be in an inconsistent state
-        // causing native crashes that C# try-catch cannot handle.
-        if (_explicitDispose)
+        try
         {
-            try
+            var destroyAction = s_destroyAction;
+            if (_explicitDispose)
             {
-                var destroyAction = s_destroyAction;
+                // Explicit Dispose: always call Destroy (safe — we're on a user thread).
                 if (destroyAction != null)
                 {
                     // Use the @_cdecl wrapper (avoids CallConvSwift crash on NativeAOT).
@@ -168,10 +189,21 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
                     }
                 }
             }
-            catch
+            else if (destroyAction != null && !s_isMonoRuntime)
             {
-                // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
+                // Finalization on NativeAOT with @_cdecl destroy action registered:
+                // The @_cdecl wrapper uses CallingConvention.Cdecl (NOT CallConvSwift),
+                // which is safe from the GC finalizer thread. This provides the same
+                // cleanup as explicit Dispose — struct lifecycle matches class lifecycle.
+                destroyAction(handle);
             }
+            // Finalization on Mono or no destroy action: skip Destroy.
+            // On Mono, calling into Swift runtime from the finalizer thread is unsafe.
+            // Without a registered destroy action, VWT Destroy may use CallConvSwift.
+        }
+        catch
+        {
+            // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
         }
 
         // Always free the .NET-allocated buffer
