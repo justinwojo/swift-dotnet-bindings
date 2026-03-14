@@ -2012,6 +2012,8 @@ public class SwiftInterfaceAccessParserTests
     public void GetSubscriptLabels_MultipleLabels_ObjectMapper()
     {
         // ObjectMapper pattern: subscript(key:nested:delimiter:)
+        // In Swift subscripts, single-name params have NO label (key: String → _),
+        // while two-name params have explicit labels (nested nested: String → nested)
         var swiftInterface = """
             public class Map {
               public subscript(key: Swift.String, nested nested: Swift.String?, delimiter delimiter: Swift.String) -> Any? { get set }
@@ -2023,8 +2025,8 @@ public class SwiftInterfaceAccessParserTests
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
             Assert.Single(result);
-            Assert.True(result.ContainsKey("Map.subscript(key:nested:delimiter:)"));
-            Assert.Equal(new[] { "key", "nested", "delimiter" }, result["Map.subscript(key:nested:delimiter:)"]);
+            Assert.True(result.ContainsKey("Map.subscript(_:nested:delimiter:)"));
+            Assert.Equal(new[] { "_", "nested", "delimiter" }, result["Map.subscript(_:nested:delimiter:)"]);
         }
         finally { File.Delete(path); }
     }
@@ -2033,6 +2035,7 @@ public class SwiftInterfaceAccessParserTests
     public void GetSubscriptLabels_MultipleLabels_IgnoreNil()
     {
         // ObjectMapper pattern: subscript(key:delimiter:ignoreNil:)
+        // First param (key: String) is single-name → no label (_)
         var swiftInterface = """
             public class Map {
               public subscript(key: Swift.String, delimiter delimiter: Swift.String, ignoreNil ignoreNil: Swift.Bool) -> Any? { get set }
@@ -2044,8 +2047,8 @@ public class SwiftInterfaceAccessParserTests
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
             Assert.Single(result);
-            Assert.True(result.ContainsKey("Map.subscript(key:delimiter:ignoreNil:)"));
-            Assert.Equal(new[] { "key", "delimiter", "ignoreNil" }, result["Map.subscript(key:delimiter:ignoreNil:)"]);
+            Assert.True(result.ContainsKey("Map.subscript(_:delimiter:ignoreNil:)"));
+            Assert.Equal(new[] { "_", "delimiter", "ignoreNil" }, result["Map.subscript(_:delimiter:ignoreNil:)"]);
         }
         finally { File.Delete(path); }
     }
@@ -2053,6 +2056,11 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_MultipleSubscripts()
     {
+        // Both subscripts have single-name params → both get label "_".
+        // subscript(_ index: Int) and subscript(key: String) have the same
+        // calling convention in Swift (no argument label). The second overwrites
+        // the first in the dictionary (same key pattern), which is harmless since
+        // both map to "_" anyway.
         var swiftInterface = """
             public class Container {
               public subscript(_ index: Swift.Int) -> Swift.String { get }
@@ -2064,11 +2072,10 @@ public class SwiftInterfaceAccessParserTests
         try
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
-            Assert.Equal(2, result.Count);
+            // Both produce key "Container.subscript(_:)" — second overwrites first
+            Assert.Single(result);
             Assert.True(result.ContainsKey("Container.subscript(_:)"));
-            Assert.True(result.ContainsKey("Container.subscript(key:)"));
             Assert.Equal(new[] { "_" }, result["Container.subscript(_:)"]);
-            Assert.Equal(new[] { "key" }, result["Container.subscript(key:)"]);
         }
         finally { File.Delete(path); }
     }
@@ -2121,6 +2128,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_GenericSubscript()
     {
+        // Single-name param (key: String) → no label
         var swiftInterface = """
             public class Cache {
               public subscript<T>(key: Swift.String) -> T? { get set }
@@ -2132,8 +2140,8 @@ public class SwiftInterfaceAccessParserTests
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
             Assert.Single(result);
-            Assert.True(result.ContainsKey("Cache.subscript(key:)"));
-            Assert.Equal(new[] { "key" }, result["Cache.subscript(key:)"]);
+            Assert.True(result.ContainsKey("Cache.subscript(_:)"));
+            Assert.Equal(new[] { "_" }, result["Cache.subscript(_:)"]);
         }
         finally { File.Delete(path); }
     }
@@ -2141,6 +2149,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_StaticSubscript()
     {
+        // Single-name param (key: String) → no label
         var swiftInterface = """
             public class Registry {
               public static subscript(key: Swift.String) -> Swift.Int { get }
@@ -2152,8 +2161,8 @@ public class SwiftInterfaceAccessParserTests
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
             Assert.Single(result);
-            Assert.True(result.ContainsKey("Registry.subscript(key:)"));
-            Assert.Equal(new[] { "key" }, result["Registry.subscript(key:)"]);
+            Assert.True(result.ContainsKey("Registry.subscript(_:)"));
+            Assert.Equal(new[] { "_" }, result["Registry.subscript(_:)"]);
         }
         finally { File.Delete(path); }
     }
@@ -2161,6 +2170,7 @@ public class SwiftInterfaceAccessParserTests
     [Fact]
     public void GetSubscriptLabels_MultiLineSubscript()
     {
+        // Multi-line: first param single-name → _, others two-name → labeled
         var swiftInterface = """
             public class Map {
               public subscript(key: Swift.String,
@@ -2174,8 +2184,8 @@ public class SwiftInterfaceAccessParserTests
         {
             var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
             Assert.Single(result);
-            Assert.True(result.ContainsKey("Map.subscript(key:nested:delimiter:)"));
-            Assert.Equal(new[] { "key", "nested", "delimiter" }, result["Map.subscript(key:nested:delimiter:)"]);
+            Assert.True(result.ContainsKey("Map.subscript(_:nested:delimiter:)"));
+            Assert.Equal(new[] { "_", "nested", "delimiter" }, result["Map.subscript(_:nested:delimiter:)"]);
         }
         finally { File.Delete(path); }
     }

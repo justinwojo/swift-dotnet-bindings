@@ -2157,14 +2157,22 @@ public static class SwiftInterfaceAccessParser
             }
 
             var beforeColon = trimPart.Substring(0, colonIdx).Trim();
-            // Split by whitespace — first token is the external label
+            // Split by whitespace to distinguish label from parameter name.
+            // In Swift subscripts, single-name params have NO argument label:
+            //   subscript(key: String)      → words=["key"]      → no label (call: obj[val])
+            //   subscript(_ key: String)    → words=["_","key"]  → no label (call: obj[val])
+            // Only two-name params where the first isn't "_" have a label:
+            //   subscript(bitAt index: Int) → words=["bitAt","index"] → label "bitAt" (call: obj[bitAt: 0])
+            //   subscript(key key: String)  → words=["key","key"]     → label "key" (call: obj[key: val])
             var words = beforeColon.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length > 0)
+            if (words.Length >= 2 && words[0] != "_")
             {
+                // Explicit argument label: subscript(bitAt index: Int)
                 labels.Add(words[0]);
             }
             else
             {
+                // Single name or explicit "_" — no argument label
                 labels.Add("_");
             }
         }

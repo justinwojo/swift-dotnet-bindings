@@ -1695,12 +1695,15 @@ namespace BindingsGeneration
                     for (int i = 0; i < Math.Min(labels.Count, indexParameters.Count); i++)
                     {
                         var label = labels[i];
-                        // Don't overwrite with "_" if ABI already has a meaningful label
                         if (label == "_")
                         {
-                            // Ensure unlabeled params get the "indexN" name pattern
+                            // No argument label — force the "indexN" name pattern so
+                            // FixSubscriptCallArg strips the label from bracket syntax.
+                            // The ABI JSON may have a param name (e.g., "key" from subscript(key:))
+                            // that looks like a label but isn't — subscripts with single-name params
+                            // have no argument label in Swift.
                             if (!indexParameters[i].Name.StartsWith("index"))
-                                continue;
+                                indexParameters[i].Name = $"index{i}";
                         }
                         else
                         {

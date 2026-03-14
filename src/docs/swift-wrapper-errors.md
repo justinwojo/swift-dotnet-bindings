@@ -2,11 +2,15 @@
 
 Comprehensive analysis of Swift wrapper compilation failures caught by `validate-libraries.sh`. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 36/56 passing (34 ObjC/no wrapper), 20 failing.
+**Baseline**: 41/56 passing (34 ObjC/no wrapper), 15 failing.
 
-**Previous baselines**: 37/56 (session 7), 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
+**Previous baselines**: 36/56 (session 8), 37/56 (session 7), 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
 
 ## Session History
+
+**Session 9** (5 libraries fixed: Nuke x3, PhoneNumberKit, ObjectMapper):
+- EC-9 (refined): `SwiftInterfaceAccessParser.GetSubscriptLabels()` now correctly distinguishes labeled vs unlabeled subscript params. In Swift subscripts, single-name params (`subscript(key: String)`) have NO argument label — only two-name params (`subscript(bitAt index: Int)`) do. The `.swiftinterface` format is ambiguous for single-name (identical output for `subscript(key:)` and `subscript(_ key:)`), but the ABI JSON (`subscript(_:)`) is authoritative. Parser now returns `_` for single-name params. `SwiftABIParser.CreateSubscriptDecl()` forces `indexN` name pattern when `.swiftinterface` confirms no label. Fixes Nuke x3 (4 errors → 0 each), ObjectMapper (3 errors → 0).
+- EC-11 (refined): `MethodWrapperEmitter.EmitSwiftMethodWrapper()` now accepts `silgenHasResultBuffer` parameter. When the `@_silgen_name` target has `_resultBuf` for large optional returns (e.g., `Optional<String>`), the `@_cdecl` wrapper forwards `resultPtr` to the silgen call and skips its own result handling. For throwing methods, the forwarding integrates with the existing `do { try ... } catch { errorOut... }` structure. Fixes PhoneNumberKit (3 errors → 0).
 
 **Session 8** (2 libraries fixed: BonMot, Mappedin; 10 ECs implemented, 3 deferred):
 - EC-5: `DefaultParameterOverloadEmitter.TryEmitOverloads()` now gates on `methodDecl.IsGeneric` — prevents `@_silgen_name` wrappers for method-level generics that produce unresolvable `τ_0_0` type names. `MemberGateEvaluator.EvaluateHardGates()` also checks `HasRawGenericTypeParams` as catch-all.
@@ -129,18 +133,18 @@ With `-strict-concurrency=minimal` (used by the wrapper compiler), nonisolated f
 
 **Validation**: Reduces CryptoSwift errors (still blocked by EC-9). Unit tests pass.
 
-### EC-9: Subscript Label Mismatch ✅ Session 8
+### EC-9: Subscript Label Mismatch ✅ Session 8, refined Session 9
 
-**Affected**: CryptoSwift (2 errors — `bitAt:`), ObjectMapper (5+ errors — `nested:`, `delimiter:`, `ignoreNil:`)
+**Affected**: CryptoSwift (2 errors — `bitAt:`), ObjectMapper (5+ errors — `nested:`, `delimiter:`, `ignoreNil:`), Nuke x3 (4 errors — `key:`)
 
-**Root cause**: Two issues: (1) ABI JSON `PrintedName` for subscripts sometimes had wrong/missing labels. (2) `SubscriptWrapperEmitter.BuildSubscriptAccessExpr` called `StripArgLabel` which stripped ALL labels from bracket syntax — even when labels were required.
+**Root cause**: Three issues: (1) ABI JSON `PrintedName` for subscripts sometimes had wrong/missing labels. (2) `SubscriptWrapperEmitter.BuildSubscriptAccessExpr` called `StripArgLabel` which stripped ALL labels from bracket syntax — even when labels were required. (3) `.swiftinterface` parser treated single-name params (`subscript(key: String)`) as labeled, but Swift subscripts use no label for single-name params — only two-name params (`subscript(bitAt index: Int)`) have labels.
 
 **Fix** (implemented):
-- `SwiftInterfaceAccessParser.GetSubscriptLabels()` — parses subscript declarations from `.swiftinterface` with parameter labels
-- `SwiftABIParser.CreateSubscriptDecl()` — cross-references parsed labels, overwrites ABI JSON labels when mismatched
+- `SwiftInterfaceAccessParser.GetSubscriptLabels()` — parses subscript declarations from `.swiftinterface` with parameter labels. Session 9: distinguishes single-name params (no label → `_`) from two-name params (first word is label, e.g., `bitAt`)
+- `SwiftABIParser.CreateSubscriptDecl()` — cross-references parsed labels, overwrites ABI JSON labels when mismatched. Session 9: when `.swiftinterface` confirms no label (`_`), forces param name to `indexN` pattern so `FixSubscriptCallArg` strips the label
 - `SubscriptWrapperEmitter` — removed `StripArgLabel`, added `FixSubscriptCallArg()` (strips only `indexN` auto-labels) and `GetProtocolSubscriptLabel()` for protocol conformance declarations
 
-**Validation**: Reduces CryptoSwift + ObjectMapper errors. ObjectMapper still has residual `extraneous argument label 'key:'` — label stripping needs further tuning for this case. Unit tests pass.
+**Validation**: **Nuke x3 fully fixed** (4 errors → 0 each). **ObjectMapper fully fixed** (3 errors → 0). CryptoSwift `bitAt:` handled correctly (two-name param). Unit tests pass.
 
 ### EC-10: `@_spi` Member Leaked ⏳ Deferred
 
@@ -150,17 +154,17 @@ With `-strict-concurrency=minimal` (used by the wrapper compiler), nonisolated f
 
 **Status**: Deferred — needs generated output debugging to identify exact leak path. Only 2 errors.
 
-### EC-11: Default Parameter Overload Dispatch Mismatch ✅ Session 8
+### EC-11: Default Parameter Overload Dispatch Mismatch ✅ Session 8, refined Session 9
 
-**Affected**: PhoneNumberKit (6 errors)
+**Affected**: PhoneNumberKit (6 errors session 8, 3 residual)
 
-**Root cause**: `DefaultParameterOverloadEmitter` generated `@_cdecl` wrappers where the silgen function name suffix (`_3`) didn't match the trim count, causing `missing argument for parameter #2 in call`.
+**Root cause**: Two issues: (1) Session 8: `DefaultParameterOverloadEmitter` generated `@_cdecl` wrappers where the silgen function name suffix didn't match the trim count. (2) Session 9: `@_cdecl` wrappers calling `@_silgen_name` functions with large optional returns (e.g., `Optional<String>`) didn't forward the `resultPtr` to the silgen function's `_resultBuf` parameter.
 
 **Fix** (implemented):
-- `GetSilgenFuncName(MethodDecl, int trimCount)` extracted as single source of truth for `_dbw_{name}_{hash}_{trim}` pattern
-- `EmitSwiftWrapper()` now takes canonical `trim` loop variable, eliminating trim count divergence between the function definition and the @_cdecl call site
+- Session 8: `GetSilgenFuncName(MethodDecl, int trimCount)` extracted as single source of truth for `_dbw_{name}_{hash}_{trim}` pattern. `EmitSwiftWrapper()` takes canonical `trim` loop variable.
+- Session 9: `MethodWrapperEmitter.EmitSwiftMethodWrapper()` accepts `silgenHasResultBuffer` parameter. When true, appends `resultPtr` to the silgen call args and skips the wrapper's own result handling (silgen writes to `_resultBuf` directly). For throwing methods, integrates with the `do { try ... } catch { errorOut... }` structure by treating the call as void from the wrapper's perspective. Callers in `DefaultParameterOverloadEmitter` and `MethodHandler` pass `BoundGenericsHandler.IsLargeOptionalReturn()`.
 
-**Validation**: Should fix PhoneNumberKit (still `swift:fail` — may have xcframework creation issue). Unit tests pass.
+**Validation**: **PhoneNumberKit fully fixed** (3 errors → 0). Unit tests pass.
 
 ### EC-12: `@autoclosure` Parameter Gap ⏳ Deferred
 
@@ -245,8 +249,8 @@ With `-strict-concurrency=minimal` (used by the wrapper compiler), nonisolated f
 
 Each library mapped to the exact error classes that need fixing, with expected result.
 
-| Library | Error Classes | Session 8 Status |
-|---------|--------------|------------------|
+| Library | Error Classes | Status |
+|---------|--------------|--------|
 | Reachability | EC-1 | ✅ Fixed (session 7) |
 | KeychainSwift | EC-1 | ✅ Fixed (session 7) |
 | AnimatedCollectionViewLayout | EC-1 | ✅ Fixed (session 7) |
@@ -255,28 +259,26 @@ Each library mapped to the exact error classes that need fixing, with expected r
 | Mixpanel | EC-1 | ✅ Fixed (session 7) |
 | NVActivityIndicatorView | EC-1, EC-2, EC-3 | ✅ Fixed (session 7) |
 | SwiftyBeaver | EC-1, EC-2, EC-18 | ✅ Fixed (session 7) |
-| SkeletonView | EC-2 | ⚠️ 2 residual errors (session 7 reduced 532→2) |
+| BonMot | EC-7 | ✅ Fixed (session 8) |
+| Mappedin | EC-3, EC-16 | ✅ Fixed (session 8) |
+| Nuke, Nuke@macos, Nuke@tvos | EC-9 | ✅ **Fixed (session 9)** |
+| PhoneNumberKit | EC-11 | ✅ **Fixed (session 9)** |
+| ObjectMapper | EC-9 | ✅ **Fixed (session 9)** |
+| SkeletonView | EC-2, EC-3 | ⚠️ 266 errors (internal types + EveryProtocol NSObjectProtocol) |
+| Alamofire | EC-2, EC-3 | ⚠️ 10 errors (internal types JSONDecoder/PropertyListDecoder, EveryProtocol, ambiguous encode, SecTrust type) |
+| CryptoSwift | EC-2, EC-8 | ⚠️ 14 errors (internal types StreamEncryptor/StreamDecryptor/BlockEncryptor, protocol metatype) |
+| Kingfisher | EC-2, EC-12, EC-13 | ⚠️ EC-12+EC-13 deferred, plus internal nested types |
+| Parchment | EC-3, EC-20 | ⚠️ 4 errors (EveryProtocol, label mismatch, @MainActor call) |
+| FSPagerView | EC-1, EC-20 | ⚠️ Collision fix works, but optional protocol method dispatch fails |
+| StripePayments | EC-2, EC-3, EC-13 | ⚠️ EC-13 deferred (dep gate) |
+| StripePaymentSheet | EC-10 | ⚠️ EC-10 deferred (dep gate) |
+| StripePaymentsUI | EC-3, EC-15 | ⚠️ swift:fail (dep gate) |
 | StripeCryptoOnramp | EC-2 | ⚠️ swift:fail (dep gate) |
 | StripeConnect | EC-4 | ⚠️ swift:fail (dep gate) |
 | StripeIssuing | EC-3 | ⚠️ swift:fail (dep gate) |
-| BonMot | EC-7 | ✅ **Fixed (session 8)** |
-| Mappedin | EC-3, EC-16 | ✅ **Fixed (session 8)** |
-| Alamofire | EC-2, EC-3, EC-5 | ⚠️ EC-5 done, still swift:fail (may be xcframework creation issue) |
-| CryptoSwift | EC-2, EC-8, EC-9 | ⚠️ EC-8+EC-9 done, still swift:fail |
-| Kingfisher | EC-3, EC-4, EC-6, EC-12, EC-13 | ⚠️ EC-6 done, EC-12+EC-13 deferred |
-| PhoneNumberKit | EC-11 | ⚠️ EC-11 done, still swift:fail (may be xcframework creation issue) |
-| ObjectMapper | EC-3, EC-9 | ⚠️ EC-9 done, residual label issue |
-| StripePayments | EC-2, EC-3, EC-13, EC-14 | ⚠️ EC-14 done, EC-13 deferred |
-| StripePaymentSheet | EC-10 | ⚠️ EC-10 deferred |
-| StripePaymentsUI | EC-3, EC-15 | ⚠️ EC-15 done, still swift:fail (dep gate) |
-| Parchment | EC-3, EC-6 | ⚠️ EC-6 done, still swift:fail |
-| FSPagerView | EC-1, EC-3, EC-15 | ⚠️ EC-15 done, still swift:fail |
 | GRDB | EC-17 | ⚠️ Containment gate implemented, still swift:fail |
-| Nuke, Nuke@macos, Nuke@tvos | — | ⚠️ swift:fail — wrapper compiles cleanly but xcframework binary not produced (infrastructure issue, not generator bug) |
 | Quick | EC-19 | N/A (skip) |
 | TinyConstraints | EC-19 | N/A (skip) |
-
-**Observation**: Several libraries (Alamofire, PhoneNumberKit, Nuke x3) compile their wrapper with zero errors but remain `swift:fail` because the xcframework binary is not produced. This appears to be an infrastructure issue in the xcframework creation pipeline, not a generator bug. Needs separate investigation.
 
 ---
 
@@ -320,17 +322,38 @@ See EC descriptions above for implementation details. Key changes across 24 file
 
 **Outcome**: BonMot and Mappedin fully fixed. Nuke x3 dropped from pass to fail (xcframework creation infrastructure issue, not generator regression — wrapper compiles cleanly with zero errors). Net: 36/56 passing. Error reductions in Alamofire, CryptoSwift, Kingfisher, PhoneNumberKit, ObjectMapper, Parchment, FSPagerView, StripePaymentsUI, GRDB — but these libraries still have other blocking error classes or xcframework creation issues preventing full pass.
 
-### Session 9 (planned): Remaining gaps
+### Session 9: Subscript Labels + Result Buffer Forwarding (36 → 41)
+
+**Scope**: EC-9 refinement, EC-11 refinement
+
+**EC-9: Subscript label disambiguation** (done)
+- Root cause: `.swiftinterface` format is ambiguous for single-name subscript params — `subscript(key: String)` (no label) and `subscript(key key: String)` (label `key`) both appear as `subscript(key: String)`. The parser was treating all single-name params as labeled, but Swift subscripts use no argument label for single-name params.
+- `SwiftInterfaceAccessParser.GetSubscriptLabels()`: now returns `_` for single-name params (`words.Length < 2`), only returns a label for two-name params (`subscript(bitAt index: Int)` → `bitAt`)
+- `SwiftABIParser.CreateSubscriptDecl()`: when `.swiftinterface` confirms no label, forces param name to `indexN` pattern (even if ABI JSON gave it a name like `key`) so `FixSubscriptCallArg` strips it in bracket syntax
+
+**EC-11: Large optional result buffer forwarding** (done)
+- Root cause: `@_cdecl` wrappers calling `@_silgen_name` functions with large optional returns (e.g., `Optional<String>`) didn't forward `resultPtr`. The silgen function expected `_resultBuf` as its last param but the cdecl wrapper only passed method arguments.
+- `MethodWrapperEmitter.EmitSwiftMethodWrapper()`: new `silgenHasResultBuffer` parameter. When true + `needsResultPtr`, appends `resultPtr` to the silgen call and skips the wrapper's own result handling. For throwing methods, the call is treated as void inside the `do { try ... } catch { errorOut... }` structure.
+- `DefaultParameterOverloadEmitter`: passes `env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl)` as `silgenHasResultBuffer`
+- `MethodHandler`: passes same check for debug param wrappers
+
+**Outcome**: Nuke x3, PhoneNumberKit, and ObjectMapper fully fixed. Net: 41/56 passing. Session also investigated remaining failures:
+- SkeletonView: 266 errors (far more than "2 residual" from session 7 doc — internal types + EveryProtocol NSObjectProtocol conformance)
+- Alamofire: 10 errors (internal types JSONDecoder/PropertyListDecoder, EveryProtocol conformance, type mismatches)
+- FSPagerView: EC-1 collision fix works correctly, but remaining errors are optional protocol method dispatch (new EC-20)
+- Parchment: 4 errors (EveryProtocol, label mismatch, @MainActor isolation)
+
+### Session 10 (planned): Remaining gaps
 
 **EC-10**: Debug StripePaymentSheet generated output to find `none` reference path (2 errors).
 
 **EC-12**: Debug Kingfisher autoclosure leak — single parameter not detected by `GetAutoclosureParameters()` (1 error).
 
-**EC-13**: Cross-reference integer types from `.swiftinterface` to normalize `Int64` → `Int` where the source type is platform-width. Key insight: `Int.self == Int64.self` is `false` in Swift — they are distinct types even on 64-bit (4 errors).
+**EC-13**: Cross-reference integer types from `.swiftinterface` to normalize `Int64` → `Int` where the source type is platform-width (4 errors).
 
-**Xcframework creation investigation**: Alamofire, PhoneNumberKit, Nuke x3 all compile their wrapper with zero Swift errors but the xcframework binary is not produced. This is a separate infrastructure bug in `SwiftWrapperCompiler.Compile()` or `xcodebuild -create-xcframework`, not a generator issue.
+**EC-20** (new): Optional protocol method dispatch. ObjC protocols with `optional func` declarations produce methods that return optionals when called on existentials. Witness dispatch wrappers call them without unwrapping. Affects FSPagerView, Parchment.
 
-**SkeletonView**: 2 residual errors from session 7. May be EC-2 edge case or new error class.
+**EC-2 residuals**: SkeletonView (SkeletonLayerBuilder, SkeletonLayer, SkeletonTextNodeAssociatedKeys), Alamofire (JSONDecoder, PropertyListDecoder), CryptoSwift (StreamEncryptor, StreamDecryptor, BlockEncryptor) — internal types leaking through the EC-2 gate.
 
 ---
 
@@ -338,12 +361,11 @@ See EC descriptions above for implementation details. Key changes across 24 file
 
 | Session | Libraries | Count |
 |---------|-----------|-------|
-| 3 | SnapKit, KeychainAccess, Starscream, Nuke, Nuke@macos, Nuke@tvos | 6 |
+| 3 | SnapKit, KeychainAccess, Starscream | 3 |
 | 4 | Lottie, BlinkID, BlinkIDUX, SwipeCellKit | 4 |
 | 5 | StripeIdentity, RxSwift, AMPopTip, Swinject | 4 |
 | 6 | XMLCoder | 1 |
 | 7 | Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel, NVActivityIndicatorView, SwiftyBeaver | 8 |
 | 8 | BonMot, Mappedin | 2 |
-| Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 13 |
-
-**Note**: Nuke x3 regressed from passing to `swift:fail` between sessions 7 and 8 — wrapper compiles cleanly but xcframework binary is not produced. This is an infrastructure issue, not a generator regression.
+| 9 | Nuke, Nuke@macos, Nuke@tvos, PhoneNumberKit, ObjectMapper | 5 |
+| Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 14 |

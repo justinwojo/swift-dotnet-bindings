@@ -229,8 +229,10 @@ public static class DefaultParameterOverloadEmitter
                 // Use the canonical trim count from the loop variable to ensure the
                 // silgen function name matches what EmitSwiftWrapper emitted.
                 var silgenFuncName = GetSilgenFuncName(methodDecl, trim);
+                bool silgenUsesResultBuf = env.BoundGenericsHandler.IsLargeOptionalReturn(overloadDecl);
                 MethodWrapperEmitter.EmitSwiftMethodWrapper(
-                    swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
+                    swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName,
+                    silgenHasResultBuffer: silgenUsesResultBuf);
             }
 
             // Delegate C# emission to normal pipeline

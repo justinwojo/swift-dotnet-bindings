@@ -1026,7 +1026,8 @@ namespace BindingsGeneration
             {
                 MethodWrapperEmitter.EmitSwiftMethodWrapper(
                     swiftWriter, methodEnv, context.GetEmissionContext(),
-                    silgenTarget: debugSilgenTarget);
+                    silgenTarget: debugSilgenTarget,
+                    silgenHasResultBuffer: debugSilgenTarget != null && methodEnv.BoundGenericsHandler.IsLargeOptionalReturn(methodEnv.MethodDecl));
             }
 
             // @_cdecl method wrapper: emit SBW_Free P/Invoke for string-returning methods (once per type)

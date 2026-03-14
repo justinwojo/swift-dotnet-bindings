@@ -1,5 +1,5 @@
 {
-  "git_sha": "43b38bd3",
+  "git_sha": "f58c2ed5",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -91,21 +91,21 @@
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
@@ -273,7 +273,7 @@
         "errors": 0,
         "lines": 15742,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Valet": {
         "compile": "ok",
@@ -308,7 +308,7 @@
         "errors": 0,
         "lines": 5366,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",

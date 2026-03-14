@@ -169,11 +169,13 @@ public static class MethodWrapperEmitter
     /// <param name="env">The method environment with method info.</param>
     /// <param name="ctx">The per-module emission context for dedup tracking.</param>
     /// <param name="silgenTarget">Optional @_silgen_name symbol to call instead of direct method (for default param overloads).</param>
+    /// <param name="silgenHasResultBuffer">When true, the silgen target has a _resultBuf parameter for large optional returns.</param>
     public static void EmitSwiftMethodWrapper(
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         ModuleEmissionContext? ctx = null,
-        string? silgenTarget = null)
+        string? silgenTarget = null,
+        bool silgenHasResultBuffer = false)
     {
         ctx ??= ModuleEmissionContext.Default;
 
@@ -339,6 +341,17 @@ public static class MethodWrapperEmitter
         else
             selfRef = "obj";
 
+        // When calling a @_silgen_name target that has its own _resultBuf parameter
+        // (for large optional returns), forward resultPtr and skip result handling in this wrapper.
+        bool silgenHandlesResult = silgenTarget != null && silgenHasResultBuffer && needsResultPtr;
+        if (silgenHandlesResult)
+        {
+            // Append resultPtr to the call — the silgen function writes to _resultBuf directly
+            callArgString = string.IsNullOrEmpty(callArgString)
+                ? "resultPtr"
+                : $"{callArgString}, resultPtr";
+        }
+
         string callExpr;
         if (silgenTarget != null)
         {
@@ -415,8 +428,18 @@ public static class MethodWrapperEmitter
         // Emit the body based on method characteristics
         if (throws)
         {
+            // When the silgen target handles the result buffer, the call is effectively void
+            // from this wrapper's perspective — the silgen function writes to _resultBuf directly.
             EmitThrowingMethodBody(swiftWriter, callExpr, returnTypeSpec, returnMapping,
-                needsResultPtr, isVoidReturn, isString, env.TypeDatabase);
+                silgenHandlesResult ? false : needsResultPtr,
+                silgenHandlesResult ? true : isVoidReturn,
+                silgenHandlesResult ? false : isString,
+                env.TypeDatabase);
+        }
+        else if (silgenHandlesResult)
+        {
+            // The @_silgen_name function writes to _resultBuf directly — just call it.
+            swiftWriter.WriteLine(callExpr);
         }
         else if (isVoidReturn)
         {
