@@ -1995,6 +1995,189 @@ public static class SwiftInterfaceAccessParser
         }
     }
 
+    // Regex for public/open subscript declarations: captures the parameter list start
+    private static readonly Regex SubscriptDeclRegex = new(
+        @"(?:public|open)\s+(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "TypeName.subscript(labels:)" keys to lists of external parameter labels.
+    /// Labels are the external argument labels used in Swift bracket syntax.
+    ///
+    /// For example, for:
+    ///   public subscript(bitAt index: Int) -> Bool { get set }
+    ///   public subscript(key: String, nested nested: String?, delimiter delimiter: String) -> Any? { get set }
+    /// This produces:
+    ///   { "AES.subscript(bitAt:)": ["bitAt"],
+    ///     "Map.subscript(key:nested:delimiter:)": ["key", "nested", "delimiter"] }
+    ///
+    /// Used to cross-reference subscript parameter labels from ABI JSON,
+    /// which may not encode all label variations for subscripts.
+    /// </summary>
+    public static Dictionary<string, List<string>> GetSubscriptLabels(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<string>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? continuationLine = null;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line subscript continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    continuationLine = null;
+                    ProcessSubscriptLine(completeLine, typeStack, result);
+                }
+                continue;
+            }
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context (same logic as other methods)
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for subscript declarations
+            if (SubscriptDeclRegex.IsMatch(trimmed))
+            {
+                if (HasUnmatchedOpenParen(trimmed))
+                {
+                    continuationLine = trimmed;
+                }
+                else
+                {
+                    ProcessSubscriptLine(trimmed, typeStack, result);
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Processes a complete subscript declaration line to extract parameter labels.
+    /// </summary>
+    private static void ProcessSubscriptLine(
+        string line,
+        Stack<(string Name, int Depth)> typeStack,
+        Dictionary<string, List<string>> result)
+    {
+        if (typeStack.Count == 0)
+            return;
+
+        if (!SubscriptDeclRegex.IsMatch(line))
+            return;
+
+        // Build fully-qualified type path from the type stack
+        var currentType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+
+        // Find the opening parenthesis of the parameter list
+        var subMatch = SubscriptDeclRegex.Match(line);
+        if (!subMatch.Success)
+            return;
+
+        // The regex match ends right after '(' so find the paren position
+        var parenStart = line.IndexOf('(', subMatch.Index);
+        if (parenStart < 0)
+            return;
+
+        // Find matching close paren
+        int depth = 0;
+        int parenEnd = parenStart;
+        for (int i = parenStart; i < line.Length; i++)
+        {
+            if (line[i] == '(') depth++;
+            if (line[i] == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    parenEnd = i;
+                    break;
+                }
+            }
+        }
+
+        if (parenEnd == parenStart)
+            return;
+
+        var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return;
+
+        var labels = new List<string>();
+        var parts = SplitParameters(paramStr);
+        foreach (var part in parts)
+        {
+            var trimPart = part.Trim();
+            var colonIdx = FindTopLevelColon(trimPart);
+            if (colonIdx < 0)
+            {
+                // No colon — unlabeled parameter
+                labels.Add("_");
+                continue;
+            }
+
+            var beforeColon = trimPart.Substring(0, colonIdx).Trim();
+            // Split by whitespace — first token is the external label
+            var words = beforeColon.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 0)
+            {
+                labels.Add(words[0]);
+            }
+            else
+            {
+                labels.Add("_");
+            }
+        }
+
+        if (labels.Count > 0)
+        {
+            // Build key as "TypeName.subscript(label1:label2:...)" format
+            var labelStr = string.Join("", labels.Select(l => $"{l}:"));
+            var key = $"{currentType}.subscript({labelStr})";
+            result[key] = labels;
+        }
+    }
+
     // Regex for typed throws: captures the error type from "throws(Module.Type)"
     private static readonly Regex TypedThrowsRegex = new(
         @"throws\(([^)]+)\)",

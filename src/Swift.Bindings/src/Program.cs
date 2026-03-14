@@ -892,6 +892,7 @@ namespace BindingsGeneration
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null;
             Dictionary<string, List<string?>>? defaultParameterValues = null;
             Dictionary<string, List<bool>>? autoclosureParameters = null;
+            Dictionary<string, List<string>>? subscriptLabels = null;
             HashSet<string>? publicMemberNames = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
@@ -922,6 +923,8 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} default parameter value entries from swiftinterface", defaultParameterValues.Count);
                 autoclosureParameters = SwiftInterfaceAccessParser.GetAutoclosureParameters(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} @autoclosure parameter entries from swiftinterface", autoclosureParameters.Count);
+                subscriptLabels = SwiftInterfaceAccessParser.GetSubscriptLabels(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} subscript label entries from swiftinterface", subscriptLabels.Count);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -940,7 +943,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

@@ -848,7 +848,7 @@ public class MethodWrapperEmitterTests
         // Must have resultPtr parameter
         Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
         // Must use initializeMemory for tuple
-        Assert.Contains("initializeMemory(as: (Int, Int).self", output);
+        Assert.Contains("initializeMemory(as: (Swift.Int, Swift.Int).self", output);
         // Function signature must not have a return clause (indirect result — Void return)
         Assert.Matches(@"public func _sbw_.*\) \{", output);
     }
@@ -1081,8 +1081,11 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitSwiftMethodWrapper_MainActor_AnnotationPropagated()
+    public void EmitSwiftMethodWrapper_MainActor_NotPropagatedToCdecl()
     {
+        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
+        // These are C-bridge functions called from nonisolated C#. With -strict-concurrency=minimal,
+        // nonisolated wrappers can call @MainActor members without error.
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true, isMainActorIsolated: true);
 
@@ -1093,7 +1096,8 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("@MainActor", output);
+        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@_cdecl", output);
     }
 
     [Fact]

@@ -253,9 +253,11 @@ public class SwiftTypeNameHelperTests
     }
 
     [Fact]
-    public void GetSwiftTypeName_EscapingClosureWithEmptyArgs_RendersParentheses()
+    public void GetSwiftTypeName_EscapingClosureWithEmptyArgs_ExcludesEscaping()
     {
-        // @escaping () -> Void
+        // @escaping is a calling convention attribute only valid on function parameters,
+        // not on property types, return types, or metatype expressions.
+        // GetSwiftTypeName strips it since this helper is used for property/metatype contexts.
         var closureType = new ClosureTypeSpec(
             arguments: TupleTypeSpec.Empty,
             returnType: TupleTypeSpec.Empty);
@@ -263,9 +265,185 @@ public class SwiftTypeNameHelperTests
 
         var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
 
-        Assert.Contains("@escaping", result);
+        Assert.DoesNotContain("@escaping", result);
         Assert.Contains("()", result);
         Assert.DoesNotMatch(result, @"Void\s*->");
+    }
+
+    #endregion
+
+    #region Optional Closure Type Tests (EC-15)
+
+    [Fact]
+    public void GetSwiftTypeName_OptionalClosure_RendersOptionalSyntax()
+    {
+        // Swift.Optional<(SomeClass) -> Void> should render as ((SomeClass) -> Void)?
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeClass") }),
+            returnType: TupleTypeSpec.Empty);
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(closureType);
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(optionalType);
+
+        Assert.Contains("TestModule.SomeClass", result);
+        Assert.Contains("-> Void", result);
+        Assert.EndsWith(")?", result);
+        Assert.DoesNotContain("@escaping", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_MainActorClosure_PreservesMainActor()
+    {
+        // @MainActor (X) -> Void should preserve the @MainActor attribute
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("@MainActor", result);
+        Assert.StartsWith("@MainActor", result);
+        Assert.Contains("-> Void", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_SendableClosure_PreservesSendable()
+    {
+        // @Sendable (X) -> Void should preserve the @Sendable attribute
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("Sendable"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("@Sendable", result);
+        Assert.StartsWith("@Sendable", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_MainActorSendableClosure_PreservesBothAttributes()
+    {
+        // @MainActor @Sendable (X) -> Void should preserve both attributes
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+        closureType.Attributes.Add(new TypeSpecAttribute("Sendable"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("@MainActor", result);
+        Assert.Contains("@Sendable", result);
+        Assert.DoesNotContain("@escaping", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_EscapingMainActorClosure_ExcludesEscapingPreservesMainActor()
+    {
+        // @escaping @MainActor (X) -> Void should drop @escaping but keep @MainActor
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.Contains("@MainActor", result);
+        Assert.DoesNotContain("@escaping", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_OptionalMainActorClosure_PreservesMainActor()
+    {
+        // Swift.Optional<@MainActor (STPPaymentCardTextField) -> ()> should render as
+        // (@MainActor (STPPaymentCardTextField) -> Void)?
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeClass") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(closureType);
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(optionalType);
+
+        Assert.Contains("@MainActor", result);
+        Assert.Contains("TestModule.SomeClass", result);
+        Assert.Contains("-> Void", result);
+        Assert.EndsWith(")?", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeNameForMetatype_OptionalClosure_UsesOptionalGenericSyntax()
+    {
+        // For metatype access, Optional<(X) -> Y> should use Optional<(X) -> Y>.self
+        // instead of ((X) -> Y)?.self to avoid Swift parser ambiguity
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(closureType);
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(optionalType);
+
+        // Should use Optional<...> syntax, not (...)? syntax
+        Assert.StartsWith("Optional<", result);
+        Assert.EndsWith(">", result);
+        Assert.DoesNotContain("?", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeNameForMetatype_OptionalMainActorClosure_UsesOptionalGenericSyntax()
+    {
+        // For metatype access, Optional<@MainActor (X) -> Y> should use
+        // Optional<@MainActor (X) -> Y>.self
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeClass") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(closureType);
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(optionalType);
+
+        Assert.StartsWith("Optional<", result);
+        Assert.Contains("@MainActor", result);
+        Assert.DoesNotContain("?", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeNameForMetatype_OptionalNonClosure_PreservesQuestionMarkSyntax()
+    {
+        // Non-closure optionals should still use the regular (Type)? syntax for metatype
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(optionalType);
+
+        // Should use (Type)? syntax, not Optional<Type>
+        Assert.Equal("(Swift.Int)?", result);
+    }
+
+    [Fact]
+    public void GetSwiftTypeName_AutoclosureClosure_ExcludesAutoclosure()
+    {
+        // @autoclosure is a calling convention attribute, not a type attribute
+        var closureType = new ClosureTypeSpec(
+            arguments: TupleTypeSpec.Empty,
+            returnType: new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("autoclosure"));
+
+        var result = SwiftTypeNameHelper.GetSwiftTypeName(closureType);
+
+        Assert.DoesNotContain("@autoclosure", result);
+        Assert.Contains("-> Swift.Bool", result);
     }
 
     #endregion

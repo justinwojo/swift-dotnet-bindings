@@ -344,7 +344,9 @@ public class EveryProtocolEmitterTests
 
         var output = EmitProtocolExtension(protocolDecl);
 
-        Assert.Contains("public var callback: @escaping (Swift.Int) async throws -> Swift.String", output);
+        // @escaping is excluded from property type declarations (only valid on function parameters).
+        // Other attributes like @MainActor, @Sendable would be preserved.
+        Assert.Contains("public var callback: (Swift.Int) async throws -> Swift.String", output);
     }
 
     [Fact]
@@ -676,6 +678,116 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         Assert.Contains("asset", output);
+    }
+
+    #endregion
+
+    #region Optional Closure Property Tests (EC-15)
+
+    [Fact]
+    public void EmitProtocolExtension_OptionalClosureProperty_EmitsCorrectType()
+    {
+        // Protocol with optional closure property: var onDismiss: ((SomeType) -> Void)?
+        var protocolDecl = CreateSimpleProtocol("DismissDelegate");
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeType") }),
+            returnType: TupleTypeSpec.Empty);
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "onDismiss",
+            SwiftTypeSpec = optionalClosureType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("onDismiss_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("onDismiss_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        // Property type should NOT have @escaping (invalid on property declarations)
+        Assert.DoesNotContain("@escaping", output);
+        // Should have the optional closure type
+        Assert.Contains("public var onDismiss:", output);
+        // Metatype should use Optional<...> syntax for .self access
+        Assert.Contains("Optional<", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_MainActorOptionalClosureProperty_PreservesMainActor()
+    {
+        // Protocol with @MainActor optional closure property:
+        // var callback: (@MainActor (SomeType) -> Void)?
+        var protocolDecl = CreateSimpleProtocol("CallbackDelegate");
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.SomeType") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("MainActor"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "callback",
+            SwiftTypeSpec = optionalClosureType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("callback_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        // @MainActor should be preserved in the property type
+        Assert.Contains("@MainActor", output);
+        // @escaping should NOT appear
+        Assert.DoesNotContain("@escaping", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_EscapingOptionalClosureProperty_ExcludesEscaping()
+    {
+        // Protocol with @escaping optional closure property:
+        // var handler: (@escaping (Int) -> Void)?
+        // @escaping should be stripped since it's invalid on property declarations
+        var protocolDecl = CreateSimpleProtocol("HandlerDelegate");
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = optionalClosureType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("handler_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("handler_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        Assert.DoesNotContain("@escaping", output);
+        Assert.Contains("public var handler:", output);
     }
 
     #endregion

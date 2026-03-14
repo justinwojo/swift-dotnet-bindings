@@ -491,6 +491,13 @@ namespace BindingsGeneration
         private readonly Dictionary<string, List<bool>>? _autoclosureParameters;
         private readonly HashSet<string>? _publicMemberNames;
 
+        /// <summary>
+        /// Optional subscript parameter labels from swiftinterface parsing.
+        /// Keys are "TypeName.subscript(label1:label2:)" (e.g., "AES.subscript(bitAt:)").
+        /// Values are lists of external labels (e.g., ["bitAt"]).
+        /// </summary>
+        private readonly Dictionary<string, List<string>>? _subscriptLabels;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -509,7 +516,8 @@ namespace BindingsGeneration
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null,
             Dictionary<string, List<string?>>? defaultParameterValues = null,
             Dictionary<string, List<bool>>? autoclosureParameters = null,
-            HashSet<string>? publicMemberNames = null)
+            HashSet<string>? publicMemberNames = null,
+            Dictionary<string, List<string>>? subscriptLabels = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -529,6 +537,7 @@ namespace BindingsGeneration
             _defaultParameterValues = defaultParameterValues;
             _autoclosureParameters = autoclosureParameters;
             _publicMemberNames = publicMemberNames;
+            _subscriptLabels = subscriptLabels;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1654,6 +1663,53 @@ namespace BindingsGeneration
             {
                 ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName);
             }
+
+            // Apply parameter labels from swiftinterface if available.
+            // ABI JSON may not encode all label variations for subscripts (e.g., "subscript(_:)"
+            // when the actual declaration is "subscript(bitAt:)"). Cross-reference labels from
+            // the swiftinterface to fix the parameter names.
+            if (_subscriptLabels != null && indexParameters.Count > 0 && parentDecl is TypeDecl subscriptLabelParentType)
+            {
+                var typePath = BuildTypeQualifiedPath(subscriptLabelParentType);
+
+                // Try matching by ABI printed name first (may be correct for some subscripts)
+                var abiKey = $"{typePath}.{node.PrintedName}";
+                if (!_subscriptLabels.TryGetValue(abiKey, out var labels))
+                {
+                    // ABI key didn't match — search for a subscript with matching parameter count.
+                    // For ambiguous cases (multiple subscripts with the same param count),
+                    // we can't definitively match, so we only apply when there's exactly one match.
+                    var prefix = $"{typePath}.subscript(";
+                    var candidates = _subscriptLabels
+                        .Where(kv => kv.Key.StartsWith(prefix) && kv.Value.Count == indexParameters.Count)
+                        .ToList();
+
+                    if (candidates.Count == 1)
+                    {
+                        labels = candidates[0].Value;
+                    }
+                }
+
+                if (labels != null)
+                {
+                    for (int i = 0; i < Math.Min(labels.Count, indexParameters.Count); i++)
+                    {
+                        var label = labels[i];
+                        // Don't overwrite with "_" if ABI already has a meaningful label
+                        if (label == "_")
+                        {
+                            // Ensure unlabeled params get the "indexN" name pattern
+                            if (!indexParameters[i].Name.StartsWith("index"))
+                                continue;
+                        }
+                        else
+                        {
+                            indexParameters[i].Name = label;
+                        }
+                    }
+                }
+            }
+
             PopulateDocumentation(decl, node);
             return decl;
         }

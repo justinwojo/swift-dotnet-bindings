@@ -671,6 +671,69 @@ public class MemberGateEvaluatorTests
 
     #endregion
 
+    #region EC-5: Raw Generic Type Params Gate Tests
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithRawGenericParam_ReturnsSkip()
+    {
+        // EC-5: Method signature contains raw τ_0_0 generic type parameter that cannot
+        // be expressed in Swift wrapper code. Should be caught by the hard gate.
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("publishResponse", TupleTypeSpec.Empty,
+            new NamedTypeSpec("τ_0_0")); // Raw generic param leaked from ABI JSON
+
+        var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithRawGenericInReturnType_ReturnsSkip()
+    {
+        // EC-5: Raw generic in return type
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("getSerializer", new NamedTypeSpec("τ_0_1"));
+
+        var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithRawGenericInGenericArg_ReturnsSkip()
+    {
+        // EC-5: Raw generic nested inside a container type (e.g., Array<τ_0_0>)
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var containerType = new NamedTypeSpec("Swift.Array");
+        containerType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var method = CreateMethod("getItems", containerType);
+
+        var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithNoRawGeneric_ReturnsPass()
+    {
+        // Normal method without raw generics should pass
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("process", new NamedTypeSpec("Swift.Int"));
+
+        var result = evaluator.EvaluateHardGates(method, CreateModuleDecl("TestModule"));
+
+        Assert.Equal(GateDisposition.Emit, result.Disposition);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     #region EC-2: Internal Type Gate Tests

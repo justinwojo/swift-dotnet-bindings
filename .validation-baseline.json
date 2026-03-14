@@ -1,11 +1,11 @@
 {
-  "git_sha": "1e239934",
+  "git_sha": "43b38bd3",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50923,
+        "lines": 50663,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92189,
+        "lines": 90702,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -70,7 +70,7 @@
         "errors": 0,
         "lines": 49313,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MicroblinkPlatform": {
         "compile": "ok",
@@ -91,26 +91,26 @@
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
         "lines": 21810,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18993,
+        "lines": 12515,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -315,7 +315,7 @@
         "errors": 0,
         "lines": 13968,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",

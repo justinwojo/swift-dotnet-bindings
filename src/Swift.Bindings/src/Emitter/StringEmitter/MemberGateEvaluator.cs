@@ -277,6 +277,14 @@ public class MemberGateEvaluator
             }
         }
 
+        // Raw generic type parameters (τ_0_0, τ_0_1, etc.) in a concrete type context
+        // indicate method-level generics that can't be expressed in Swift wrapper code.
+        // This catches cases where the method isn't marked IsGeneric but still has raw
+        // generic params leaked into the signature (e.g., from ABI JSON parsing).
+        if (WrapperValidation.HasRawGenericTypeParams(method))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature,
+                "Method signature contains raw generic type parameters (τ_0_0) that cannot be expressed in wrapper code.");
+
         return GateResult.Pass;
     }
 

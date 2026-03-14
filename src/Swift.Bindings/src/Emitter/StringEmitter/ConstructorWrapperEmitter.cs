@@ -606,11 +606,21 @@ public static class ConstructorWrapperEmitter
             return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
         }
 
+        // AnyObject: IS a class reference by definition — use Unmanaged<AnyObject> marshalling.
+        // Without this, AnyObject falls through to protocol existential path which emits
+        // `any AnyObject.self` (not valid Swift metatype syntax).
+        if (IsAnyObjectType(swiftTypeSpec))
+        {
+            return ($"_ {label}: UnsafeMutableRawPointer",
+                    $"let {label}Val: AnyObject = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue()",
+                    $"{argLabel}{label}Val");
+        }
+
         // Protocol existentials are not C-representable in @_cdecl functions.
         // Marshal as UnsafeRawPointer and reconstruct inside the wrapper body.
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
         {
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
             return ($"_ {label}: UnsafeRawPointer",
                     $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
                     $"{argLabel}{label}Val");
@@ -642,7 +652,7 @@ public static class ConstructorWrapperEmitter
                         $"{label}");
             }
 
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
             return ($"_ {label}: UnsafeRawPointer",
                     $"let {label}Val = {label}.load(as: {swiftType}.self)",
                     $"{argLabel}{label}Val");
@@ -691,7 +701,7 @@ public static class ConstructorWrapperEmitter
             if (typeRecord.Kind == TypeRecordKind.Protocol ||
                 typeRecord.Kind == TypeRecordKind.Existential)
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
                         $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
                         $"{argLabel}{label}Val");
@@ -702,7 +712,7 @@ public static class ConstructorWrapperEmitter
             // (e.g., a 3-case `: Int` enum stored in 1 byte vs 8-byte Int parameter).
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 var rawType = GetSwiftRawValueType(typeRecord.RawValueTypeName);
 
                 string conversion;
@@ -729,7 +739,7 @@ public static class ConstructorWrapperEmitter
             // Complex enums: pass as pointer
             if (typeRecord.Kind == TypeRecordKind.Enum)
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
                         $"let {label}Val = {label}.load(as: {swiftType}.self)",
                         $"{argLabel}{label}Val");
@@ -738,7 +748,7 @@ public static class ConstructorWrapperEmitter
             // Non-frozen structs: C# passes SafeHandle (IntPtr), receive as pointer
             if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
                         $"let {label}Val = {label}.load(as: {swiftType}.self)",
                         $"{argLabel}{label}Val");
@@ -755,7 +765,7 @@ public static class ConstructorWrapperEmitter
         }
 
         // Fallback: pass as UnsafeRawPointer
-        var fallbackSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+        var fallbackSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
         return ($"_ {label}: UnsafeRawPointer",
                 $"let {label}Val = {label}.load(as: {fallbackSwiftType}.self)",
                 $"{argLabel}{label}Val");
@@ -788,6 +798,26 @@ public static class ConstructorWrapperEmitter
             optNamed.GenericParameters.Count == 1 && optNamed.GenericParameters[0] is NamedTypeSpec innerNamed &&
             typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
             (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a type spec represents AnyObject (the universal class protocol).
+    /// AnyObject IS a class reference by definition and should use Unmanaged marshalling,
+    /// not existential .load(as:) which produces invalid `any AnyObject.self` syntax.
+    /// </summary>
+    internal static bool IsAnyObjectType(TypeSpec typeSpec)
+    {
+        if (typeSpec is ProtocolListTypeSpec protocolList &&
+            protocolList.Protocols.Count == 1 &&
+            protocolList.Protocols.Keys.First() is NamedTypeSpec protoNamed &&
+            (protoNamed.Name == "AnyObject" || protoNamed.Name == "Swift.AnyObject"))
+            return true;
+
+        if (typeSpec is NamedTypeSpec named &&
+            (named.Name == "AnyObject" || named.Name == "Swift.AnyObject"))
             return true;
 
         return false;

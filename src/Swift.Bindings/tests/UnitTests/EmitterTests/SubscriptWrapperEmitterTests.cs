@@ -507,8 +507,9 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitGetterWrapper_MainActorIsolated_EmitsAttribute()
+    public void EmitGetterWrapper_MainActorIsolated_NoAnnotationOnCdecl()
     {
+        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
         var (swiftWriter, sw, subscriptDecl, env, ctx) = CreateGetterTestSetup(
             new NamedTypeSpec("Swift.Int"),
             new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), env: null) },
@@ -518,7 +519,8 @@ public class SubscriptWrapperEmitterTests
         SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, "SBW_SubGet_test", env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("@MainActor", output);
+        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@_cdecl", output);
     }
 
     [Fact]
@@ -550,7 +552,7 @@ public class SubscriptWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
-        Assert.Contains("initializeMemory(as: (Int, Int).self", output);
+        Assert.Contains("initializeMemory(as: (Swift.Int, Swift.Int).self", output);
     }
 
     #endregion

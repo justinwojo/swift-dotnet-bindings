@@ -453,8 +453,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitSwiftGetterWrapper_MainActorIsolated_HasAnnotation()
+    public void EmitSwiftGetterWrapper_MainActorIsolated_NoAnnotationOnCdecl()
     {
+        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
         var (swiftWriter, sw, propertyDecl, env, ctx) = CreateGetterTestSetup(
             "count", new NamedTypeSpec("Swift.Int"), isClass: true, isMainActorIsolated: true);
 
@@ -462,7 +463,8 @@ public class PropertyWrapperEmitterTests
         PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("@MainActor", output);
+        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@_cdecl", output);
     }
 
     [Fact]

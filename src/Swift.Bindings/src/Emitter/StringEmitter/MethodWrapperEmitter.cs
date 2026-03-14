@@ -373,14 +373,12 @@ public static class MethodWrapperEmitter
             // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // Add @MainActor annotation when the parent type or the method itself is @MainActor-isolated.
-        // Note: IsActorIsolated specifically tracks @MainActor member annotations (not custom actors).
-        // Custom actors are excluded by the IsActor guard in ShouldEmitWrapper.
-        if (parentTypeDecl?.IsMainActorIsolated == true || methodDecl.IsActorIsolated)
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
-
+        // @MainActor is intentionally NOT added to @_cdecl wrapper functions.
+        // These are C-bridge functions called from nonisolated C#/.NET context.
+        // Adding @MainActor causes Swift 6 to reject calls to @MainActor members
+        // from within the wrapper body. With -strict-concurrency=minimal (used by
+        // the wrapper compiler), nonisolated functions can call @MainActor members
+        // without error, which is the correct behavior for these bridges.
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
@@ -432,7 +430,7 @@ public static class MethodWrapperEmitter
         {
             // Closure returns: strip @escaping/@Sendable (parameter attributes, not valid
             // in metatype position) and wrap in parens for correct .self binding.
-            var closureType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)
+            var closureType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)
                 .Replace("@escaping ", "").Replace("@Sendable ", "");
             swiftWriter.WriteLine($"let result = {callExpr}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
@@ -440,7 +438,7 @@ public static class MethodWrapperEmitter
         else if (needsResultPtr)
         {
             // Non-frozen struct, complex enum, Optional<value-type>: write to result buffer
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
             swiftWriter.WriteLine($"let result = {callExpr}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
         }
@@ -507,14 +505,14 @@ public static class MethodWrapperEmitter
         }
         else if (needsResultPtr && returnTypeSpec is ClosureTypeSpec)
         {
-            var closureType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)
+            var closureType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec)
                 .Replace("@escaping ", "").Replace("@Sendable ", "");
             swiftWriter.WriteLine($"let result = try {callExpr}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({closureType}).self, repeating: result, count: 1)");
         }
         else if (needsResultPtr)
         {
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
             swiftWriter.WriteLine($"let result = try {callExpr}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
         }

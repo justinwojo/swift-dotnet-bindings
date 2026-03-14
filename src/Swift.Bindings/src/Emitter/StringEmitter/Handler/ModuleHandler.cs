@@ -290,7 +290,12 @@ namespace BindingsGeneration
             "LocalAuthentication", "Security", "CryptoKit", "Combine",
             "SwiftUI", "UniformTypeIdentifiers", "CoreData", "CoreML",
             "Vision", "NaturalLanguage", "Speech", "SoundAnalysis",
-            "Accelerate", "simd", "Compression", "OSLog", "os"
+            "Accelerate", "simd", "Compression", "OSLog", "os",
+            "Contacts", "ContactsUI", "EventKit", "EventKitUI",
+            "PhotosUI", "Photos", "PassKit", "MessageUI",
+            "UserNotifications", "NetworkExtension", "CoreBluetooth",
+            "CoreNFC", "CoreMotion", "CoreTelephony", "CarPlay",
+            "Intents", "IntentsUI", "LinkPresentation", "MediaPlayer"
         };
 
         /// <summary>

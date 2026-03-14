@@ -271,7 +271,7 @@ public static class SubscriptWrapperEmitter
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);
-                        callArgs.Add(callArg);
+                        callArgs.Add(FixSubscriptCallArg(callArg, param));
                     }
                     break;
 
@@ -319,9 +319,7 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl?.IsMainActorIsolated == true)
-            swiftWriter.WriteLine("@MainActor");
-
+        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
@@ -349,7 +347,7 @@ public static class SubscriptWrapperEmitter
         }
         else if (needsResultPtr)
         {
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
             swiftWriter.WriteLine($"let result = {subscriptAccess}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
         }
@@ -437,7 +435,7 @@ public static class SubscriptWrapperEmitter
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);
-                        callArgs.Add(callArg);
+                        callArgs.Add(FixSubscriptCallArg(callArg, param));
                     }
                     break;
 
@@ -476,9 +474,7 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl?.IsMainActorIsolated == true)
-            swiftWriter.WriteLine("@MainActor");
-
+        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
@@ -498,19 +494,20 @@ public static class SubscriptWrapperEmitter
             isClass ? "obj" : $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee",
             callArgs);
 
+        var setterIndexArgs = string.Join(", ", callArgs);
         if (isGenericParent && protocolName != null)
         {
             swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
-            swiftWriter.WriteLine($"obj[{string.Join(", ", callArgs.Select(StripArgLabel))}] = {valueExpr}");
+            swiftWriter.WriteLine($"obj[{setterIndexArgs}] = {valueExpr}");
         }
         else if (isClass)
         {
             swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
-            swiftWriter.WriteLine($"obj[{string.Join(", ", callArgs.Select(StripArgLabel))}] = {valueExpr}");
+            swiftWriter.WriteLine($"obj[{setterIndexArgs}] = {valueExpr}");
         }
         else
         {
-            swiftWriter.WriteLine($"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee[{string.Join(", ", callArgs.Select(StripArgLabel))}] = {valueExpr}");
+            swiftWriter.WriteLine($"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee[{setterIndexArgs}] = {valueExpr}");
         }
 
         swiftWriter.Indent--;
@@ -518,23 +515,52 @@ public static class SubscriptWrapperEmitter
     }
 
     /// <summary>
-    /// Builds a subscript access expression: obj[arg1, arg2, ...]
+    /// Builds a subscript access expression: obj[label1: arg1, label2: arg2, ...]
+    /// Swift subscript bracket syntax requires argument labels when the subscript
+    /// declaration uses labeled parameters (e.g., subscript(bitAt index: Int)).
+    /// Unlabeled params (argLabel is empty) pass through without a label.
     /// </summary>
     private static string BuildSubscriptAccessExpr(string selfExpr, List<string> callArgs)
     {
-        var indexArgs = string.Join(", ", callArgs.Select(StripArgLabel));
+        var indexArgs = string.Join(", ", callArgs);
         return $"{selfExpr}[{indexArgs}]";
     }
 
     /// <summary>
-    /// Strips argument labels from call arguments for bracket syntax.
-    /// "key: keyVal" → "keyVal"
+    /// Gets the protocol subscript label for an index parameter.
+    /// Unlabeled subscript params are named "indexN" by the parser — these become "_" in protocol declarations.
+    /// Labeled subscript params keep their label.
     /// </summary>
-    private static string StripArgLabel(string callArg)
+    private static string GetProtocolSubscriptLabel(ArgumentDecl param)
     {
-        var colonIdx = callArg.IndexOf(':');
-        if (colonIdx >= 0)
-            return callArg.Substring(colonIdx + 1).Trim();
+        var name = param.Name;
+        if (string.IsNullOrEmpty(name))
+            return "_";
+        // Parser generates "index0", "index1" etc. for unlabeled subscript params
+        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
+            return "_";
+        return name;
+    }
+
+    /// <summary>
+    /// Fixes the call argument from GetCdeclParamMapping for subscript bracket syntax.
+    /// GetCdeclParamMapping generates "label: value" using arg.Name, but for subscripts:
+    /// - Unlabeled params (Name = "indexN") should have NO label in bracket syntax
+    /// - Labeled params should keep their label
+    /// </summary>
+    private static string FixSubscriptCallArg(string callArg, ArgumentDecl param)
+    {
+        var name = param.Name;
+
+        // Parser generates "index0", "index1" etc. for unlabeled subscript params (from "_")
+        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
+        {
+            // Strip the incorrect "indexN: " label from the callArg
+            var colonIdx = callArg.IndexOf(':');
+            if (colonIdx >= 0)
+                return callArg.Substring(colonIdx + 1).Trim();
+        }
+
         return callArg;
     }
 
@@ -648,7 +674,7 @@ public static class SubscriptWrapperEmitter
         var indexParams = new List<string>();
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            var label = !string.IsNullOrEmpty(param.Name) ? param.Name : "_";
+            var label = GetProtocolSubscriptLabel(param);
             var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
             indexParams.Add($"{label}: {paramType}");
         }
@@ -679,7 +705,7 @@ public static class SubscriptWrapperEmitter
         var indexParams = new List<string>();
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            var label = !string.IsNullOrEmpty(param.Name) ? param.Name : "_";
+            var label = GetProtocolSubscriptLabel(param);
             var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
             indexParams.Add($"{label}: {paramType}");
         }

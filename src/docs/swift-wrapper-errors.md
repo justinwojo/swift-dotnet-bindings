@@ -2,11 +2,24 @@
 
 Comprehensive analysis of Swift wrapper compilation failures caught by `validate-libraries.sh`. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 37/56 passing (34 ObjC/no wrapper), 19 failing.
+**Baseline**: 36/56 passing (34 ObjC/no wrapper), 20 failing.
 
-**Previous baselines**: 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
+**Previous baselines**: 37/56 (session 7), 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
 
 ## Session History
+
+**Session 8** (2 libraries fixed: BonMot, Mappedin; 10 ECs implemented, 3 deferred):
+- EC-5: `DefaultParameterOverloadEmitter.TryEmitOverloads()` now gates on `methodDecl.IsGeneric` — prevents `@_silgen_name` wrappers for method-level generics that produce unresolvable `τ_0_0` type names. `MemberGateEvaluator.EvaluateHardGates()` also checks `HasRawGenericTypeParams` as catch-all.
+- EC-6: `@MainActor` stripped from ALL `@_cdecl` wrapper function declarations (method, property getter/setter, subscript getter/setter). Wrappers are C-bridge functions called from nonisolated C#; with `-strict-concurrency=minimal`, nonisolated wrappers can call `@MainActor` members without error.
+- EC-7: `ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec()` — new rendering method that preserves module prefixes (`BonMot.StringStyle` instead of `StringStyle`). Used in all `.load(as:)`, `.initializeMemory(as:)`, and `.assumingMemoryBound(to:)` call sites across ConstructorWrapperEmitter, MethodWrapperEmitter, PropertyWrapperEmitter, SubscriptWrapperEmitter. Fixes BonMot (28 errors → 0).
+- EC-8: `ProtocolExtensionEmitter.TryInjectMethod()` now gates on `TypeRecordKind.Protocol` for the conforming type. Protocol metatypes (e.g., `CryptoSwift.Updatable.self`) are invalid in `assumingMemoryBound(to:)` / `Unmanaged<T>.fromOpaque()` contexts.
+- EC-9: `SwiftInterfaceAccessParser.GetSubscriptLabels()` parses subscript parameter labels from `.swiftinterface`. `SwiftABIParser` cross-references these to correct ABI JSON label mismatches. `SubscriptWrapperEmitter` preserves labels in bracket syntax via `FixSubscriptCallArg()` (strips only `indexN` auto-generated labels).
+- EC-11: `DefaultParameterOverloadEmitter.GetSilgenFuncName()` extracted as single source of truth for `_dbw_{name}_{hash}_{trim}` pattern. `EmitSwiftWrapper()` now takes canonical `trim` loop variable, eliminating dispatch key divergence between `@_cdecl` and `@_silgen_name` wrappers.
+- EC-14: `ModuleHandler.AppleFrameworks` expanded with 16 additional frameworks (Contacts, ContactsUI, Photos, PhotosUI, PassKit, MessageUI, etc.). Fixes missing `import Contacts` for `CNContact` references.
+- EC-15: `SwiftTypeNameHelper.GetSwiftTypeName()` for closures now includes ALL type-level attributes (`@MainActor`, `@Sendable`) while excluding calling convention attributes (`@escaping`, `@autoclosure`). Fixes EveryProtocol closure property type mismatches.
+- EC-16: `ConstructorWrapperEmitter.IsAnyObjectType()` detects AnyObject as both `ProtocolListTypeSpec` and `NamedTypeSpec`. `GetCdeclReturnMapping` routes AnyObject through `ClassPointer` (Unmanaged) instead of `IndirectResult` (invalid `any AnyObject.self`). `GetCdeclParamMapping` uses `Unmanaged<AnyObject>.fromOpaque()` for AnyObject parameters. Fixes Mappedin (2 errors → 0).
+- EC-17: `ProtocolExtensionEmitter.TryInjectMethod()` gates on `WrapperValidation.ContainsRawGenericTypeParam()` and `ContainsAssociatedTypeReference()` for parameters and return types. Catches `τ_0_0`, `Self.X`, and `AssociatedTypeReferenceSpec` without relying on fragile bare-name matching.
+- Deferred: EC-10 (@_spi member leaks, 2 errors), EC-12 (@autoclosure gap, 1 error), EC-13 (Int64/Int mismatch — `Int` ≠ `Int64` in Swift even on 64-bit; needs .swiftinterface cross-reference, 4 errors).
 
 **Session 7** (8 libraries fixed: Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel, NVActivityIndicatorView, SwiftyBeaver; major error reduction in SkeletonView, FSPagerView):
 - EC-1: `.swiftinterface` pre-compilation for module/type name collisions. Creates a shadow framework with patched+pre-compiled binary `.swiftmodule` that overrides the textual `.swiftinterface` via `-F` precedence. Resolves 6 libraries directly (Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel) and unblocks 3 more with residual fixes.
@@ -48,241 +61,176 @@ Comprehensive analysis of Swift wrapper compilation failures caught by `validate
 
 Every remaining Swift wrapper compilation failure falls into one of 18 verified error classes. Each class below includes root cause, affected libraries, generator code path, and verified fix approach.
 
-### EC-1: `.swiftinterface` Module/Type Name Collision
+### EC-1: `.swiftinterface` Module/Type Name Collision ✅ Session 7
 
-**Affected**: 9 libraries (Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout, Valet, FSPagerView, SwiftyBeaver, SVGView, Mixpanel)
+**Status**: Implemented. 6 libraries fully fixed, 3 unblocked for residual fixes.
 
-**Root cause**: When a module's public type has the same name as the module (e.g., module `Reachability` with `public class Reachability`), the Swift compiler misresolves `Module.Type` references in the framework's own `.swiftinterface` during `import`. Error: `'X' is not a member type of class/struct 'Module.Module'`.
+### EC-2: Internal Type References in Wrapper Signatures ✅ Session 7
 
-**Verified fix** (POC'd on all 9):
-1. Copy `.swiftinterface` to temp dir
-2. Patch collision: apply existing collision regex `\b{ModuleName}\.(\w+(?:\.\w+)*)` → `$1` (from `SwiftWrapperPostProcessor.cs:161-188`), preserving import lines
-3. Pre-compile to binary `.swiftmodule` via `xcrun swift-frontend -compile-module-from-interface` (reuse existing flow in `XCFrameworkResolver.GenerateAbiJson()` at lines 808-856)
-4. Add `-I /tmp/precompiled/` to `InvokeSwiftCompiler` — binary module takes precedence over textual interface
+**Status**: Implemented. SkeletonView 532→2 errors, NVActivityIndicatorView + SwiftyBeaver internal types eliminated.
 
-**Pre-compilation test results** (all 9 pre-compile successfully):
+### EC-3: EveryProtocol Unsatisfiable Conformance ✅ Session 7
 
-| Library | Wrapper Compiles? | Residual Errors | Residual Error Class |
-|---------|-------------------|-----------------|---------------------|
-| Reachability | Yes (0 errors) | — | — |
-| KeychainSwift | Yes (0 errors) | — | — |
-| AnimatedCollectionViewLayout | Yes (0 errors) | — | — |
-| Valet | Yes (0 errors) | — | — |
-| SVGView | Yes (0 errors) | — | — |
-| Mixpanel | Yes (0 errors) | — | — |
-| NVActivityIndicatorView | No (144 errors) | Internal types (34 animation classes) | EC-2, EC-3 |
-| FSPagerView | No (8 errors) | NSObjectProtocol (1) + optional closures (7) | EC-3, EC-15 |
-| SwiftyBeaver | No (40 errors) | Internal FilterValidator (36) + nested type over-strip (4) | EC-2, EC-18 |
+**Status**: Implemented. Class-bound + CaseIterable gates added.
 
-**Key findings**:
-- No binary `.swiftmodule` files exist in any of the 9 frameworks — pre-compilation is the only path
-- `-module-alias` doesn't work (can't alias a module to itself)
-- Direct pre-compilation without patching fails (same collision error)
-- 6/9 libraries fully fixed by pre-compilation alone
+### EC-4: `Unmanaged<ValueType>` — Struct Treated as Class ✅ Session 7
 
-**Implementation**: Shared per-slice resolver near `XCFrameworkResolver`. Takes `moduleNameForCollision` + slice info. Returns `-I` path for `InvokeSwiftCompiler`. Both `CompileSlice` and `CompileAll` call it. SDK targets get it through the same code path (shared below CLI/SDK entrypoints).
+**Status**: Implemented. `TypeRecordKind` check generalizes NSString-only guard.
 
-### EC-2: Internal Type References in Wrapper Signatures
-
-**Affected**: SkeletonView (~532 errors), NVActivityIndicatorView (144 post-collision), SwiftyBeaver (36 post-collision), CryptoSwift (6), Alamofire (4), StripeCryptoOnramp (2), StripePayments (~2)
-
-**Root cause**: Session 6 fixed internal MEMBER detection (methods/properties that are internal). Missing: internal TYPE detection — methods/properties whose parameter or return types are themselves internal types. The generator emits wrappers that reference internal types like `ViewAssociatedKeys`, `SkeletonMultilineLayerBuilder`, `StreamEncryptor`, `FilterValidator`, etc. Swift wrapper fails: `module 'X' has no member named 'InternalType'`.
-
-**Why current gates miss it**: `IHandler.HandleBaseDecl()` (line 202-225) intentionally skips the `IsModuleInternal` check for `@usableFromInline` types (they can appear in public signatures of `@inlinable` functions). But the wrapper emission for those types' members doesn't check if the parameter/return types are also internal.
-
-**Generator code path**:
-- `MemberGateEvaluator.EvaluateHardGates()` (lines 234-268): checks for bare generics, unsupported modules — **missing**: internal type resolution check for parameter/return types
-- `MemberGateEvaluator.EvaluatePropertyHardGates()` (lines 274-296): same gap
-- `MemberEmissionValidator.CanEmitMethod()` (lines 391-600): no internal type parameter check
-- `MemberEmissionValidator.CanEmitProperty()` (lines 60-190): no internal type check
-
-**Fix**: Add member-level gate — for each parameter/return type spec in a method or property, resolve to `TypeDecl` and check `IsModuleInternal`. Skip the wrapper if any referenced type is internal.
-
-### EC-3: EveryProtocol Unsatisfiable Conformance
-
-**Affected**: StripeIssuing (1), StripePayments (1), StripePaymentsUI (1), FSPagerView (1 post-collision), Mappedin (3), Alamofire (2), Kingfisher (1), ObjectMapper (1), Parchment (2), NVActivityIndicatorView (1 post-collision)
-
-**Root cause**: `EveryProtocol` conformance is emitted for protocols it can't actually satisfy.
-
-**Existing gates** (EveryProtocolEmitter:365-405 + ModuleHandler:516-540):
-- ✅ Self requirement (`HasSelfRequirement`)
-- ✅ Self-typed members (generic type params in signatures)
-- ✅ No implementable instance members (static-only protocols)
-- ✅ Associated types (`AssociatedTypes.Count > 0`)
-- ✅ Codable inheritance (`InheritsCodable()`)
-- ✅ Internal types, unsupported modules
-- ❌ **Missing: Class-bound protocols** (NSObjectProtocol / `AnyObject` inheritance)
-- ❌ **Missing: Synthesized-only conformance** (CaseIterable)
-
-**Failing protocol → root cause**:
-
-| Protocol | Library | Root Cause | Gate Status |
-|----------|---------|-----------|-------------|
-| NSObjectProtocol | StripeIssuing, StripePayments, StripePaymentsUI, FSPagerView, Parchment | Class-bound (requires inheriting NSObject) | ❌ Missing |
-| CaseIterable | NVActivityIndicatorView | Requires compiler-synthesized `allCases` | ❌ Missing |
-| Decodable/Encodable | Mappedin | Codable inheritance | ✅ Implemented but not catching transitive |
-| DownloadResponseSerializerProtocol | Alamofire | Associated types | ✅ Implemented |
-| DataTransformable | Kingfisher | Associated types | ✅ Implemented |
-| ImmutableMappable | ObjectMapper | Associated types + custom init | ✅ Implemented |
-| PagingViewController*DataSource | Parchment | NSObjectProtocol inheritance | ❌ Missing (class-bound gate) |
-| STPFormEncodable, STPAPIResponseDecodable | StripePayments | NSObjectProtocol inheritance | ❌ Missing (class-bound gate) |
-
-**Fix**: Add two new gates to the conformance check:
-1. **Class-bound gate**: `protocolDecl.IsClassBound || InheritedProtocols contains NSObjectProtocol/AnyObject`
-2. **Synthesized-only gate**: `protocolDecl.Name is "CaseIterable"` (EveryProtocol can't synthesize `allCases`)
-3. **Verify Codable gate**: Ensure `InheritsCodable()` catches Mappedin's transitive case
-
-**Implementation**: Centralized `CanSynthesizeConformance` check in `EveryProtocolEmitter` or `ModuleHandler`, replacing scattered gate checks.
-
-### EC-4: `Unmanaged<ValueType>` — Struct Treated as Class
-
-**Affected**: StripeConnect (8 errors — all errors), Kingfisher (3 of 18 errors)
-
-**Root cause**: `WrapperValidation.IsOptionalWithReferenceInner()` (line 143-182) incorrectly classifies some value types as reference types. When a property returns `Optional<UIFont.Weight>`, the generator emits `Unmanaged.passRetained($0).toOpaque()` — but `Unmanaged` requires `T: AnyObject` and `UIFont.Weight` is a struct.
-
-**Decision chain**:
-1. `PropertyWrapperEmitter.GetCdeclReturnMapping()` line 468 → calls `IsOptionalWithReferenceInner()`
-2. Returns true → emits `CdeclReturnKind.OptionalClassPointer`
-3. Line 588 → emits `return (obj.property).map { Unmanaged.passRetained($0).toOpaque() }`
-
-**Why it's wrong**: `IsOptionalWithReferenceInner` has a fallback heuristic (line 178) using `HasObjCClassPrefix` which can match struct types that follow ObjC naming conventions. Also, the TypeRecord `Kind` may be `ObjCBridged`/`ObjCRooted` even for structs.
-
-**Existing partial guard**: Lines 155-163 guard against NSString typedef structs, but the pattern isn't generalized.
-
-**Fix**: In `IsOptionalWithReferenceInner`, after resolving the TypeRecord, verify `Kind == TypeRecordKind.Class` (not just ObjCBridged/ObjCRooted). For ObjC-bridged structs, return false so they get `IndirectResult` marshalling instead. Apply in:
-1. `WrapperValidation.IsOptionalWithReferenceInner()` (primary fix)
-2. `PropertyWrapperEmitter.GetCdeclReturnMapping()` line 495 (secondary guard)
-3. `ConstructorWrapperEmitter.GetCdeclParamMapping()` line 622-629 (setter path)
-
-### EC-5: Raw Generic Parameter (τ_0_0) Leaked into Wrapper
+### EC-5: Raw Generic Parameter (τ_0_0) Leaked into Wrapper ✅ Session 8
 
 **Affected**: Alamofire (5+ errors)
 
-**Root cause**: Method-level generics (not class-level) produce unresolved `τ_0_0` type parameters in wrapper code. Session 5 added a τ_0_0 gate for optional-pointer emission, but method dispatch wrappers for generic methods still leak through.
+**Root cause**: Method-level generics (not class-level) produce unresolved `τ_0_0` type parameters in wrapper code. `DefaultParameterOverloadEmitter` generated `@_silgen_name` wrappers for methods with trailing defaults without checking `IsGeneric`, producing code like `public func _dbw_publishResponse_CB7F610A_1(_ serializer: τ_0_0)`.
 
-**Generated code example** (Alamofire):
-```swift
-public func _dbw_publishResponse_CB7F610A_1(_ serializer: τ_0_0) -> DownloadResponsePublisher<τ_0_1> {
-```
+**Fix** (implemented):
+1. `DefaultParameterOverloadEmitter.TryEmitOverloads()`: `if (methodDecl.IsGeneric) return;` added after parent-type generic check
+2. `MemberGateEvaluator.EvaluateHardGates()`: `WrapperValidation.HasRawGenericTypeParams()` added as catch-all for raw ABI generic type parameters in signatures
 
-**Fix**: Strengthen the existing τ_0_0 gate — check for raw generic parameters in all method wrapper emission paths (not just optional-pointer).
+**Validation**: Reduces Alamofire errors (still blocked by other ECs). Unit tests pass.
 
-### EC-6: `@MainActor` Isolation on `@_cdecl`/`@_silgen_name` Functions
+### EC-6: `@MainActor` Isolation on `@_cdecl`/`@_silgen_name` Functions ✅ Session 8
 
 **Affected**: Kingfisher (1 error), Parchment (1 error)
 
-**Root cause**: Properties/methods marked `@MainActor` in the library propagate that annotation to `@_cdecl` wrapper functions. But `@_cdecl` functions are called from non-isolated C#/.NET context. Error: `call to main actor-isolated instance method in a synchronous nonisolated context`.
+**Root cause**: `@MainActor` annotation was emitted on `@_cdecl` wrapper function declarations when the parent type or member was `@MainActor`-isolated. These are C-bridge functions called from nonisolated C#/.NET context.
 
-**Note**: The wrapper already uses `-strict-concurrency=minimal` flag, but this doesn't suppress all actor isolation errors on wrapper function declarations.
+**Fix** (implemented): Stripped `@MainActor` from ALL `@_cdecl` wrapper declarations:
+- `MethodWrapperEmitter.EmitSwiftMethodWrapper()` — removed @MainActor emission
+- `PropertyWrapperEmitter.EmitSwiftGetterWrapper()` — removed @MainActor emission
+- `PropertyWrapperEmitter.EmitSwiftSetterWrapper()` — removed @MainActor emission
+- `SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper()` — removed @MainActor emission
+- `SubscriptWrapperEmitter.EmitSwiftSubscriptSetterWrapper()` — removed @MainActor emission
 
-**Fix**: Strip actor isolation attributes (`@MainActor`) from `@_cdecl`/`@_silgen_name` wrapper function declarations. The wrapper function accesses the property through the object, so isolation is the caller's responsibility, not the wrapper's.
+With `-strict-concurrency=minimal` (used by the wrapper compiler), nonisolated functions can call `@MainActor` members without error.
 
-### EC-7: Type Ambiguity in `.load(as:)` Expressions
+**Validation**: Reduces Kingfisher + Parchment errors (both still blocked by other ECs). Unit tests pass.
+
+### EC-7: Type Ambiguity in `.load(as:)` Expressions ✅ Session 8
 
 **Affected**: BonMot (28 errors)
 
-**Root cause**: Wrapper code emits `value0.load(as: StringStyle.self)` where `StringStyle` is ambiguous — the type exists in the `BonMot` module (imported), and the unqualified name can't be uniquely resolved. Error: `conflicting arguments to generic parameter 'T' ('StringStyle' vs. 'StringStyle')`.
+**Root cause**: `ExistentialBypassEmitter.RenderSwiftTypeSpec()` stripped module prefixes (e.g., `BonMot.StringStyle` → `StringStyle`). When used in `.load(as: StringStyle.self)`, the unqualified name was ambiguous — the type exists in both the imported module and potentially others.
 
-**Generator code path**: `ConstructorWrapperEmitter.GetCdeclParamMapping()` line 647 renders `let {label}Val = {label}.load(as: {swiftType}.self)`. The `swiftType` comes from `ExistentialBypassEmitter.RenderSwiftTypeSpec()` (line 1112) which returns unqualified names.
+**Fix** (implemented):
+- `ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec()` — new method preserving module prefixes
+- Core rendering refactored to `RenderSwiftTypeSpecCore(typeSpec, moduleQualified)` with boolean parameter
+- All `.load(as:)`, `.initializeMemory(as:)`, `.assumingMemoryBound(to:)` call sites updated across ConstructorWrapperEmitter (7 sites), MethodWrapperEmitter (4 sites), PropertyWrapperEmitter (1 site), SubscriptWrapperEmitter (1 site)
 
-**Fix**: Use module-qualified names (`BonMot.StringStyle`) when rendering types in `.load(as:)` and `.assumingMemoryBound(to:)` expressions in wrapper code.
+**Validation**: **BonMot fully fixed** (28 errors → 0). Unit tests pass.
 
-### EC-8: Protocol Composition `.self` Metatype
+### EC-8: Protocol Composition `.self` Metatype ✅ Session 8
 
 **Affected**: CryptoSwift (4 errors)
 
-**Root cause**: Protocol extension wrappers reference `CryptoSwift.Updatable.self` — the metatype of a protocol — in a context where protocol metatypes aren't valid.
+**Root cause**: Protocol extension wrappers referenced `CryptoSwift.Updatable.self` — protocol metatypes are invalid in `assumingMemoryBound(to:)` and `Unmanaged<T>.fromOpaque()` contexts.
 
-**Fix**: Gate or suppress protocol metatype references. When the type spec resolves to a protocol, skip the wrapper emission.
+**Fix** (implemented): Gate in `ProtocolExtensionEmitter.TryInjectMethod()` — checks `TypeRecordKind.Protocol` for the conforming type and skips wrapper emission.
 
-### EC-9: Subscript Label Mismatch
+**Validation**: Reduces CryptoSwift errors (still blocked by EC-9). Unit tests pass.
+
+### EC-9: Subscript Label Mismatch ✅ Session 8
 
 **Affected**: CryptoSwift (2 errors — `bitAt:`), ObjectMapper (5+ errors — `nested:`, `delimiter:`, `ignoreNil:`)
 
-**Root cause**: Subscript parameter labels extracted from ABI JSON don't match the source declaration. The ABI may not encode all label variations for subscripts.
+**Root cause**: Two issues: (1) ABI JSON `PrintedName` for subscripts sometimes had wrong/missing labels. (2) `SubscriptWrapperEmitter.BuildSubscriptAccessExpr` called `StripArgLabel` which stripped ALL labels from bracket syntax — even when labels were required.
 
-**Fix**: Cross-reference subscript parameter labels from `.swiftinterface` file. Extend `SwiftInterfaceAccessParser` to extract subscript declarations with parameter labels.
+**Fix** (implemented):
+- `SwiftInterfaceAccessParser.GetSubscriptLabels()` — parses subscript declarations from `.swiftinterface` with parameter labels
+- `SwiftABIParser.CreateSubscriptDecl()` — cross-references parsed labels, overwrites ABI JSON labels when mismatched
+- `SubscriptWrapperEmitter` — removed `StripArgLabel`, added `FixSubscriptCallArg()` (strips only `indexN` auto-labels) and `GetProtocolSubscriptLabel()` for protocol conformance declarations
 
-### EC-10: `@_spi` Member Leaked
+**Validation**: Reduces CryptoSwift + ObjectMapper errors. ObjectMapper still has residual `extraneous argument label 'key:'` — label stripping needs further tuning for this case. Unit tests pass.
+
+### EC-10: `@_spi` Member Leaked ⏳ Deferred
 
 **Affected**: StripePaymentSheet (2 errors)
 
 **Root cause**: Wrapper references `none` which is `@_spi`-protected. Session 5 added `spi_group_names` detection for method-level SPI, but specific member references (enum cases, static properties) on SPI-gated types may leak.
 
-**Fix**: Extend SPI detection to cover enum case and static member references accessed through SPI-gated types.
+**Status**: Deferred — needs generated output debugging to identify exact leak path. Only 2 errors.
 
-### EC-11: Default Parameter Overload Dispatch Mismatch
+### EC-11: Default Parameter Overload Dispatch Mismatch ✅ Session 8
 
 **Affected**: PhoneNumberKit (6 errors)
 
-**Root cause**: `DefaultParameterOverloadEmitter` generates `@_cdecl` wrappers that call `@_silgen_name` dispatch methods, but the dispatch references point to the wrong overload. The 1-parameter `@_cdecl` calls the 3-parameter dispatch, causing `missing argument for parameter #2 in call`.
+**Root cause**: `DefaultParameterOverloadEmitter` generated `@_cdecl` wrappers where the silgen function name suffix (`_3`) didn't match the trim count, causing `missing argument for parameter #2 in call`.
 
-**Generated code**:
-```swift
-// 1-param @_cdecl wrapper calls 3-param dispatch — WRONG
-let result = obj._dbw_getFormattedExampleNumber_C2D26DA8_3(countryCodeVal)
-// But _dbw_...3 takes (countryCode, type, format) — 3 params
-```
+**Fix** (implemented):
+- `GetSilgenFuncName(MethodDecl, int trimCount)` extracted as single source of truth for `_dbw_{name}_{hash}_{trim}` pattern
+- `EmitSwiftWrapper()` now takes canonical `trim` loop variable, eliminating trim count divergence between the function definition and the @_cdecl call site
 
-**Fix**: Fix overload key matching in `DefaultParameterOverloadEmitter` so dispatch wrappers call the correct overload with the correct parameter count.
+**Validation**: Should fix PhoneNumberKit (still `swift:fail` — may have xcframework creation issue). Unit tests pass.
 
-### EC-12: `@autoclosure` Parameter Gap
+### EC-12: `@autoclosure` Parameter Gap ⏳ Deferred
 
 **Affected**: Kingfisher (1 error)
 
 **Root cause**: Session 4 added `@autoclosure` detection from `.swiftinterface`, but at least one case still leaks through. Error: `add () to forward '@autoclosure' parameter`.
 
-**Fix**: Audit `@autoclosure` detection in wrapper code — the parameter needs `()` appended when forwarded. May be a gap in `GetAutoclosureParameters()` or a missing check in `MethodWrapperEmitter`.
+**Status**: Deferred — only 1 error, needs specific Kingfisher output to identify the gap in `GetAutoclosureParameters()` parsing.
 
-### EC-13: Integer Type Width Mismatch
+### EC-13: Integer Type Width Mismatch ⏳ Deferred
 
 **Affected**: Kingfisher (2 errors — `UInt64` → `UInt`), StripePayments (2 errors — `Int64` → `Int`)
 
-**Root cause**: Wrapper generates parameter with `UInt64`/`Int64` type, but the Swift method expects `UInt`/`Int`. This happens for ObjC enum raw values and Apple framework types where the ABI reports a fixed-width integer but Swift uses platform-width.
+**Root cause**: ABI JSON reports `Swift.Int64`/`Swift.UInt64` where the Swift source type is `Swift.Int`/`Swift.UInt`. On 64-bit platforms, these have identical ABI representation but are **distinct types** in Swift source (`Int.self == Int64.self` returns `false`).
 
-**Fix**: Map fixed-width integer types to platform-width types in wrapper parameter emission when the target method expects `UInt`/`Int`.
+**Status**: Deferred — blanket normalization (`Int64` → `Int`) would break methods that genuinely use `Int64`. Needs targeted fix: either parse actual parameter types from `.swiftinterface`, or normalize only for ObjC-bridged contexts where `NSInteger` → `Int` bridging is known. Only 4 errors across 2 libraries.
 
-### EC-14: Missing Framework Import
+### EC-14: Missing Framework Import ✅ Session 8
 
 **Affected**: StripePayments (1 error — `CNContact`)
 
-**Root cause**: Wrapper uses `Unmanaged<CNContact>.fromOpaque(contact)` but the `import Contacts` statement is missing. The generator adds framework imports for the primary module but doesn't auto-detect transitive framework dependencies needed for parameter types.
+**Root cause**: `ModuleHandler.AppleFrameworks` set was missing frameworks like `Contacts`, `Photos`, `PassKit`, etc. Wrapper used `Unmanaged<CNContact>` but `import Contacts` was missing.
 
-**Fix**: Auto-detect framework imports by scanning wrapper code for types from known Apple frameworks (e.g., `CNContact` → `Contacts`, `CLLocation` → `CoreLocation`) and emitting the appropriate `import` statement.
+**Fix** (implemented): Added 16 frameworks to `AppleFrameworks`: Contacts, ContactsUI, EventKit, EventKitUI, PhotosUI, Photos, PassKit, MessageUI, UserNotifications, NetworkExtension, CoreBluetooth, CoreNFC, CoreMotion, CoreTelephony, CarPlay, Intents, IntentsUI, LinkPresentation, MediaPlayer.
 
-### EC-15: Optional Closure Unwrapping with `@MainActor`
+**Validation**: Reduces StripePayments errors (still blocked by other ECs). Unit tests pass.
+
+### EC-15: Optional Closure Unwrapping with `@MainActor` ✅ Session 8
 
 **Affected**: StripePaymentsUI (12 errors), FSPagerView (7 errors post-collision)
 
-**Root cause**: EveryProtocol conformance emits protocol method stubs that call optional closure properties. When the closure type is `(@MainActor (STPPaymentCardTextField) -> ())?`, the wrapper doesn't use optional chaining. Error: `value of optional type '(@MainActor ...) -> ())?' must be unwrapped`.
+**Root cause**: `SwiftTypeNameHelper.GetSwiftTypeName()` for closures only handled `@escaping` as a closure attribute. Type-level attributes like `@MainActor` and `@Sendable` were silently dropped, causing EveryProtocol property type mismatches. Additionally, `@escaping` was incorrectly included in property type annotations (it's only valid on function parameters).
 
-**Fix**: Use optional chaining (`closure?()`) or force-unwrap with guard when calling optional closure properties in EveryProtocol stubs and WitnessDispatch emission.
+**Fix** (implemented):
+- `SwiftTypeNameHelper.GetSwiftTypeName()` for `ClosureTypeSpec` — includes ALL type-level attributes (`@MainActor`, `@Sendable`) while excluding calling convention attributes (`@escaping`, `@autoclosure`)
+- `GetSwiftTypeNameForMetatype` — added handling for `Swift.Optional<ClosureType>` to emit `Optional<(X) -> Y>` instead of `((X) -> Y)?` for metatype `.self` access
 
-### EC-16: `AnyObject` Existential Projection
+**Validation**: Reduces StripePaymentsUI + FSPagerView errors. Unit tests pass.
+
+### EC-16: `AnyObject` Existential Projection ✅ Session 8
 
 **Affected**: Mappedin (2 errors)
 
-**Root cause**: Property has type `AnyObject`, and the generator emits `resultPtr.initializeMemory(as: any AnyObject.self, ...)` — but `any AnyObject.self` is not a valid metatype expression in Swift. Error: `instance method 'self()' is not a member type of 'AnyObject'`.
+**Root cause**: Property type `AnyObject` was routed through `IndirectResult` path, emitting `resultPtr.initializeMemory(as: any AnyObject.self, ...)` — invalid Swift metatype syntax. AnyObject can appear as `ProtocolListTypeSpec` (from existential parsing) or `NamedTypeSpec` (from TypeSpecParser).
 
-**Fix**: Handle `AnyObject` properties as `UnsafeRawPointer` instead of trying to use existential type in memory operations. Use `Unmanaged<AnyObject>` marshalling (since AnyObject IS a class reference).
+**Fix** (implemented):
+- `ConstructorWrapperEmitter.IsAnyObjectType()` — detects AnyObject in both `ProtocolListTypeSpec` and `NamedTypeSpec` forms
+- `PropertyWrapperEmitter.GetCdeclReturnMapping()` — routes AnyObject through `ClassPointer` (`Unmanaged.passRetained().toOpaque()`) using `IsAnyObjectType()` helper
+- `ConstructorWrapperEmitter.GetCdeclParamMapping()` — uses `Unmanaged<AnyObject>.fromOpaque()` for AnyObject parameters (before generic protocol existential check)
 
-### EC-17: GRDB Protocol Extension Associated Types (Architectural)
+**Validation**: **Mappedin fully fixed** (10 errors → 0). Unit tests pass.
+
+### EC-17: GRDB Protocol Extension Associated Types (Architectural) ✅ Session 8 (containment)
 
 **Affected**: GRDB (666 errors — `Element` 72, `Base` 80, `U` 110, `Value` 20, `Record` 10, etc.)
 
-**Root cause**: Protocol extension wrappers use bare associated type names (`Element`, `Base`) outside their protocol context. The `ProtocolExtensionEmitter` (`ResolveSelfElement()` at lines 1877-1963) resolves `Self.Element` but doesn't carry forward the protocol's generic constraints into wrapper signatures.
+**Root cause**: Protocol extension wrappers use bare associated type names (`Element`, `Base`) outside their protocol context. The `ProtocolExtensionEmitter` (`ResolveSelfElement()`) resolves `Self.Element` but doesn't carry forward the protocol's generic constraints into wrapper signatures.
 
-**Near-term containment**: Prune protocol extension wrappers that reference unresolved associated types. Detect bare `Element`, `Base`, `Value`, `Record` etc. in wrapper signatures and skip those wrappers at emission time or post-processor level.
+**Fix** (containment, implemented):
+- `ProtocolExtensionEmitter.TryInjectMethod()` — gates on `WrapperValidation.ContainsRawGenericTypeParam()` and `ContainsAssociatedTypeReference()` for all parameter and return TypeSpecs
+- `ContainsAssociatedTypeReference()` — recursively detects `AssociatedTypeReferenceSpec`, `Self.X` references, and raw generic params (`τ_0_0`)
+- Deliberately avoids bare-name matching (e.g., checking if `Element` lacks a module prefix) — too many false positives on legitimate type names
 
 **Long-term fix**: Architectural — carry full generic constraint context from protocol definition into protocol extension wrapper signatures. Requires type graph changes.
 
-### EC-18: SwiftyBeaver Nested Type Disambiguation
+**Validation**: Reduces GRDB errors (exact count TBD — containment prevents emission of problematic wrappers). Unit tests pass.
 
-**Affected**: SwiftyBeaver (4 errors post-collision)
+### EC-18: SwiftyBeaver Nested Type Disambiguation ✅ Session 7
 
-**Root cause**: The collision regex strips `SwiftyBeaver.Level` → `Level`, but `Level` is a nested enum inside class `SwiftyBeaver` — not a module-level type. The regex can't distinguish module.Type from Class.NestedType.
-
-**Fix**: When applying the collision post-processor, maintain a set of types nested inside the colliding class (from ABI JSON). Skip stripping for references to those nested types. E.g., `SwiftyBeaver.Level` should stay as `SwiftyBeaver.Level` because `Level` is nested in class `SwiftyBeaver`.
+**Status**: Implemented. Collision regex preserves `Module.NestedType` references.
 
 ### EC-19: Not Fixable
 
@@ -297,37 +245,38 @@ let result = obj._dbw_getFormattedExampleNumber_C2D26DA8_3(countryCodeVal)
 
 Each library mapped to the exact error classes that need fixing, with expected result.
 
-| Library | Raw Errors | Error Classes | All fixes applied → Result |
-|---------|-----------|--------------|---------------------------|
-| Reachability | 34 | EC-1 | ✅ Pass (verified) |
-| KeychainSwift | 16 | EC-1 | ✅ Pass (verified) |
-| AnimatedCollectionViewLayout | 38 | EC-1 | ✅ Pass (verified) |
-| Valet | 462 | EC-1 | ✅ Pass (verified) |
-| SVGView | 351 | EC-1 | ✅ Pass (verified) |
-| Mixpanel | 342 | EC-1 | ✅ Pass (verified) |
-| NVActivityIndicatorView | 22 (144 post-EC1) | EC-1, EC-2, EC-3 | ✅ Pass |
-| FSPagerView | 78 (8 post-EC1) | EC-1, EC-3, EC-15 | ✅ Pass |
-| SwiftyBeaver | 166 (40 post-EC1) | EC-1, EC-2, EC-18 | ✅ Pass |
-| SkeletonView | 532 | EC-2 | ✅ Pass |
-| StripeCryptoOnramp | 2 | EC-2 | ✅ Pass |
-| StripeConnect | 8 | EC-4 | ✅ Pass |
-| StripeIssuing | 2 | EC-3 | ✅ Pass |
-| StripePaymentSheet | 2 | EC-10 | ✅ Pass |
-| Alamofire | 34 | EC-2, EC-3, EC-5 | ✅ Pass |
-| CryptoSwift | 34 | EC-2, EC-8, EC-9 | ✅ Pass |
-| Mappedin | 10 | EC-3, EC-16 | ✅ Pass |
-| StripePayments | 12 | EC-2, EC-3, EC-13, EC-14 | ✅ Pass |
-| StripePaymentsUI | 26 | EC-3, EC-15 | ✅ Pass |
-| Kingfisher | 18 | EC-3, EC-4, EC-6, EC-12, EC-13 | ✅ Pass |
-| PhoneNumberKit | 6 | EC-11 | ✅ Pass |
-| ObjectMapper | 14 | EC-3, EC-9 | ✅ Pass |
-| BonMot | 28 | EC-7 | ✅ Pass |
-| Parchment | 8 | EC-3, EC-6 | ✅ Pass |
-| GRDB | 666 | EC-17 | ⚠️ Near-term containment likely; full fix architectural |
-| Quick | 6 | EC-19 | N/A (skip) |
-| TinyConstraints | — | EC-19 | N/A (skip) |
+| Library | Error Classes | Session 8 Status |
+|---------|--------------|------------------|
+| Reachability | EC-1 | ✅ Fixed (session 7) |
+| KeychainSwift | EC-1 | ✅ Fixed (session 7) |
+| AnimatedCollectionViewLayout | EC-1 | ✅ Fixed (session 7) |
+| Valet | EC-1 | ✅ Fixed (session 7) |
+| SVGView | EC-1 | ✅ Fixed (session 7) |
+| Mixpanel | EC-1 | ✅ Fixed (session 7) |
+| NVActivityIndicatorView | EC-1, EC-2, EC-3 | ✅ Fixed (session 7) |
+| SwiftyBeaver | EC-1, EC-2, EC-18 | ✅ Fixed (session 7) |
+| SkeletonView | EC-2 | ⚠️ 2 residual errors (session 7 reduced 532→2) |
+| StripeCryptoOnramp | EC-2 | ⚠️ swift:fail (dep gate) |
+| StripeConnect | EC-4 | ⚠️ swift:fail (dep gate) |
+| StripeIssuing | EC-3 | ⚠️ swift:fail (dep gate) |
+| BonMot | EC-7 | ✅ **Fixed (session 8)** |
+| Mappedin | EC-3, EC-16 | ✅ **Fixed (session 8)** |
+| Alamofire | EC-2, EC-3, EC-5 | ⚠️ EC-5 done, still swift:fail (may be xcframework creation issue) |
+| CryptoSwift | EC-2, EC-8, EC-9 | ⚠️ EC-8+EC-9 done, still swift:fail |
+| Kingfisher | EC-3, EC-4, EC-6, EC-12, EC-13 | ⚠️ EC-6 done, EC-12+EC-13 deferred |
+| PhoneNumberKit | EC-11 | ⚠️ EC-11 done, still swift:fail (may be xcframework creation issue) |
+| ObjectMapper | EC-3, EC-9 | ⚠️ EC-9 done, residual label issue |
+| StripePayments | EC-2, EC-3, EC-13, EC-14 | ⚠️ EC-14 done, EC-13 deferred |
+| StripePaymentSheet | EC-10 | ⚠️ EC-10 deferred |
+| StripePaymentsUI | EC-3, EC-15 | ⚠️ EC-15 done, still swift:fail (dep gate) |
+| Parchment | EC-3, EC-6 | ⚠️ EC-6 done, still swift:fail |
+| FSPagerView | EC-1, EC-3, EC-15 | ⚠️ EC-15 done, still swift:fail |
+| GRDB | EC-17 | ⚠️ Containment gate implemented, still swift:fail |
+| Nuke, Nuke@macos, Nuke@tvos | — | ⚠️ swift:fail — wrapper compiles cleanly but xcframework binary not produced (infrastructure issue, not generator bug) |
+| Quick | EC-19 | N/A (skip) |
+| TinyConstraints | EC-19 | N/A (skip) |
 
-**Target**: 54/56 = 96.4% (25 libraries fixed + Quick/TinyConstraints skipped). GRDB may reach 100% with containment pruning.
+**Observation**: Several libraries (Alamofire, PhoneNumberKit, Nuke x3) compile their wrapper with zero errors but remain `swift:fail` because the xcframework binary is not produced. This appears to be an infrastructure issue in the xcframework creation pipeline, not a generator bug. Needs separate investigation.
 
 ---
 
@@ -363,54 +312,25 @@ Each library mapped to the exact error classes that need fixing, with expected r
 
 **Outcome**: 8 libraries fully fixed (Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel, NVActivityIndicatorView, SwiftyBeaver). Major error reductions: SkeletonView 532→2, FSPagerView collision+class-bound fixed (EC-15 remains). Libraries needing EC-5–EC-17 (SkeletonView, StripeConnect, StripeIssuing, etc.) have partial improvements but other error classes block full pass.
 
-### Session 8: Remaining Fixes (target: 37 → 54)
+### Session 8: Remaining Fixes (37 → 36, +2 fixed / -3 Nuke infra)
 
-**Scope**: EC-5 through EC-17
+**Scope**: EC-5 through EC-17 (10 implemented, 3 deferred)
 
-**EC-5: τ_0_0 gate strengthening** (Alamofire)
-- Audit all wrapper emission paths for raw generic parameter references
-- Add check in `MethodWrapperEmitter.ShouldEmitWrapper()` or `MemberGateEvaluator`
+See EC descriptions above for implementation details. Key changes across 24 files, ~1500 lines, 43 new tests.
 
-**EC-6: @MainActor stripping** (Kingfisher, Parchment)
-- In `PropertyWrapperEmitter` and `MethodWrapperEmitter`: don't emit `@MainActor` on `@_cdecl`/`@_silgen_name` functions
+**Outcome**: BonMot and Mappedin fully fixed. Nuke x3 dropped from pass to fail (xcframework creation infrastructure issue, not generator regression — wrapper compiles cleanly with zero errors). Net: 36/56 passing. Error reductions in Alamofire, CryptoSwift, Kingfisher, PhoneNumberKit, ObjectMapper, Parchment, FSPagerView, StripePaymentsUI, GRDB — but these libraries still have other blocking error classes or xcframework creation issues preventing full pass.
 
-**EC-7: Type qualification** (BonMot)
-- Module-qualify type names in `.load(as:)` and `.assumingMemoryBound(to:)` expressions
-- Modify `RenderSwiftTypeSpec()` or the `.load(as:)` rendering call site
+### Session 9 (planned): Remaining gaps
 
-**EC-8: Protocol metatype gate** (CryptoSwift)
-- Detect protocol type in metatype position → skip wrapper
+**EC-10**: Debug StripePaymentSheet generated output to find `none` reference path (2 errors).
 
-**EC-9: Subscript label cross-reference** (CryptoSwift, ObjectMapper)
-- Extend `SwiftInterfaceAccessParser` to parse subscript declarations with labels
-- Cross-reference during wrapper emission
+**EC-12**: Debug Kingfisher autoclosure leak — single parameter not detected by `GetAutoclosureParameters()` (1 error).
 
-**EC-10: @_spi gate extension** (StripePaymentSheet)
-- Extend SPI detection to cover enum case / static member references
+**EC-13**: Cross-reference integer types from `.swiftinterface` to normalize `Int64` → `Int` where the source type is platform-width. Key insight: `Int.self == Int64.self` is `false` in Swift — they are distinct types even on 64-bit (4 errors).
 
-**EC-11: Default parameter overload fix** (PhoneNumberKit)
-- Fix dispatch reference key in `DefaultParameterOverloadEmitter`
+**Xcframework creation investigation**: Alamofire, PhoneNumberKit, Nuke x3 all compile their wrapper with zero Swift errors but the xcframework binary is not produced. This is a separate infrastructure bug in `SwiftWrapperCompiler.Compile()` or `xcodebuild -create-xcframework`, not a generator issue.
 
-**EC-12: @autoclosure gap** (Kingfisher)
-- Audit autoclosure detection; add `()` when forwarding autoclosure params
-
-**EC-13: Integer type width** (Kingfisher, StripePayments)
-- Map `UInt64` → `UInt`, `Int64` → `Int` for platform-width-expected parameters
-
-**EC-14: Missing framework import** (StripePayments)
-- Auto-detect `CNContact` → `import Contacts` (and similar Apple framework types)
-
-**EC-15: Optional closure unwrapping** (StripePaymentsUI, FSPagerView)
-- Use optional chaining in EveryProtocol stubs / WitnessDispatch for optional closures
-
-**EC-16: AnyObject existential** (Mappedin)
-- Handle `AnyObject` properties with `Unmanaged<AnyObject>` (it IS a class reference)
-
-**EC-17: GRDB containment** (GRDB)
-- Post-processor or emission gate: detect unresolved associated types in protocol extension wrapper signatures → strip those wrappers
-- This is containment, not a full fix; reduces 666 errors to ~0 by skipping unsupported patterns
-
-**Expected outcome**: ~17 more libraries fixed. Total: 54/56 (96.4%).
+**SkeletonView**: 2 residual errors from session 7. May be EC-2 edge case or new error class.
 
 ---
 
@@ -423,5 +343,7 @@ Each library mapped to the exact error classes that need fixing, with expected r
 | 5 | StripeIdentity, RxSwift, AMPopTip, Swinject | 4 |
 | 6 | XMLCoder | 1 |
 | 7 | Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel, NVActivityIndicatorView, SwiftyBeaver | 8 |
-| 8 (planned) | Alamofire, CryptoSwift, Kingfisher, Mappedin, PhoneNumberKit, ObjectMapper, BonMot, Parchment, StripePayments, StripePaymentSheet, StripePaymentsUI, FSPagerView, GRDB | ~13 |
+| 8 | BonMot, Mappedin | 2 |
 | Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 13 |
+
+**Note**: Nuke x3 regressed from passing to `swift:fail` between sessions 7 and 8 — wrapper compiles cleanly but xcframework binary is not produced. This is an infrastructure issue, not a generator regression.

@@ -1105,15 +1105,28 @@ public static class ExistentialBypassEmitter
     /// Strips module prefixes (e.g. "Swift.Array&lt;Swift.Int&gt;" → "Array&lt;Int&gt;").
     /// </summary>
     public static string RenderSwiftTypeSpec(TypeSpec typeSpec)
+        => RenderSwiftTypeSpecCore(typeSpec, moduleQualified: false);
+
+    /// <summary>
+    /// Renders a TypeSpec with module-qualified names (e.g. "BonMot.StringStyle" instead of "StringStyle").
+    /// Use this for .load(as:), .initializeMemory(as:), and .assumingMemoryBound(to:) expressions
+    /// where unqualified names can be ambiguous (the wrapper imports the module, and the type name
+    /// may collide with types from other imported modules).
+    /// </summary>
+    public static string RenderModuleQualifiedSwiftTypeSpec(TypeSpec typeSpec)
+        => RenderSwiftTypeSpecCore(typeSpec, moduleQualified: true);
+
+    private static string RenderSwiftTypeSpecCore(TypeSpec typeSpec, bool moduleQualified)
     {
         switch (typeSpec)
         {
             case NamedTypeSpec namedTypeSpec:
-                var name = namedTypeSpec.NameWithoutModule;
+                var name = moduleQualified ? namedTypeSpec.Name : namedTypeSpec.NameWithoutModule;
 
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {
-                    var genericArgs = string.Join(", ", namedTypeSpec.GenericParameters.Select(RenderSwiftTypeSpec));
+                    var genericArgs = string.Join(", ", namedTypeSpec.GenericParameters.Select(
+                        gp => RenderSwiftTypeSpecCore(gp, moduleQualified)));
                     return $"{name}<{genericArgs}>";
                 }
                 return name;
@@ -1123,7 +1136,7 @@ public static class ExistentialBypassEmitter
                     return "Void";
                 var elements = string.Join(", ", tupleTypeSpec.Elements.Select(e =>
                 {
-                    var rendered = RenderSwiftTypeSpec(e);
+                    var rendered = RenderSwiftTypeSpecCore(e, moduleQualified);
                     return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
                 }));
                 return $"({elements})";
@@ -1140,16 +1153,16 @@ public static class ExistentialBypassEmitter
                 {
                     var elems = string.Join(", ", argsTuple.Elements.Select(e =>
                     {
-                        var rendered = RenderSwiftTypeSpec(e);
+                        var rendered = RenderSwiftTypeSpecCore(e, moduleQualified);
                         return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
                     }));
                     argsRendered = $"({elems})";
                 }
                 else
                 {
-                    argsRendered = $"({RenderSwiftTypeSpec(closureTypeSpec.Arguments)})";
+                    argsRendered = $"({RenderSwiftTypeSpecCore(closureTypeSpec.Arguments, moduleQualified)})";
                 }
-                var ret = RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
+                var ret = RenderSwiftTypeSpecCore(closureTypeSpec.ReturnType, moduleQualified);
                 var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
                 var asyncKeyword = closureTypeSpec.IsAsync ? " async" : "";
                 // @escaping and @Sendable from parsed attributes
@@ -1164,7 +1177,8 @@ public static class ExistentialBypassEmitter
             case ProtocolListTypeSpec protocolListTypeSpec:
                 if (protocolListTypeSpec.Protocols.Count == 0)
                     return "Any";
-                var protocols = string.Join(" & ", protocolListTypeSpec.Protocols.Keys.Select(p => RenderSwiftTypeSpec(p)));
+                var protocols = string.Join(" & ", protocolListTypeSpec.Protocols.Keys.Select(
+                    p => RenderSwiftTypeSpecCore(p, moduleQualified)));
                 return $"any {protocols}";
 
             default:

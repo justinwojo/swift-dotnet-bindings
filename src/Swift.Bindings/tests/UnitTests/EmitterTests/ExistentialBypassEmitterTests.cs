@@ -671,4 +671,98 @@ public class ExistentialBypassEmitterTests
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EC-7: RenderModuleQualifiedSwiftTypeSpec tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpec_SimpleType_KeepsModule()
+    {
+        var typeSpec = new NamedTypeSpec("BonMot.StringStyle");
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+        Assert.Equal("BonMot.StringStyle", result);
+    }
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpec_GenericType_KeepsModuleOnAll()
+    {
+        var inner = new NamedTypeSpec("Swift.String");
+        var outer = new NamedTypeSpec("Swift.Optional", inner);
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(outer);
+        Assert.Equal("Swift.Optional<Swift.String>", result);
+    }
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpec_UnqualifiedType_ReturnsAsIs()
+    {
+        // Types without module prefix (e.g., raw generic params) pass through unchanged
+        var typeSpec = new NamedTypeSpec("Int");
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+        Assert.Equal("Int", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_SimpleType_StripsModule_StillWorks()
+    {
+        // Verify unqualified rendering still works (backward compat)
+        var typeSpec = new NamedTypeSpec("BonMot.StringStyle");
+        var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+        Assert.Equal("StringStyle", result);
+    }
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeSpec_Tuple_QualifiesElements()
+    {
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        });
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(tuple);
+        Assert.Equal("(Swift.Int, Swift.String)", result);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EC-16: IsAnyObjectType + AnyObject return mapping tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void IsAnyObjectType_ProtocolList_ReturnsTrue()
+    {
+        var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("AnyObject") });
+        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+    }
+
+    [Fact]
+    public void IsAnyObjectType_QualifiedProtocolList_ReturnsTrue()
+    {
+        var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.AnyObject") });
+        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+    }
+
+    [Fact]
+    public void IsAnyObjectType_NamedType_ReturnsTrue()
+    {
+        var anyObject = new NamedTypeSpec("AnyObject");
+        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+    }
+
+    [Fact]
+    public void IsAnyObjectType_RegularProtocol_ReturnsFalse()
+    {
+        var proto = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Equatable") });
+        Assert.False(ConstructorWrapperEmitter.IsAnyObjectType(proto));
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_AnyObject_ReturnsClassPointer()
+    {
+        var typeDb = new TypeDatabase();
+        var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("AnyObject") });
+        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(anyObject, typeDb);
+
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.ClassPointer, mapping.Kind);
+        Assert.False(needsResultPtr);
+    }
 }

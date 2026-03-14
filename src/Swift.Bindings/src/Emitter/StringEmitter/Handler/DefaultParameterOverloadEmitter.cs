@@ -52,6 +52,13 @@ public static class DefaultParameterOverloadEmitter
         if (methodDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric)
             return;
 
+        // Skip methods with method-level generics — @_silgen_name wrappers can't express
+        // unresolved generic type parameters (τ_0_0, τ_0_1, etc.) in Swift source code.
+        // Class-level generics are handled by the parent-type check above; this catches
+        // method-level generics that produce raw ABI type params in the wrapper signature.
+        if (methodDecl.IsGeneric)
+            return;
+
         var trailingDefaultCount = CountTrailingDefaults(methodDecl);
         if (trailingDefaultCount == 0)
             return;
@@ -194,7 +201,7 @@ public static class DefaultParameterOverloadEmitter
                 overloadDecl.MangledName = silgenSymbolForMethodCdecl!;
 
             // Emit Swift @_silgen_name wrapper
-            EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env);
+            EmitSwiftWrapper(swiftWriter, methodDecl, overloadDecl, env, trim);
 
             // Restore the cdecl symbol as the final MangledName for P/Invoke routing.
             // EmitSwiftWrapper sets MangledName = wrapperSymbol (the DBW_... name) — overwrite with cdecl.
@@ -206,10 +213,9 @@ public static class DefaultParameterOverloadEmitter
             // Emit @_cdecl constructor wrapper that calls the @_silgen_name function
             if (silgenSymbolForCdecl != null && overloadDecl.UsesCdeclConstructorWrapper)
             {
-                // The @_silgen_name function is a static factory — compute its Swift name
-                var trimCount = methodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
-                var rawMethodName = methodDecl.GetSwiftName();
-                var silgenFuncName = $"_dbw_{rawMethodName}_{DeterministicHash8(methodDecl.MangledName)}_{trimCount}";
+                // Use the canonical trim count from the loop variable to ensure the
+                // silgen function name matches what EmitSwiftWrapper emitted.
+                var silgenFuncName = GetSilgenFuncName(methodDecl, trim);
                 ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                     swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
             }
@@ -220,9 +226,9 @@ public static class DefaultParameterOverloadEmitter
             if (silgenSymbolForMethodCdecl != null && overloadDecl.UsesCdeclMethodWrapper
                 && !overloadDecl.IsAsync)
             {
-                var trimCount = methodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
-                var rawMethodName = methodDecl.GetSwiftName();
-                var silgenFuncName = $"_dbw_{rawMethodName}_{DeterministicHash8(methodDecl.MangledName)}_{trimCount}";
+                // Use the canonical trim count from the loop variable to ensure the
+                // silgen function name matches what EmitSwiftWrapper emitted.
+                var silgenFuncName = GetSilgenFuncName(methodDecl, trim);
                 MethodWrapperEmitter.EmitSwiftMethodWrapper(
                     swiftWriter, overloadEnv, emissionContext, silgenTarget: silgenFuncName);
             }
@@ -343,11 +349,13 @@ public static class DefaultParameterOverloadEmitter
     /// Emits a Swift wrapper function that calls the original method
     /// with fewer arguments, letting Swift fill in the defaults.
     /// </summary>
+    /// <param name="trim">The canonical trim count (loop variable) — number of trailing default params removed.</param>
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodDecl originalMethodDecl,
         MethodDecl overloadDecl,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        int trim)
     {
         var wrapperSymbol = overloadDecl.MangledName;
         var parentTypeDecl = originalMethodDecl.ParentDecl as TypeDecl;
@@ -448,8 +456,9 @@ public static class DefaultParameterOverloadEmitter
         var throwsClause = throws ? " throws" : "";
         var returnClause = (isVoid || hasLargeOptionalReturn) ? "" : $" -> {returnType}";
         var tryPrefix = throws ? "try " : "";
-        var trimCount = originalMethodDecl.CSSignature.Count - overloadDecl.CSSignature.Count;
-        var swiftFuncName = $"_dbw_{rawMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}_{trimCount}";
+        // Use the canonical trim count passed from the loop, not a recomputed value.
+        // This ensures the silgen function name matches the @_cdecl dispatch reference.
+        var swiftFuncName = GetSilgenFuncName(originalMethodDecl, trim);
 
         swiftWriter.WriteLine();
 
@@ -865,6 +874,18 @@ public static class DefaultParameterOverloadEmitter
         }
 
         return foundAnyDefault;
+    }
+
+    /// <summary>
+    /// Computes the canonical Swift function name for a default-parameter overload's
+    /// @_silgen_name wrapper. Used by both <see cref="EmitSwiftWrapper"/> and the
+    /// @_cdecl dispatch section in <see cref="TryEmitOverloads"/> to ensure they
+    /// reference the same function name.
+    /// </summary>
+    internal static string GetSilgenFuncName(MethodDecl methodDecl, int trimCount)
+    {
+        var rawMethodName = methodDecl.GetSwiftName();
+        return $"_dbw_{rawMethodName}_{DeterministicHash8(methodDecl.MangledName)}_{trimCount}";
     }
 
     internal static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);

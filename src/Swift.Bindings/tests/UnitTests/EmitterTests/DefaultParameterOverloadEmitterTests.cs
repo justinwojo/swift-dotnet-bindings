@@ -284,6 +284,326 @@ public class DefaultParameterOverloadEmitterTests
 
     #endregion
 
+    #region EC-5: Method-Level Generic Skip
+
+    [Fact]
+    public void TryEmitOverloads_MethodLevelGeneric_SkipsOverloads()
+    {
+        // EC-5: Method-level generics produce unresolved τ_0_0 type parameters
+        // in wrapper code. TryEmitOverloads must skip these methods entirely.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("DataRequest");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "DataRequest",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
+            MangledName = "$s10TestModule11DataRequestVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule11DataRequestVMa"
+        };
+
+        // Method with method-level generic (τ_0_0 in parameter type)
+        var method = new MethodDecl
+        {
+            Name = "publishResponse",
+            MangledName = "$s10TestModule11DataRequestV15publishResponseyx_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "serializer",
+                    PrivateName = "serializer",
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    HasDefaultArg = false,
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                CreateArg("queue", hasDefault: true)
+            },
+            // Method-level generic parameters — NOT class-level
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var (csOutput, swiftOutput) = EmitOverloads(method, typeDb);
+
+        // Method-level generic → no overloads emitted (would produce invalid τ_0_0 in Swift code)
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmitOverloads_NonGenericMethod_EmitsOverloads()
+    {
+        // Verify that non-generic methods with defaults still produce overloads
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Processor");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Processor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Processor"),
+            MangledName = "$s10TestModule9ProcessorVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule9ProcessorVMa"
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s10TestModule9ProcessorV7processSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("value", hasDefault: false),
+                CreateArg("limit", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(), // No method-level generics
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var (csOutput, swiftOutput) = EmitOverloads(method, typeDb);
+
+        // Non-generic → overloads should be emitted
+        Assert.NotEmpty(swiftOutput);
+        Assert.Contains("_dbw_process_", swiftOutput);
+    }
+
+    #endregion
+
+    #region EC-11: Silgen Function Name Consistency
+
+    [Fact]
+    public void GetSilgenFuncName_ProducesConsistentName()
+    {
+        // EC-11: The silgen function name must be consistent between EmitSwiftWrapper
+        // and the @_cdecl dispatch section. GetSilgenFuncName is the single source of truth.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "getFormattedExampleNumber",
+            MangledName = "$s14PhoneNumberKit0bC9FormatterV24getFormattedExampleNumberySSSg_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("countryCode", hasDefault: false),
+                CreateArg("type", hasDefault: true),
+                CreateArg("format", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        // trim=2 (remove type + format, keep countryCode)
+        var silgenName_trim2 = DefaultParameterOverloadEmitter.GetSilgenFuncName(method, 2);
+        Assert.Contains("_dbw_getFormattedExampleNumber_", silgenName_trim2);
+        Assert.EndsWith("_2", silgenName_trim2);
+
+        // trim=1 (remove format, keep countryCode + type)
+        var silgenName_trim1 = DefaultParameterOverloadEmitter.GetSilgenFuncName(method, 1);
+        Assert.Contains("_dbw_getFormattedExampleNumber_", silgenName_trim1);
+        Assert.EndsWith("_1", silgenName_trim1);
+
+        // Different trim values produce different names
+        Assert.NotEqual(silgenName_trim1, silgenName_trim2);
+
+        // Same trim value produces same name (idempotent)
+        Assert.Equal(silgenName_trim2, DefaultParameterOverloadEmitter.GetSilgenFuncName(method, 2));
+    }
+
+    [Fact]
+    public void TryEmitOverloads_CdeclOverload_SilgenNameMatchesBetweenWrappers()
+    {
+        // EC-11: Verify that the @_silgen_name function name in EmitSwiftWrapper
+        // matches the silgenTarget passed to MethodWrapperEmitter.EmitSwiftMethodWrapper.
+        // If they diverge, the @_cdecl wrapper calls a non-existent function → compile error.
+        var typeDb = new TypeDatabase();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FinalFormatter"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FinalFormatter"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalFormatter"),
+                MetadataAccessor = "$s10TestModule14FinalFormatterCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "FinalFormatter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FinalFormatter"),
+            MangledName = "$s10TestModule14FinalFormatterCN",
+            IsFinal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        // Method with 3 params, 2 trailing defaults → 2 overloads
+        var method = new MethodDecl
+        {
+            Name = "format",
+            MangledName = "$s10TestModule14FinalFormatterC6formatySS_S2itF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                CreateArg("value", hasDefault: false),
+                CreateArg("precision", hasDefault: true),
+                CreateArg("style", hasDefault: true),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true,
+        };
+        parentDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext();
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+        var env = new MethodEnvironment(method, typeDb);
+        var logger = NullLogger.Instance;
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext);
+
+        var swiftOutput = swiftStringWriter.ToString();
+
+        // For each @_silgen_name function emitted, the @_cdecl wrapper must call it by name.
+        // Extract all _dbw_ function names from @_silgen_name declarations and @_cdecl call sites.
+        var silgenFuncNames = System.Text.RegularExpressions.Regex.Matches(
+            swiftOutput, @"func (_dbw_\w+)\(")
+            .Cast<System.Text.RegularExpressions.Match>()
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        // Must have silgen functions for trim=2 and trim=1
+        Assert.True(silgenFuncNames.Count >= 2,
+            $"Expected at least 2 silgen functions, got {silgenFuncNames.Count}. Output:\n{swiftOutput}");
+
+        // Each _dbw_ function declared must also appear as a call target
+        foreach (var funcName in silgenFuncNames)
+        {
+            // The function should appear as a call: obj.funcName( or TypeName.funcName(
+            var callPattern = $".{funcName}(";
+            Assert.Contains(callPattern, swiftOutput);
+        }
+
+        // The trim suffixes should be _1 and _2 (not _3)
+        Assert.Contains(silgenFuncNames, n => n.EndsWith("_1"));
+        Assert.Contains(silgenFuncNames, n => n.EndsWith("_2"));
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ArgumentDecl CreateArg(string name, bool hasDefault)

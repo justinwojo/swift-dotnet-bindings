@@ -234,11 +234,7 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl?.IsMainActorIsolated == true)
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
-
+        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
@@ -269,8 +265,9 @@ public static class PropertyWrapperEmitter
         else if (needsResultPtr)
         {
             // Non-frozen struct or complex enum: write to result buffer
+            var qualifiedPropertyType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
             swiftWriter.WriteLine($"let result = {propAccess}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {propertySwiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {qualifiedPropertyType}.self, repeating: result, count: 1)");
         }
         else
         {
@@ -383,11 +380,7 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        if (parentTypeDecl?.IsMainActorIsolated == true)
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
-
+        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
@@ -459,6 +452,13 @@ public static class PropertyWrapperEmitter
         // String: SBW_Utf8Slice via result pointer (@_cdecl can't return Swift structs)
         if (typeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
             return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
+
+        // AnyObject: IS a class reference by definition — use Unmanaged.passRetained().toOpaque().
+        // AnyObject may appear as ProtocolListTypeSpec (from existential parsing) or as plain
+        // NamedTypeSpec (from TypeSpecParser). Without this gate, it falls through to IndirectResult
+        // and emits `any AnyObject.self` which is not valid Swift.
+        if (ConstructorWrapperEmitter.IsAnyObjectType(typeSpec))
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
         // Closure returns: write to resultPtr buffer
         if (typeSpec is ClosureTypeSpec)

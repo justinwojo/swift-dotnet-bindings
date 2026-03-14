@@ -172,6 +172,17 @@ public static class ProtocolExtensionEmitter
 
         var (parameters, returnTypeSpec, returnTypeName) = parseResult.Value;
 
+        // EC-8: Gate: conforming type must not be a protocol in the TypeDatabase.
+        // Protocol metatypes (e.g., CryptoSwift.Updatable.self) are invalid in Swift wrapper
+        // contexts like assumingMemoryBound(to:) and Unmanaged<T>.fromOpaque().
+        if (typeDatabase.TryGetTypeRecord(conformingType.SwiftTypeName, out var conformingTypeRecord) &&
+            conformingTypeRecord.Kind == TypeRecordKind.Protocol)
+        {
+            logger.LogDebug("Skipping extension method {Type}.{Method}: conforming type is a protocol (metatype invalid)",
+                typeName, extMethod.MethodName);
+            return;
+        }
+
         // Gate: all parameter types must be resolvable and cdecl-compatible
         foreach (var (_, paramTypeSpec, _) in parameters)
         {
@@ -181,6 +192,29 @@ public static class ProtocolExtensionEmitter
                     typeName, extMethod.MethodName);
                 return;
             }
+        }
+
+        // EC-17: Gate: parameter and return types must not contain raw generic type parameters
+        // or AssociatedTypeReferenceSpec instances (e.g., τ_0_0, τ_0_0.Element).
+        // Protocol extension wrappers that reference these produce Swift compilation errors
+        // because the generic context is lost outside the protocol extension.
+        foreach (var (_, paramTypeSpec, _) in parameters)
+        {
+            if (WrapperValidation.ContainsRawGenericTypeParam(paramTypeSpec) ||
+                ContainsAssociatedTypeReference(paramTypeSpec))
+            {
+                logger.LogDebug("Skipping extension method {Type}.{Method}: unresolved generic/associated type in parameter",
+                    typeName, extMethod.MethodName);
+                return;
+            }
+        }
+        if (!extMethod.ReturnsSelf && returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple &&
+            (WrapperValidation.ContainsRawGenericTypeParam(returnTypeSpec) ||
+             ContainsAssociatedTypeReference(returnTypeSpec)))
+        {
+            logger.LogDebug("Skipping extension method {Type}.{Method}: unresolved generic/associated type in return",
+                typeName, extMethod.MethodName);
+            return;
         }
 
         // Gate: return type must be Self, Void, a primitive, a class type, or a supported existential
@@ -534,6 +568,47 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Checks if a TypeSpec represents a cdecl-compatible type for Swift wrapper parameters.
+    /// Recursively checks if a TypeSpec contains an AssociatedTypeReferenceSpec.
+    /// These represent unresolved associated types (e.g., τ_0_0.Element) that can't be
+    /// expressed in wrapper signatures outside the protocol generic context.
+    /// </summary>
+    private static bool ContainsAssociatedTypeReference(TypeSpec typeSpec)
+    {
+        if (typeSpec is AssociatedTypeReferenceSpec)
+            return true;
+
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            // Self.X references that weren't resolved
+            if (namedType.Name.StartsWith("Self."))
+                return true;
+
+            foreach (var gp in namedType.GenericParameters)
+            {
+                if (ContainsAssociatedTypeReference(gp))
+                    return true;
+            }
+        }
+        else if (typeSpec is ClosureTypeSpec closure)
+        {
+            if (closure.HasArguments() && ContainsAssociatedTypeReference(closure.Arguments))
+                return true;
+            if (ContainsAssociatedTypeReference(closure.ReturnType))
+                return true;
+        }
+        else if (typeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
+        {
+            foreach (var elem in tuple.Elements)
+            {
+                if (ContainsAssociatedTypeReference(elem))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Currently supports: class types (IntPtr) and primitives (Bool, Int, Float, etc.).
     /// SimpleEnum and ObjCBridged are excluded — the wrapper marshals all non-primitives as Unmanaged.
     /// </summary>

@@ -1963,6 +1963,242 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // GetSubscriptLabels tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void GetSubscriptLabels_SimpleUnlabeledSubscript()
+    {
+        var swiftInterface = """
+            public class Container {
+              public subscript(_ index: Swift.Int) -> Swift.String { get }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Container.subscript(_:)"));
+            Assert.Equal(new[] { "_" }, result["Container.subscript(_:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_LabeledSubscript_BitAt()
+    {
+        // CryptoSwift pattern: subscript(bitAt index: Int) -> Bool
+        var swiftInterface = """
+            public class AES {
+              public subscript(bitAt index: Swift.Int) -> Swift.Bool { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("AES.subscript(bitAt:)"));
+            Assert.Equal(new[] { "bitAt" }, result["AES.subscript(bitAt:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_MultipleLabels_ObjectMapper()
+    {
+        // ObjectMapper pattern: subscript(key:nested:delimiter:)
+        var swiftInterface = """
+            public class Map {
+              public subscript(key: Swift.String, nested nested: Swift.String?, delimiter delimiter: Swift.String) -> Any? { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Map.subscript(key:nested:delimiter:)"));
+            Assert.Equal(new[] { "key", "nested", "delimiter" }, result["Map.subscript(key:nested:delimiter:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_MultipleLabels_IgnoreNil()
+    {
+        // ObjectMapper pattern: subscript(key:delimiter:ignoreNil:)
+        var swiftInterface = """
+            public class Map {
+              public subscript(key: Swift.String, delimiter delimiter: Swift.String, ignoreNil ignoreNil: Swift.Bool) -> Any? { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Map.subscript(key:delimiter:ignoreNil:)"));
+            Assert.Equal(new[] { "key", "delimiter", "ignoreNil" }, result["Map.subscript(key:delimiter:ignoreNil:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_MultipleSubscripts()
+    {
+        var swiftInterface = """
+            public class Container {
+              public subscript(_ index: Swift.Int) -> Swift.String { get }
+              public subscript(key: Swift.String) -> Swift.Int? { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Equal(2, result.Count);
+            Assert.True(result.ContainsKey("Container.subscript(_:)"));
+            Assert.True(result.ContainsKey("Container.subscript(key:)"));
+            Assert.Equal(new[] { "_" }, result["Container.subscript(_:)"]);
+            Assert.Equal(new[] { "key" }, result["Container.subscript(key:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_NestedType()
+    {
+        var swiftInterface = """
+            public class Outer {
+              public class Inner {
+                public subscript(bitAt index: Swift.Int) -> Swift.Bool { get }
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Outer.Inner.subscript(bitAt:)"));
+            Assert.Equal(new[] { "bitAt" }, result["Outer.Inner.subscript(bitAt:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_Extension()
+    {
+        var swiftInterface = """
+            public class AES {
+              public var blockSize: Swift.Int { get }
+            }
+            extension CryptoSwift.AES {
+              public subscript(bitAt index: Swift.Int) -> Swift.Bool { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("AES.subscript(bitAt:)"));
+            Assert.Equal(new[] { "bitAt" }, result["AES.subscript(bitAt:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_GenericSubscript()
+    {
+        var swiftInterface = """
+            public class Cache {
+              public subscript<T>(key: Swift.String) -> T? { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Cache.subscript(key:)"));
+            Assert.Equal(new[] { "key" }, result["Cache.subscript(key:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_StaticSubscript()
+    {
+        var swiftInterface = """
+            public class Registry {
+              public static subscript(key: Swift.String) -> Swift.Int { get }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Registry.subscript(key:)"));
+            Assert.Equal(new[] { "key" }, result["Registry.subscript(key:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_MultiLineSubscript()
+    {
+        var swiftInterface = """
+            public class Map {
+              public subscript(key: Swift.String,
+                nested nested: Swift.String?,
+                delimiter delimiter: Swift.String) -> Any? { get set }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Single(result);
+            Assert.True(result.ContainsKey("Map.subscript(key:nested:delimiter:)"));
+            Assert.Equal(new[] { "key", "nested", "delimiter" }, result["Map.subscript(key:nested:delimiter:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_EmptyFileReturnsEmptyDictionary()
+    {
+        var path = WriteTempFile("");
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSubscriptLabels(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSubscriptLabels_MissingFileReturnsEmptyDictionary()
+    {
+        var result = SwiftInterfaceAccessParser.GetSubscriptLabels("/tmp/nonexistent_file_12345.swiftinterface");
+        Assert.Empty(result);
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

@@ -1136,7 +1136,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("licensee.load(as: Optional<String>.self)", output);
+        Assert.Contains("licensee.load(as: Swift.Optional<Swift.String>.self)", output);
     }
 
     #endregion
@@ -1257,7 +1257,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Non-frozen struct: passed as pointer, needs load
         Assert.Contains("_ config: UnsafeRawPointer", output);
-        Assert.Contains("config.load(as: Config.self)", output);
+        Assert.Contains("config.load(as: TestModule.Config.self)", output);
     }
 
     #endregion
@@ -1319,7 +1319,7 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_ priority: Int32", output);
         // Use init(rawValue:) for safe conversion — unsafeBitCast crashes when
         // enum storage size differs from parameter type. Guard against invalid raw values.
-        Assert.Contains("guard let priorityVal = Priority(rawValue: priority) else { preconditionFailure(", output);
+        Assert.Contains("guard let priorityVal = TestModule.Priority(rawValue: priority) else { preconditionFailure(", output);
         Assert.DoesNotContain("unsafeBitCast", output);
     }
 
@@ -1378,7 +1378,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Must use init(rawValue:) for safe conversion, NOT unsafeBitCast.
         // Guard against invalid raw values from C#.
-        Assert.Contains("guard let unitVal = Unit(rawValue: unit) else { preconditionFailure(", output);
+        Assert.Contains("guard let unitVal = TestModule.Unit(rawValue: unit) else { preconditionFailure(", output);
         Assert.DoesNotContain("unsafeBitCast", output);
         Assert.Contains("_ unit: Int", output);
     }
@@ -1438,7 +1438,7 @@ public class ConstructorWrapperEmitterTests
         // Tag-only: uses safe memory load, not unsafeBitCast or init(rawValue:)
         Assert.Contains("_ direction: Int", output); // fallback raw type for null
         Assert.Contains("withUnsafeMutablePointer", output);
-        Assert.Contains(".load(as: Direction.self)", output);
+        Assert.Contains(".load(as: TestModule.Direction.self)", output);
         Assert.DoesNotContain("unsafeBitCast", output);
         Assert.DoesNotContain("init(rawValue:", output);
     }
