@@ -494,12 +494,14 @@ public class ClassObjCRootedTests
     #region Emission — NewFromPayload
 
     [Fact]
-    public void ObjCRooted_NewFromPayload_FreesBuffer()
+    public void ObjCRooted_NewFromPayload_DirectHandle()
     {
         var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
 
         var body = GetClassBody(output, "MyLayer");
-        Assert.Contains("NativeMemory.Free", body);
+        // No buffer allocation/free — handle is passed directly
+        Assert.DoesNotContain("NativeMemory.Free", body);
+        Assert.DoesNotContain("NativeMemory.Alloc", body);
         Assert.Contains("NewFromPayload", body);
     }
 
@@ -509,7 +511,7 @@ public class ClassObjCRootedTests
         var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
 
         var body = GetClassBody(output, "MyLayer");
-        Assert.Contains("new SwiftHandle(objectPtr)", body);
+        Assert.Contains("new SwiftHandle(handle)", body);
     }
 
     #endregion
@@ -638,15 +640,15 @@ public class ClassObjCRootedTests
     }
 
     [Fact]
-    public void ObjCRootedClassProjection_ReturnPlan_AllocatesAndCallsMarshalFromSwift()
+    public void ObjCRootedClassProjection_ReturnPlan_DirectMarshalFromSwift()
     {
         var proj = new ObjCRootedClassProjection("MyLayer");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.True(plan.RequiresUnsafe);
-        var returnCode = string.Join("\n", plan.SetupStatements.Select(s => RenderStatement(s)));
-        Assert.Contains("NativeMemory.Alloc", returnCode);
-        Assert.Contains("MarshalFromSwift<MyLayer>", returnCode);
+        // No buffer allocation — direct MarshalFromSwift like ClassProjection
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Contains("MarshalFromSwift<MyLayer>", plan.PInvokeExpression);
+        Assert.Contains("result", plan.PInvokeExpression);
     }
 
     [Fact]

@@ -848,11 +848,19 @@ namespace BindingsGeneration
 
             // For ObjC bridged types, the rawResult is the ObjC object pointer directly
             // For Swift types, we need to marshal from Swift memory layout
+            // For class types, rawResult is IntPtr (the raw object pointer) — pass directly
+            // For non-class types, rawResult is a value type — take its address
+            bool isClassReturn = !voidReturn && returnTypeRecord.Kind == TypeRecordKind.Class;
             string marshalResultCode;
             if (isObjCBridged)
             {
                 // ObjC types: rawResult is the ObjC object pointer, wrap with appropriate bridge call
                 marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "rawResult")};";
+            }
+            else if (isClassReturn)
+            {
+                // Class types: rawResult is IntPtr (the raw Swift object pointer), pass directly
+                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(rawResult);";
             }
             else
             {
@@ -1171,10 +1179,15 @@ namespace BindingsGeneration
                 : "";
 
             // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
-            // For Swift types, marshal from Swift memory layout
-            var marshalResultCode = isObjCBridged
-                ? $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};"
-                : $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
+            // For class types, use the dereferenced object pointer (NewFromPayload expects raw pointer, not buffer)
+            // For non-class types, marshal from Swift memory layout (resultPtr is the buffer)
+            string marshalResultCode;
+            if (isObjCBridged)
+                marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};";
+            else if (isClassType)
+                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
+            else
+                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};

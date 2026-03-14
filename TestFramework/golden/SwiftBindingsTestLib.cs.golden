@@ -23510,7 +23510,7 @@ public partial class AsyncComplexWorker : ISwiftObject, ISwiftStruct, IDisposabl
             try
             {
                 // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncTask>(resultPtr);
+                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncTask>(_retainedObjPtr);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<SwiftBindingsTestLib.AsyncTask> holderTcs)
@@ -24204,7 +24204,7 @@ public partial class AsyncComplexWorker : ISwiftObject, ISwiftStruct, IDisposabl
             try
             {
                 // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncTask>(resultPtr);
+                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncTask>(_retainedObjPtr);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<SwiftBindingsTestLib.AsyncTask> holderTcs)
@@ -41375,7 +41375,7 @@ public partial class AsyncService : ISwiftObject, IDisposable
             try
             {
                 // Read result from pointer (Swift allocated memory and stored the value)
-                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncService>(resultPtr);
+                var result = SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.AsyncService>(_retainedObjPtr);
 
                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<SwiftBindingsTestLib.AsyncService> holderTcs)

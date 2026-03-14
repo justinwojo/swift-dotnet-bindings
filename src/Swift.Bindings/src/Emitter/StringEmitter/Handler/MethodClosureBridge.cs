@@ -888,23 +888,7 @@ public static class MethodClosureBridge
         if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
-
-            // Construct C# object from IntPtr via NativeMemory + SwiftMarshal pattern
-            csWriter.WriteLine("var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("*(IntPtr*)classPayload = __result;");
-            csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(classPayload));");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("catch");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("NativeMemory.Free(classPayload);");
-            csWriter.WriteLine("throw;");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
+            csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
         }
         else if (!returnSpec.IsEmptyTuple)
         {

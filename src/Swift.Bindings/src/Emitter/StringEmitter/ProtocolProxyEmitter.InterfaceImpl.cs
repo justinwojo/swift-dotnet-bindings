@@ -257,7 +257,7 @@ public partial class ProtocolProxyEmitter
             }
             else if (isClassReturnGetter)
             {
-                // ClassReturn getter: Unmanaged.passRetained on Swift side, NativeMemory+SwiftMarshal on C# side
+                // ClassReturn getter: Unmanaged.passRetained on Swift side, direct MarshalFromSwift on C# side
                 writer.WriteLines($$"""
                     get
                     {
@@ -267,16 +267,11 @@ public partial class ProtocolProxyEmitter
                         fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
                         {
                             IntPtr resultPtr = NativeMethods.{{accessorSymbol}}((IntPtr)containerPtr);
-                            unsafe
+                            try
                             {
-                                var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                                try
-                                {
-                                    *(IntPtr*)classPayload = resultPtr;
-                                    return ({{csharpTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{csharpTypeName}}>(new IntPtr(classPayload));
-                                }
-                                catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                                return ({{csharpTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{csharpTypeName}}>(resultPtr);
                             }
+                            catch { Arc.Release(resultPtr); throw; }
                         }
                     }
                     """);
@@ -1325,16 +1320,11 @@ public partial class ProtocolProxyEmitter
             writer.Indent--;
             writer.WriteLines($$"""
                 }
-                unsafe
+                try
                 {
-                    var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                    try
-                    {
-                        *(IntPtr*)classPayload = resultPtr;
-                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(new IntPtr(classPayload));
-                    }
-                    catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
                 }
+                catch { Arc.Release(resultPtr); throw; }
                 """);
         }
         else
@@ -1344,16 +1334,11 @@ public partial class ProtocolProxyEmitter
             // Non-throwing: direct class return
             writer.WriteLines($$"""
                 IntPtr resultPtr = NativeMethods.{{accessorSymbol}}({{pInvokeArgsString}});
-                unsafe
+                try
                 {
-                    var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                    try
-                    {
-                        *(IntPtr*)classPayload = resultPtr;
-                        return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(new IntPtr(classPayload));
-                    }
-                    catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }
+                    return ({{returnTypeName}})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{{returnTypeName}}>(resultPtr);
                 }
+                catch { Arc.Release(resultPtr); throw; }
                 """);
         }
 

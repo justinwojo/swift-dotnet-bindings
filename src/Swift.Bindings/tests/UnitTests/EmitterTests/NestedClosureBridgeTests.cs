@@ -709,8 +709,8 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // DynamicSelf return should emit NativeMemory + SwiftMarshal class pattern
-        Assert.Contains("NativeMemory.Alloc", cs);
+        // DynamicSelf return should emit direct SwiftMarshal — no buffer allocation
+        Assert.DoesNotContain("NativeMemory.Alloc", cs);
         Assert.Contains("SwiftMarshal.MarshalFromSwift", cs);
     }
 

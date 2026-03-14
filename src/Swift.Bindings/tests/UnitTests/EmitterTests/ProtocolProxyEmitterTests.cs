@@ -4150,27 +4150,28 @@ public class ProtocolProxyEmitterTests
 
         var output = EmitProxyClass(protocolDecl);
 
+        // Direct MarshalFromSwift — no buffer classPayload allocation/free
         Assert.Contains("Arc.Release(resultPtr)", output);
-        Assert.Contains("NativeMemory.Free(classPayload)", output);
+        Assert.DoesNotContain("classPayload", output);
+        Assert.Contains("MarshalFromSwift", output);
     }
 
     [Fact]
-    public void EmitProxyClass_ClassReturnPropertyGetter_FreesPayloadInCatchOnly()
+    public void EmitProxyClass_ClassReturnPropertyGetter_DirectMarshalWithArcReleaseCatch()
     {
-        // ClassReturn: NewFromPayload takes ownership of classPayload buffer
-        // (non-ObjC reads it into SafeHandle; ObjC frees it directly).
-        // So classPayload must only be freed on error (catch), NOT on success (finally).
-        // Arc.Release also only on error (on success, retained reference consumed by SafeHandle).
+        // ClassReturn: direct MarshalFromSwift — no buffer allocation needed.
+        // Arc.Release in catch prevents leaks if MarshalFromSwift throws.
         RegisterClass("ResponseAPDU");
         var protocolDecl = CreateProtocolWithProperty("CardChannel", "lastResponse",
             hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.ResponseAPDU"));
 
         var output = EmitProxyClass(protocolDecl);
 
-        // Both NativeMemory.Free and Arc.Release must be in catch (error-only)
-        Assert.Contains("catch { NativeMemory.Free(classPayload); Arc.Release(resultPtr); throw; }", output);
-        // Must NOT have finally (would double-free the buffer that NewFromPayload owns)
-        Assert.DoesNotContain("finally", output);
+        // No classPayload buffer — direct MarshalFromSwift
+        Assert.DoesNotContain("classPayload", output);
+        Assert.Contains("MarshalFromSwift", output);
+        // Arc.Release in catch only (on success, retained reference consumed by SafeHandle)
+        Assert.Contains("catch { Arc.Release(resultPtr); throw; }", output);
     }
 
     [Fact]

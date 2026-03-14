@@ -558,15 +558,13 @@ namespace BindingsGeneration
         {
             if (_isObjCRooted)
             {
-                // ObjC-rooted: payload buffer contains the object pointer. Read it, free the buffer,
-                // then wrap with SwiftHandle → base(NativeHandle) → NSObject takes ownership.
+                // ObjC-rooted: handle is the raw Swift object pointer (same as pure Swift classes).
+                // Wrap with SwiftHandle → base(NativeHandle) → NSObject takes ownership.
                 var text = $$"""
                 [EditorBrowsable(EditorBrowsableState.Never)]
-                static unsafe ISwiftObject ISwiftObject.NewFromPayload(IntPtr payload)
+                static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    IntPtr objectPtr = *(IntPtr*)payload;
-                    NativeMemory.Free((void*)payload);
-                    return new {{_typeNameWithGenerics}}(new SwiftHandle(objectPtr));
+                    return new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                 }
                 """;
                 _writer.WriteLines(text);

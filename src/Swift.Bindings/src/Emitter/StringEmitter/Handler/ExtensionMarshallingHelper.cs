@@ -256,23 +256,8 @@ public static class ExtensionMarshallingHelper
                 break;
 
             case ReturnKind.SwiftClass:
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        var result = {{nativeCall}};
-                        var classPayload = NativeMemory.Alloc((nuint)sizeof(IntPtr));
-                        try
-                        {
-                            *(IntPtr*)classPayload = result;
-                            return ({{csharpType}})SwiftMarshal.MarshalFromSwift<{{csharpType}}>(new IntPtr(classPayload));
-                        }
-                        catch
-                        {
-                            NativeMemory.Free(classPayload);
-                            throw;
-                        }
-                    }
-                    """);
+                csWriter.WriteLine($"var result = {nativeCall};");
+                csWriter.WriteLine($"return ({csharpType})SwiftMarshal.MarshalFromSwift<{csharpType}>(result);");
                 break;
 
             case ReturnKind.NonFrozenStruct:

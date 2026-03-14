@@ -4527,7 +4527,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        Assert.Contains("NativeMemory.Alloc", csContent);
+        // Direct MarshalFromSwift — no NativeMemory buffer needed
+        Assert.DoesNotContain("NativeMemory.Alloc", csContent);
         Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
     }
 
