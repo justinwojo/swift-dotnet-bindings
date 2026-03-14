@@ -462,8 +462,11 @@ public static class MethodWrapperEmitter
         {
             // Non-frozen struct, complex enum, Optional<value-type>: write to result buffer
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+            // Protocol existentials (any Protocol1 & Protocol2) need parentheses before .self
+            // to prevent .self from binding to only the last protocol in the composition.
+            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"let result = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else
         {
@@ -536,8 +539,9 @@ public static class MethodWrapperEmitter
         else if (needsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"let result = try {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else
         {

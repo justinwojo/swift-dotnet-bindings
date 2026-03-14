@@ -543,6 +543,9 @@ namespace BindingsGeneration
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
                 // Skip CaseIterable — requires compiler-synthesized allCases. Transitive check.
                 .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
+                // Skip protocols that inherit from protocols with associated types or Self requirements.
+                // EveryProtocol can't provide concrete associated types for inherited PATs.
+                .Where(p => !InheritsProtocolWithAssociatedTypes(p, protocols, typeDatabase))
                 // Skip protocols whose member signatures reference types from this module
                 // that are not in the type database (module-internal types). EveryProtocol
                 // can't implement methods requiring internal types.
@@ -662,6 +665,87 @@ namespace BindingsGeneration
                     if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
                         record.Kind == TypeRecordKind.Protocol &&
                         record.Flags.HasFlag(TypeRecordFlags.InheritsCodable))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a protocol transitively inherits from any protocol with associated types
+        /// or Self requirements. These protocols cannot get EveryProtocol conformances because
+        /// the associated type cannot be determined.
+        /// </summary>
+        internal static bool InheritsProtocolWithAssociatedTypes(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null, ITypeDatabase? typeDatabase = null)
+        {
+            return InheritsProtocolWithAssociatedTypesRecursive(protocolDecl, allProtocols, typeDatabase, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        private static bool InheritsProtocolWithAssociatedTypesRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, ITypeDatabase? typeDatabase, HashSet<string> visited)
+        {
+            var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+            if (!visited.Add(qualifiedName))
+                return false;
+
+            // InheritedProtocols may be empty due to ABI JSON conformance parsing (Kind mismatch).
+            // Use GenericSignature as a fallback to extract parent protocol names.
+            // GenericSignature format: "<Self : Module.ParentProtocol1, Self : Module.ParentProtocol2>"
+            var parentNames = new List<string>();
+
+            // Collect from InheritedProtocols (populated when conformance Kind matches)
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+                parentNames.Add(inherited.Name);
+
+            // Fallback: parse GenericSignature for "Self : Module.Protocol" constraints
+            if (parentNames.Count == 0 && !string.IsNullOrEmpty(protocolDecl.GenericSignature))
+            {
+                var sig = protocolDecl.GenericSignature;
+                // Match "Self : Module.ProtocolName" or "τ_0_0 : Module.ProtocolName" patterns
+                var idx = 0;
+                while (idx < sig.Length)
+                {
+                    var colonIdx = sig.IndexOf(" : ", idx);
+                    if (colonIdx < 0) break;
+                    var nameStart = colonIdx + 3;
+                    // Find end of the name (comma, '>', or end of string)
+                    var nameEnd = sig.IndexOfAny(new[] { ',', '>' }, nameStart);
+                    if (nameEnd < 0) nameEnd = sig.Length;
+                    var constraintName = sig.Substring(nameStart, nameEnd - nameStart).Trim();
+                    if (!string.IsNullOrEmpty(constraintName))
+                        parentNames.Add(constraintName);
+                    idx = nameEnd + 1;
+                }
+            }
+
+            foreach (var name in parentNames)
+            {
+                var dotIndex = name.LastIndexOf('.');
+                var simpleName = dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
+
+                // Intra-module check: look up the inherited protocol in the module
+                if (allProtocols != null)
+                {
+                    var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                        p.Name == simpleName || p.Name == name ||
+                        p.SwiftTypeName?.ToString() == name);
+                    if (inheritedDecl != null)
+                    {
+                        if (inheritedDecl.AssociatedTypes.Count > 0 || inheritedDecl.HasSelfRequirement)
+                            return true;
+                        if (InheritsProtocolWithAssociatedTypesRecursive(inheritedDecl, allProtocols, typeDatabase, visited))
+                            return true;
+                    }
+                }
+
+                // Cross-module check: look up in type database
+                // Only for module-qualified names (contains a dot)
+                if (typeDatabase != null && dotIndex >= 0)
+                {
+                    var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(name);
+                    if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
+                        record.Kind == TypeRecordKind.Protocol &&
+                        (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                         record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement)))
                         return true;
                 }
             }

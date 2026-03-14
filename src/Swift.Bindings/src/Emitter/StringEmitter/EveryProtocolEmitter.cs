@@ -411,6 +411,15 @@ public class EveryProtocolEmitter
             return;
         }
 
+        // Skip protocols that inherit from protocols with associated types.
+        // EveryProtocol can't provide concrete associated types for inherited PATs.
+        if (ModuleHandler.InheritsProtocolWithAssociatedTypes(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherits protocol with associated types");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "InheritedAssociatedTypes");
+            return;
+        }
+
         // Skip protocols with no implementable instance members
         // Static members are not part of the witness table, so we only count non-static members
         var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||

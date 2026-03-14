@@ -97,27 +97,50 @@ namespace BindingsGeneration
             else if (_swiftWriter != null && _emissionCtx != null &&
                      !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))
             {
-                // Xcframework mode: emit @_cdecl metadata wrapper
+                // Xcframework mode: emit @_cdecl metadata wrapper.
+                // Internal types are inaccessible by name — fall back to CallConvSwift.
                 var moduleQualified = _structDecl.SwiftTypeName.ModuleQualifiedName;
                 var moduleName = _structDecl.SwiftTypeName.Module;
-                var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
-                MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
 
-                _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
-                _writer.WriteLine();
-
-                foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                if (_structDecl.IsModuleInternal)
                 {
-                    LibraryPath = _typeDatabase.AsyncLibraryName!,
-                    EntryPoint = symbol,
-                    MethodName = "PInvoke_getMetadata",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "",
-                    Visibility = PInvokeVisibility.Internal,
-                    CallingConvention = PInvokeCallingConvention.Cdecl
-                }))
-                    _writer.WriteLine(line);
-                _writer.WriteLine();
+                    // Fallback: use CallConvSwift P/Invoke targeting the dylib's metadata accessor
+                    _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                    _writer.WriteLine();
+
+                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = _structDecl.MetadataAccessor,
+                        MethodName = "PInvoke_getMetadata",
+                        ReturnType = "TypeMetadata",
+                        ParametersString = "",
+                        Visibility = PInvokeVisibility.Internal
+                    }))
+                        _writer.WriteLine(line);
+                    _writer.WriteLine();
+                }
+                else
+                {
+                    var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
+                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+
+                    _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                    _writer.WriteLine();
+
+                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                    {
+                        LibraryPath = _typeDatabase.AsyncLibraryName!,
+                        EntryPoint = symbol,
+                        MethodName = "PInvoke_getMetadata",
+                        ReturnType = "TypeMetadata",
+                        ParametersString = "",
+                        Visibility = PInvokeVisibility.Internal,
+                        CallingConvention = PInvokeCallingConvention.Cdecl
+                    }))
+                        _writer.WriteLine(line);
+                    _writer.WriteLine();
+                }
             }
             else
             {

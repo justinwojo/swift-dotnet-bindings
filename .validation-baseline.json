@@ -1,5 +1,5 @@
 {
-  "git_sha": "7552abba",
+  "git_sha": "b7aa3175",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -35,7 +35,7 @@
         "errors": 0,
         "lines": 21804,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",

@@ -348,8 +348,9 @@ public static class SubscriptWrapperEmitter
         else if (needsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
+            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
             swiftWriter.WriteLine($"let result = {subscriptAccess}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else
         {

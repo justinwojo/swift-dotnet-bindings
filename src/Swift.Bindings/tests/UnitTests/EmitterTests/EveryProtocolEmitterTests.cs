@@ -999,6 +999,65 @@ public class EveryProtocolEmitterTests
         Assert.False(EveryProtocolEmitter.InheritsCaseIterable(proto));
     }
 
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_DirectInheritance_ReturnsTrue()
+    {
+        // ParentProto has an associated type; ChildProto inherits it via GenericSignature.
+        var parentProto = CreateSimpleProtocol("DataSerializer");
+        parentProto.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "SerializedObject" });
+
+        var childProto = CreateSimpleProtocol("ResponseSerializer");
+        childProto.GenericSignature = "<Self : TestModule.DataSerializer>";
+
+        var allProtocols = new List<ProtocolDecl> { parentProto, childProto };
+
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_NoAssociatedTypes_ReturnsFalse()
+    {
+        var parentProto = CreateSimpleProtocol("Describable");
+        var childProto = CreateSimpleProtocol("ExtendedDescribable");
+        childProto.GenericSignature = "<Self : TestModule.Describable>";
+
+        var allProtocols = new List<ProtocolDecl> { parentProto, childProto };
+
+        Assert.False(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_TransitiveInheritance_ReturnsTrue()
+    {
+        // Root has associated type, Middle inherits Root, Child inherits Middle.
+        var rootProto = CreateSimpleProtocol("Cursor");
+        rootProto.AssociatedTypes.Add(new AssociatedTypeDecl { Name = "Element" });
+
+        var middleProto = CreateSimpleProtocol("BidirectionalCursor");
+        middleProto.GenericSignature = "<Self : TestModule.Cursor>";
+
+        var childProto = CreateSimpleProtocol("RandomAccessCursor");
+        childProto.GenericSignature = "<Self : TestModule.BidirectionalCursor>";
+
+        var allProtocols = new List<ProtocolDecl> { rootProto, middleProto, childProto };
+
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsProtocolWithAssociatedTypes_SelfRequirement_ReturnsTrue()
+    {
+        var parentProto = CreateSimpleProtocol("Comparable");
+        parentProto.HasSelfRequirement = true;
+
+        var childProto = CreateSimpleProtocol("Sortable");
+        childProto.GenericSignature = "<Self : TestModule.Comparable>";
+
+        var allProtocols = new List<ProtocolDecl> { parentProto, childProto };
+
+        Assert.True(ModuleHandler.InheritsProtocolWithAssociatedTypes(childProto, allProtocols));
+    }
+
     #endregion
 
     private static ProtocolDecl CreateSimpleProtocol(string name)

@@ -266,8 +266,9 @@ public static class PropertyWrapperEmitter
         {
             // Non-frozen struct or complex enum: write to result buffer
             var qualifiedPropertyType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+            var metatype = qualifiedPropertyType.StartsWith("any ") ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
             swiftWriter.WriteLine($"let result = {propAccess}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {qualifiedPropertyType}.self, repeating: result, count: 1)");
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
         }
         else
         {

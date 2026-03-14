@@ -2317,5 +2317,100 @@ public class MethodWrapperEmitterTests
         Assert.True(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
+    [Fact]
+    public void EmitSwiftMethodWrapper_ProtocolCompositionReturn_ParenthesizesMetatype()
+    {
+        // EC-8: protocol compositions need parentheses before .self to prevent
+        // .self from binding to only the last protocol in the composition.
+        // "any P1 & P2.self" is wrong; "(any P1 & P2).self" is correct.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            Array.Empty<(string, TypeRecordFlags, TypeRecordKind)>());
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolComposition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Cryptor"),
+            new NamedTypeSpec("TestModule.Updatable")
+        });
+        var method = CreateMethodWithReturn("makeEncryptor", protocolComposition, parentDecl, moduleDecl);
+
+        method.MangledName = "SBW_TestModule_MyType_makeEncryptor_abc12345";
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Must use parenthesized form for protocol composition metatype
+        Assert.Contains("(any TestModule.Cryptor & TestModule.Updatable).self", output);
+        // Must NOT have the unparenthesized form
+        Assert.DoesNotContain("any TestModule.Cryptor & TestModule.Updatable.self", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_SingleProtocolReturn_ParenthesizesMetatype()
+    {
+        // Single protocol existentials also need parenthesization for correctness.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            Array.Empty<(string, TypeRecordFlags, TypeRecordKind)>());
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var protocolReturn = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.Updatable")
+        });
+        var method = CreateMethodWithReturn("getUpdatable", protocolReturn, parentDecl, moduleDecl);
+
+        method.MangledName = "SBW_TestModule_MyType_getUpdatable_abc12345";
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Single protocol existentials also use parenthesized form
+        Assert.Contains("(any TestModule.Updatable).self", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_ConcreteReturn_NoParenthesization()
+    {
+        // Concrete (non-existential) return types should NOT be parenthesized.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.BigStruct", TypeRecordFlags.None, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithReturn("getBigStruct", new NamedTypeSpec("TestModule.BigStruct"), parentDecl, moduleDecl);
+
+        method.MangledName = "SBW_TestModule_MyType_getBigStruct_abc12345";
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Concrete types use direct .self without parentheses
+        Assert.Contains("TestModule.BigStruct.self", output);
+        Assert.DoesNotContain("(TestModule.BigStruct).self", output);
+    }
+
     #endregion
 }

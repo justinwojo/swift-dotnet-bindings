@@ -2,11 +2,16 @@
 
 Comprehensive analysis of Swift wrapper compilation failures caught by `validate-libraries.sh`. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 41/56 passing (34 ObjC/no wrapper), 15 failing.
+**Baseline**: 42/56 passing (34 ObjC/no wrapper), 14 failing.
 
-**Previous baselines**: 36/56 (session 8), 37/56 (session 7), 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
+**Previous baselines**: 41/56 (session 9), 36/56 (session 8), 37/56 (session 7), 29/56 (session 6), 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
 
 ## Session History
+
+**Session 10** (1 library fixed: CryptoSwift; error reduction in Alamofire, Parchment, Kingfisher, SkeletonView, GRDB):
+- EC-2 (metadata gate): `MetadataWrapperEmitter` emission now gated on `!typeDecl.IsModuleInternal` across all 3 call sites (ClassHandler, TypeHandlerHelpers, EnumISwiftObjectMethodWriter). Internal types (both `@usableFromInline` and truly internal) are inaccessible by name from external Swift code; the wrapper's `Module.Type.self` reference won't compile. C# side falls back to CallConvSwift P/Invoke targeting the dylib's native metadata accessor (`$s...Ma`) instead of a dangling cdecl wrapper symbol. Fixes CryptoSwift metadata errors (BlockEncryptor, StreamEncryptor, StreamDecryptor) and Alamofire (JSONDecoder, PropertyListDecoder).
+- EC-8 (protocol composition metatype): `initializeMemory(as:)` calls with protocol existential return types now parenthesize the metatype: `(any P1 & P2).self` instead of `any P1 & P2.self`. Without parentheses, `.self` binds to only the last protocol in the composition. Applied across MethodWrapperEmitter (non-throwing + throwing paths), PropertyWrapperEmitter, and SubscriptWrapperEmitter. Fixes CryptoSwift (4 errors: AES/ChaCha20 makeEncryptor/makeDecryptor returning `any Cryptor & Updatable`).
+- EC-3 (transitive PAT gate): `InheritsProtocolWithAssociatedTypes()` added to `ModuleHandler` and `EveryProtocolEmitter`. Parses protocol `GenericSignature` (`<Self : Module.ParentProtocol>`) to find parent protocol constraints, then checks intra-module protocols for `AssociatedTypes > 0` or `HasSelfRequirement`. Cross-module check uses `TypeRecordFlags.HasAssociatedTypes | HasSelfRequirement`. Fixes Alamofire (ResponseSerializer → DataResponseSerializerProtocol/DownloadResponseSerializerProtocol with `SerializedObject` associated type), Parchment (PagingViewControllerDataSource, PagingViewControllerInfiniteDataSource), and Kingfisher (DataTransformable) EveryProtocol conformance errors.
 
 **Session 9** (5 libraries fixed: Nuke x3, PhoneNumberKit, ObjectMapper):
 - EC-9 (refined): `SwiftInterfaceAccessParser.GetSubscriptLabels()` now correctly distinguishes labeled vs unlabeled subscript params. In Swift subscripts, single-name params (`subscript(key: String)`) have NO argument label — only two-name params (`subscript(bitAt index: Int)`) do. The `.swiftinterface` format is ambiguous for single-name (identical output for `subscript(key:)` and `subscript(_ key:)`), but the ABI JSON (`subscript(_:)`) is authoritative. Parser now returns `_` for single-name params. `SwiftABIParser.CreateSubscriptDecl()` forces `indexN` name pattern when `.swiftinterface` confirms no label. Fixes Nuke x3 (4 errors → 0 each), ObjectMapper (3 errors → 0).
@@ -264,11 +269,11 @@ Each library mapped to the exact error classes that need fixing, with expected r
 | Nuke, Nuke@macos, Nuke@tvos | EC-9 | ✅ **Fixed (session 9)** |
 | PhoneNumberKit | EC-11 | ✅ **Fixed (session 9)** |
 | ObjectMapper | EC-9 | ✅ **Fixed (session 9)** |
+| CryptoSwift | EC-2, EC-8 | ✅ **Fixed (session 10)** |
 | SkeletonView | EC-2, EC-3 | ⚠️ 266 errors (internal types + EveryProtocol NSObjectProtocol) |
-| Alamofire | EC-2, EC-3 | ⚠️ 10 errors (internal types JSONDecoder/PropertyListDecoder, EveryProtocol, ambiguous encode, SecTrust type) |
-| CryptoSwift | EC-2, EC-8 | ⚠️ 14 errors (internal types StreamEncryptor/StreamDecryptor/BlockEncryptor, protocol metatype) |
-| Kingfisher | EC-2, EC-12, EC-13 | ⚠️ EC-12+EC-13 deferred, plus internal nested types |
-| Parchment | EC-3, EC-20 | ⚠️ 4 errors (EveryProtocol, label mismatch, @MainActor call) |
+| Alamofire | EC-2, EC-3, EC-13 | ⚠️ 2 errors (SecTrust type in witness dispatch, ambiguous encode) |
+| Kingfisher | EC-2, EC-3, EC-4, EC-12, EC-13 | ⚠️ 7 errors (PHPickerResult, EC-12+EC-13, actor isolation) |
+| Parchment | EC-3, EC-20 | ⚠️ 2 errors (label mismatch, @MainActor actor isolation) |
 | FSPagerView | EC-1, EC-20 | ⚠️ Collision fix works, but optional protocol method dispatch fails |
 | StripePayments | EC-2, EC-3, EC-13 | ⚠️ EC-13 deferred (dep gate) |
 | StripePaymentSheet | EC-10 | ⚠️ EC-10 deferred (dep gate) |
@@ -343,17 +348,41 @@ See EC descriptions above for implementation details. Key changes across 24 file
 - FSPagerView: EC-1 collision fix works correctly, but remaining errors are optional protocol method dispatch (new EC-20)
 - Parchment: 4 errors (EveryProtocol, label mismatch, @MainActor isolation)
 
-### Session 10 (planned): Remaining gaps
+### Session 10: Metadata Gate + Protocol Composition + PAT Inheritance (41 → 42)
+
+**Scope**: EC-2 metadata, EC-8 composition, EC-3 transitive PAT
+
+**EC-2 (metadata gate)** (done)
+- `MetadataWrapperEmitter` emission gated on `!typeDecl.IsModuleInternal` across ClassHandler, TypeHandlerHelpers, EnumISwiftObjectMethodWriter
+- C# side falls back to CallConvSwift P/Invoke targeting the dylib's native `$s...Ma` metadata accessor (no dangling symbol)
+- Attempted parent-type wrapper gate (`parentType.IsModuleInternal` in MethodWrapperEmitter etc.) but reverted — caused regressions in XMLCoder/SwiftyBeaver due to interaction with post-processor and wrapper compilation environment
+
+**EC-8 (protocol composition metatype)** (done)
+- `initializeMemory(as:)` calls parenthesize protocol existentials: `(any P1 & P2).self`
+- Applied in MethodWrapperEmitter (2 paths), PropertyWrapperEmitter, SubscriptWrapperEmitter
+
+**EC-3 (transitive PAT inheritance)** (done)
+- `InheritsProtocolWithAssociatedTypes()` parses `GenericSignature` for parent protocol constraints
+- Cross-module check uses `HasAssociatedTypes | HasSelfRequirement` from TypeRecord flags
+- ABI JSON conformance parsing bug found (`Kind == "Conformance"` vs `kNominal = "TypeNominal"`) — NOT fixed due to cascading C# emission effects; GenericSignature-based approach used instead
+
+**Outcome**: CryptoSwift fully fixed. Alamofire 6 → 2 errors, Parchment 4 → 2 errors, Kingfisher 8 → 7 errors. 9 new unit tests (4 PAT inheritance, 3 metatype parenthesization, 2 metadata gate regression).
+
+### Session 11 (planned): Remaining gaps
 
 **EC-10**: Debug StripePaymentSheet generated output to find `none` reference path (2 errors).
 
 **EC-12**: Debug Kingfisher autoclosure leak — single parameter not detected by `GetAutoclosureParameters()` (1 error).
 
-**EC-13**: Cross-reference integer types from `.swiftinterface` to normalize `Int64` → `Int` where the source type is platform-width (4 errors).
+**EC-13**: Cross-reference integer types from `.swiftinterface` to normalize `Int64` → `Int` where the source type is platform-width (4 errors). Also SecTrust type in Alamofire witness dispatch (Int loaded instead of opaque CF type).
 
 **EC-20** (new): Optional protocol method dispatch. ObjC protocols with `optional func` declarations produce methods that return optionals when called on existentials. Witness dispatch wrappers call them without unwrapping. Affects FSPagerView, Parchment.
 
-**EC-2 residuals**: SkeletonView (SkeletonLayerBuilder, SkeletonLayer, SkeletonTextNodeAssociatedKeys), Alamofire (JSONDecoder, PropertyListDecoder), CryptoSwift (StreamEncryptor, StreamDecryptor, BlockEncryptor) — internal types leaking through the EC-2 gate.
+**Actor isolation**: Kingfisher (1 error), Parchment (1 error) — `call to main actor-isolated instance method` in nonisolated wrapper context. May need wrapper-level `@MainActor` or `MainActor.assumeIsolated`.
+
+**Ambiguous encode**: Alamofire (1 error) — `obj.encode(valueVal)` where `valueVal: Swift.Encodable` causes overload ambiguity.
+
+**EC-2 residuals**: SkeletonView (many internal types) — not fixable with metadata gate alone; needs parent-type wrapper gate (reverted due to regressions) or post-processor enhancement.
 
 ---
 
@@ -368,4 +397,5 @@ See EC descriptions above for implementation details. Key changes across 24 file
 | 7 | Reachability, KeychainSwift, AnimatedCollectionViewLayout, Valet, SVGView, Mixpanel, NVActivityIndicatorView, SwiftyBeaver | 8 |
 | 8 | BonMot, Mappedin | 2 |
 | 9 | Nuke, Nuke@macos, Nuke@tvos, PhoneNumberKit, ObjectMapper | 5 |
+| 10 | CryptoSwift | 1 |
 | Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 14 |
