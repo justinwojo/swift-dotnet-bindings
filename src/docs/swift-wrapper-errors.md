@@ -2,11 +2,18 @@
 
 Comprehensive analysis of Swift wrapper compilation failures caught by `validate-libraries.sh`. All 90 targets pass C# compilation; these are errors in the generated `.swift` wrapper that gets compiled into a `.framework` binary.
 
-**Baseline**: 27/56 passing (34 ObjC/no wrapper), 29 failing.
+**Baseline**: 29/56 passing (34 ObjC/no wrapper), 27 failing.
 
-**Previous baselines**: 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
+**Previous baselines**: 28/56 (session 5+RxSwift), 27/56 (session 5), 24/56 (session 4), 21/56 (session 3), 16/56 (`6bf59eab`).
 
 ## Session History
+
+**Session 6** (1 library fixed: XMLCoder; error reduction in CryptoSwift, SkeletonView):
+- Public member names negative-space detection from `.swiftinterface`: parses all `public`/`open` members from the public interface; any ABI member NOT in the set is marked internal. Handles `static`, `class`, setter-visibility (`internal(set)`, `private(set)`), `@MainActor`-annotated, `nonisolated`, backtick-escaped identifiers, and multiline signatures.
+- Fixes internal member leaks: `skeletonLog`, `SkeletonViewAppearance.shared`, `XMLHeader.isEmpty`/`toXML`, `XMLDocumentType` init, `SHA2.Variant.finalLength`, `PKCS5.PBKDF1.Variant.size`
+- Implicit constructor guard: constructors checked even when `@implicit` (fixes `@_hasMissingDesignatedInitializers` types)
+- `UnsafeRawBufferPointer` `@_cdecl` gate: constructors with buffer pointer params skipped (not C-representable)
+- Simple enum `IsModuleInternal` property gate: enum properties with `@usableFromInline` now filtered (was already filtering methods but not properties)
 
 **Session 5** (4 libraries improved: StripeIdentity, RxSwift, AMPopTip, Swinject):
 - `spi_group_names` ABI JSON field detection → StripeIdentity passes; StripeConnect 51 → 2 errors
@@ -46,9 +53,19 @@ EveryProtocol can't satisfy all protocol requirements:
 
 **Fix**: Detect unsatisfiable protocol requirements and skip EveryProtocol conformance for those protocols.
 
-### 3. `.swiftinterface` Import Failures (4 libraries)
+### 3. `.swiftinterface` Import Failures (9 libraries)
 
-Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout — module/type name collision resolved by post-processor, but `swiftc -emit-library` fails on self-referential `.swiftinterface` imports. **Swift compiler limitation, not fixable from generated code.**
+Module name == public type name causes Swift compiler to misresolve types in `.swiftinterface`:
+- **Tier 1** (4): Reachability, KeychainSwift, NVActivityIndicatorView, AnimatedCollectionViewLayout
+- **Tier 2** (5): Valet, FSPagerView, SwiftyBeaver, SVGView, Mixpanel
+
+All show `'X' is not a member type of class/struct 'Module.Module'`. The post-processor already fixes this in generated wrapper code, but the error comes from the framework's own `.swiftinterface` during `import`. This is the single largest bucket of failures — fixing it flips 9 libraries at once.
+
+**Potential approaches (not yet investigated)**:
+- Pre-compile the module with `swift-frontend -compile-module-from-interface` before wrapper compilation
+- Use `-module-alias` to rename the module during import
+- Check if binary `.swiftmodule` files exist in the framework (bypasses textual interface entirely)
+- Different import mechanism (`-I` vs `-F`)
 
 ### 4. Struct Treated as Class — `Unmanaged<ValueType>` (3 libraries, ~8 errors)
 
@@ -66,14 +83,12 @@ StripeCryptoOnramp, StripeIssuing, StripePayments, StripePaymentSheet, StripePay
 
 **Fix**: Wire Stripe3DS2 into the dependency graph.
 
-### 6. Internal Member Access (CryptoSwift, SkeletonView, XMLCoder)
+### 6. Internal Member Access (partial — CryptoSwift, SkeletonView)
 
-Remaining internal members not caught by `IsModuleInternal` or `_`-prefix suppression:
-- CryptoSwift: protocol composition `.self` metatype (4), `@_cdecl`-incompatible types (2)
-- SkeletonView: internal singletons/initializers (4)
-- XMLCoder: internal instance methods on public types (`isEmpty`, `toXML`) (4), malformed `_optbuf` block (1)
-
-**Fix**: Cross-reference with `.swiftinterface` for member-level access control verification.
+Session 6 added public member names cross-reference from `.swiftinterface` — fixed XMLCoder.
+Remaining issues are NOT internal member access but distinct code generation bugs:
+- CryptoSwift: protocol composition `.self` metatype (4), subscript label `bitAt:` (2)
+- SkeletonView: `@_hasMissingDesignatedInitializers` constructor (fixed), generic parameter inference (1)
 
 ### 7. Remaining Single-Library Issues
 
@@ -95,4 +110,5 @@ Remaining internal members not caught by `IsModuleInternal` or `_`-prefix suppre
 | 3 | SnapKit, KeychainAccess, Starscream, Nuke, Nuke@macos, Nuke@tvos | 6 |
 | 4 | Lottie, BlinkID, BlinkIDUX, SwipeCellKit | 4 |
 | 5 | StripeIdentity, RxSwift, AMPopTip, Swinject | 4 |
+| 6 | XMLCoder | 1 |
 | Pre-existing | BRLMPrinterKit, MicroblinkPlatform, SmartCardIO, SwiftyGif, DifferenceKit, CocoaLumberjackSwift, DeviceKit, Stripe*, StripeCore, StripeApplePay, StripeCameraCore, StripeCardScan, StripeFinancialConnections, StripeUICore | 13 |

@@ -171,10 +171,12 @@ namespace BindingsGeneration
             var instanceProperties = enumDecl.Properties
                 .Where(p => !p.IsStatic)
                 .Where(p => !IsSynthesizedProperty(p, enumDecl))
+                .Where(p => !p.IsModuleInternal)
                 .ToList();
             var staticProperties = enumDecl.Properties
                 .Where(p => p.IsStatic)
                 .Where(p => !IsSynthesizedProperty(p, enumDecl))
+                .Where(p => !p.IsModuleInternal)
                 .ToList();
 
             // Record enum operators — equality is handled by C# enum semantics

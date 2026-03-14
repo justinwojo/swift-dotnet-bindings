@@ -75,6 +75,13 @@ public static class ConstructorWrapperEmitter
         if (HasNestedFrozenStructParameter(env))
             return false;
 
+        // Skip constructors with UnsafeRawBufferPointer/UnsafeMutableRawBufferPointer parameters.
+        // Buffer pointer types are multi-word structs (base + count) that @_cdecl can't represent
+        // in the C calling convention. The Swift compiler rejects them with:
+        // "type of the parameter cannot be represented in Objective-C".
+        if (HasBufferPointerParameter(env))
+            return false;
+
         // Skip constructors with raw ABI generic type params (τ_0_0) in signature.
         // These leak from parent type generics and cause Swift compilation failures.
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
@@ -230,6 +237,29 @@ public static class ConstructorWrapperEmitter
             {
                 var afterModule = name.Substring(dotIndex + 1);
                 if (afterModule.Contains('.'))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if any parameter is a buffer pointer type (UnsafeRawBufferPointer,
+    /// UnsafeMutableRawBufferPointer, UnsafeBufferPointer, UnsafeMutableBufferPointer).
+    /// These are multi-word structs that can't be represented in the @_cdecl C ABI.
+    /// </summary>
+    private static bool HasBufferPointerParameter(MethodEnvironment env)
+    {
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec is NamedTypeSpec namedSpec)
+            {
+                var name = namedSpec.Name;
+                if (name.EndsWith("BufferPointer", StringComparison.Ordinal) &&
+                    (name.Contains("UnsafeRawBufferPointer") ||
+                     name.Contains("UnsafeMutableRawBufferPointer") ||
+                     name.Contains("UnsafeBufferPointer") ||
+                     name.Contains("UnsafeMutableBufferPointer")))
                     return true;
             }
         }

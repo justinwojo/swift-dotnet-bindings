@@ -386,6 +386,31 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Checks if a member is internal by negative-space detection: if the public
+        /// swiftinterface has a set of public member names, any ABI member NOT in that
+        /// set is internal. For type members, the key is "TypeName.printedName".
+        /// For module-level functions, the key is the bare printedName.
+        /// </summary>
+        private bool IsInternalFromPublicMemberNames(BaseDecl parentDecl, string printedName)
+        {
+            if (_publicMemberNames == null || _publicMemberNames.Count == 0)
+                return false;
+
+            if (parentDecl is TypeDecl typeDecl)
+            {
+                // Skip types that are themselves internal — their members are already suppressed
+                if (typeDecl.IsModuleInternal)
+                    return false;
+
+                var key = $"{typeDecl.Name}.{printedName}";
+                return !_publicMemberNames.Contains(key);
+            }
+
+            // Module-level (free functions/variables): bare printedName
+            return !_publicMemberNames.Contains(printedName);
+        }
+
+        /// <summary>
         /// Optional set of internal member keys from swiftinterface parsing.
         /// Keys are formatted as "TypeName.printedName" (e.g., "AES.encrypt(block:)").
         /// Used to detect @inlinable internal members that can't be distinguished
@@ -464,6 +489,7 @@ namespace BindingsGeneration
         /// booleans indicating which parameters have @autoclosure.
         /// </summary>
         private readonly Dictionary<string, List<bool>>? _autoclosureParameters;
+        private readonly HashSet<string>? _publicMemberNames;
 
         public SwiftABIParser(
             string filePath,
@@ -482,7 +508,8 @@ namespace BindingsGeneration
             HashSet<string>? nonisolatedMembers = null,
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null,
             Dictionary<string, List<string?>>? defaultParameterValues = null,
-            Dictionary<string, List<bool>>? autoclosureParameters = null)
+            Dictionary<string, List<bool>>? autoclosureParameters = null,
+            HashSet<string>? publicMemberNames = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -501,6 +528,7 @@ namespace BindingsGeneration
             _availabilityAnnotations = availabilityAnnotations;
             _defaultParameterValues = defaultParameterValues;
             _autoclosureParameters = autoclosureParameters;
+            _publicMemberNames = publicMemberNames;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1188,6 +1216,19 @@ namespace BindingsGeneration
                 methodDecl.IsModuleInternal = true;
             }
 
+            // Negative-space detection: if the member is NOT in the public swiftinterface,
+            // it's internal. Skip implicit NON-CONSTRUCTOR members (synthesized accessors, etc.)
+            // which are public but don't appear in the swiftinterface.
+            // Constructors are NOT skipped even if implicit: implicit inits on types with
+            // @_hasMissingDesignatedInitializers are internal and MUST be caught.
+            // Public implicit inits DO appear in the public swiftinterface (memberwise inits, etc.).
+            if (!methodDecl.IsModuleInternal &&
+                (node.@implicit != true || methodDecl.IsConstructor))
+            {
+                if (IsInternalFromPublicMemberNames(parentDecl, node.PrintedName))
+                    methodDecl.IsModuleInternal = true;
+            }
+
             // Suppress implicit inherited constructors that are not callable from external code.
             // Swift's initialization safety rules: when a class defines its own designated inits
             // (inheritsConvenienceInitializers=false) and all designated inits are visible
@@ -1543,6 +1584,11 @@ namespace BindingsGeneration
             if (!decl.IsModuleInternal && parentDecl is TypeDecl propParentForInternal)
             {
                 decl.IsModuleInternal = IsInternalFromSwiftInterface(propParentForInternal.Name, sanitizedName);
+            }
+            // Negative-space detection: property not in public swiftinterface is internal.
+            if (!decl.IsModuleInternal)
+            {
+                decl.IsModuleInternal = IsInternalFromPublicMemberNames(parentDecl, sanitizedName);
             }
             if (parentDecl is TypeDecl propParentType)
             {

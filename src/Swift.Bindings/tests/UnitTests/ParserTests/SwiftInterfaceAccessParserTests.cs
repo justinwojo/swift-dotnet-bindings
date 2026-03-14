@@ -1732,6 +1732,237 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // === GetPublicMemberNames tests ===
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsPublicFuncAndVar()
+    {
+        var swiftInterface = """
+            public struct MyStruct {
+              public var tintColor: UIKit.UIColor
+              public func doWork(_ value: Swift.Int) -> Swift.Bool
+              internal func secret() -> Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("MyStruct.tintColor", publicMembers);
+            Assert.Contains("MyStruct.doWork(_:)", publicMembers);
+            Assert.DoesNotContain("MyStruct.secret()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsStaticMembers()
+    {
+        var swiftInterface = """
+            public class Registry {
+              public static let shared: MyModule.Registry
+              public static var instanceCount: Swift.Int32
+              public var name: Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Registry.shared", publicMembers);
+            Assert.Contains("Registry.instanceCount", publicMembers);
+            Assert.Contains("Registry.name", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsPublicInit()
+    {
+        var swiftInterface = """
+            public struct Point {
+              public init(x: Swift.Int, y: Swift.Int)
+              public var x: Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Point.init(x:y:)", publicMembers);
+            Assert.Contains("Point.x", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsExtensionMembers()
+    {
+        var swiftInterface = """
+            public class Foo {
+              public var name: Swift.String
+            }
+            extension MyModule.Foo {
+              public func extended() -> Swift.Bool
+              public static var count: Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Foo.name", publicMembers);
+            Assert.Contains("Foo.extended()", publicMembers);
+            Assert.Contains("Foo.count", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsBacktickEscapedIdentifiers()
+    {
+        var swiftInterface = """
+            public struct KeywordTest {
+              public var `operator`: Swift.String
+              public var `class`: Swift.String
+              public var normal: Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("KeywordTest.operator", publicMembers);
+            Assert.Contains("KeywordTest.class", publicMembers);
+            Assert.Contains("KeywordTest.normal", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_HandlesAnnotationPrefixes()
+    {
+        var swiftInterface = """
+            public class ViewModel {
+              @_Concurrency.MainActor public var title: Swift.String
+              @objc @IBInspectable @_Concurrency.MainActor @preconcurrency dynamic public var count: Swift.Int
+              nonisolated public var typeName: Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("ViewModel.title", publicMembers);
+            Assert.Contains("ViewModel.count", publicMembers);
+            Assert.Contains("ViewModel.typeName", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsFreeFunctions()
+    {
+        var swiftInterface = """
+            public func processKeywords(in input: Swift.String) -> Swift.String
+            public var globalCount: Swift.Int
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("processKeywords(in:)", publicMembers);
+            Assert.Contains("globalCount", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_MissingDesignatedInitializersTypeHasNoInit()
+    {
+        // @_hasMissingDesignatedInitializers means init is NOT public
+        var swiftInterface = """
+            @_hasMissingDesignatedInitializers public class AppearanceConfig {
+              public var tintColor: UIKit.UIColor
+              @objc deinit
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("AppearanceConfig.tintColor", publicMembers);
+            // No init should be in the public set
+            Assert.DoesNotContain("AppearanceConfig.init()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_CollectsSetterRestrictedProperties()
+    {
+        var swiftInterface = """
+            public class Config {
+              public internal(set) var name: Swift.String
+              public private(set) var version: Swift.Int
+              public private(set) static var shared: MyModule.Config
+              public var normal: Swift.Bool
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Config.name", publicMembers);
+            Assert.Contains("Config.version", publicMembers);
+            Assert.Contains("Config.shared", publicMembers);
+            Assert.Contains("Config.normal", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_HandlesMultilineSignatures()
+    {
+        var swiftInterface = """
+            public class Encoder {
+              public func encode(_ value: Swift.String,
+                withRootKey rootKey: Swift.String?,
+                header: MyModule.Header?) throws -> Foundation.Data
+              public func simple() -> Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Encoder.encode(_:withRootKey:header:)", publicMembers);
+            Assert.Contains("Encoder.simple()", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetPublicMemberNames_HandlesMultilineInit()
+    {
+        var swiftInterface = """
+            public struct Point {
+              public init(x: Swift.Int,
+                y: Swift.Int,
+                z: Swift.Int)
+              public var x: Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            SwiftInterfaceAccessParser.GetInternalMembers(path, out var publicMembers);
+            Assert.Contains("Point.init(x:y:z:)", publicMembers);
+            Assert.Contains("Point.x", publicMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

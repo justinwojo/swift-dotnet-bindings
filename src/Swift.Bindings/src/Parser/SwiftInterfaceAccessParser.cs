@@ -91,6 +91,30 @@ public static class SwiftInterfaceAccessParser
         @"(?:public|open)\s+(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
+    // Regex for public/open subscript declarations
+    private static readonly Regex PublicSubscriptRegex = new(
+        @"(?:public|open)\s+(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Broader regex for public var/let — handles static, class, setter-visibility, and annotation prefixes.
+    // Used by GetPublicMemberNames where we need to catch ALL public properties,
+    // not just the subset needed for actor isolation detection.
+    // Handles: public internal(set) var, public private(set) static var, etc.
+    // Backtick-escaped identifiers (e.g., `operator`, `class`) are handled with `?(\w+)`?.
+    private static readonly Regex BroadPublicVarRegex = new(
+        @"(?:^|\s)(?:public|open)\s+(?:(?:final|static|class|lazy|weak|unowned|(?:internal|private|public)\(set\))\s+)*(?:var|let)\s+`?(\w+)`?",
+        RegexOptions.Compiled);
+
+    // Broader regex for public func — handles nonisolated, @objc, and other prefixes.
+    private static readonly Regex BroadPublicFuncRegex = new(
+        @"(?:^|\s)(?:public|open)\s+(?:(?:final|static|class|mutating|nonmutating|override)\s+)*func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    // Broader regex for public init — handles convenience and other prefixes.
+    private static readonly Regex BroadPublicInitRegex = new(
+        @"(?:^|\s)(?:public|open)\s+(?:(?:convenience|required|override)\s+)*init\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Parses a .swiftinterface file and returns a set of dot-qualified type paths
     /// declared as public or open (e.g., "OrderContainer.Status" for nested types,
@@ -1363,7 +1387,22 @@ public static class SwiftInterfaceAccessParser
     /// <returns>Set of internal member keys, or empty set if parsing fails.</returns>
     public static HashSet<string> GetInternalMembers(string swiftInterfacePath)
     {
+        return GetInternalMembers(swiftInterfacePath, out _);
+    }
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns both the set of explicitly internal
+    /// member keys AND the set of all public member keys. The public member set is
+    /// used for "negative space" detection: any member in the ABI JSON that is NOT
+    /// in the public set (and not implicit) is internal.
+    ///
+    /// Keys use "TypeName.printedName" format for type members and bare "printedName"
+    /// for module-level free functions/variables.
+    /// </summary>
+    public static HashSet<string> GetInternalMembers(string swiftInterfacePath, out HashSet<string> publicMemberNames)
+    {
         var result = new HashSet<string>();
+        publicMemberNames = new HashSet<string>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -1373,6 +1412,13 @@ public static class SwiftInterfaceAccessParser
         // Track type context using a stack with associated brace depths
         var typeStack = new Stack<(string Name, int Depth)>();
         int braceDepth = 0;
+
+        // Multiline continuation state for public member collection.
+        // When a func/init signature spans multiple lines (opening '(' without closing ')'),
+        // we buffer lines until the signature is complete.
+        string? multilineFuncName = null;
+        string? multilineType = null;
+        string multilineBuffer = "";
 
         foreach (var line in lines)
         {
@@ -1435,6 +1481,35 @@ public static class SwiftInterfaceAccessParser
                 }
             }
 
+            // Collect public member declarations for negative-space internal detection.
+            // Any ABI member NOT in this set (and not implicit) is internal.
+            // Multiline continuation: if a func/init signature spans multiple lines,
+            // we buffer lines until we find the closing ')'.
+            if (multilineFuncName != null)
+            {
+                multilineBuffer += " " + trimmed;
+                if (HasMatchingCloseParen(multilineBuffer))
+                {
+                    var printedName = ExtractPrintedName(multilineBuffer, multilineFuncName);
+                    var key = multilineType != null ? $"{multilineType}.{printedName}" : printedName;
+                    publicMemberNames.Add(key);
+                    multilineFuncName = null;
+                    multilineType = null;
+                    multilineBuffer = "";
+                }
+            }
+            else
+            {
+                CollectPublicMember(trimmed, line, typeStack, braceDepth, publicMemberNames,
+                    out var pendingFuncName, out var pendingType, out var pendingBuffer);
+                if (pendingFuncName != null)
+                {
+                    multilineFuncName = pendingFuncName;
+                    multilineType = pendingType;
+                    multilineBuffer = pendingBuffer ?? line;
+                }
+            }
+
             // Update brace depth
             braceDepth += openBraces - closeBraces;
 
@@ -1446,6 +1521,143 @@ public static class SwiftInterfaceAccessParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Collects a public member declaration from the current line into the publicMemberNames set.
+    /// For type members, the key is "TypeName.printedName". For module-level declarations
+    /// (braceDepth == 0, no type context), the key is the bare printedName.
+    /// </summary>
+    private static void CollectPublicMember(
+        string trimmed, string line,
+        Stack<(string Name, int Depth)> typeStack,
+        int braceDepth,
+        HashSet<string> publicMemberNames,
+        out string? pendingFuncName,
+        out string? pendingType,
+        out string? pendingBuffer)
+    {
+        pendingFuncName = null;
+        pendingType = null;
+        pendingBuffer = null;
+
+        // Skip lines without public/open — most lines in the interface
+        if (!trimmed.Contains("public ") && !trimmed.Contains("open "))
+            return;
+
+        // Skip compiler conditionals
+        if (trimmed.StartsWith("#", StringComparison.Ordinal))
+            return;
+
+        // Strip leading annotations (e.g., @_Concurrency.MainActor, @objc, @discardableResult)
+        // These can appear before "public" and would prevent regex matching.
+        var effective = trimmed;
+        while (effective.StartsWith("@", StringComparison.Ordinal))
+        {
+            // Find end of annotation (after the annotation name and optional parens)
+            int spaceIdx = effective.IndexOf(' ');
+            if (spaceIdx < 0) break;
+            // Handle @annotation(args) by finding the closing paren
+            int parenIdx = effective.IndexOf('(');
+            if (parenIdx >= 0 && parenIdx < spaceIdx)
+            {
+                int closeIdx = effective.IndexOf(')', parenIdx);
+                if (closeIdx >= 0)
+                    spaceIdx = closeIdx + 1;
+            }
+            effective = effective.Substring(spaceIdx).TrimStart();
+        }
+
+        // Also strip "nonisolated" prefix
+        if (effective.StartsWith("nonisolated ", StringComparison.Ordinal))
+            effective = effective.Substring("nonisolated ".Length).TrimStart();
+
+        // Determine the type context (null for module-level declarations)
+        string? currentType = typeStack.Count > 0 ? typeStack.Peek().Name : null;
+
+        // Public func — use broad regex that handles static/class/mutating modifiers
+        var funcMatch = BroadPublicFuncRegex.Match(effective);
+        if (funcMatch.Success)
+        {
+            var funcName = funcMatch.Groups[1].Value;
+            if (!HasMatchingCloseParen(line))
+            {
+                // Multiline signature — buffer until closing paren found
+                pendingFuncName = funcName;
+                pendingType = currentType;
+                pendingBuffer = line;
+                return;
+            }
+            var printedName = ExtractPrintedName(line, funcName);
+            var key = currentType != null ? $"{currentType}.{printedName}" : printedName;
+            publicMemberNames.Add(key);
+            return;
+        }
+
+        // Public var/let — use broad regex that handles static/class/lazy/weak modifiers
+        var varMatch = BroadPublicVarRegex.Match(effective);
+        if (varMatch.Success)
+        {
+            var propName = varMatch.Groups[1].Value;
+            var key = currentType != null ? $"{currentType}.{propName}" : propName;
+            publicMemberNames.Add(key);
+            return;
+        }
+
+        // Public init — use broad regex that handles convenience/required/override
+        var initMatch = BroadPublicInitRegex.Match(effective);
+        if (initMatch.Success)
+        {
+            if (currentType != null)
+            {
+                if (!HasMatchingCloseParen(line))
+                {
+                    pendingFuncName = "init";
+                    pendingType = currentType;
+                    pendingBuffer = line;
+                    return;
+                }
+                var printedName = ExtractPrintedName(line, "init");
+                publicMemberNames.Add($"{currentType}.{printedName}");
+            }
+            return;
+        }
+
+        // Public subscript
+        var subMatch = PublicSubscriptRegex.Match(effective);
+        if (subMatch.Success)
+        {
+            if (currentType != null)
+            {
+                if (!HasMatchingCloseParen(line))
+                {
+                    pendingFuncName = "subscript";
+                    pendingType = currentType;
+                    pendingBuffer = line;
+                    return;
+                }
+                var printedName = ExtractPrintedName(line, "subscript");
+                publicMemberNames.Add($"{currentType}.{printedName}");
+            }
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a line has a matching closing parenthesis for its first opening paren.
+    /// Used to detect multiline function/init signatures.
+    /// </summary>
+    private static bool HasMatchingCloseParen(string text)
+    {
+        int depth = 0;
+        bool foundOpen = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '(') { depth++; foundOpen = true; }
+            if (text[i] == ')') depth--;
+            if (foundOpen && depth == 0) return true;
+        }
+        return !foundOpen; // No parens at all → not a signature issue
     }
 
     /// <summary>

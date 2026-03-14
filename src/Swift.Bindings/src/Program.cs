@@ -885,10 +885,12 @@ namespace BindingsGeneration
             Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null;
             Dictionary<string, List<string?>>? defaultParameterValues = null;
             Dictionary<string, List<bool>>? autoclosureParameters = null;
+            HashSet<string>? publicMemberNames = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
-                internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath);
-                logger.LogInformation("Loaded {Count} internal member keys from swiftinterface", internalMemberKeys.Count);
+                internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath, out var parsedPublicMembers);
+                publicMemberNames = parsedPublicMembers;
+                logger.LogInformation("Loaded {Count} internal member keys and {PublicCount} public member names from swiftinterface", internalMemberKeys.Count, publicMemberNames.Count);
                 parameterNames = SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
                 typedThrowsErrors = SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath);
@@ -931,7 +933,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
