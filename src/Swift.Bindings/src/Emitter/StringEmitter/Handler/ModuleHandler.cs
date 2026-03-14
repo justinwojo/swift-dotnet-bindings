@@ -533,6 +533,11 @@ namespace BindingsGeneration
                 // Skip protocols that inherit from Decodable/Encodable/Codable — EveryProtocol's
                 // handle: UnsafeRawPointer? property can't synthesize Codable conformance.
                 .Where(p => !InheritsCodable(p, protocols, typeDatabase))
+                // Skip class-bound protocols (NSObjectProtocol, AnyObject) — EveryProtocol
+                // can't provide NSObject identity semantics. Transitive check.
+                .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
+                // Skip CaseIterable — requires compiler-synthesized allCases. Transitive check.
+                .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
                 // Skip protocols whose member signatures reference types from this module
                 // that are not in the type database (module-internal types). EveryProtocol
                 // can't implement methods requiring internal types.

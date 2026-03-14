@@ -482,7 +482,7 @@ namespace BindingsGeneration
                     .Where(d => !d.IsObjCOnly)
                     .Select(d => d.ModuleName)
                     .ToList();
-                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform);
+                var success = GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform);
                 if (!success)
                 {
                     context.ExitCode = 1;
@@ -535,7 +535,9 @@ namespace BindingsGeneration
                                 simAdditionalSearchPaths: simDepPaths,
                                 deviceAdditionalSearchPaths: deviceDepPaths,
                                 platformInfo: platformInfo,
-                                moduleNameForCollision: moduleNameForCollision);
+                                moduleNameForCollision: moduleNameForCollision,
+                                nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                                swiftInterfacePath: resolution.SwiftInterfacePath);
                         }
                         else if (wrapperArchNormalized == "device")
                         {
@@ -562,7 +564,9 @@ namespace BindingsGeneration
                                 internalTypeNames: internalTypeNames,
                                 additionalFrameworkSearchPaths: deviceDepPaths,
                                 platformInfo: platformInfo,
-                                moduleNameForCollision: moduleNameForCollision);
+                                moduleNameForCollision: moduleNameForCollision,
+                                nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                                swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath);
                         }
                         else
                         {
@@ -573,7 +577,9 @@ namespace BindingsGeneration
                                 internalTypeNames: internalTypeNames,
                                 additionalFrameworkSearchPaths: simDepPaths,
                                 platformInfo: platformInfo,
-                                moduleNameForCollision: moduleNameForCollision);
+                                moduleNameForCollision: moduleNameForCollision,
+                                nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                                swiftInterfacePath: resolution.SwiftInterfacePath);
                         }
                     }
                     catch (Exception ex)
@@ -723,13 +729,14 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
-            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null)
+        private static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
+            nestedTypesInCollidingClass = null;
             try
             {
             var typeDatabase = new TypeDatabase();
@@ -952,10 +959,26 @@ namespace BindingsGeneration
                 // Detect module/type name collision: a public type whose name matches the module name.
                 // When this occurs, Swift resolves bare "ModuleName" as the type, not the module,
                 // causing "ModuleName.X" to fail (looks for X nested in the class, not in the module).
-                if (decl.Types.Any(t => !t.IsModuleInternal && t.Name == moduleName))
+                var collidingType = decl.Types.FirstOrDefault(t => !t.IsModuleInternal && t.Name == moduleName);
+                if (collidingType != null)
                 {
                     moduleNameForCollision = moduleName;
                     logger.LogInformation("Detected module/type name collision: module '{Module}' has a public type with the same name. Will strip module prefixes in Swift wrapper.", moduleName);
+
+                    // EC-18: Collect types nested inside the colliding class to prevent
+                    // over-stripping. E.g., SwiftyBeaver.Level should stay qualified
+                    // because Level is nested in class SwiftyBeaver, not a module-level type.
+                    var nestedNames = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var innerType in collidingType.Types)
+                    {
+                        nestedNames.Add(innerType.Name);
+                    }
+                    if (nestedNames.Count > 0)
+                    {
+                        nestedTypesInCollidingClass = nestedNames;
+                        logger.LogInformation("Found {Count} nested type(s) in colliding class '{Module}': {Types}",
+                            nestedNames.Count, moduleName, string.Join(", ", nestedNames));
+                    }
                 }
 
                 // Wire publicTypeNames from swiftinterface as keep-override for underscore suppression.

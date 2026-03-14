@@ -229,7 +229,7 @@ public class MemberGateEvaluator
     /// <summary>
     /// Hard-gate-only evaluation for concrete type context. Returns Skip or Emit only.
     /// No soft gates, no InterfaceOnly. Used by MethodHandler and MemberEmissionValidator.
-    /// Checks: bare generic, non-ISwiftObject bound generic, unsupported module.
+    /// Checks: bare generic, non-ISwiftObject bound generic, unsupported module, internal types.
     /// </summary>
     public GateResult EvaluateHardGates(MethodDecl method, ModuleDecl? moduleDecl)
     {
@@ -264,12 +264,25 @@ public class MemberGateEvaluator
                 $"Method signature references unsupported module (SwiftUI/Combine) in '{unsupportedArg.SwiftTypeSpec}'.");
         }
 
+        // Internal type references — parameter/return types that are internal to the module
+        // can't be used in Swift wrapper code (the wrapper imports the module's public API only).
+        var resolvedModuleName = method.ModuleDecl?.Name ?? moduleDecl?.Name;
+        if (resolvedModuleName != null)
+        {
+            foreach (var argument in method.CSSignature)
+            {
+                if (ReferencesInternalModuleType(argument.SwiftTypeSpec, _typeDatabase, resolvedModuleName))
+                    return GateResult.Skipped(SkipReason.ModuleInternal,
+                        $"Method signature references internal type in '{argument.SwiftTypeSpec}'.");
+            }
+        }
+
         return GateResult.Pass;
     }
 
     /// <summary>
     /// Hard-gate-only evaluation for a concrete-type property. Returns Skip or Emit only.
-    /// Checks: bare generic, non-ISwiftObject bound generic, unsupported module.
+    /// Checks: bare generic, non-ISwiftObject bound generic, unsupported module, internal types.
     /// </summary>
     public GateResult EvaluatePropertyHardGates(PropertyDecl property, ModuleDecl? moduleDecl)
     {
@@ -292,6 +305,14 @@ public class MemberGateEvaluator
             propNamedType.ContainsGenericParameters &&
             boundGenericsHandler.HasNonSwiftObjectGenericArg(property.SwiftTypeSpec))
             return GateResult.Skipped(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
+
+        // Internal type references — property types that are internal to the module
+        // can't be used in Swift wrapper code.
+        var resolvedModuleName = property.ModuleDecl?.Name ?? moduleDecl?.Name;
+        if (resolvedModuleName != null &&
+            ReferencesInternalModuleType(property.SwiftTypeSpec, _typeDatabase, resolvedModuleName))
+            return GateResult.Skipped(SkipReason.ModuleInternal,
+                $"Property type references internal type in '{property.SwiftTypeSpec}'.");
 
         return GateResult.Pass;
     }
@@ -375,5 +396,70 @@ public class MemberGateEvaluator
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec references a type that is internal to the given module.
+    /// A type is considered internal if it belongs to the module (qualified with the module name)
+    /// but is not found in the type database — meaning it wasn't part of the public API surface.
+    /// Mirrors ModuleHandler.ReferencesInternalModuleType for use in concrete-type gate evaluation.
+    /// </summary>
+    internal static bool ReferencesInternalModuleType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, string moduleName)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                // Skip existential types (any Protocol) — these are protocol usages,
+                // not concrete type references. A protocol may validly not be in the
+                // type database while still being publicly accessible.
+                if (namedType.IsAny)
+                    return false;
+                if (namedType.HasModule())
+                {
+                    var typeModule = namedType.Module;
+                    if (typeModule == moduleName)
+                    {
+                        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
+                            return true;
+                    }
+                }
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ReferencesInternalModuleType(genericParam, typeDatabase, moduleName))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                foreach (var element in tupleType.Elements)
+                {
+                    if (ReferencesInternalModuleType(element, typeDatabase, moduleName))
+                        return true;
+                }
+                return false;
+
+            case ClosureTypeSpec closureType:
+                if (ReferencesInternalModuleType(closureType.Arguments, typeDatabase, moduleName))
+                    return true;
+                if (ReferencesInternalModuleType(closureType.ReturnType, typeDatabase, moduleName))
+                    return true;
+                return false;
+
+            case ProtocolListTypeSpec:
+                // Protocol compositions (any P1 & P2) are existential references.
+                // Constituent protocols may legitimately be absent from the type database
+                // while still being public — protocol TypeRecords are only created when
+                // the protocol has enough infrastructure for proxy/conformance emission.
+                // Internal protocol compositions are caught downstream by the wrapper
+                // post-processor safety net.
+                return false;
+
+            default:
+                return false;
+        }
     }
 }

@@ -2240,5 +2240,78 @@ public class MethodWrapperEmitterTests
         Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
+    [Fact]
+    public void IsOptionalWithReferenceInner_ObjCBridgedStruct_ReturnsFalse()
+    {
+        // EC-4: ObjC-bridged structs like UIFont.Weight should NOT be treated as reference types.
+        // Unmanaged<T> requires T: AnyObject — UIFont.Weight is a struct.
+        var typeDb = new TypeDatabase();
+        var uikitModule = new ModuleTypeDatabase("UIKit", "/usr/lib/libUIKit.dylib");
+        uikitModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIFont.Weight"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIFontWeight"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIFont.Weight"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(uikitModule);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIFont.Weight"));
+
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_ObjCRootedStruct_ReturnsFalse()
+    {
+        // EC-4: ObjC-rooted structs (e.g., PHPickerResult) should NOT be treated as reference types.
+        var typeDb = new TypeDatabase();
+        var photosModule = new ModuleTypeDatabase("PhotosUI", "/usr/lib/libPhotosUI.dylib");
+        photosModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("PhotosUI.PHPickerResult"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("PhotosUI", "PHPickerResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("PhotosUI.PHPickerResult"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCRooted,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(photosModule);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("PhotosUI.PHPickerResult"));
+
+        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsOptionalWithReferenceInner_ObjCBridgedClass_ReturnsTrue()
+    {
+        // EC-4: ObjC-bridged classes (e.g., UIImage) SHOULD still be treated as reference types.
+        var typeDb = new TypeDatabase();
+        var uikitModule = new ModuleTypeDatabase("UIKit", "/usr/lib/libUIKit.dylib");
+        uikitModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIImage"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(uikitModule);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIImage"));
+
+        Assert.True(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+    }
+
     #endregion
 }

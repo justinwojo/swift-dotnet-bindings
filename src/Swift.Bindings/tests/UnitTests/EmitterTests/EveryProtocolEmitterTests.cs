@@ -746,6 +746,149 @@ public class EveryProtocolEmitterTests
         return stringWriter.ToString();
     }
 
+    #region EC-3: Class-Bound and CaseIterable Gate Tests
+
+    [Fact]
+    public void IsClassBoundProtocol_WithIsClassBound_ReturnsTrue()
+    {
+        var protocol = CreateSimpleProtocol("MyProtocol");
+        protocol.IsClassBound = true;
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_WithNSObjectProtocolInheritance_ReturnsTrue()
+    {
+        var protocol = CreateSimpleProtocol("MyProtocol");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_WithAnyObjectInheritance_ReturnsTrue()
+    {
+        var protocol = CreateSimpleProtocol("MyProtocol");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.AnyObject"));
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_NormalProtocol_ReturnsFalse()
+    {
+        var protocol = CreateSimpleProtocol("MyProtocol");
+        Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_ClassBoundProtocol_SkipsEmission()
+    {
+        var protocol = CreateProtocolWithMethod("ClassBoundProto", "doSomething");
+        protocol.IsClassBound = true;
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocol);
+        var output = stringWriter.ToString();
+
+        Assert.DoesNotContain("EveryProtocol", output);
+        Assert.DoesNotContain("vtable", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NSObjectProtocolInheritor_SkipsEmission()
+    {
+        var protocol = CreateProtocolWithMethod("STPFormEncodable", "encode");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocol);
+        var output = stringWriter.ToString();
+
+        Assert.DoesNotContain("EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_CaseIterable_SkipsEmission()
+    {
+        var protocol = CreateProtocolWithMethod("NVActivityIndicatorType", "allCases");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.CaseIterable"));
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocol);
+        var output = stringWriter.ToString();
+
+        Assert.DoesNotContain("EveryProtocol", output);
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_TransitiveNSObjectProtocol_ReturnsTrue()
+    {
+        // BaseProto inherits NSObjectProtocol; DerivedProto inherits BaseProto.
+        // DerivedProto should be detected as class-bound transitively.
+        var baseProto = CreateSimpleProtocol("BaseProto");
+        baseProto.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        var derivedProto = CreateSimpleProtocol("DerivedProto");
+        derivedProto.InheritedProtocols.Add(new NamedTypeSpec("TestModule.BaseProto"));
+
+        var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
+
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_TransitiveAnyObject_ReturnsTrue()
+    {
+        var baseProto = CreateSimpleProtocol("Connectable");
+        baseProto.IsClassBound = true;
+
+        var derivedProto = CreateSimpleProtocol("StreamConnectable");
+        derivedProto.InheritedProtocols.Add(new NamedTypeSpec("TestModule.Connectable"));
+
+        var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
+
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_TransitiveNonClassBound_ReturnsFalse()
+    {
+        var baseProto = CreateSimpleProtocol("Processable");
+
+        var derivedProto = CreateSimpleProtocol("FastProcessable");
+        derivedProto.InheritedProtocols.Add(new NamedTypeSpec("TestModule.Processable"));
+
+        var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
+
+        Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsCaseIterable_Transitive_ReturnsTrue()
+    {
+        var baseProto = CreateSimpleProtocol("EnumType");
+        baseProto.InheritedProtocols.Add(new NamedTypeSpec("Swift.CaseIterable"));
+
+        var derivedProto = CreateSimpleProtocol("SpecificEnumType");
+        derivedProto.InheritedProtocols.Add(new NamedTypeSpec("TestModule.EnumType"));
+
+        var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
+
+        Assert.True(EveryProtocolEmitter.InheritsCaseIterable(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsCaseIterable_NoCaseIterable_ReturnsFalse()
+    {
+        var proto = CreateSimpleProtocol("RegularProto");
+
+        Assert.False(EveryProtocolEmitter.InheritsCaseIterable(proto));
+    }
+
+    #endregion
+
     private static ProtocolDecl CreateSimpleProtocol(string name)
     {
         return new ProtocolDecl

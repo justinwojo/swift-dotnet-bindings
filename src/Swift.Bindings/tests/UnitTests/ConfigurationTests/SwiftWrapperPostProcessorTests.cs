@@ -1417,7 +1417,78 @@ namespace BindingsGeneration.Tests
             Assert.Contains("to: SVGView.self", result.CleanedContent);
             Assert.DoesNotContain("SVGView.SVGView", result.CleanedContent);
         }
+
+    #region EC-18: Nested Type Disambiguation Tests
+
+    [Fact]
+    public void Process_NestedTypeInCollidingClass_PreservesQualification()
+    {
+        // SwiftyBeaver.Level should NOT be stripped — Level is nested in class SwiftyBeaver
+        var input = "@_cdecl(\"SBW_get\")\n" +
+                    "public func SBW_get() -> Int {\n" +
+                    "    let level: SwiftyBeaver.Level = .verbose\n" +
+                    "    return level.rawValue\n" +
+                    "}\n";
+        var nestedTypes = new HashSet<string> { "Level" };
+        var result = SwiftWrapperPostProcessor.Process(input, null, null,
+            moduleNameForCollision: "SwiftyBeaver",
+            nestedTypesInCollidingClass: nestedTypes);
+        // SwiftyBeaver.Level should be preserved
+        Assert.Contains("SwiftyBeaver.Level", result.CleanedContent);
+    }
+
+    [Fact]
+    public void Process_NonNestedTypeInCollidingModule_GetsStripped()
+    {
+        // SwiftyBeaver.Destination should be stripped — it's a module-level type
+        var input = "@_cdecl(\"SBW_get\")\n" +
+                    "public func SBW_get() -> UnsafeMutableRawPointer {\n" +
+                    "    let dest = SwiftyBeaver.Destination()\n" +
+                    "    return Unmanaged.passRetained(dest).toOpaque()\n" +
+                    "}\n";
+        var nestedTypes = new HashSet<string> { "Level" };
+        var result = SwiftWrapperPostProcessor.Process(input, null, null,
+            moduleNameForCollision: "SwiftyBeaver",
+            nestedTypesInCollidingClass: nestedTypes);
+        // SwiftyBeaver.Destination stripped → Destination
+        Assert.Contains("Destination()", result.CleanedContent);
+        Assert.DoesNotContain("SwiftyBeaver.Destination", result.CleanedContent);
+    }
+
+    [Fact]
+    public void Process_MixedNestedAndNonNested_CorrectlyDiscriminates()
+    {
+        // Line 1: SwiftyBeaver.Level (nested, keep)
+        // Line 2: SwiftyBeaver.SBPlatformDestination (non-nested, strip)
+        var input = "@_cdecl(\"SBW_test\")\n" +
+                    "public func SBW_test(_ level: SwiftyBeaver.Level, _ dest: SwiftyBeaver.SBPlatformDestination) {\n" +
+                    "}\n";
+        var nestedTypes = new HashSet<string> { "Level" };
+        var result = SwiftWrapperPostProcessor.Process(input, null, null,
+            moduleNameForCollision: "SwiftyBeaver",
+            nestedTypesInCollidingClass: nestedTypes);
+        Assert.Contains("SwiftyBeaver.Level", result.CleanedContent);
+        Assert.DoesNotContain("SwiftyBeaver.SBPlatformDestination", result.CleanedContent);
+        Assert.Contains("SBPlatformDestination", result.CleanedContent);
+    }
+
+    [Fact]
+    public void Process_NoNestedTypes_StripsAllCollisions()
+    {
+        // When nestedTypesInCollidingClass is null, all collisions should be stripped
+        var input = "@_cdecl(\"SBW_test\")\n" +
+                    "public func SBW_test(_ level: Reachability.Connection) {\n" +
+                    "}\n";
+        var result = SwiftWrapperPostProcessor.Process(input, null, null,
+            moduleNameForCollision: "Reachability",
+            nestedTypesInCollidingClass: null);
+        Assert.DoesNotContain("Reachability.Connection", result.CleanedContent);
+        Assert.Contains("Connection", result.CleanedContent);
     }
 
     #endregion
+    }
+
+    #endregion
+
 }

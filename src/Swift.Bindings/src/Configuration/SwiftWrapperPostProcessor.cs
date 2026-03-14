@@ -57,7 +57,12 @@ namespace BindingsGeneration
         /// references are rewritten to strip the module prefix, since the wrapper file already imports
         /// the module and Swift resolves the bare module name as the type, not the module.
         /// </param>
-        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null, string? moduleNameForCollision = null)
+        /// <param name="nestedTypesInCollidingClass">
+        /// Types nested inside the colliding class (e.g., {"Level"} for SwiftyBeaver.Level).
+        /// When collision regex would strip "SwiftyBeaver.Level" → "Level", but "Level" is
+        /// nested in class "SwiftyBeaver", the reference must stay qualified. Null to skip.
+        /// </param>
+        public static PostProcessingResult Process(string sourceContent, HashSet<string>? internalTypeNames, Action<string>? onSafetyNetWarning = null, string? moduleNameForCollision = null, HashSet<string>? nestedTypesInCollidingClass = null)
         {
             if (string.IsNullOrEmpty(sourceContent))
                 return new PostProcessingResult { CleanedContent = sourceContent, StrippedBlockCount = 0 };
@@ -178,7 +183,21 @@ namespace BindingsGeneration
                     if (outputLines[j].TrimStart().StartsWith("import ", StringComparison.Ordinal))
                         continue;
 
-                    var replaced = collisionPattern.Replace(outputLines[j], "$1");
+                    var replaced = collisionPattern.Replace(outputLines[j], match =>
+                    {
+                        // The first captured group is the type name after the module prefix.
+                        // If it's a nested type of the colliding class, preserve the qualification.
+                        // E.g., SwiftyBeaver.Level → keep as SwiftyBeaver.Level (Level is nested in class SwiftyBeaver)
+                        var firstComponent = match.Groups[1].Value;
+                        var dotIdx = firstComponent.IndexOf('.');
+                        var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
+
+                        if (nestedTypesInCollidingClass != null &&
+                            nestedTypesInCollidingClass.Contains(topLevelName))
+                            return match.Value; // Keep the full qualified name
+
+                        return match.Groups[1].Value;
+                    });
                     if (replaced != outputLines[j])
                     {
                         collisionReplacements++;

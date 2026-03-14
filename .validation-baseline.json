@@ -1,5 +1,5 @@
 {
-  "git_sha": "ebdbed81",
+  "git_sha": "1e239934",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -84,7 +84,7 @@
         "errors": 0,
         "lines": 8593,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke": {
         "compile": "ok",
@@ -280,28 +280,28 @@
         "errors": 0,
         "lines": 4569,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
         "lines": 8288,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Reachability": {
         "compile": "ok",
         "errors": 0,
         "lines": 1274,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
         "lines": 8066,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "ObjectMapper": {
         "compile": "ok",
@@ -329,7 +329,7 @@
         "errors": 0,
         "lines": 1110,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SwipeCellKit": {
         "compile": "ok",
@@ -392,14 +392,14 @@
         "errors": 0,
         "lines": 2845,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SVGView": {
         "compile": "ok",
         "errors": 0,
         "lines": 12288,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SDWebImage": {
         "compile": "ok",

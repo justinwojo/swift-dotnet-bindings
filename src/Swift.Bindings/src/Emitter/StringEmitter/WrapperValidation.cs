@@ -152,14 +152,12 @@ public static class WrapperValidation
         // Path 1: Type has a TypeRecord — check kind directly
         if (typeDatabase.TryGetTypeRecord(inner, out var typeRecord))
         {
-            // NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType) are
-            // ObjC-bridged in the type database but are Swift structs wrapping NSString, not
-            // class instances. Unmanaged<T> requires a class, so these must NOT be treated
-            // as reference types. Mirrors the exclusion in GetCdeclReturnMapping and
-            // GetCdeclParamMapping.
-            if (MarshallingHelpers.IsObjCBridged(typeRecord) &&
-                AppleFrameworkRegistry.TryGetNetTypeName(innerNamed.Name, out var remapped) &&
-                remapped == "Foundation.NSString")
+            // ObjC-bridged/ObjC-rooted structs (e.g., UIFont.Weight, PHPickerResult,
+            // CALayerContentsGravity) are flagged ObjCBridged/ObjCRooted in the type database
+            // but are Swift structs, not class instances. Unmanaged<T> requires T: AnyObject,
+            // so these must NOT be treated as reference types. Only true classes qualify.
+            // This generalizes the previous NSString-only guard to cover all ObjC-bridged structs.
+            if (typeRecord.Kind == TypeRecordKind.Struct || typeRecord.Kind == TypeRecordKind.Enum)
                 return false;
 
             return typeRecord.Kind == TypeRecordKind.Class ||

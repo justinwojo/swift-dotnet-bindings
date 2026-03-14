@@ -112,13 +112,17 @@ namespace BindingsGeneration
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            string? moduleNameForCollision = null)
+            string? moduleNameForCollision = null,
+            HashSet<string>? nestedTypesInCollidingClass = null,
+            string? swiftInterfacePath = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 simSlice, logger, commandRunner, internalTypeNames,
-                additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision);
+                additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision,
+                nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                swiftInterfacePath: swiftInterfacePath);
         }
 
         /// <summary>
@@ -137,7 +141,9 @@ namespace BindingsGeneration
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            string? moduleNameForCollision = null)
+            string? moduleNameForCollision = null,
+            HashSet<string>? nestedTypesInCollidingClass = null,
+            string? swiftInterfacePath = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -172,7 +178,8 @@ namespace BindingsGeneration
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
                         warning => logger.LogWarning("{Warning}", warning),
-                        moduleNameForCollision: moduleNameForCollision);
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
@@ -223,12 +230,24 @@ namespace BindingsGeneration
                 WriteFrameworkPlist(simFrameworkDir, wrapperModuleName, minOS, simSlice.PlistPlatformName);
 
                 var simSdkPath = ResolveSdkPath(simSlice.SdkName, commandRunner);
+                var simTargetTriple = simSlice.GetTargetTriple(minOS);
                 var simBinaryPath = Path.Combine(simFrameworkDir, wrapperModuleName);
+
+                // Pre-compile colliding module for simulator slice (EC-1)
+                string? simPrecompiledModulePath = null;
+                if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
+                {
+                    simPrecompiledModulePath = PrecompileCollidingModule(
+                        moduleName, swiftInterfacePath, simTargetTriple, simSdkPath,
+                        cleanedDir, commandRunner, logger, moduleNameForCollision,
+                        nestedTypesInCollidingClass);
+                }
+
                 InvokeSwiftCompiler(
                     cleanedFiles, simBinaryPath, wrapperModuleName,
-                    simSlice.GetTargetTriple(minOS), simSdkPath,
+                    simTargetTriple, simSdkPath,
                     simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                    simAdditionalSearchPaths);
+                    simAdditionalSearchPaths, simPrecompiledModulePath);
                 sliceCount++;
 
                 logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
@@ -241,12 +260,27 @@ namespace BindingsGeneration
                     WriteFrameworkPlist(devFrameworkDir, wrapperModuleName, minOS, deviceSlice.PlistPlatformName);
 
                     var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
+                    var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
                     var devBinaryPath = Path.Combine(devFrameworkDir, wrapperModuleName);
+
+                    // Pre-compile colliding module for device slice (EC-1)
+                    // Must be per-slice as target triple and SDK differ.
+                    string? devPrecompiledModulePath = null;
+                    if (!string.IsNullOrEmpty(moduleNameForCollision) &&
+                        !string.IsNullOrEmpty(deviceResolution.SwiftInterfacePath))
+                    {
+                        devPrecompiledModulePath = PrecompileCollidingModule(
+                            moduleName, deviceResolution.SwiftInterfacePath,
+                            devTargetTriple, devSdkPath,
+                            cleanedDir, commandRunner, logger, moduleNameForCollision,
+                            nestedTypesInCollidingClass);
+                    }
+
                     InvokeSwiftCompiler(
                         cleanedFiles, devBinaryPath, wrapperModuleName,
-                        deviceSlice.GetTargetTriple(minOS), devSdkPath,
+                        devTargetTriple, devSdkPath,
                         deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                        deviceAdditionalSearchPaths);
+                        deviceAdditionalSearchPaths, devPrecompiledModulePath);
                     sliceCount++;
 
                     logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
@@ -298,7 +332,9 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            string? moduleNameForCollision = null)
+            string? moduleNameForCollision = null,
+            HashSet<string>? nestedTypesInCollidingClass = null,
+            string? swiftInterfacePath = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -330,7 +366,8 @@ namespace BindingsGeneration
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
                         warning => logger.LogWarning("{Warning}", warning),
-                        moduleNameForCollision: moduleNameForCollision);
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass);
                     totalStripped += result.StrippedBlockCount;
 
                     if (result.StrippedBlockCount > 0)
@@ -382,11 +419,21 @@ namespace BindingsGeneration
                 // 6. Build target triple
                 var targetTriple = slice.GetTargetTriple(minOS);
 
+                // 6b. Pre-compile colliding module if needed (EC-1)
+                string? precompiledModulePath = null;
+                if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
+                {
+                    precompiledModulePath = PrecompileCollidingModule(
+                        moduleName, swiftInterfacePath, targetTriple, sdkPath,
+                        cleanedDir, commandRunner, logger, moduleNameForCollision,
+                        nestedTypesInCollidingClass);
+                }
+
                 // 7. Invoke swiftc
                 InvokeSwiftCompiler(
                     cleanedFiles, outputBinaryPath, wrapperModuleName,
                     targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                    additionalFrameworkSearchPaths);
+                    additionalFrameworkSearchPaths, precompiledModulePath);
 
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
@@ -423,14 +470,18 @@ namespace BindingsGeneration
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            string? moduleNameForCollision = null)
+            string? moduleNameForCollision = null,
+            HashSet<string>? nestedTypesInCollidingClass = null,
+            string? swiftInterfacePath = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var slice = pi.GetSlice(isSimulator);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths,
-                moduleNameForCollision: moduleNameForCollision);
+                moduleNameForCollision: moduleNameForCollision,
+                nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                swiftInterfacePath: swiftInterfacePath);
         }
 
         /// <summary>
@@ -660,7 +711,8 @@ namespace BindingsGeneration
             string frameworkSearchPath,
             ICommandRunner commandRunner,
             ILogger logger,
-            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+            string? precompiledModulePath = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -673,10 +725,19 @@ namespace BindingsGeneration
                 }
             }
 
+            // Pre-compiled module path for collision resolution: shadow framework directory
+            // with binary .swiftmodule. Added as a higher-priority -F path BEFORE the real
+            // framework search path, so swiftc finds the binary module first.
+            var precompiledFFlag = "";
+            if (!string.IsNullOrEmpty(precompiledModulePath))
+            {
+                precompiledFFlag = $"-F \"{precompiledModulePath}\" ";
+            }
+
             var args = $"swiftc -emit-library -target {targetTriple} " +
                        $"-sdk \"{sdkPath}\" " +
                        $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
-                       $"-F \"{frameworkSearchPath}\"{additionalFFlags} " +
+                       $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
                        $"-module-name {wrapperModuleName} " +
                        $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                        $"-o \"{outputBinaryPath}\" " +
@@ -693,6 +754,154 @@ namespace BindingsGeneration
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}");
             }
+        }
+
+        /// <summary>
+        /// Pre-compiles a patched .swiftinterface into a binary .swiftmodule to resolve
+        /// module/type name collisions (EC-1). When a module has a public type with the
+        /// same name as the module, the textual .swiftinterface fails to import because
+        /// Swift misresolves Module.Type as Class.NestedType. The fix:
+        /// 1. Copy .swiftinterface to temp dir
+        /// 2. Patch collision: strip module prefix from type references
+        /// 3. Compile to binary .swiftmodule via swift-frontend
+        /// 4. Return the directory path for -I flag (binary module takes precedence)
+        /// </summary>
+        /// <returns>Directory path containing the pre-compiled .swiftmodule, or null on failure.</returns>
+        /// <summary>
+        /// Pre-compiles a patched .swiftinterface into a binary .swiftmodule to resolve
+        /// module/type name collisions (EC-1). Creates a temp framework directory structure
+        /// that shadows the real framework when added as a higher-priority -F path.
+        /// </summary>
+        /// <returns>Framework search path to prepend as -F (higher priority), or null on failure.</returns>
+        internal static string? PrecompileCollidingModule(
+            string moduleName,
+            string swiftInterfacePath,
+            string targetTriple,
+            string sdkPath,
+            string buildDir,
+            ICommandRunner commandRunner,
+            ILogger logger,
+            string moduleNameForCollision,
+            HashSet<string>? nestedTypesInCollidingClass = null)
+        {
+            try
+            {
+                // Create a subdirectory for pre-compiled modules (target-specific)
+                var safeTriple = targetTriple.Replace("/", "_");
+                var precompileDir = Path.Combine(buildDir, $"precompiled-{safeTriple}");
+                Directory.CreateDirectory(precompileDir);
+
+                // 1. Prepare the collision regex
+                var collisionPattern = new System.Text.RegularExpressions.Regex(
+                    @"\b" + System.Text.RegularExpressions.Regex.Escape(moduleNameForCollision) +
+                    @"\.(\w+(?:\.\w+)*)",
+                    System.Text.RegularExpressions.RegexOptions.Compiled);
+
+                // 2. Create a shadow framework directory structure that overrides the real one
+                // via -F precedence. Structure: {precompileDir}/{Module}.framework/Modules/{Module}.swiftmodule/
+                var fwDir = Path.Combine(precompileDir, $"{moduleName}.framework", "Modules",
+                    $"{moduleName}.swiftmodule");
+                Directory.CreateDirectory(fwDir);
+
+                // Copy and patch the .swiftinterface
+                var patchedInterfacePath = Path.Combine(precompileDir, Path.GetFileName(swiftInterfacePath));
+                PatchSwiftInterface(swiftInterfacePath, patchedInterfacePath, collisionPattern, nestedTypesInCollidingClass);
+
+                // Also copy and patch ALL swiftinterface files from the source .swiftmodule dir
+                // into the shadow framework, so the .private.swiftinterface is also overridden.
+                var sourceModuleDir = Path.GetDirectoryName(swiftInterfacePath);
+                if (sourceModuleDir != null)
+                {
+                    foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
+                    {
+                        var destPath = Path.Combine(fwDir, Path.GetFileName(ifaceFile));
+                        PatchSwiftInterface(ifaceFile, destPath, collisionPattern, nestedTypesInCollidingClass);
+                    }
+                }
+
+                // Create a minimal Swift-only modulemap for the shadow framework.
+                // The real framework's modulemap may reference umbrella headers that don't exist
+                // in the shadow. For Swift-only imports, a bare module declaration suffices.
+                var shadowModulesDir = Path.Combine(precompileDir, $"{moduleName}.framework", "Modules");
+                var minimalModulemap = $"framework module {moduleName} {{\n}}\n";
+                File.WriteAllText(Path.Combine(shadowModulesDir, "module.modulemap"), minimalModulemap);
+
+                var outputModulePath = Path.Combine(fwDir, $"{targetTriple}.swiftmodule");
+
+                // 3. Compile to binary .swiftmodule
+                // Derive the framework search path from the swiftinterface path.
+                // swiftInterfacePath is like: .../ios-arm64_x86_64-simulator/Module.framework/Modules/Module.swiftmodule/arch.swiftinterface
+                // Framework search path is: .../ios-arm64_x86_64-simulator/
+                var swiftModuleParent = Path.GetDirectoryName(swiftInterfacePath); // .swiftmodule dir
+                var modulesParent = Path.GetDirectoryName(swiftModuleParent);      // Modules dir
+                var frameworkParent = Path.GetDirectoryName(modulesParent);         // Module.framework dir
+                var sliceSearchPath = Path.GetDirectoryName(frameworkParent);       // slice dir (for -F)
+
+                var fwSearchFlag = "";
+                if (!string.IsNullOrEmpty(sliceSearchPath) && Directory.Exists(sliceSearchPath))
+                {
+                    fwSearchFlag = $"-F \"{sliceSearchPath}\" ";
+                }
+
+                var args = $"swift-frontend -compile-module-from-interface " +
+                           $"\"{patchedInterfacePath}\" " +
+                           $"-target {targetTriple} " +
+                           $"-module-name {moduleName} " +
+                           $"-sdk \"{sdkPath}\" " +
+                           $"{fwSearchFlag}" +
+                           $"-o \"{outputModulePath}\"";
+
+                var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
+
+                if (exitCode != 0)
+                {
+                    logger.LogWarning(
+                        "Pre-compilation of colliding module '{Module}' failed (non-fatal): {Error}",
+                        moduleName, stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
+                    return null;
+                }
+
+                logger.LogInformation("Pre-compiled patched .swiftinterface for collision resolution ({Module}).", moduleName);
+                return precompileDir;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Pre-compilation failed (non-fatal): {Message}", ex.Message);
+                return null;
+            }
+        }
+        /// <summary>
+        /// Patches a .swiftinterface file by stripping the module prefix from type references
+        /// to resolve module/type name collisions. Preserves references to types nested inside
+        /// the colliding class (EC-18).
+        /// </summary>
+        private static void PatchSwiftInterface(string sourcePath, string destPath,
+            System.Text.RegularExpressions.Regex collisionPattern,
+            HashSet<string>? nestedTypesInCollidingClass)
+        {
+            var content = File.ReadAllText(sourcePath);
+            var patched = new System.Text.StringBuilder();
+            foreach (var line in content.Split('\n'))
+            {
+                if (line.TrimStart().StartsWith("import ", StringComparison.Ordinal))
+                {
+                    patched.Append(line).Append('\n');
+                    continue;
+                }
+                patched.Append(collisionPattern.Replace(line, match =>
+                {
+                    var firstComponent = match.Groups[1].Value;
+                    var dotIdx = firstComponent.IndexOf('.');
+                    var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
+
+                    if (nestedTypesInCollidingClass != null &&
+                        nestedTypesInCollidingClass.Contains(topLevelName))
+                        return match.Value;
+
+                    return match.Groups[1].Value;
+                })).Append('\n');
+            }
+            File.WriteAllText(destPath, patched.ToString());
         }
     }
 }

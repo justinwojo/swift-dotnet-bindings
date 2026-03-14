@@ -961,4 +961,84 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region EC-1/EC-18: PatchSwiftInterface Tests
+
+    public class PatchSwiftInterfaceTests
+    {
+        [Fact]
+        public void PatchSwiftInterface_PreservesNestedTypes()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var source = Path.Combine(dir, "source.swiftinterface");
+                var dest = Path.Combine(dir, "patched.swiftinterface");
+                File.WriteAllText(source,
+                    "import SwiftyBeaver\n" +
+                    "public typealias LogLevel = SwiftyBeaver.Level\n" +
+                    "public class SwiftyBeaver {\n" +
+                    "  public func setDestination(_ dest: SwiftyBeaver.ConsoleDestination) {}\n" +
+                    "}\n");
+
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"\bSwiftyBeaver\.(\w+(?:\.\w+)*)",
+                    System.Text.RegularExpressions.RegexOptions.Compiled);
+                var nested = new HashSet<string> { "Level" };
+
+                // Use reflection to call the private static method
+                var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                method.Invoke(null, new object?[] { source, dest, pattern, nested });
+
+                var result = File.ReadAllText(dest);
+                // Level is nested — should be preserved
+                Assert.Contains("SwiftyBeaver.Level", result);
+                // ConsoleDestination is NOT nested — should be stripped
+                Assert.Contains("dest: ConsoleDestination", result);
+                Assert.DoesNotContain("SwiftyBeaver.ConsoleDestination", result);
+                // import line should be untouched
+                Assert.Contains("import SwiftyBeaver", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PatchSwiftInterface_NoNestedTypes_StripsAll()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var source = Path.Combine(dir, "source.swiftinterface");
+                var dest = Path.Combine(dir, "patched.swiftinterface");
+                File.WriteAllText(source,
+                    "import Reachability\n" +
+                    "public class Reachability {\n" +
+                    "  public var connection: Reachability.Connection\n" +
+                    "}\n");
+
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"\bReachability\.(\w+(?:\.\w+)*)",
+                    System.Text.RegularExpressions.RegexOptions.Compiled);
+
+                var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                method.Invoke(null, new object?[] { source, dest, pattern, null });
+
+                var result = File.ReadAllText(dest);
+                Assert.DoesNotContain("Reachability.Connection", result);
+                Assert.Contains("connection: Connection", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"patch_test_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

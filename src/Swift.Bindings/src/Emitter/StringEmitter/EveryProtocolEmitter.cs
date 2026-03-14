@@ -392,6 +392,25 @@ public class EveryProtocolEmitter
             return;
         }
 
+        // Skip class-bound protocols — EveryProtocol is a class, but protocols that
+        // inherit from NSObjectProtocol or AnyObject require NSObject methods/identity
+        // that EveryProtocol can't provide (e.g., isEqual:, hash, description).
+        if (IsClassBoundProtocol(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: class-bound protocol (NSObjectProtocol/AnyObject)");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "ClassBound");
+            return;
+        }
+
+        // Skip CaseIterable — requires compiler-synthesized `allCases` static property
+        // that EveryProtocol can't provide. Checked transitively.
+        if (InheritsCaseIterable(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: CaseIterable requires compiler synthesis");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "CaseIterable");
+            return;
+        }
+
         // Skip protocols with no implementable instance members
         // Static members are not part of the witness table, so we only count non-static members
         var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
@@ -880,6 +899,95 @@ public class EveryProtocolEmitter
             return swiftName;
         }
         return $"arg{index}";
+    }
+
+    /// <summary>
+    /// Checks if a protocol is class-bound (inherits from NSObjectProtocol, AnyObject, or is marked class-bound),
+    /// either directly or transitively through inherited protocols.
+    /// Class-bound protocols require NSObject identity semantics that EveryProtocol can't provide.
+    /// </summary>
+    /// <param name="protocolDecl">The protocol to check.</param>
+    /// <param name="allProtocols">All protocols in the module for intra-module transitive lookup.
+    /// If null, only direct inheritance is checked.</param>
+    internal static bool IsClassBoundProtocol(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        return IsClassBoundProtocolRecursive(protocolDecl, allProtocols, new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private static bool IsClassBoundProtocolRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        if (protocolDecl.IsClassBound)
+            return true;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var name = inherited.Name;
+            var simpleName = GetSimpleName(name);
+            if (simpleName is "NSObjectProtocol" or "AnyObject")
+                return true;
+
+            // Intra-module transitive check
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == name ||
+                    p.SwiftTypeName?.ToString() == name);
+                if (inheritedDecl != null && IsClassBoundProtocolRecursive(inheritedDecl, allProtocols, visited))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a protocol is or inherits from CaseIterable, directly or transitively.
+    /// </summary>
+    internal static bool InheritsCaseIterable(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        return InheritsCaseIterableRecursive(protocolDecl, allProtocols, new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private static bool InheritsCaseIterableRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        if (protocolDecl.Name == "CaseIterable")
+            return true;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var name = inherited.Name;
+            var simpleName = GetSimpleName(name);
+            if (simpleName == "CaseIterable")
+                return true;
+
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == name ||
+                    p.SwiftTypeName?.ToString() == name);
+                if (inheritedDecl != null && InheritsCaseIterableRecursive(inheritedDecl, allProtocols, visited))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the simple (unqualified) name from a potentially module-qualified type name.
+    /// </summary>
+    private static string GetSimpleName(string name)
+    {
+        var dotIndex = name.LastIndexOf('.');
+        return dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
     }
 
     #endregion

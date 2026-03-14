@@ -673,6 +673,148 @@ public class MemberGateEvaluatorTests
 
     #region Helper Methods
 
+    #region EC-2: Internal Type Gate Tests
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithInternalParamType_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        // InternalHelper is from TestModule but not registered → internal
+        var method = CreateMethod("doSomething", TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.InternalHelper"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var result = evaluator.EvaluateHardGates(method, moduleDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithInternalReturnType_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        // Return type is internal
+        var method = CreateMethod("getInternal", new NamedTypeSpec("TestModule.InternalType"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var result = evaluator.EvaluateHardGates(method, moduleDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluateHardGates_MethodWithPublicParamType_ReturnsPass()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var method = CreateMethod("doSomething", TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.PublicClass"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var result = evaluator.EvaluateHardGates(method, moduleDecl);
+
+        Assert.False(result.IsSkipped);
+    }
+
+    [Fact]
+    public void EvaluatePropertyHardGates_InternalPropertyType_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("helper", new NamedTypeSpec("TestModule.InternalHelper"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var result = evaluator.EvaluatePropertyHardGates(property, moduleDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+    }
+
+    [Fact]
+    public void EvaluatePropertyHardGates_PublicPropertyType_ReturnsPass()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+        var property = CreateProperty("value", new NamedTypeSpec("TestModule.PublicClass"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var result = evaluator.EvaluatePropertyHardGates(property, moduleDecl);
+
+        Assert.False(result.IsSkipped);
+    }
+
+    [Fact]
+    public void ReferencesInternalModuleType_InternalType_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var spec = new NamedTypeSpec("TestModule.InternalHelper");
+
+        Assert.True(MemberGateEvaluator.ReferencesInternalModuleType(spec, typeDatabase, "TestModule"));
+    }
+
+    [Fact]
+    public void ReferencesInternalModuleType_PublicType_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var spec = new NamedTypeSpec("TestModule.PublicClass");
+
+        Assert.False(MemberGateEvaluator.ReferencesInternalModuleType(spec, typeDatabase, "TestModule"));
+    }
+
+    [Fact]
+    public void ReferencesInternalModuleType_OtherModuleType_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        // Types from other modules are NOT flagged as internal
+        var spec = new NamedTypeSpec("UIKit.UIView");
+
+        Assert.False(MemberGateEvaluator.ReferencesInternalModuleType(spec, typeDatabase, "TestModule"));
+    }
+
+    [Fact]
+    public void ReferencesInternalModuleType_GenericWithInternalArg_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithPublicType("TestModule", "PublicClass");
+        var spec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.InternalType"));
+
+        Assert.True(MemberGateEvaluator.ReferencesInternalModuleType(spec, typeDatabase, "TestModule"));
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithPublicType(string moduleName, string typeName)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, typeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
+                MetadataAccessor = $"$s{moduleName}{typeName}Ma",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabase()
     {
         var typeDatabase = new TypeDatabase();
