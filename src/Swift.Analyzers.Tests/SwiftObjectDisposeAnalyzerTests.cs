@@ -24,6 +24,11 @@ namespace Swift.Runtime
     public interface ISwiftObject : IDisposable
     {
     }
+
+    public sealed class SwiftDisposeScope : IDisposable
+    {
+        public void Dispose() { }
+    }
 }
 
 public class FooProxy : Swift.Runtime.ISwiftObject
@@ -60,7 +65,7 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(29, 13, 29, 31)
+            .WithSpan(34, 13, 34, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -177,7 +182,7 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(29, 13, 29, 31)
+            .WithSpan(34, 13, 34, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -224,7 +229,7 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(29, 13, 29, 35)
+            .WithSpan(34, 13, 34, 35)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -251,7 +256,7 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(29, 13, 29, 31)
+            .WithSpan(34, 13, 34, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest
@@ -281,7 +286,160 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(29, 13, 29, 31)
+            .WithSpan(34, 13, 34, 31)
+            .WithArguments("x");
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+            ExpectedDiagnostics = { expected },
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task InsideSwiftDisposeScopeUsingDeclaration_NoDiagnostic()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        using var scope = new Swift.Runtime.SwiftDisposeScope();
+        var x = new FooProxy();
+    }
+}
+";
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task InsideSwiftDisposeScopeUsingStatement_NoDiagnostic()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        using (new Swift.Runtime.SwiftDisposeScope())
+        {
+            var x = new FooProxy();
+        }
+    }
+}
+";
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task InsideSwiftDisposeScopeUsingStatementWithDecl_NoDiagnostic()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        using (var scope = new Swift.Runtime.SwiftDisposeScope())
+        {
+            var x = new FooProxy();
+        }
+    }
+}
+";
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task NestedInsideSwiftDisposeScope_NoDiagnostic()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        using (new Swift.Runtime.SwiftDisposeScope())
+        {
+            var x = new FooProxy();
+            if (true)
+            {
+                var y = new FooProxy();
+            }
+        }
+    }
+}
+";
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task InsideSwiftDisposeScopeNestedBlock_NoDiagnostic()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method(bool cond)
+    {
+        using var scope = new Swift.Runtime.SwiftDisposeScope();
+        if (cond)
+        {
+            var x = new FooProxy();
+        }
+    }
+}
+";
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task OutsideSwiftDisposeScope_StillWarns()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        var x = new FooProxy();
+        using var scope = new Swift.Runtime.SwiftDisposeScope();
+        var y = new FooProxy();
+    }
+}
+";
+
+        // x is declared BEFORE the scope — should still warn
+        // y is declared AFTER the scope — should NOT warn
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
+            .WithSpan(34, 13, 34, 31)
             .WithArguments("x");
 
         var test = new AnalyzerTest

@@ -20,6 +20,11 @@ namespace Swift.Runtime
     public interface ISwiftObject : IDisposable
     {
     }
+
+    public sealed class SwiftDisposeScope : IDisposable
+    {
+        public void Dispose() { }
+    }
 }
 
 public class FooProxy : Swift.Runtime.ISwiftObject
@@ -52,7 +57,7 @@ public class TestClass
 ";
 
         var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
-            .WithSpan(20, 13, 20, 31)
+            .WithSpan(25, 13, 25, 31)
             .WithArguments("x");
 
         var test = new CodeFixTest
@@ -60,6 +65,45 @@ public class TestClass
             TestCode = testCode,
             FixedCode = fixedCode,
             ExpectedDiagnostics = { expected },
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
+    public async Task CodeFix_WrapsInSwiftDisposeScope()
+    {
+        var testCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        var x = new FooProxy();
+    }
+}
+";
+
+        var fixedCode = MockTypes + @"
+public class TestClass
+{
+    public void Method()
+    {
+        using var _ = new Swift.Runtime.SwiftDisposeScope();
+        var x = new FooProxy();
+    }
+}
+";
+
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
+            .WithSpan(25, 13, 25, 31)
+            .WithArguments("x");
+
+        var test = new CodeFixTest
+        {
+            TestCode = testCode,
+            FixedCode = fixedCode,
+            ExpectedDiagnostics = { expected },
+            CodeActionIndex = 1, // "Wrap in SwiftDisposeScope" (index 0 is "Add 'using'")
         };
 
         await test.RunAsync();

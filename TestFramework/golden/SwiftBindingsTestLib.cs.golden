@@ -3823,24 +3823,24 @@ namespace SwiftBindingsTestLib
         /// <summary>
         /// Calls the closure multiple times and sums the results.
         /// </summary>
-        public static int CallMultipleTimes( Func<int, int> value,  int times)
+        public static int CallMultipleTimes( Func<int, int> callback,  int times)
         {
             unsafe
             {
-                GCHandle valueHandle = default;
+                GCHandle callbackHandle = default;
                 try
                 {
                     
-                    valueHandle = GCHandle.Alloc(value);
+                    callbackHandle = GCHandle.Alloc(callback);
                     
-                    var result = PInvoke_callMultipleTimes_5AD2C09E(valueHandle.IsAllocated ? (IntPtr)s_callMultipleTimes_arg0_5AD2C09E_Callback : IntPtr.Zero, valueHandle.IsAllocated ? GCHandle.ToIntPtr(valueHandle) : IntPtr.Zero, times);
+                    var result = PInvoke_callMultipleTimes_5AD2C09E(callbackHandle.IsAllocated ? (IntPtr)s_callMultipleTimes_arg0_5AD2C09E_Callback : IntPtr.Zero, callbackHandle.IsAllocated ? GCHandle.ToIntPtr(callbackHandle) : IntPtr.Zero, times);
                     
                     return result;
                 }
                 
                 finally
                 {
-                    if (valueHandle.IsAllocated) valueHandle.Free();
+                    if (callbackHandle.IsAllocated) callbackHandle.Free();
                 }
                 
             }
@@ -3848,7 +3848,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_callMultipleTimes_A84CB5F8")]
-        private static partial int PInvoke_callMultipleTimes_5AD2C09E( IntPtr valueFuncPtr,  IntPtr valueContext,  int times);
+        private static partial int PInvoke_callMultipleTimes_5AD2C09E( IntPtr callbackFuncPtr,  IntPtr callbackContext,  int times);
         
         
         private static unsafe readonly delegate* unmanaged[Swift]<void*, int, SwiftSelf, void> s_callWithOptionalStringReturn_arg0_913DECF0_Callback = &callWithOptionalStringReturn_arg0_913DECF0_Callback;
@@ -4245,25 +4245,25 @@ namespace SwiftBindingsTestLib
         /// <summary>
         /// Calls a C-convention predicate.
         /// </summary>
-        public static bool CallCPredicate( Func<int, bool> value,  int value2)
+        public static bool CallCPredicate( Func<int, bool> fn,  int value)
         {
             unsafe
             {
-                GCHandle valueHandle = default;
+                GCHandle fnHandle = default;
                 try
                 {
                     
-                    valueHandle = GCHandle.Alloc(value);
-                    var valueClosure = new SwiftClosureData((IntPtr)s_callCPredicate_arg0_0E9CECDD_Callback, GCHandle.ToIntPtr(valueHandle));
+                    fnHandle = GCHandle.Alloc(fn);
+                    var fnClosure = new SwiftClosureData((IntPtr)s_callCPredicate_arg0_0E9CECDD_Callback, GCHandle.ToIntPtr(fnHandle));
                     
-                    var result = PInvoke_callCPredicate_0E9CECDD(valueClosure, value2);
+                    var result = PInvoke_callCPredicate_0E9CECDD(fnClosure, value);
                     
                     return result;
                 }
                 
                 finally
                 {
-                    if (valueHandle.IsAllocated) valueHandle.Free();
+                    if (fnHandle.IsAllocated) fnHandle.Free();
                 }
                 
             }
@@ -4272,7 +4272,7 @@ namespace SwiftBindingsTestLib
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
         [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14callCPredicate_5valueS2bs5Int32VXC_AEtF")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_callCPredicate_0E9CECDD( SwiftClosureData value,  int value2);
+        private static partial bool PInvoke_callCPredicate_0E9CECDD( SwiftClosureData fn,  int value);
         
         
         [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -5534,7 +5534,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new SpikeBox<TElement>(handle);
+            var obj = new SpikeBox<TElement>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         SpikeBox(SwiftHandle handle)
@@ -5613,6 +5615,7 @@ namespace SwiftBindingsTestLib
                         *(IntPtr*)bufferPtr = result;
                         _payload = new SwiftSafeHandle<SpikeBox<TElement>>(bufferPtr);
                     }
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(this);
                 }
                 
                 finally
@@ -5869,7 +5872,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new AcceptsSummable<T>(handle);
+            var obj = new AcceptsSummable<T>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         AcceptsSummable(SwiftHandle handle)
@@ -5945,6 +5950,7 @@ namespace SwiftBindingsTestLib
                     
                     AcceptsSummable_PInvoke.PInvoke_init_AF9545A7(swiftIndirectResult, itemPayload, TMetadata, TSummablePWT, SwiftObjectHelper<T>.GetTypeMetadata());
                     
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(this);
                 }
                 
                 finally
@@ -6110,7 +6116,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new IntContainer(handle);
+            var obj = new IntContainer(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         IntContainer(SwiftHandle handle)
@@ -6179,6 +6187,7 @@ namespace SwiftBindingsTestLib
                 IntPtr itemsBuffer = itemsDisposable.Buffer;
                 PInvoke_init_97331585(resultPtr, itemsBuffer);
                 
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -6352,7 +6361,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new OpaqueProvider(handle);
+            var obj = new OpaqueProvider(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         OpaqueProvider(SwiftHandle handle)
@@ -6419,6 +6430,7 @@ namespace SwiftBindingsTestLib
                 using var labelDisposable = labelSwift.PayloadBuffer;
                 PInvoke_init_9EDFA7F0(resultPtr, labelDisposable.Buffer);
                 
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -6791,7 +6803,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new TypeFactory<T>(handle);
+            var obj = new TypeFactory<T>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         TypeFactory(SwiftHandle handle)
@@ -6974,7 +6988,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Wrapper<T>(handle);
+            var obj = new Wrapper<T>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Wrapper(SwiftHandle handle)
@@ -7049,6 +7065,7 @@ namespace SwiftBindingsTestLib
                     
                     Wrapper_PInvoke.PInvoke_init_320355A5(swiftIndirectResult, wrappedPayload, TMetadata, SwiftObjectHelper<T>.GetTypeMetadata());
                     
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(this);
                 }
                 
                 finally
@@ -7231,7 +7248,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericPair<T, U>(handle);
+            var obj = new GenericPair<T, U>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         GenericPair(SwiftHandle handle)
@@ -7311,6 +7330,7 @@ namespace SwiftBindingsTestLib
                     
                     GenericPair_PInvoke.PInvoke_init_748CE291(swiftIndirectResult, firstPayload, secondPayload, TMetadata, UMetadata, SwiftObjectHelper<T>.GetTypeMetadata(), SwiftObjectHelper<U>.GetTypeMetadata());
                     
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(this);
                 }
                 
                 finally
@@ -7655,7 +7675,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new BoundStringPair(handle);
+            var obj = new BoundStringPair(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         BoundStringPair(SwiftHandle handle)
@@ -7724,6 +7746,7 @@ namespace SwiftBindingsTestLib
                 using var secondDisposable = secondSwift.PayloadBuffer;
                 PInvoke_init_9F593FF6(resultPtr, firstDisposable.Buffer, secondDisposable.Buffer);
                 
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -7885,7 +7908,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericClass<T>(handle);
+            var obj = new GenericClass<T>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         GenericClass(SwiftHandle handle)
@@ -7964,6 +7989,7 @@ namespace SwiftBindingsTestLib
                         *(IntPtr*)bufferPtr = result;
                         _payload = new SwiftSafeHandle<GenericClass<T>>(bufferPtr);
                     }
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(this);
                 }
                 
                 finally
@@ -8165,7 +8191,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new UniqueResource(handle);
+            var obj = new UniqueResource(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         UniqueResource(SwiftHandle handle)
@@ -8231,6 +8259,7 @@ namespace SwiftBindingsTestLib
                 
                 PInvoke_init_64990F26(swiftIndirectResult, id);
                 
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -8360,7 +8389,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new FileHandle(handle);
+            var obj = new FileHandle(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         FileHandle(SwiftHandle handle)
@@ -8426,6 +8457,7 @@ namespace SwiftBindingsTestLib
                 
                 PInvoke_init_71AD70C8(swiftIndirectResult, descriptor);
                 
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -8834,7 +8866,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new StatusCode(handle);
+            var obj = new StatusCode(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         StatusCode()
@@ -9304,7 +9338,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Shape(handle);
+            var obj = new Shape(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Shape()
@@ -9642,7 +9678,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new GenericResult<T>(handle);
+            var obj = new GenericResult<T>(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         GenericResult()
@@ -9913,7 +9951,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new EnumPropertyHolder(handle);
+            var obj = new EnumPropertyHolder(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         EnumPropertyHolder(SwiftHandle handle)
@@ -9982,6 +10022,7 @@ namespace SwiftBindingsTestLib
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<EnumPropertyHolder>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -10224,7 +10265,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Animal(handle);
+            var obj = new Animal(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Animal(SwiftHandle handle)
@@ -10297,6 +10340,7 @@ namespace SwiftBindingsTestLib
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<Animal>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -10498,7 +10542,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Dog(handle);
+            var obj = new Dog(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Dog(SwiftHandle handle) : base(default(SwiftInheritanceChain))
@@ -10571,6 +10617,7 @@ namespace SwiftBindingsTestLib
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<Animal>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -10787,7 +10834,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new FinalCounter(handle);
+            var obj = new FinalCounter(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         FinalCounter(SwiftHandle handle)
@@ -10856,6 +10905,7 @@ namespace SwiftBindingsTestLib
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<FinalCounter>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -11243,7 +11293,9 @@ namespace SwiftBindingsTestLib
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new ClassWithProperties(handle);
+            var obj = new ClassWithProperties(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         ClassWithProperties(SwiftHandle handle)
@@ -11314,6 +11366,7 @@ namespace SwiftBindingsTestLib
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<ClassWithProperties>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
         }
         
@@ -12008,7 +12061,9 @@ namespace SwiftBindingsTestLib
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new FrozenStructWithProperties(handle);
+        var obj = new FrozenStructWithProperties(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     unsafe FrozenStructWithProperties(IntPtr handle)
     {
@@ -12078,6 +12133,7 @@ namespace SwiftBindingsTestLib
                             *(FrozenStructWithProperties.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<FrozenStructWithProperties>(bufferPtr);
                         }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -12261,7 +12317,9 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NonFrozenPoint(handle);
+        var obj = new NonFrozenPoint(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NonFrozenPoint(SwiftHandle handle)
@@ -12326,6 +12384,7 @@ public partial class NonFrozenPoint : ISwiftObject, IDisposable
             
             PInvoke_init_CAAD6923(resultPtr, x, y);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -12542,7 +12601,9 @@ public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NonFrozenStructWithProperties(handle);
+        var obj = new NonFrozenStructWithProperties(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NonFrozenStructWithProperties(SwiftHandle handle)
@@ -12607,6 +12668,7 @@ public partial class NonFrozenStructWithProperties : ISwiftObject, IDisposable
             
             PInvoke_init_FF3A6E61(resultPtr, constantValue, mutableValue);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -12820,7 +12882,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new NestedOuter(handle);
+    var obj = new NestedOuter(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe NestedOuter(IntPtr handle)
 {
@@ -13032,6 +13096,7 @@ public NestedOuter( SwiftBindingsTestLib.NestedOuter.Inner inner,  string label)
                             *(NestedOuter.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<NestedOuter>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -13182,7 +13247,9 @@ public partial class StructBuilder : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new StructBuilder(handle);
+        var obj = new StructBuilder(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     StructBuilder(SwiftHandle handle)
@@ -13247,6 +13314,7 @@ public partial class StructBuilder : ISwiftObject, IDisposable
             
             PInvoke_init_15910AFB(resultPtr, value);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -13553,7 +13621,9 @@ public partial class FetchError : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new FetchError(handle);
+        var obj = new FetchError(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     FetchError()
@@ -13736,7 +13806,9 @@ public partial class FetchResult : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new FetchResult(handle);
+        var obj = new FetchResult(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     FetchResult(SwiftHandle handle)
@@ -13807,6 +13879,7 @@ public partial class FetchResult : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<FetchResult>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -13864,7 +13937,9 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new ResultClosureTest(handle);
+        var obj = new ResultClosureTest(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     ResultClosureTest(SwiftHandle handle)
@@ -13933,6 +14008,7 @@ public partial class ResultClosureTest : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<ResultClosureTest>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -14280,7 +14356,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new BatchConfig(handle);
+    var obj = new BatchConfig(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe BatchConfig(IntPtr handle)
 {
@@ -14363,6 +14441,7 @@ public BatchConfig( string name,  int maxRetries,  IReadOnlyList<int>? tags)
                             *(BatchConfig.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<BatchConfig>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -14536,7 +14615,9 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new ValueAnimal(handle);
+        var obj = new ValueAnimal(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     ValueAnimal(SwiftHandle handle) : base(default(SwiftInheritanceChain))
@@ -14609,6 +14690,7 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<Animal>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -14816,7 +14898,9 @@ public partial class Registry : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new Registry(handle);
+        var obj = new Registry(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     Registry(SwiftHandle handle)
@@ -15227,7 +15311,9 @@ public partial class EventHandler : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new EventHandler(handle);
+        var obj = new EventHandler(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     EventHandler(SwiftHandle handle)
@@ -15311,6 +15397,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
                     *(IntPtr*)bufferPtr = result;
                     _payload = new SwiftSafeHandle<EventHandler>(bufferPtr);
                 }
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
             
             finally
@@ -15602,12 +15689,12 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     /// <summary>
     /// Chain two transforms into one.
     /// </summary>
-    public static Func<int, int> Chain( Func<int, int> value,  Func<int, int> value1)
+    public static Func<int, int> Chain( Func<int, int> f,  Func<int, int> g)
     {
         unsafe
         {
-            GCHandle valueHandle = default;
-            GCHandle value1Handle = default;
+            GCHandle fHandle = default;
+            GCHandle gHandle = default;
             void* payload = null;
             try
             {
@@ -15615,10 +15702,10 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
                 var resultPtr = (IntPtr)payload;
                 
                 
-                valueHandle = GCHandle.Alloc(value);
-                value1Handle = GCHandle.Alloc(value1);
+                fHandle = GCHandle.Alloc(f);
+                gHandle = GCHandle.Alloc(g);
                 
-                PInvoke_chain_76D4FDE4(resultPtr, valueHandle.IsAllocated ? (IntPtr)s_chain_arg0_76D4FDE4_Callback : IntPtr.Zero, valueHandle.IsAllocated ? GCHandle.ToIntPtr(valueHandle) : IntPtr.Zero, value1Handle.IsAllocated ? (IntPtr)s_chain_arg1_76D4FDE4_Callback : IntPtr.Zero, value1Handle.IsAllocated ? GCHandle.ToIntPtr(value1Handle) : IntPtr.Zero);
+                PInvoke_chain_76D4FDE4(resultPtr, fHandle.IsAllocated ? (IntPtr)s_chain_arg0_76D4FDE4_Callback : IntPtr.Zero, fHandle.IsAllocated ? GCHandle.ToIntPtr(fHandle) : IntPtr.Zero, gHandle.IsAllocated ? (IntPtr)s_chain_arg1_76D4FDE4_Callback : IntPtr.Zero, gHandle.IsAllocated ? GCHandle.ToIntPtr(gHandle) : IntPtr.Zero);
                 
                 unsafe {
                     var result = *(SwiftClosureData*)resultPtr;
@@ -15640,8 +15727,8 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
             
             finally
             {
-                if (valueHandle.IsAllocated) valueHandle.Free();
-                if (value1Handle.IsAllocated) value1Handle.Free();
+                if (fHandle.IsAllocated) fHandle.Free();
+                if (gHandle.IsAllocated) gHandle.Free();
                 NativeMemory.Free(payload);
             }
             
@@ -15650,7 +15737,7 @@ public unsafe partial struct Transformer : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Transformer_chain_F8FD00D7")]
-    private static partial void PInvoke_chain_76D4FDE4( IntPtr resultPtr,  IntPtr valueFuncPtr,  IntPtr valueContext,  IntPtr value1FuncPtr,  IntPtr value1Context);
+    private static partial void PInvoke_chain_76D4FDE4( IntPtr resultPtr,  IntPtr fFuncPtr,  IntPtr fContext,  IntPtr gFuncPtr,  IntPtr gContext);
     
     
 }
@@ -16621,7 +16708,9 @@ public partial class ParseError : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new ParseError(handle);
+        var obj = new ParseError(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     ParseError()
@@ -16945,7 +17034,9 @@ public partial class RangeError : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new RangeError(handle);
+        var obj = new RangeError(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     RangeError()
@@ -17089,7 +17180,9 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new TypedThrowingParser(handle);
+        var obj = new TypedThrowingParser(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     TypedThrowingParser(SwiftHandle handle)
@@ -17154,6 +17247,7 @@ public partial class TypedThrowingParser : ISwiftObject, IDisposable
             
             PInvoke_init_DC28ED9C(resultPtr, strict);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -17667,7 +17761,9 @@ public partial class ValidationError : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new ValidationError(handle);
+        var obj = new ValidationError(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     ValidationError()
@@ -17821,7 +17917,9 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new ThrowingStruct(handle);
+        var obj = new ThrowingStruct(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     ThrowingStruct(SwiftHandle handle)
@@ -17886,6 +17984,7 @@ public partial class ThrowingStruct : ISwiftObject, IDisposable
             
             PInvoke_init_F2B60494(resultPtr, value);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -18430,7 +18529,9 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncConfig(handle);
+        var obj = new AsyncConfig(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncConfig(SwiftHandle handle)
@@ -18497,6 +18598,7 @@ public partial class AsyncConfig : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_1ADB5D11(resultPtr, nameDisposable.Buffer, delay);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -18600,7 +18702,9 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncDataSource(handle);
+        var obj = new AsyncDataSource(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncDataSource(SwiftHandle handle)
@@ -18671,6 +18775,7 @@ public partial class AsyncDataSource : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<AsyncDataSource>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -18783,7 +18888,9 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncThrowingWorker(handle);
+        var obj = new AsyncThrowingWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncThrowingWorker(SwiftHandle handle)
@@ -18850,6 +18957,7 @@ public partial class AsyncThrowingWorker : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_0A2F1C21(resultPtr, nameDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -19560,7 +19668,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new AsyncResult(handle);
+    var obj = new AsyncResult(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe AsyncResult(IntPtr handle)
 {
@@ -19630,6 +19740,7 @@ public AsyncResult( int id,  string message,  bool success)
                             *(AsyncResult.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<AsyncResult>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -19929,7 +20040,9 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncStatus(handle);
+        var obj = new AsyncStatus(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncStatus()
@@ -20155,7 +20268,9 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncTask(handle);
+        var obj = new AsyncTask(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncTask(SwiftHandle handle)
@@ -20228,6 +20343,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<AsyncTask>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -20374,7 +20490,9 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncStringWorker(handle);
+        var obj = new AsyncStringWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncStringWorker(SwiftHandle handle)
@@ -20441,6 +20559,7 @@ public partial class AsyncStringWorker : ISwiftObject, IDisposable
             using var prefixDisposable = prefixSwift.PayloadBuffer;
             PInvoke_init_ABF4D2EF(resultPtr, prefixDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -21448,7 +21567,9 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncArrayWorker(handle);
+        var obj = new AsyncArrayWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncArrayWorker(SwiftHandle handle)
@@ -21515,6 +21636,7 @@ public partial class AsyncArrayWorker : ISwiftObject, IDisposable
             using var identifierDisposable = identifierSwift.PayloadBuffer;
             PInvoke_init_6056D738(resultPtr, identifierDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -23006,7 +23128,9 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncComplexWorker(handle);
+        var obj = new AsyncComplexWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncComplexWorker(SwiftHandle handle)
@@ -23073,6 +23197,7 @@ public partial class AsyncComplexWorker : ISwiftObject, IDisposable
             using var workerIdDisposable = workerIdSwift.PayloadBuffer;
             PInvoke_init_6E0D8E53(resultPtr, workerIdDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -24698,7 +24823,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MainActorViewModel(handle);
+        var obj = new MainActorViewModel(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MainActorViewModel(SwiftHandle handle)
@@ -24769,6 +24896,7 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<MainActorViewModel>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -25113,7 +25241,9 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MainActorMethods(handle);
+        var obj = new MainActorMethods(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MainActorMethods(SwiftHandle handle)
@@ -25178,6 +25308,7 @@ public partial class MainActorMethods : ISwiftObject, IDisposable
             
             PInvoke_init_0D2CFC09(resultPtr, value);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -25360,7 +25491,9 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncWorker(handle);
+        var obj = new AsyncWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncWorker(SwiftHandle handle)
@@ -25427,6 +25560,7 @@ public partial class AsyncWorker : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_5D5C0D37(resultPtr, nameDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -26575,7 +26709,9 @@ public partial class Counter : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new Counter(handle);
+        var obj = new Counter(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     Counter(SwiftHandle handle)
@@ -26644,6 +26780,7 @@ public partial class Counter : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<Counter>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -26663,6 +26800,7 @@ public partial class Counter : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<Counter>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -26900,7 +27038,9 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncProcessor(handle);
+        var obj = new AsyncProcessor(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncProcessor(SwiftHandle handle)
@@ -26969,6 +27109,7 @@ public partial class AsyncProcessor : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<AsyncProcessor>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -27575,7 +27716,9 @@ public partial class SharedState : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SharedState(handle);
+        var obj = new SharedState(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SharedState(SwiftHandle handle)
@@ -27646,6 +27789,7 @@ public partial class SharedState : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<SharedState>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -27893,7 +28037,9 @@ public partial class SendablePoint : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SendablePoint(handle);
+        var obj = new SendablePoint(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SendablePoint(SwiftHandle handle)
@@ -27958,6 +28104,7 @@ public partial class SendablePoint : ISwiftObject, IDisposable
             
             PInvoke_init_5B009A02(resultPtr, x, y);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -28126,7 +28273,9 @@ public partial class SendableConfig : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SendableConfig(handle);
+        var obj = new SendableConfig(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SendableConfig(SwiftHandle handle)
@@ -28197,6 +28346,7 @@ public partial class SendableConfig : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<SendableConfig>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -28424,7 +28574,9 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NetworkConfig(handle);
+        var obj = new NetworkConfig(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NetworkConfig(SwiftHandle handle)
@@ -28750,7 +28902,9 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new HttpMethod(handle);
+            var obj = new HttpMethod(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         HttpMethod()
@@ -29068,7 +29222,9 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new ContentType(handle);
+            var obj = new ContentType(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         ContentType()
@@ -29142,6 +29298,7 @@ public partial class NetworkConfig : ISwiftObject, IDisposable
             using var urlDisposable = urlSwift.PayloadBuffer;
             PInvoke_init_70C257E9(resultPtr, method.Payload.DangerousGetHandle(), contentType.Payload.DangerousGetHandle(), urlDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -29283,7 +29440,9 @@ public partial class OrderContainer : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new OrderContainer(handle);
+        var obj = new OrderContainer(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     OrderContainer(SwiftHandle handle)
@@ -29609,7 +29768,9 @@ public partial class OrderContainer : ISwiftObject, IDisposable
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Status(handle);
+            var obj = new Status(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Status()
@@ -29683,6 +29844,7 @@ public partial class OrderContainer : ISwiftObject, IDisposable
             using var orderIdDisposable = orderIdSwift.PayloadBuffer;
             PInvoke_init_BDB4FF39(resultPtr, orderIdDisposable.Buffer, status.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -29824,7 +29986,9 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new PaymentContainer(handle);
+        var obj = new PaymentContainer(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     PaymentContainer(SwiftHandle handle)
@@ -30150,7 +30314,9 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
         [EditorBrowsable(EditorBrowsableState.Never)]
         static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
         {
-            return new Status(handle);
+            var obj = new Status(handle);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+            return obj;
         }
         
         Status()
@@ -30224,6 +30390,7 @@ public partial class PaymentContainer : ISwiftObject, IDisposable
             using var paymentIdDisposable = paymentIdSwift.PayloadBuffer;
             PInvoke_init_3B4F9A60(resultPtr, paymentIdDisposable.Buffer, status.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -30505,7 +30672,9 @@ public partial class LogLevel : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new LogLevel(handle);
+        var obj = new LogLevel(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     LogLevel()
@@ -30838,7 +31007,9 @@ public partial class Greeting : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new Greeting(handle);
+        var obj = new Greeting(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     Greeting()
@@ -31186,7 +31357,9 @@ public partial class EdgeCaseStrings : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new EdgeCaseStrings(handle);
+        var obj = new EdgeCaseStrings(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     EdgeCaseStrings()
@@ -31519,7 +31692,9 @@ public partial class CaseSensitiveEnum : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new CaseSensitiveEnum(handle);
+        var obj = new CaseSensitiveEnum(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     CaseSensitiveEnum()
@@ -32047,7 +32222,9 @@ public partial class NetworkResponse : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NetworkResponse(handle);
+        var obj = new NetworkResponse(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NetworkResponse()
@@ -32222,7 +32399,9 @@ public partial class VisibilityTest : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new VisibilityTest(handle);
+        var obj = new VisibilityTest(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     VisibilityTest(SwiftHandle handle)
@@ -32287,6 +32466,7 @@ public partial class VisibilityTest : ISwiftObject, IDisposable
             
             PInvoke_init_A00F4183(resultPtr, publicValue);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -32454,7 +32634,9 @@ public partial class OpenBaseClass : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new OpenBaseClass(handle);
+        var obj = new OpenBaseClass(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     OpenBaseClass(SwiftHandle handle)
@@ -32525,6 +32707,7 @@ public partial class OpenBaseClass : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<OpenBaseClass>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -32651,7 +32834,9 @@ public partial class DerivedClass : OpenBaseClass, ISwiftObject
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new DerivedClass(handle);
+        var obj = new DerivedClass(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     DerivedClass(SwiftHandle handle) : base(default(SwiftInheritanceChain))
@@ -32720,6 +32905,7 @@ public partial class DerivedClass : OpenBaseClass, ISwiftObject
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<OpenBaseClass>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -33132,7 +33318,9 @@ public partial class KeywordTest : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new KeywordTest(handle);
+        var obj = new KeywordTest(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     KeywordTest(SwiftHandle handle)
@@ -33205,6 +33393,7 @@ public partial class KeywordTest : ISwiftObject, IDisposable
             using var @classDisposable = @classSwift.PayloadBuffer;
             PInvoke_init_051A8D0C(resultPtr, @eventDisposable.Buffer, @delegateDisposable.Buffer, @operatorDisposable.Buffer, @classDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -33463,7 +33652,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new MutableProps(handle);
+    var obj = new MutableProps(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe MutableProps(IntPtr handle)
 {
@@ -33533,6 +33724,7 @@ public MutableProps( int value,  string name)
                             *(MutableProps.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<MutableProps>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -33729,7 +33921,9 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NonFrozenMutableProps(handle);
+        var obj = new NonFrozenMutableProps(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NonFrozenMutableProps(SwiftHandle handle)
@@ -33796,6 +33990,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, IDisposable
             using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_816E9D65(resultPtr, value, labelDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -33993,7 +34188,9 @@ public partial class MutableClass : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MutableClass(handle);
+        var obj = new MutableClass(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MutableClass(SwiftHandle handle)
@@ -34064,6 +34261,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<MutableClass>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -34515,7 +34713,9 @@ public partial class StaticProps : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new StaticProps(handle);
+        var obj = new StaticProps(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     StaticProps(SwiftHandle handle)
@@ -34580,6 +34780,7 @@ public partial class StaticProps : ISwiftObject, IDisposable
             
             PInvoke_init_858A8AA7(resultPtr);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -34639,7 +34840,9 @@ public partial class StaticMethods : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new StaticMethods(handle);
+        var obj = new StaticMethods(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     StaticMethods(SwiftHandle handle)
@@ -34704,6 +34907,7 @@ public partial class StaticMethods : ISwiftObject, IDisposable
             
             PInvoke_init_8478609D(resultPtr);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -35380,7 +35584,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new ReadOnlyProps(handle);
+    var obj = new ReadOnlyProps(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe ReadOnlyProps(IntPtr handle)
 {
@@ -35450,6 +35656,7 @@ public ReadOnlyProps( int storedInt,  double storedDouble,  string storedString)
                             *(ReadOnlyProps.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<ReadOnlyProps>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -35625,7 +35832,9 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NonFrozenReadOnlyProps(handle);
+        var obj = new NonFrozenReadOnlyProps(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NonFrozenReadOnlyProps(SwiftHandle handle)
@@ -35692,6 +35901,7 @@ public partial class NonFrozenReadOnlyProps : ISwiftObject, IDisposable
             using var storedStringDisposable = storedStringSwift.PayloadBuffer;
             PInvoke_init_B8B14E45(resultPtr, storedInt, storedStringDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -35981,7 +36191,9 @@ internal static partial TypeMetadata PInvoke_getMetadata();
 [EditorBrowsable(EditorBrowsableState.Never)]
 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
 {
-    return new OptionalConfig(handle);
+    var obj = new OptionalConfig(handle);
+    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+    return obj;
 }
 unsafe OptionalConfig(IntPtr handle)
 {
@@ -36065,6 +36277,7 @@ public OptionalConfig( string? label,  int? count,  string fallbackLabel)
                             *(OptionalConfig.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<OptionalConfig>(bufferPtr);
                         }
+        Swift.Runtime.SwiftDisposeScope.TryRegister(this);
     }
 }
 
@@ -36246,7 +36459,9 @@ public partial class PointerWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new PointerWorker(handle);
+        var obj = new PointerWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     PointerWorker(SwiftHandle handle)
@@ -36313,6 +36528,7 @@ public partial class PointerWorker : ISwiftObject, IDisposable
             using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_6011844D(resultPtr, labelDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -36505,7 +36721,9 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new RawMemoryWorker(handle);
+        var obj = new RawMemoryWorker(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     RawMemoryWorker(SwiftHandle handle)
@@ -36570,6 +36788,7 @@ public partial class RawMemoryWorker : ISwiftObject, IDisposable
             
             PInvoke_init_0D98D78B(resultPtr, alignment);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -36740,7 +36959,9 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new HandleWrapper(handle);
+        var obj = new HandleWrapper(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     HandleWrapper(SwiftHandle handle)
@@ -36807,6 +37028,7 @@ public partial class HandleWrapper : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_AE7E302F(resultPtr, nameDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -37315,7 +37537,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SliceProcessor(handle);
+        var obj = new SliceProcessor(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SliceProcessor(SwiftHandle handle)
@@ -37384,6 +37608,7 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<SliceProcessor>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -37669,7 +37894,9 @@ public partial class SimpleItem : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SimpleItem(handle);
+        var obj = new SimpleItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SimpleItem(SwiftHandle handle)
@@ -37741,6 +37968,7 @@ public partial class SimpleItem : ISwiftObject, IDisposable
             using var labelDisposable = labelSwift.PayloadBuffer;
             PInvoke_init_EBC5DA95(resultPtr, idDisposable.Buffer, labelDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -37906,7 +38134,9 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MutableItem(handle);
+        var obj = new MutableItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MutableItem(SwiftHandle handle)
@@ -37971,6 +38201,7 @@ public partial class MutableItem : ISwiftObject, IDisposable, IHasValue
             
             PInvoke_init_3DE0AD56(resultPtr, value);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -38171,7 +38402,9 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new DisplayItem(handle);
+        var obj = new DisplayItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     DisplayItem(SwiftHandle handle)
@@ -38241,6 +38474,7 @@ public partial class DisplayItem : ISwiftObject, IDisposable, IDisplayable
             using var textDisposable = textSwift.PayloadBuffer;
             PInvoke_init_7310DBA7(resultPtr, textDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -38464,7 +38698,9 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new Person(handle);
+        var obj = new Person(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     Person(SwiftHandle handle)
@@ -38532,6 +38768,7 @@ public partial class Person : ISwiftObject, IDisposable, IAgeable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_425405A3(resultPtr, nameDisposable.Buffer, age);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -39123,7 +39360,9 @@ public partial class TaskPriority : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new TaskPriority(handle);
+        var obj = new TaskPriority(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     TaskPriority()
@@ -39395,7 +39634,9 @@ public partial class NamedItem : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new NamedItem(handle);
+        var obj = new NamedItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     NamedItem(SwiftHandle handle)
@@ -39462,6 +39703,7 @@ public partial class NamedItem : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_90D1CF9E(resultPtr, nameDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -39599,7 +39841,9 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MutableNamedItem(handle);
+        var obj = new MutableNamedItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MutableNamedItem(SwiftHandle handle)
@@ -39666,6 +39910,7 @@ public partial class MutableNamedItem : ISwiftObject, IDisposable
             using var nameDisposable = nameSwift.PayloadBuffer;
             PInvoke_init_06D3DDC7(resultPtr, nameDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -39767,7 +40012,9 @@ public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new PrioritizedItem(handle);
+        var obj = new PrioritizedItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     PrioritizedItem(SwiftHandle handle)
@@ -39832,6 +40079,7 @@ public partial class PrioritizedItem : ISwiftObject, IDisposable, IPrioritized
             
             PInvoke_init_E43F792C(resultPtr, priority.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -39962,7 +40210,9 @@ public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutabl
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new MutablePrioritizedItem(handle);
+        var obj = new MutablePrioritizedItem(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     MutablePrioritizedItem(SwiftHandle handle)
@@ -40027,6 +40277,7 @@ public partial class MutablePrioritizedItem : ISwiftObject, IDisposable, IMutabl
             
             PInvoke_init_73675EA9(resultPtr, priority.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -40201,7 +40452,9 @@ public partial class SimpleTask : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SimpleTask(handle);
+        var obj = new SimpleTask(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SimpleTask(SwiftHandle handle)
@@ -40268,6 +40521,7 @@ public partial class SimpleTask : ISwiftObject, IDisposable
             using var taskNameDisposable = taskNameSwift.PayloadBuffer;
             PInvoke_init_AB67E5E8(resultPtr, taskNameDisposable.Buffer, (int)status, priority.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -40370,7 +40624,9 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new EchoProcessor(handle);
+        var obj = new EchoProcessor(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     EchoProcessor(SwiftHandle handle)
@@ -40437,6 +40693,7 @@ public partial class EchoProcessor : ISwiftObject, IDisposable, IStringProcessor
             using var prefixDisposable = prefixSwift.PayloadBuffer;
             PInvoke_init_04AC447C(resultPtr, prefixDisposable.Buffer);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -40592,7 +40849,9 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SimpleStatusHandler(handle);
+        var obj = new SimpleStatusHandler(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SimpleStatusHandler(SwiftHandle handle)
@@ -40657,6 +40916,7 @@ public partial class SimpleStatusHandler : ISwiftObject, IDisposable, IStatusHan
             
             PInvoke_init_3AC3B317(resultPtr, (int)initialStatus);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -40812,7 +41072,9 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SimplePriorityHandler(handle);
+        var obj = new SimplePriorityHandler(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SimplePriorityHandler(SwiftHandle handle)
@@ -40877,6 +41139,7 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
             
             PInvoke_init_72069016(resultPtr, initialPriority.Payload.DangerousGetHandle());
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -40892,6 +41155,7 @@ public partial class SimplePriorityHandler : ISwiftObject, IDisposable, IPriorit
             
             PInvoke_init_1322C7DB(resultPtr);
             
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -41186,7 +41450,9 @@ public partial class SimpleModel : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new SimpleModel(handle);
+        var obj = new SimpleModel(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     SimpleModel(SwiftHandle handle)
@@ -41255,6 +41521,7 @@ public partial class SimpleModel : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<SimpleModel>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -41387,7 +41654,9 @@ public partial class AsyncService : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new AsyncService(handle);
+        var obj = new AsyncService(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     AsyncService(SwiftHandle handle)
@@ -41793,7 +42062,9 @@ public partial class Processor : ISwiftObject, IDisposable
     [EditorBrowsable(EditorBrowsableState.Never)]
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        return new Processor(handle);
+        var obj = new Processor(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
     }
     
     Processor(SwiftHandle handle)
@@ -41862,6 +42133,7 @@ public partial class Processor : ISwiftObject, IDisposable
                 *(IntPtr*)bufferPtr = result;
                 _payload = new SwiftSafeHandle<Processor>(bufferPtr);
             }
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
     }
     
@@ -42131,6 +42403,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -42147,6 +42420,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -42359,6 +42633,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -42375,6 +42650,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -42600,6 +42876,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -42616,6 +42893,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -42889,6 +43167,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -42905,6 +43184,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -43147,6 +43427,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -43163,6 +43444,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -43442,6 +43724,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -43458,6 +43741,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -43755,6 +44039,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -43771,6 +44056,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -44013,6 +44299,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -44029,6 +44316,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -44265,6 +44553,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -44281,6 +44570,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -44518,6 +44808,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -44534,6 +44825,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -44771,6 +45063,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -44787,6 +45080,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -45024,6 +45318,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -45040,6 +45335,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -45277,6 +45573,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -45293,6 +45590,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -45548,6 +45846,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -45564,6 +45863,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -45829,6 +46129,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -45845,6 +46146,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -46085,6 +46387,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -46101,6 +46404,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -46368,6 +46672,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -46384,6 +46689,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -46675,6 +46981,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -46691,6 +46998,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -47000,6 +47308,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -47016,6 +47325,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -47299,6 +47609,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -47315,6 +47626,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         
@@ -47572,6 +47884,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer[0] = ProtocolWitnessTableHandle;
             // Register this proxy so Swift callbacks can find us
             SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         /// <summary>
         /// Creates a proxy from an existing Swift existential container.
@@ -47588,6 +47901,7 @@ namespace SwiftBindingsTestLib.SwiftInterop
             _swiftContainer = container;
             _csharpImpl = null;
             _everyProtocol = null;
+            Swift.Runtime.SwiftDisposeScope.TryRegister(this);
         }
         #region Interface Implementation
         

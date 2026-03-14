@@ -77,6 +77,10 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
         if (localDeclaration.Parent is UsingStatementSyntax)
             return;
 
+        // Inside a SwiftDisposeScope using block — objects are automatically tracked
+        if (IsInsideSwiftDisposeScope(localDeclaration, context))
+            return;
+
         var declaration = localDeclaration.Declaration;
 
         foreach (var variable in declaration.Variables)
@@ -203,6 +207,93 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
                memberAccess.Name.Identifier.Text == "Dispose" &&
                memberAccess.Expression is IdentifierNameSyntax identifier &&
                identifier.Identifier.Text == variableName;
+    }
+
+    /// <summary>
+    /// Checks whether the declaration is inside a SwiftDisposeScope using block,
+    /// either a using declaration preceding it in the same block or an enclosing using statement.
+    /// </summary>
+    private static bool IsInsideSwiftDisposeScope(
+        LocalDeclarationStatementSyntax declaration,
+        SyntaxNodeAnalysisContext context)
+    {
+        // Walk up the tree checking both using declarations in ancestor blocks
+        // and enclosing using statements. This handles nested blocks like:
+        //   using var scope = new SwiftDisposeScope();
+        //   if (cond) { var x = new FooProxy(); } // x is inside the scope
+        SyntaxNode? child = declaration;
+        for (SyntaxNode? node = declaration.Parent; node != null; node = node.Parent)
+        {
+            // Check using (new SwiftDisposeScope()) { ... } enclosing this statement
+            if (node is UsingStatementSyntax usingStatement)
+            {
+                if (usingStatement.Expression != null)
+                {
+                    var typeInfo = context.SemanticModel.GetTypeInfo(usingStatement.Expression);
+                    if (typeInfo.Type != null && IsSwiftDisposeScopeType(typeInfo.Type))
+                        return true;
+                }
+
+                if (usingStatement.Declaration != null &&
+                    HasSwiftDisposeScopeInitializer(usingStatement.Declaration, context.SemanticModel))
+                {
+                    return true;
+                }
+            }
+
+            // Check using declarations in ancestor blocks that appear before the child node
+            if (node is BlockSyntax block)
+            {
+                foreach (var statement in block.Statements)
+                {
+                    // Only check statements before the child (which contains our declaration)
+                    if (statement == child || statement.Span.Start >= child.Span.Start)
+                        break;
+
+                    if (statement is LocalDeclarationStatementSyntax localDecl &&
+                        localDecl.UsingKeyword != default &&
+                        HasSwiftDisposeScopeInitializer(localDecl.Declaration, context.SemanticModel))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            child = node;
+        }
+
+        return false;
+    }
+
+    private static bool HasSwiftDisposeScopeInitializer(VariableDeclarationSyntax declaration, SemanticModel semanticModel)
+    {
+        foreach (var variable in declaration.Variables)
+        {
+            if (variable.Initializer?.Value != null)
+            {
+                var typeInfo = semanticModel.GetTypeInfo(variable.Initializer.Value);
+                if (typeInfo.Type != null && IsSwiftDisposeScopeType(typeInfo.Type))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsSwiftDisposeScopeType(ITypeSymbol type)
+    {
+        if (type.Name != "SwiftDisposeScope")
+            return false;
+
+        var ns = type.ContainingNamespace;
+        if (ns == null || ns.Name != "Runtime")
+            return false;
+
+        ns = ns.ContainingNamespace;
+        if (ns == null || ns.Name != "Swift")
+            return false;
+
+        ns = ns.ContainingNamespace;
+        return ns != null && ns.IsGlobalNamespace;
     }
 
     /// <summary>

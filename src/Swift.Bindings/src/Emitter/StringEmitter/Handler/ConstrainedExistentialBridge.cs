@@ -401,6 +401,7 @@ public static class ConstrainedExistentialBridge
         csWriter.WriteLine("throw;");
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
 
         csWriter.Indent--;
         csWriter.WriteLine("}");

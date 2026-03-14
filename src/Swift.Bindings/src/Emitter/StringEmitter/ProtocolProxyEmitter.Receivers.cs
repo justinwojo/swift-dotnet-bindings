@@ -718,6 +718,7 @@ public partial class ProtocolProxyEmitter
 
                 // Register this proxy so Swift callbacks can find us
                 SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 
             /// <summary>
@@ -735,6 +736,7 @@ public partial class ProtocolProxyEmitter
                 _swiftContainer = container;
                 _csharpImpl = null;
                 _everyProtocol = null;
+                Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 
             """);

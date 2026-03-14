@@ -591,7 +591,9 @@ namespace BindingsGeneration
                 [EditorBrowsable(EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    return new {{_typeNameWithGenerics}}(handle);
+                    var obj = new {{_typeNameWithGenerics}}(handle);
+                    Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+                    return obj;
                 }
                 """;
                 _writer.WriteLines(text);

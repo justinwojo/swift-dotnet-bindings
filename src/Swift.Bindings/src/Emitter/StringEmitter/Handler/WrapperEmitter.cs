@@ -169,6 +169,7 @@ namespace BindingsGeneration
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
+            EmitDisposeScopeRegistration(csWriter);
 
             // Add cleanup in finally block for generics and closures
             if (needsTryFinally)
@@ -537,6 +538,42 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits SwiftDisposeScope.TryRegister(this) at the end of constructors for heap-backed types.
+        /// Only class-projected types register (classes, non-frozen structs, frozen structs with ref fields).
+        /// Frozen blittable structs (C# struct) do NOT register — boxing `this` creates a copy.
+        /// ObjC-rooted classes do NOT register — lifecycle managed by NSObject.
+        /// </summary>
+        private void EmitDisposeScopeRegistration(CSharpWriter csWriter)
+        {
+            if (_env.ParentDecl is ClassDecl classDecl)
+            {
+                // ObjC-rooted classes use NSObject lifecycle, not DisposeScope
+                if (classDecl.IsObjCRooted)
+                    return;
+                csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                return;
+            }
+
+            if (_env.ParentDecl is StructDecl structDecl)
+            {
+                if (!structDecl.IsFrozen)
+                {
+                    // Non-frozen struct: always projected as class (heap-backed)
+                    csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                    return;
+                }
+
+                // Frozen struct: check if projected as class (has ref fields)
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                {
+                    csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
+                }
+                // Else: frozen blittable struct → C# struct, no registration
+            }
         }
 
         /// <summary>

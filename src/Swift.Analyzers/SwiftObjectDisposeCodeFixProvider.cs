@@ -22,6 +22,7 @@ namespace Swift.Analyzers;
 public sealed class SwiftObjectDisposeCodeFixProvider : CodeFixProvider
 {
     private const string Title = "Add 'using' declaration";
+    private const string DisposeScopeTitle = "Wrap in SwiftDisposeScope";
 
     /// <inheritdoc/>
     public sealed override ImmutableArray<string> FixableDiagnosticIds =>
@@ -54,6 +55,41 @@ public sealed class SwiftObjectDisposeCodeFixProvider : CodeFixProvider
                 createChangedDocument: ct => AddUsingModifierAsync(context.Document, localDeclaration, ct),
                 equivalenceKey: "AddUsingDeclaration"),
             diagnostic);
+
+        context.RegisterCodeFix(
+            CodeAction.Create(
+                title: DisposeScopeTitle,
+                createChangedDocument: ct => WrapInDisposeScopeAsync(context.Document, localDeclaration, ct),
+                equivalenceKey: "WrapInSwiftDisposeScope"),
+            diagnostic);
+    }
+
+    private static async Task<Document> WrapInDisposeScopeAsync(
+        Document document,
+        LocalDeclarationStatementSyntax localDeclaration,
+        CancellationToken cancellationToken)
+    {
+        var root = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+        if (root == null)
+            return document;
+
+        var block = localDeclaration.Parent as BlockSyntax;
+        if (block == null)
+            return document;
+
+        // Get indentation from the diagnosed statement
+        var leadingTrivia = localDeclaration.GetLeadingTrivia();
+
+        var scopeStatement = SyntaxFactory.ParseStatement("using var _ = new Swift.Runtime.SwiftDisposeScope();")
+            .WithLeadingTrivia(leadingTrivia)
+            .WithTrailingTrivia(SyntaxFactory.EndOfLine("\n"));
+
+        var idx = block.Statements.IndexOf(localDeclaration);
+        var newStatements = block.Statements.Insert(idx, scopeStatement);
+        var newBlock = block.WithStatements(newStatements);
+
+        var newRoot = root.ReplaceNode(block, newBlock);
+        return document.WithSyntaxRoot(newRoot);
     }
 
     private static async Task<Document> AddUsingModifierAsync(
