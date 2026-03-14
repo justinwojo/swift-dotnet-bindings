@@ -46,8 +46,8 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Int-raw-value enums qualify as simple enums → C# enum value type
-        // Swift "Int" maps to C# "int" for enum underlying types (not nint/long)
-        Assert.Contains("public enum Status : int", csOutput);
+        // Swift "Int" maps to C# "long" for enum underlying types (matching 64-bit ABI)
+        Assert.Contains("public enum Status : long", csOutput);
         Assert.Contains("Ok = 0,", csOutput);
         Assert.Contains("Error = 1,", csOutput);
         // Should NOT contain class-based emission

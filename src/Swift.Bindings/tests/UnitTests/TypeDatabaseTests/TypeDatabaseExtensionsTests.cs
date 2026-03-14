@@ -1321,7 +1321,7 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public async Task TryGetTypeRecord_UIControlState_ReturnsUInt64RawValueType()
+    public async Task TryGetTypeRecord_UIControlState_ReturnsUIntRawValueType()
     {
         var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
@@ -1331,7 +1331,7 @@ public class TypeDatabaseExtensionsTests
         Assert.True(found);
         Assert.NotNull(record);
         Assert.Equal(TypeRecordKind.Enum, record.Kind);
-        Assert.Equal("UInt64", record.RawValueTypeName);
+        Assert.Equal("UInt", record.RawValueTypeName);
     }
 
     [Fact]
@@ -1380,8 +1380,8 @@ public class TypeDatabaseExtensionsTests
             new NamedTypeSpec("UIKit.UIView.ContentMode"), out var record);
 
         Assert.NotNull(record);
-        Assert.Equal("Int64", record!.RawValueTypeName);
-        // Int64 maps to C# "long" in P/Invoke
+        Assert.Equal("Int", record!.RawValueTypeName);
+        // Int maps to C# "long" in P/Invoke (platform-width integer)
         Assert.Equal("long", EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName!));
     }
 

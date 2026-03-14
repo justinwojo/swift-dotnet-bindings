@@ -286,7 +286,10 @@ public static class MethodWrapperEmitter
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-                            callArgs.Add($"{argLabel}{adapterName}");
+                            // @autoclosure parameters: the adapted closure must be called with ()
+                            // to forward the autoclosure value, not the closure itself.
+                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure ? "()" : "";
+                            callArgs.Add($"{argLabel}{adapterName}{autoClosureSuffix}");
                             continue;
                         }
 
@@ -588,8 +591,10 @@ public static class MethodWrapperEmitter
     /// </summary>
     private static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr)
     {
+        // Explicit `: String` annotation disambiguates overloaded methods with different return types
+        // (e.g., URLEncodedFormEncoder.encode(_:) returning String vs Data).
         swiftWriter.WriteLines($$"""
-            let result = {{callExpr}}
+            let result: String = {{callExpr}}
             let utf8 = Array(result.utf8)
             if utf8.isEmpty {
                 resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)

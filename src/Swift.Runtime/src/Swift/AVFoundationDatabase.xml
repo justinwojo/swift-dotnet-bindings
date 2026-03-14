@@ -5,7 +5,7 @@
             <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureFocusMode">
-            <typedeclaration kind="enum" name="AVCaptureDevice.FocusMode" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int64" />
+            <typedeclaration kind="enum" name="AVCaptureDevice.FocusMode" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
     </entities>
 </swifttypedatabase>

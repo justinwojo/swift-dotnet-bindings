@@ -389,7 +389,8 @@ public static class ConstructorWrapperEmitter
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
-                            callArgs.Add($"{argLabel}{adapterName}");
+                            var autoClosureSuffix = closureTypeSpec.IsAutoClosure ? "()" : "";
+                            callArgs.Add($"{argLabel}{adapterName}{autoClosureSuffix}");
                             continue;
                         }
 

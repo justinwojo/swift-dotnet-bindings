@@ -159,6 +159,9 @@ public class WitnessDispatchEmitter
         {
             if (property.IsStatic)
                 continue;
+            // @objc optional properties: calling on existential returns Optional — skip dispatch
+            if (property.IsObjCOptional)
+                continue;
             if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
@@ -196,6 +199,8 @@ public class WitnessDispatchEmitter
         {
             if (property.IsStatic)
                 continue;
+            if (property.IsObjCOptional)
+                continue;
             if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
             var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -213,6 +218,9 @@ public class WitnessDispatchEmitter
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            // @objc optional methods: calling on existential returns Optional — skip dispatch
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = GetMethodKey(method);
@@ -1090,7 +1098,18 @@ public class WitnessDispatchEmitter
         try
         {
             var record = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-            return IsBlittablePrimitive(record.CSharpTypeName.FullyQualifiedName);
+            var csharpType = record.CSharpTypeName.FullyQualifiedName;
+
+            // CoreFoundation opaque pointer types (SecTrust, SecKey, etc.) project to IntPtr/nint
+            // in C# but are reference types in Swift. The dispatch emitter would generate
+            // `load(as: Int.self)` instead of the correct type name, causing type mismatch.
+            // Reject non-Swift-primitive types that project to IntPtr/nint.
+            if ((csharpType is "nint" or "System.IntPtr" or "nuint" or "System.UIntPtr")
+                && typeSpec is NamedTypeSpec cfNamed && cfNamed.HasModule()
+                && cfNamed.Module != "Swift")
+                return false;
+
+            return IsBlittablePrimitive(csharpType);
         }
         catch
         {

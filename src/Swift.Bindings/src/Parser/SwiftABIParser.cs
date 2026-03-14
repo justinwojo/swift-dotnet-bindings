@@ -219,8 +219,21 @@ namespace BindingsGeneration
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{printedName}";
 
-            if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(key))
-                methodDecl.IsActorIsolated = true;
+            if (_actorIsolatedMembers != null)
+            {
+                if (_actorIsolatedMembers.Contains(key))
+                    methodDecl.IsActorIsolated = true;
+                else
+                {
+                    // Fallback for nested types: the swiftinterface parser uses LastIndexOf('.')
+                    // to extract type name from extensions, which drops intermediate components
+                    // (e.g., "Kingfisher.KF.Builder" → "Builder" instead of "KF.Builder").
+                    // Try the short name as a fallback.
+                    var shortKey = $"{parentTypeDecl.Name}.{printedName}";
+                    if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
+                        methodDecl.IsActorIsolated = true;
+                }
+            }
 
             if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
                 methodDecl.IsNonisolated = true;
@@ -235,8 +248,18 @@ namespace BindingsGeneration
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{propertyDecl.Name}";
 
-            if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(key))
-                propertyDecl.IsActorIsolated = true;
+            if (_actorIsolatedMembers != null)
+            {
+                if (_actorIsolatedMembers.Contains(key))
+                    propertyDecl.IsActorIsolated = true;
+                else
+                {
+                    // Fallback for nested types (same as ApplyMemberActorIsolation).
+                    var shortKey = $"{parentTypeDecl.Name}.{propertyDecl.Name}";
+                    if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
+                        propertyDecl.IsActorIsolated = true;
+                }
+            }
 
             if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
                 propertyDecl.IsNonisolated = true;
@@ -900,6 +923,7 @@ namespace BindingsGeneration
                 AssociatedValues = new List<TypeSpec>(),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
+                IsSpiProtected = IsNodeSpiProtected(node),
             };
             PopulateDocumentation(enumCaseDecl, node);
 
@@ -1205,6 +1229,7 @@ namespace BindingsGeneration
                 IsModuleInternal = IsNodeModuleInternal(node) ||
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
                 IsSpiProtected = IsNodeSpiProtected(node),
+                IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
             };
 
             // Suppress underscore-prefixed methods without explicit AccessControl.
@@ -1577,6 +1602,7 @@ namespace BindingsGeneration
                 IsFinal = node.DeclAttributes?.Contains("Final") == true,
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsModuleInternal = IsNodeModuleInternal(node),
+                IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             // Suppress underscore-prefixed properties without explicit AccessControl.

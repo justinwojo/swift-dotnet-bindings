@@ -932,12 +932,12 @@ public class EnumHandlerTests
     [Fact]
     public void GetSwiftAbiMetadataType_Int_DiffersFromGetCSharpEnumUnderlyingType()
     {
-        // GetCSharpEnumUnderlyingType maps Int → "int" (4-byte, for C# enum declarations)
+        // GetCSharpEnumUnderlyingType maps Int → "long" (8-byte, for C# enum declarations matching 64-bit ABI)
         // GetSwiftAbiMetadataType maps Int → "nint" (pointer-sized, for Swift ABI metadata)
         var enumUnderlying = EnumHandler.GetCSharpEnumUnderlyingType("Int");
         var abiMetadata = EnumHandler.GetSwiftAbiMetadataType("Int");
 
-        Assert.Equal("int", enumUnderlying);
+        Assert.Equal("long", enumUnderlying);
         Assert.Equal("nint", abiMetadata);
         Assert.NotEqual(enumUnderlying, abiMetadata);
     }

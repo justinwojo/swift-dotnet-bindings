@@ -71,5 +71,12 @@ namespace BindingsGeneration
         /// excluded from @_cdecl wrapper generation.
         /// </summary>
         public bool IsModuleInternal { get; set; } = false;
+
+        /// <summary>
+        /// Whether this is an @objc optional protocol property.
+        /// ObjC protocols can declare optional properties that conforming types may omit.
+        /// Witness dispatch and EveryProtocol conformance should skip these properties.
+        /// </summary>
+        public bool IsObjCOptional { get; set; } = false;
     }
 }

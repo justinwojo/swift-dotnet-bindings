@@ -110,6 +110,15 @@ namespace BindingsGeneration
         public bool IsSpiProtected { get; set; } = false;
 
         /// <summary>
+        /// Whether this is an @objc optional protocol method.
+        /// ObjC protocols can declare optional methods that conforming types may omit.
+        /// When called on a protocol existential, optional methods return Optional results
+        /// and require ?. chaining. Witness dispatch and EveryProtocol conformance should
+        /// skip these methods.
+        /// </summary>
+        public bool IsObjCOptional { get; set; } = false;
+
+        /// <summary>
         /// Whether this method is compiler-synthesized (implicit inherited constructor).
         /// Parsed from the ABI JSON 'implicit' field. Used to filter out inherited
         /// constructors that appear in the ABI but are not callable from external code.

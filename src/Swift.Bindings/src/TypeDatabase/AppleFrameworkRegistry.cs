@@ -379,8 +379,9 @@ internal static class AppleFrameworkRegistry
         "QuartzCore.CAToneMapMode",
         // UIKit enums whose .NET namespace differs
         "UIKit.NSUnderlineStyle",
-        // UIKit ObjC typedefs
+        // UIKit ObjC typedefs/structs
         "UIKit.UIFont.TextStyle",
+        "UIKit.UIFont.Weight",
         "UIKit.UIContentSizeCategory",
         // UIKit nested ObjC enums
         "UIKit.NSLayoutConstraint.Relation",
@@ -405,7 +406,7 @@ internal static class AppleFrameworkRegistry
         "CoreML.MLComputeUnits",
         "CoreML.MLFeatureType",
         "CoreML.MLMultiArrayDataType",
-        // Photos value types
+        // Photos/PhotosUI value types
         "Photos.PHAuthorizationStatus",
         "Photos.PHAccessLevel",
         "Photos.PHAssetMediaType",
@@ -413,6 +414,8 @@ internal static class AppleFrameworkRegistry
         "Photos.PHAssetCollectionType",
         "Photos.PHAssetCollectionSubtype",
         "Photos.PHAssetResourceType",
+        "PhotosUI.PHPickerResult",
+        "PhotosUI.PHPickerFilter",
         // Metal value types
         "Metal.MTLSize",
         "Metal.MTLOrigin",

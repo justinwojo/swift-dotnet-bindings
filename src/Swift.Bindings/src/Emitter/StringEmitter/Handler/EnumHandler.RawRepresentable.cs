@@ -362,6 +362,10 @@ namespace BindingsGeneration
             for (int i = 0; i < simpleCases.Count; i++)
             {
                 var caseDecl = simpleCases[i];
+                // Skip @_spi-protected cases — inaccessible from external code.
+                // The CaseByIndex Swift wrapper also traps on these indices.
+                if (caseDecl.IsSpiProtected)
+                    continue;
                 var caseName = caseDecl.Name;
                 var capitalizedName = NameProvider.GetFinalMemberName(
                     NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
@@ -569,6 +573,12 @@ namespace BindingsGeneration
             sb.AppendLine("    switch index {");
             for (int i = 0; i < simpleCases.Count; i++)
             {
+                // Skip @_spi-protected cases — inaccessible without @_spi import
+                if (simpleCases[i].IsSpiProtected)
+                {
+                    sb.AppendLine($"    case {i}: fatalError(\"Case at index \\({i}) is @_spi protected\")");
+                    continue;
+                }
                 sb.AppendLine($"    case {i}: value = .{simpleCases[i].Name}");
             }
             sb.AppendLine($"    default: fatalError(\"Invalid case index \\(index) for {enumFullName}\")");

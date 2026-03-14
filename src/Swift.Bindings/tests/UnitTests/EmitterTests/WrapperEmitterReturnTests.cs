@@ -86,8 +86,8 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // P/Invoke signature uses ValueTuple with underlying int type for the enum element
-        Assert.Contains("ValueTuple<int, long>", csOutput);
+        // P/Invoke signature uses ValueTuple with underlying long type for the enum element
+        Assert.Contains("ValueTuple<long, long>", csOutput);
         // Marshal code casts from underlying type back to C# enum
         Assert.Contains("(TestModule.Direction)result.Item1", csOutput);
         // The enum name should NOT appear in the P/Invoke ValueTuple type

@@ -73,10 +73,10 @@ public class EveryProtocolEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Property getters and setters (skip static properties - not part of witness table)
+        // Property getters and setters (skip static and @objc optional properties)
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
+            if (property.IsStatic || property.IsObjCOptional)
                 continue;
             EmitPropertyVtableFields(writer, property, protocolDecl, emittedFields);
         }
@@ -96,8 +96,10 @@ public class EveryProtocolEmitter
         var methodIndices = new Dictionary<string, int>();
         foreach (var method in protocolDecl.Methods)
         {
-            // Skip constructors and static methods
+            // Skip constructors, static, and @objc optional methods
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = GetMethodKey(method);
@@ -159,10 +161,10 @@ public class EveryProtocolEmitter
         // Track emitted members to avoid duplicates within this protocol
         var emittedMembers = new HashSet<string>();
 
-        // Emit property implementations (skip static properties - not part of witness table)
+        // Emit property implementations (skip static and @objc optional properties)
         foreach (var property in protocolDecl.Properties)
         {
-            if (property.IsStatic)
+            if (property.IsStatic || property.IsObjCOptional)
                 continue;
             var swiftSignature = $"var_{property.Name}";
             // Check for global conflicts
@@ -204,8 +206,10 @@ public class EveryProtocolEmitter
         var methodIndices = new Dictionary<string, int>();
         foreach (var method in protocolDecl.Methods)
         {
-            // Skip constructors and static methods
+            // Skip constructors, static, and @objc optional methods
             if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            if (method.IsObjCOptional)
                 continue;
 
             var methodKey = GetMethodKey(method);
@@ -376,10 +380,9 @@ public class EveryProtocolEmitter
         // SwiftTypeNameHelper converts generic type params to "Any", so Self-returning methods emit
         // "-> Any" instead of "-> Self", which Swift rejects.
         bool hasSelfTypedMembers = protocolDecl.Methods
-            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+            .Where(m => !m.IsConstructor)
             .Any(m => HasGenericTypeParamInSignature(m));
         bool hasSelfTypedProperties = protocolDecl.Properties
-            .Where(p => !p.IsStatic)
             .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
         bool hasSelfTypedSubscripts = protocolDecl.Subscripts
             .Where(s => !s.IsStatic)
@@ -931,6 +934,16 @@ public class EveryProtocolEmitter
 
         if (protocolDecl.IsClassBound)
             return true;
+
+        // Check GenericSignature for NSObjectProtocol/AnyObject constraints.
+        // ObjC protocols often declare constraints like "<τ_0_0 : ObjectiveC.NSObjectProtocol>"
+        // in genericSig instead of listing NSObjectProtocol in inheritedProtocols.
+        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature))
+        {
+            if (protocolDecl.GenericSignature.Contains("NSObjectProtocol") ||
+                protocolDecl.GenericSignature.Contains("AnyObject"))
+                return true;
+        }
 
         foreach (var inherited in protocolDecl.InheritedProtocols)
         {

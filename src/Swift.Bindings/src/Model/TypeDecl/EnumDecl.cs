@@ -24,6 +24,13 @@ namespace BindingsGeneration
         /// Whether this case has associated values.
         /// </summary>
         public bool HasAssociatedValues => AssociatedValues.Count > 0;
+
+        /// <summary>
+        /// Whether this enum case is marked @_spi (System Programming Interface).
+        /// @_spi enum cases are only visible to SPI consumers and should not appear
+        /// in generated bindings or Swift wrapper switch statements.
+        /// </summary>
+        public bool IsSpiProtected { get; set; } = false;
     }
 
     /// <summary>

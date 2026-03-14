@@ -1,13 +1,13 @@
 {
-  "git_sha": "b7aa3175",
+  "git_sha": "4d4eac6b",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49705,
+        "lines": 49662,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkID": {
         "compile": "ok",
@@ -52,11 +52,11 @@
         "swift_compile": "ok"
       },
       "Kingfisher": {
-        "compile": "ok",
-        "errors": 0,
-        "lines": 55265,
+        "compile": "fail",
+        "errors": 4,
+        "lines": 55238,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
@@ -173,9 +173,9 @@
       "StripeConnect": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 7130,
+        "lines": 7063,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripeCore": {
         "compile": "ok",
@@ -215,23 +215,23 @@
       "StripePayments": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 61283,
+        "lines": 61282,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "dep_only",
         "errors": 0,
         "lines": 31824,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "dep_only",
         "errors": 0,
         "lines": 6975,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripeUICore": {
         "compile": "dep_only",
@@ -322,7 +322,7 @@
         "errors": 0,
         "lines": 17367,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "KeychainSwift": {
         "compile": "ok",
@@ -343,7 +343,7 @@
         "errors": 0,
         "lines": 4238,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SwiftyGif": {
         "compile": "ok",

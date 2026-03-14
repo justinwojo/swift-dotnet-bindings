@@ -19,10 +19,12 @@ namespace BindingsGeneration
                 "UInt8" => "byte",
                 "Int16" => "short",
                 "UInt16" => "ushort",
-                "Int32" or "Int" => "int",
-                "UInt32" or "UInt" => "uint",
-                "Int64" => "long",
-                "UInt64" => "ulong",
+                "Int32" => "int",
+                "UInt32" => "uint",
+                // Swift.Int and Swift.UInt are platform-width (64-bit on arm64/x86_64).
+                // Map to long/ulong to match NSInteger/NSUInteger ABI.
+                "Int64" or "Int" => "long",
+                "UInt64" or "UInt" => "ulong",
                 // No raw value → int (tag values fit in int for practical enum sizes)
                 null or "" => "int",
                 _ => "int"
@@ -106,9 +108,11 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // Emit enum members
+            // Emit enum members (skip @_spi-protected cases)
             foreach (var caseDecl in enumDecl.Cases)
             {
+                if (caseDecl.IsSpiProtected)
+                    continue;
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 int tagValue;
 

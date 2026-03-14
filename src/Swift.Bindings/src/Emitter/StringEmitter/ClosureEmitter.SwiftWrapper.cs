@@ -540,7 +540,9 @@ public static partial class ClosureEmitter
                 // Use adapter in call args
                 var adapterName = $"_adapted_{csName}";
                 var label = GetSwiftArgLabel(arg);
-                callArgs.Add($"{label}{adapterName}");
+                // @autoclosure parameters: call the adapted closure to forward the value
+                var autoClosureSuffix = closureTypeSpec.IsAutoClosure ? "()" : "";
+                callArgs.Add($"{label}{adapterName}{autoClosureSuffix}");
             }
             else if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
