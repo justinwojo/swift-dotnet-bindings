@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "apple-frameworks.schema.json",
+  "title": "Apple Framework Definitions",
+  "description": "All Apple framework definitions for AppleFrameworkRegistry",
+  "type": "object",
+  "required": ["frameworks"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "frameworks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module"],
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "Swift module name (e.g., 'UIKit', 'Foundation')"
+          },
+          "autoBridge": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether types in this module are automatically ObjC-bridged"
+          },
+          "optionalFallback": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this module is in the broader Optional/Array element fallback set (superset of autoBridge)"
+          },
+          "unsupported": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this module is unsupported (SwiftUI, Combine, etc.)"
+          },
+          "namespaceRemap": {
+            "type": "string",
+            "description": "If set, this Swift module maps to a different .NET namespace (e.g., QuartzCore -> CoreAnimation)"
+          },
+          "objcPrefixes": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "ObjC class name prefixes associated with this framework (e.g., ['UI'] for UIKit)"
+          },
+          "platformUnavailable": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["tvOS", "macOS", "iOS", "MacCatalyst"] },
+            "description": "Platforms where this module is entirely unavailable"
+          },
+          "knownModuleForElements": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this module is known for container element type resolution"
+          },
+          "valueTypes": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Type names (without module prefix) that are value types and should NOT be ObjC-bridged"
+          },
+          "typeRemaps": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Map of Swift type names (without module prefix) to fully-qualified .NET type names"
+          },
+          "excludeFromXml": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Type names that must NOT be added to XML database files (e.g., NSUnderlineStyle)"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

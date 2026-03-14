@@ -1,0 +1,739 @@
+{
+  "$schema": "apple-frameworks.schema.json",
+  "frameworks": [
+    {
+      "module": "ARKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["AR"],
+      "platformUnavailable": ["tvOS", "macOS"],
+      "valueTypes": [
+        "ARRaycastQuery"
+      ]
+    },
+    {
+      "module": "AVFAudio",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "namespaceRemap": "AVFoundation"
+    },
+    {
+      "module": "AVFoundation",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["AV"],
+      "valueTypes": [
+        "AVAudioChannelCount",
+        "AVAudioFrameCount",
+        "AVAudioFramePosition",
+        "AVAudioPacketCount",
+        "AVCaptureDevice.AutoFocusRangeRestriction",
+        "AVCaptureDevice.DeviceType",
+        "AVCaptureDevice.FlashMode",
+        "AVCaptureDevice.FocusMode",
+        "AVCaptureDevice.Position",
+        "AVCaptureDevice.TorchMode",
+        "AVCaptureSession.Preset",
+        "AVCaptureVideoOrientation",
+        "AVFileType",
+        "AVLayerVideoGravity",
+        "AVMediaType",
+        "AVPlayer.Status",
+        "AVPlayer.TimeControlStatus",
+        "AVPlayerItem.Status"
+      ],
+      "typeRemaps": {
+        "AVURLAsset": "AVFoundation.AVUrlAsset",
+        "AVMIDIPlayer": "AVFoundation.AVMidiPlayer",
+        "AVCaptureDevice.FocusMode": "AVFoundation.AVCaptureFocusMode"
+      }
+    },
+    {
+      "module": "AppIntents",
+      "unsupported": true
+    },
+    {
+      "module": "AppKit",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
+      "module": "AuthenticationServices",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["AS"]
+    },
+    {
+      "module": "CarPlay",
+      "optionalFallback": true,
+      "objcPrefixes": ["CP"],
+      "platformUnavailable": ["tvOS", "macOS"]
+    },
+    {
+      "module": "Charts",
+      "unsupported": true
+    },
+    {
+      "module": "ClassKit",
+      "optionalFallback": true,
+      "platformUnavailable": ["tvOS", "macOS"]
+    },
+    {
+      "module": "CloudKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["CK"]
+    },
+    {
+      "module": "Combine",
+      "unsupported": true
+    },
+    {
+      "module": "Contacts",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["CN"]
+    },
+    {
+      "module": "ContactsUI",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "CoreAnimation",
+      "optionalFallback": true
+    },
+    {
+      "module": "CoreBluetooth",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["CB"],
+      "valueTypes": [
+        "CBAttributePermissions",
+        "CBCharacteristicProperties",
+        "CBCharacteristicWriteType",
+        "CBManagerAuthorization",
+        "CBManagerState",
+        "CBPeripheralState"
+      ]
+    },
+    {
+      "module": "CoreData",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "valueTypes": [
+        "NSFetchRequestResultType"
+      ]
+    },
+    {
+      "module": "CoreImage",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["CI"]
+    },
+    {
+      "module": "CoreLocation",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["CL"],
+      "valueTypes": [
+        "CLAccuracyAuthorization",
+        "CLAuthorizationStatus",
+        "CLLocationCoordinate2D",
+        "CLLocationDegrees",
+        "CLLocationDirection",
+        "CLLocationDistance"
+      ]
+    },
+    {
+      "module": "CoreML",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["ML"],
+      "valueTypes": [
+        "MLComputeUnits",
+        "MLFeatureType",
+        "MLMultiArrayDataType"
+      ]
+    },
+    {
+      "module": "CoreMedia",
+      "optionalFallback": true
+    },
+    {
+      "module": "CoreMotion",
+      "optionalFallback": true
+    },
+    {
+      "module": "CoreNFC",
+      "optionalFallback": true,
+      "objcPrefixes": ["NK"],
+      "platformUnavailable": ["tvOS", "macOS"]
+    },
+    {
+      "module": "CoreSpotlight",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
+      "module": "CoreTelephony",
+      "optionalFallback": true
+    },
+    {
+      "module": "Dispatch",
+      "namespaceRemap": "CoreFoundation"
+    },
+    {
+      "module": "EventKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["EK"]
+    },
+    {
+      "module": "EventKitUI",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "FileProvider",
+      "optionalFallback": true,
+      "objcPrefixes": ["FP"]
+    },
+    {
+      "module": "Foundation",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "knownModuleForElements": true,
+      "objcPrefixes": ["NS"],
+      "valueTypes": [
+        "Data",
+        "Date",
+        "DateComponents",
+        "DateInterval",
+        "Calendar",
+        "CharacterSet",
+        "ComparisonResult",
+        "Decimal",
+        "FileAttributeKey",
+        "IndexPath",
+        "IndexSet",
+        "JSONDecoder",
+        "JSONEncoder",
+        "JSONSerialization.ReadingOptions",
+        "JSONSerialization.WritingOptions",
+        "Locale",
+        "Measurement",
+        "NSAttributedString.Key",
+        "NSData.WritingOptions",
+        "NSNotification.Name",
+        "NSRange",
+        "NSRegularExpression.Options",
+        "Notification",
+        "Notification.Name",
+        "Operation.QueuePriority",
+        "PersonNameComponents",
+        "RunLoop.Mode",
+        "Selector",
+        "Stream.Event",
+        "TimeZone",
+        "URL",
+        "URLComponents",
+        "URLCredential.Persistence",
+        "URLError",
+        "URLError.Code",
+        "URLQueryItem",
+        "URLRequest",
+        "URLSession.AuthChallengeDisposition",
+        "URLSession.ResponseDisposition",
+        "URLSessionWebSocketTask.CloseCode",
+        "UUID",
+        "XMLParser",
+        "_NSRange",
+        "objc_AssociationPolicy"
+      ],
+      "typeRemaps": {
+        "Bundle": "Foundation.NSBundle",
+        "NotificationCenter": "Foundation.NSNotificationCenter",
+        "UserDefaults": "Foundation.NSUserDefaults",
+        "Timer": "Foundation.NSTimer",
+        "RunLoop": "Foundation.NSRunLoop",
+        "Operation": "Foundation.NSOperation",
+        "OperationQueue": "Foundation.NSOperationQueue",
+        "BlockOperation": "Foundation.NSBlockOperation",
+        "ProcessInfo": "Foundation.NSProcessInfo",
+        "Thread": "Foundation.NSThread",
+        "FileManager": "Foundation.NSFileManager",
+        "FileHandle": "Foundation.NSFileHandle",
+        "UndoManager": "Foundation.NSUndoManager",
+        "Progress": "Foundation.NSProgress",
+        "Scanner": "Foundation.NSScanner",
+        "Formatter": "Foundation.NSFormatter",
+        "NumberFormatter": "Foundation.NSNumberFormatter",
+        "DateFormatter": "Foundation.NSDateFormatter",
+        "InputStream": "Foundation.NSInputStream",
+        "OutputStream": "Foundation.NSOutputStream",
+        "Stream": "Foundation.NSStream",
+        "URLSession": "Foundation.NSUrlSession",
+        "URLSessionTask": "Foundation.NSUrlSessionTask",
+        "URLSessionDataTask": "Foundation.NSUrlSessionDataTask",
+        "URLSessionDownloadTask": "Foundation.NSUrlSessionDownloadTask",
+        "URLSessionUploadTask": "Foundation.NSUrlSessionUploadTask",
+        "URLSessionStreamTask": "Foundation.NSUrlSessionStreamTask",
+        "URLSessionWebSocketTask": "Foundation.NSUrlSessionWebSocketTask",
+        "URLSessionConfiguration": "Foundation.NSUrlSessionConfiguration",
+        "URLSessionTaskMetrics": "Foundation.NSUrlSessionTaskMetrics",
+        "URLSessionTaskTransactionMetrics": "Foundation.NSUrlSessionTaskTransactionMetrics",
+        "URLResponse": "Foundation.NSUrlResponse",
+        "HTTPURLResponse": "Foundation.NSHttpUrlResponse",
+        "CachedURLResponse": "Foundation.NSCachedUrlResponse",
+        "URLAuthenticationChallenge": "Foundation.NSUrlAuthenticationChallenge",
+        "URLCredential": "Foundation.NSUrlCredential",
+        "URLCredentialStorage": "Foundation.NSUrlCredentialStorage",
+        "URLProtectionSpace": "Foundation.NSUrlProtectionSpace",
+        "URLCache": "Foundation.NSUrlCache",
+        "URLProtocol": "Foundation.NSUrlProtocol",
+        "URLConnection": "Foundation.NSUrlConnection",
+        "URLSessionWebSocketTask.Message": "Foundation.NSUrlSessionWebSocketMessage",
+        "HTTPCookie": "Foundation.NSHttpCookie",
+        "HTTPCookieStorage": "Foundation.NSHttpCookieStorage",
+        "JSONSerialization": "Foundation.NSJsonSerialization",
+        "NSURL": "Foundation.NSUrl",
+        "NSUUID": "Foundation.NSUuid",
+        "_NSRange": "Foundation.NSRange",
+        "JSONSerialization.ReadingOptions": "Foundation.NSJsonReadingOptions",
+        "JSONSerialization.WritingOptions": "Foundation.NSJsonWritingOptions",
+        "URLSessionWebSocketTask.CloseCode": "Foundation.NSUrlSessionWebSocketCloseCode",
+        "Stream.Event": "Foundation.NSStreamEvent",
+        "Operation.QueuePriority": "Foundation.NSOperationQueuePriority",
+        "URLCredential.Persistence": "Foundation.NSUrlCredentialPersistence",
+        "URLSession.ResponseDisposition": "Foundation.NSUrlSessionResponseDisposition",
+        "URLSession.AuthChallengeDisposition": "Foundation.NSUrlSessionAuthChallengeDisposition",
+        "RunLoop.Mode": "Foundation.NSRunLoopMode",
+        "FileAttributeKey": "Foundation.NSString",
+        "NSRegularExpression.Options": "Foundation.NSRegularExpressionOptions",
+        "NSData.WritingOptions": "Foundation.NSDataWritingOptions",
+        "NSAttributedString.Key": "Foundation.NSString"
+      }
+    },
+    {
+      "module": "GameController",
+      "optionalFallback": true,
+      "objcPrefixes": ["GC"]
+    },
+    {
+      "module": "GameKit",
+      "optionalFallback": true,
+      "objcPrefixes": ["GK"]
+    },
+    {
+      "module": "HealthKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["HK"],
+      "platformUnavailable": ["macOS"]
+    },
+    {
+      "module": "HomeKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["HM"],
+      "platformUnavailable": ["macOS"]
+    },
+    {
+      "module": "Intents",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["IN"]
+    },
+    {
+      "module": "IntentsUI",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "LocalAuthentication",
+      "optionalFallback": true,
+      "objcPrefixes": ["LA"]
+    },
+    {
+      "module": "MapKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["MK"],
+      "valueTypes": [
+        "MKCoordinateRegion",
+        "MKCoordinateSpan",
+        "MKDirectionsTransportType",
+        "MKMapPoint",
+        "MKMapRect",
+        "MKMapSize"
+      ]
+    },
+    {
+      "module": "MediaPlayer",
+      "optionalFallback": true,
+      "objcPrefixes": ["MP"]
+    },
+    {
+      "module": "MessageUI",
+      "optionalFallback": true,
+      "objcPrefixes": ["MF"],
+      "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "Metal",
+      "optionalFallback": true,
+      "objcPrefixes": ["MT"],
+      "valueTypes": [
+        "MTLClearColor",
+        "MTLOrigin",
+        "MTLPixelFormat",
+        "MTLPrimitiveType",
+        "MTLRegion",
+        "MTLResourceOptions",
+        "MTLScissorRect",
+        "MTLSize",
+        "MTLStorageMode",
+        "MTLViewport"
+      ]
+    },
+    {
+      "module": "MetalKit",
+      "optionalFallback": true,
+      "objcPrefixes": ["MTK"]
+    },
+    {
+      "module": "MultipeerConnectivity",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["MC"]
+    },
+    {
+      "module": "NaturalLanguage",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["NL"],
+      "valueTypes": [
+        "NLLanguage",
+        "NLTag",
+        "NLTagScheme",
+        "NLTokenUnit"
+      ]
+    },
+    {
+      "module": "Network",
+      "optionalFallback": true,
+      "objcPrefixes": ["NW"],
+      "valueTypes": [
+        "NWEndpoint.Port"
+      ]
+    },
+    {
+      "module": "NetworkExtension",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["NE"]
+    },
+    {
+      "module": "ObjectiveC",
+      "namespaceRemap": "Foundation"
+    },
+    {
+      "module": "Observation",
+      "unsupported": true
+    },
+    {
+      "module": "PDFKit",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
+      "module": "PassKit",
+      "optionalFallback": true,
+      "objcPrefixes": ["PK"]
+    },
+    {
+      "module": "Photos",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["PH"],
+      "valueTypes": [
+        "PHAccessLevel",
+        "PHAssetCollectionSubtype",
+        "PHAssetCollectionType",
+        "PHAssetMediaSubtype",
+        "PHAssetMediaType",
+        "PHAssetResourceType",
+        "PHAuthorizationStatus",
+        "PHImageContentMode"
+      ],
+      "typeRemaps": {
+        "PHImageContentMode": "Photos.PHImageContentMode"
+      }
+    },
+    {
+      "module": "PhotosUI",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "valueTypes": [
+        "PHPickerFilter",
+        "PHPickerResult"
+      ]
+    },
+    {
+      "module": "QuartzCore",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "namespaceRemap": "CoreAnimation",
+      "objcPrefixes": ["CA"],
+      "valueTypes": [
+        "CAAutoresizingMask",
+        "CAContentsFormat",
+        "CACornerCurve",
+        "CACornerMask",
+        "CADynamicRange",
+        "CAEdgeAntialiasingMask",
+        "CAGradientLayerType",
+        "CAScroll",
+        "CATextLayerAlignmentMode",
+        "CATextLayerTruncationMode",
+        "CAToneMapMode",
+        "CATransform3D"
+      ],
+      "typeRemaps": {
+        "CALayerContentsGravity": "Foundation.NSString",
+        "CAMediaTimingFunctionName": "Foundation.NSString",
+        "CATransitionType": "Foundation.NSString",
+        "CATransitionSubtype": "Foundation.NSString",
+        "CAKeyframeAnimation": "CoreAnimation.CAKeyFrameAnimation",
+        "CATransform3D": "CoreAnimation.CATransform3D",
+        "CACornerMask": "CoreAnimation.CACornerMask",
+        "CAEdgeAntialiasingMask": "CoreAnimation.CAEdgeAntialiasingMask",
+        "CAAutoresizingMask": "CoreAnimation.CAAutoresizingMask",
+        "CAContentsFormat": "CoreAnimation.CAContentsFormat",
+        "CACornerCurve": "CoreAnimation.CACornerCurve",
+        "CAGradientLayerType": "CoreAnimation.CAGradientLayerType",
+        "CATextLayerAlignmentMode": "CoreAnimation.CATextLayerAlignmentMode",
+        "CATextLayerTruncationMode": "CoreAnimation.CATextLayerTruncationMode",
+        "CAScroll": "CoreAnimation.CAScroll",
+        "CADynamicRange": "CoreAnimation.CADynamicRange",
+        "CAToneMapMode": "CoreAnimation.CAToneMapMode"
+      }
+    },
+    {
+      "module": "RealityKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["RE"]
+    },
+    {
+      "module": "SafariServices",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["SF"],
+      "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "SceneKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["SC"],
+      "valueTypes": [
+        "SCNMatrix4",
+        "SCNVector3",
+        "SCNVector4"
+      ]
+    },
+    {
+      "module": "Social",
+      "optionalFallback": true,
+      "objcPrefixes": ["SL"]
+    },
+    {
+      "module": "SoundAnalysis",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["SN"]
+    },
+    {
+      "module": "Speech",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
+      "module": "SpriteKit",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
+      "module": "StoreKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["SK"],
+      "valueTypes": [
+        "SKError.Code",
+        "SKPaymentTransactionState",
+        "SKProduct.PeriodUnit",
+        "SKProductDiscount.PaymentMode"
+      ]
+    },
+    {
+      "module": "SwiftUI",
+      "unsupported": true
+    },
+    {
+      "module": "TipKit",
+      "unsupported": true
+    },
+    {
+      "module": "UIKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "knownModuleForElements": true,
+      "objcPrefixes": ["UI"],
+      "platformUnavailable": ["macOS"],
+      "valueTypes": [
+        "NSDirectionalEdgeInsets",
+        "NSLayoutConstraint.Relation",
+        "NSLineBreakMode",
+        "NSParagraphStyle.LineBreakStrategy",
+        "NSTextAlignment",
+        "NSUnderlineStyle",
+        "NSWritingDirection",
+        "UIAccessibilityTraits",
+        "UIActivityIndicatorView.Style",
+        "UIAlertAction.Style",
+        "UIAlertController.Style",
+        "UIBarButtonItem.Style",
+        "UIBarButtonItem.SystemItem",
+        "UIBarPosition",
+        "UIBarStyle",
+        "UIBlurEffect.Style",
+        "UICollectionView.ScrollDirection",
+        "UICollectionView.ScrollPosition",
+        "UIContentSizeCategory",
+        "UIControl.ContentHorizontalAlignment",
+        "UIControl.ContentVerticalAlignment",
+        "UIControl.Event",
+        "UIControl.State",
+        "UIDataDetectorTypes",
+        "UIDatePicker.Mode",
+        "UIEdgeInsets",
+        "UIFloatRange",
+        "UIFont.TextStyle",
+        "UIFont.Weight",
+        "UIGestureRecognizer.State",
+        "UIImage.RenderingMode",
+        "UIImage.ResizingMode",
+        "UIImage.SymbolScale",
+        "UIImage.SymbolWeight",
+        "UIInterfaceOrientation",
+        "UIInterfaceOrientationMask",
+        "UIKeyboardAppearance",
+        "UIKeyboardType",
+        "UILayoutPriority",
+        "UIModalPresentationStyle",
+        "UIModalTransitionStyle",
+        "UINavigationController.Operation",
+        "UINavigationItem.LargeTitleDisplayMode",
+        "UIOffset",
+        "UIPageViewController.NavigationDirection",
+        "UIPageViewController.NavigationOrientation",
+        "UIPageViewController.SpineLocation",
+        "UIPageViewController.TransitionStyle",
+        "UIRectCorner",
+        "UIRectEdge",
+        "UIReturnKeyType",
+        "UIScrollView.ContentInsetAdjustmentBehavior",
+        "UIScrollView.IndicatorStyle",
+        "UIScrollView.KeyboardDismissMode",
+        "UISemanticContentAttribute",
+        "UIStackView.Alignment",
+        "UIStackView.Distribution",
+        "UIStatusBarAnimation",
+        "UIStatusBarStyle",
+        "UISwipeGestureRecognizer.Direction",
+        "UITabBarItem.SystemItem",
+        "UITableView.RowAnimation",
+        "UITableView.ScrollPosition",
+        "UITableView.Style",
+        "UITableViewCell.AccessoryType",
+        "UITableViewCell.CellStyle",
+        "UITableViewCell.EditingStyle",
+        "UITableViewCell.SelectionStyle",
+        "UITextAutocapitalizationType",
+        "UITextAutocorrectionType",
+        "UITextField.DidEndEditingReason",
+        "UITextField.ViewMode",
+        "UITextLayoutDirection",
+        "UITextSpellCheckingType",
+        "UIUserInterfaceIdiom",
+        "UIUserInterfaceLayoutDirection",
+        "UIUserInterfaceStyle",
+        "UIView.AnimationCurve",
+        "UIView.AnimationOptions",
+        "UIView.AutoresizingMask",
+        "UIView.ContentMode"
+      ],
+      "typeRemaps": {
+        "UIImage.RenderingMode": "UIKit.UIImageRenderingMode",
+        "UIView.AnimationOptions": "UIKit.UIViewAnimationOptions",
+        "NSUnderlineStyle": "Foundation.NSUnderlineStyle",
+        "NSLayoutConstraint.Relation": "UIKit.NSLayoutRelation",
+        "NSParagraphStyle.LineBreakStrategy": "UIKit.NSLineBreakStrategy",
+        "UIFont.TextStyle": "UIKit.UIFontTextStyle",
+        "UIView.ContentMode": "UIKit.UIViewContentMode",
+        "UIBarStyle": "UIKit.UIBarStyle",
+        "UIKeyboardAppearance": "UIKit.UIKeyboardAppearance",
+        "UITextField.ViewMode": "UIKit.UITextFieldViewMode",
+        "UIActivityIndicatorView.Style": "UIKit.UIActivityIndicatorViewStyle",
+        "UIBlurEffect.Style": "UIKit.UIBlurEffectStyle",
+        "UITableView.Style": "UIKit.UITableViewStyle",
+        "UIModalPresentationStyle": "UIKit.UIModalPresentationStyle",
+        "UIUserInterfaceStyle": "UIKit.UIUserInterfaceStyle",
+        "UIControl.State": "UIKit.UIControlState",
+        "UIControl.Event": "UIKit.UIControlEvent"
+      },
+      "excludeFromXml": [
+        "NSUnderlineStyle"
+      ]
+    },
+    {
+      "module": "UserNotifications",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["UN"]
+    },
+    {
+      "module": "Vision",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["VN"]
+    },
+    {
+      "module": "WatchConnectivity",
+      "optionalFallback": true
+    },
+    {
+      "module": "WebKit",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["WK"]
+    },
+    {
+      "module": "WidgetKit",
+      "unsupported": true
+    },
+    {
+      "module": "XCTest",
+      "unsupported": true
+    },
+    {
+      "module": "_Concurrency",
+      "unsupported": true
+    }
+  ]
+}

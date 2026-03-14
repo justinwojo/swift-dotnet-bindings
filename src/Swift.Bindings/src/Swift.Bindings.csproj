@@ -23,6 +23,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.3" />
     <None Include="../../../README.md" Pack="true" PackagePath="\" />
+    <EmbeddedResource Include="Data/apple-frameworks.json" />
   </ItemGroup>
 
 </Project>
