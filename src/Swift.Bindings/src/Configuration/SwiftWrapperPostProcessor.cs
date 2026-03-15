@@ -21,13 +21,12 @@ namespace BindingsGeneration
     /// </summary>
     public static class SwiftWrapperPostProcessor
     {
-        private static readonly Regex ClosureParamPattern = new(
-            @",\s*\w+:\s*\([^)]*\)\s*->", RegexOptions.Compiled);
-
-        // Matches raw Swift generic type parameters: τ_0_0, τ_1_0, τ_0_1, etc.
-        // These are ABI-level names that should never appear in emitted Swift source.
-        private static readonly Regex RawGenericParamPattern = new(
-            @"τ_\d+_\d+", RegexOptions.Compiled);
+        // NOTE: Safety-net patterns (b)-(f) were removed in Phase 1 of the architecture refactoring.
+        // Pattern (b) self-without-_self: prevented by extension scoping in emitters.
+        // Pattern (c) __self.init: prevented at emission time.
+        // Pattern (e) non-escaping closure in Task: prevented at emission time.
+        // Pattern (f) raw generic params: prevented by WrapperValidation.HasRawGenericTypeParams
+        //   gate in DefaultParameterOverloadEmitter + wrapper emitters.
 
         /// <summary>
         /// Post-processes Swift source content, stripping known-broken wrapper patterns.
@@ -260,61 +259,8 @@ namespace BindingsGeneration
             if (body.Contains("EveryProtocol()"))
                 return true;
 
-            // (b) self.functionName() in free function (no _self: parameter)
-            // Safety net: now prevented by async wrapper fix at emission time.
-            // Skip for indented @_silgen_name blocks — these are inside extension { }
-            // scopes where `self` is legitimate (e.g., default-parameter-overload wrappers).
-            // Top-level functions in generated code always start at column 0; indented = nested.
-            var rawStartLine = start < lines.Count ? lines[start] : "";
-            bool isInsideExtension = rawStartLine.Length > 0 && char.IsWhiteSpace(rawStartLine[0]);
-            if (!isInsideExtension && !body.Contains("_self:") && !body.Contains("_self :"))
-            {
-                for (int j = start; j <= end && j < lines.Count; j++)
-                {
-                    var s = lines[j].TrimStart();
-                    if (s.StartsWith("self.", StringComparison.Ordinal) ||
-                        s.Contains(" self.") || s.Contains("\tself."))
-                    {
-                        onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped self-without-_self at line {j}");
-                        return true;
-                    }
-                }
-            }
-
-            // (c) __self.init( — async init wrapper (invalid Swift)
-            // Safety net: now prevented at emission time.
-            if (body.Contains("__self.init("))
-            {
-                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped __self.init at line {start}");
-                return true;
-            }
-
-            // Pattern (d) REMOVED: Mutating member on let existential.
-            // All existentials now use `var`, so this pattern can never match.
-
-            // (e) Non-escaping closure param passed to Task
-            // Safety net: now prevented at emission time.
-            if (body.Contains("Task {"))
-            {
-                int sigEnd = body.IndexOf('{');
-                if (sigEnd > 0)
-                {
-                    var sig = body.Substring(0, sigEnd);
-                    if (ClosureParamPattern.IsMatch(sig))
-                    {
-                        onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped non-escaping-closure-in-Task at line {start}");
-                        return true;
-                    }
-                }
-            }
-
-            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — never valid in emitted Swift
-            // Safety net: now gated at emission time in WrapperValidation.
-            if (ContainsRawGenericParam(body))
-            {
-                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
-                return true;
-            }
+            // Safety-net patterns (b)-(f) removed — now prevented at emission time.
+            // See architecture-refactoring-plan.md Session 2 log.
 
             return false;
         }
@@ -329,32 +275,7 @@ namespace BindingsGeneration
             if (body.Contains("EveryProtocol()"))
                 return true;
 
-            // (c) __self.init( — safety net
-            if (body.Contains("__self.init("))
-            {
-                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped __self.init at line {start}");
-                return true;
-            }
-
-            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — safety net
-            if (ContainsRawGenericParam(body))
-            {
-                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
-                return true;
-            }
-
-            // (e) Non-escaping closure in Task — safety net
-            if (body.Contains("Task {"))
-            {
-                int taskIdx = body.IndexOf("Task {");
-                // Search for closure params in the body before the Task block
-                var bodyBeforeTask = body.Substring(0, taskIdx);
-                if (ClosureParamPattern.IsMatch(bodyBeforeTask))
-                {
-                    onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped non-escaping-closure-in-Task at line {start}");
-                    return true;
-                }
-            }
+            // Safety-net patterns (c), (e), (f) removed — now prevented at emission time.
 
             return false;
         }
@@ -369,25 +290,11 @@ namespace BindingsGeneration
             if (body.Contains("EveryProtocol()"))
                 return true;
 
-            // Pattern (d) REMOVED: let existential mutating pattern.
-            // All existentials now use `var`, so this pattern can never match.
-
-            // (f) Raw generic type parameters (τ_0_0, τ_1_0, etc.) — safety net
-            if (ContainsRawGenericParam(body))
-            {
-                onSafetyNetWarning?.Invoke($"Post-processor safety net: stripped raw-generic-param at line {start}");
-                return true;
-            }
+            // Safety-net pattern (f) removed — now prevented at emission time.
 
             return false;
         }
 
-        /// <summary>
-        /// Checks if a block body contains raw ABI generic type parameters (e.g., τ_0_0).
-        /// These appear when the wrapper emitter fails to resolve generic types and emits
-        /// the raw Swift ABI parameter names, which are not valid Swift identifiers.
-        /// </summary>
-        private static bool ContainsRawGenericParam(string body) => RawGenericParamPattern.IsMatch(body);
 
         /// <summary>
         /// Checks if a block body references any internal (non-public) type names.

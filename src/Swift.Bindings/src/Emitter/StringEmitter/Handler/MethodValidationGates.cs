@@ -25,15 +25,22 @@ internal static class MethodValidationGates
     /// the P/Invoke and witness table infrastructure already handles them.
     /// </summary>
     public static bool HasUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
+        => HasUnsupportedProtocolConstraints(methodEnv.MethodDecl, methodEnv.TypeDatabase);
+
+    /// <summary>
+    /// Overload for pipeline use — takes MethodDecl + ITypeDatabase directly,
+    /// avoiding the need to construct a MethodEnvironment.
+    /// </summary>
+    public static bool HasUnsupportedProtocolConstraints(MethodDecl methodDecl, ITypeDatabase typeDatabase)
     {
-        if (!methodEnv.MethodDecl.IsGeneric)
+        if (!methodDecl.IsGeneric)
             return false;
 
-        var parentTypeGenericParams = methodEnv.MethodDecl.ParentDecl is TypeDecl parentType
+        var parentTypeGenericParams = methodDecl.ParentDecl is TypeDecl parentType
             ? parentType.GenericParameters
             : null;
 
-        foreach (var param in methodEnv.MethodDecl.GenericParameters)
+        foreach (var param in methodDecl.GenericParameters)
         {
             foreach (var conformance in param.GenericConformances)
             {
@@ -47,11 +54,11 @@ internal static class MethodValidationGates
                 // line 85), so the constraint is never enforced and P/Invoke would lack
                 // the required witness table parameter.
                 if (IsParentBaselineConstraint(param, conformance, parentTypeGenericParams) &&
-                    !IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, methodEnv.TypeDatabase))
+                    !IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
                     continue;
 
                 // Block if the protocol has associated types or self requirements.
-                if (IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, methodEnv.TypeDatabase))
+                if (IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
                     return true;
             }
         }

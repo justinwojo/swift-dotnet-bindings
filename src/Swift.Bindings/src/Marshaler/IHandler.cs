@@ -198,6 +198,9 @@ namespace BindingsGeneration
             var sortedDecl = TopologicallySortTypes(decl);
             var emissionCtx = context.GetEmissionContext();
             var pipeline = new MemberValidationPipeline(typeDatabase);
+            var validationCtx = new ValidationContext(
+                typeDatabase, context.PInvokeHelperContext, emissionCtx,
+                parentType: null, moduleDecl: null, siblingPropertyNames, conductor);
             foreach (var baseDecl in sortedDecl)
             {
                 if (baseDecl is TypeDecl typeDecl)
@@ -300,7 +303,7 @@ namespace BindingsGeneration
                     // Runs BEFORE dedup to match original behavior — skipped methods must not
                     // reserve dedup keys (an SPI method shouldn't block a non-SPI method with
                     // the same signature).
-                    var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
+                    var validationResult = pipeline.ValidateMethodEmission(methodDecl, validationCtx);
                     if (!validationResult.ShouldEmit)
                     {
                         if (!methodDecl.IsAccessor)

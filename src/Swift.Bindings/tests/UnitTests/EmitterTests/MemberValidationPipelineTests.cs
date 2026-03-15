@@ -559,6 +559,366 @@ public class MemberValidationPipelineTests
 
     #endregion
 
+    #region Phase 3-6 Gate Tests (Session 2)
+
+    [Fact]
+    public void ValidateMethodEmission_ThunkClosureInGenericType_ReturnsSkip()
+    {
+        // Phase 3: Constructor with thunk closure in generic type
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodWithArgs("handle", TupleTypeSpec.Empty, closureType);
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncInGenericType_ReturnsSkip()
+    {
+        // Phase 3: Async method in generic type
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
+        method.IsAsync = true;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_NoPInvokeHelper_SkipsThunkCheck()
+    {
+        // Phase 3 only fires when PInvokeHelperContext is present (generic parent type)
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodWithArgs("handle", TupleTypeSpec.Empty, closureType);
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        // No PInvokeHelperContext → thunk check is skipped
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ProtocolExtensionMethod_SkipsThunkCheck()
+    {
+        // Phase 3: Protocol extension methods are always let through
+        var typeDatabase = CreateTypeDatabase();
+        var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
+        method.IsAsync = true;
+        method.IsProtocolExtensionMethod = true;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        // Protocol extension methods bypass the thunk check
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_HasAssociatedTypeProtocolConstraint_ReturnsSkip()
+    {
+        // Phase 4: Protocol constraint with associated types
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
+
+        var method = CreateMethod("decode", new NamedTypeSpec("Swift.Int"));
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            CreateGenericArgumentWithProtocolConformance("T", "TestModule.SequenceLike")
+        };
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericProtocolConstraint, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_ConstructorSkipsProtocolConstraintCheck()
+    {
+        // Phase 4: Constructors do NOT check protocol constraints (original behavior)
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
+
+        var method = CreateMethod("init", new NamedTypeSpec("Swift.Int"));
+        method.IsConstructor = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            CreateGenericArgumentWithProtocolConformance("T", "TestModule.SequenceLike")
+        };
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        // Phase 4 skips for constructors → falls through to Phase 6 (generic ctor own params)
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        // Caught by Phase 6 (generic constructor own params) not Phase 4
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_GenericConstructorOwnParams_ReturnsSkip()
+    {
+        // Phase 6: Generic constructor with method-own type parameters
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
+
+        var method = CreateMethod("init", TupleTypeSpec.Empty);
+        method.IsConstructor = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            CreateGenericArgumentWithProtocolConformance("T", "TestModule.Loadable")
+        };
+        // Parent type is NOT generic → T is a method-own generic param
+        var moduleDecl = CreateModuleDecl("TestModule");
+        method.ParentDecl = new ClassDecl
+        {
+            Name = "Point",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            MangledName = "$s10TestModule5PointCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("generic constructors", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_GenericConstructorInheritedParams_ReturnsEmit()
+    {
+        // Phase 6: Constructor generic params from parent → NOT method-own, should emit
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "Box",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+            MangledName = "$s10TestModule3BoxCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = CreateMethod("init", TupleTypeSpec.Empty);
+        method.IsConstructor = true;
+        method.ParentDecl = parentDecl;
+        // Constructor inherits τ_0_0 from parent — not method-own
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    #endregion
+
+    #region End-to-End Integration Tests (HandleBaseDecl flow)
+
+    /// <summary>
+    /// These tests go through ModuleHandler → HandleBaseDecl → pipeline, verifying that
+    /// the gates actually prevent emission end-to-end (not just that the pipeline returns Skip).
+    /// </summary>
+
+    [Fact]
+    public void EndToEnd_ProtocolConstraintMethod_ProducesNoOutput()
+    {
+        // Phase 4 gate: method with associated type protocol constraint → no C# output
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
+
+        var method = CreateMethod("decode", new NamedTypeSpec("Swift.Int"));
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            CreateGenericArgumentWithProtocolConformance("T", "TestModule.SequenceLike")
+        };
+
+        var (csOutput, _) = EmitModuleWithMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("decode", csOutput);
+    }
+
+    [Fact]
+    public void EndToEnd_ThunkClosureInGenericType_PipelineSkips()
+    {
+        // Phase 3 gate: thunk closure in generic type → pipeline returns Skip.
+        // Note: This can't be tested through ModuleHandler E2E because module-level
+        // free functions don't have PInvokeHelperContext. The gate fires when methods
+        // inside generic types go through HandleBaseDecl in ClassHandler/StructHandler,
+        // which passes PInvokeHelperContext via TypeHandlerContext. We verify the pipeline
+        // directly + verify the existing handler tests (which were updated to test
+        // through the pipeline with a PInvokeHelperContext).
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodWithArgs("handle", TupleTypeSpec.Empty, closureType);
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+
+        // Without PInvokeHelperContext, the method should pass (normal non-generic context)
+        var resultNoPInvoke = pipeline.ValidateMethodEmission(method, null);
+        Assert.True(resultNoPInvoke.ShouldEmit);
+    }
+
+    [Fact]
+    public void EndToEnd_GenericConstructorOwnParams_ProducesNoOutput()
+    {
+        // Phase 6 gate: generic constructor with method-own params → no C# output
+        var typeDatabase = CreateTypeDatabase();
+        RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDeclForE2E("Point", moduleDecl, isGeneric: false);
+
+        var method = CreateMethod("init", TupleTypeSpec.Empty);
+        method.IsConstructor = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            CreateGenericArgumentWithProtocolConformance("T", "TestModule.Loadable")
+        };
+
+        var (csOutput, _) = EmitModuleWithMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("init", csOutput);
+        Assert.DoesNotContain("Point(", csOutput);
+    }
+
+    [Fact]
+    public void EndToEnd_NormalMethod_ProducesOutput()
+    {
+        // Sanity check: a normal method DOES produce output through HandleBaseDecl
+        var typeDatabase = CreateTypeDatabase();
+
+        var method = CreateMethod("doWork", TupleTypeSpec.Empty);
+
+        var (csOutput, _) = EmitModuleWithMethod(method, typeDatabase);
+
+        Assert.Contains("DoWork", csOutput);
+    }
+
+    /// <summary>
+    /// Helper: emits a single method through ModuleHandler → HandleBaseDecl → pipeline → handler.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) EmitModuleWithMethod(
+        MethodDecl method,
+        TypeDatabase typeDatabase,
+        PInvokeHelperContext pinvokeCtx = null)
+    {
+        var moduleDecl = method.ModuleDecl as ModuleDecl ?? CreateModuleDecl("TestModule");
+        // Ensure method is parented correctly for module-level emission
+        if (method.ParentDecl == null)
+            method.ParentDecl = moduleDecl;
+        if (method.ModuleDecl == null)
+            method.ModuleDecl = moduleDecl;
+
+        moduleDecl.Methods = new List<MethodDecl> { method };
+
+        try { typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib")); }
+        catch { /* already added */ }
+
+        var csStringWriter = new System.IO.StringWriter();
+        var swiftStringWriter = new System.IO.StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+
+        var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var context = new TypeHandlerContext(pinvokeCtx, new(), null);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
+
+    private static ClassDecl CreateClassDeclForE2E(string name, ModuleDecl moduleDecl, bool isGeneric)
+    {
+        var genericParams = isGeneric
+            ? new List<GenericArgumentDecl> { new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()) }
+            : new List<GenericArgumentDecl>();
+
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = genericParams,
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    #endregion
+
     #region ValidationResult Tests
 
     [Fact]
@@ -694,6 +1054,36 @@ public class MemberValidationPipelineTests
             });
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;
+    }
+
+    private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName, TypeRecordFlags flags)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName(protocolName), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", protocolName.Split('.')[1]),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                MetadataAccessor = "$s10TestModule8ProtocolPAAWP",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+    }
+
+    private static GenericArgumentDecl CreateGenericArgumentWithProtocolConformance(string typeName, string protocolName)
+    {
+        return new GenericArgumentDecl(
+            TypeName: typeName,
+            SugaredTypeName: typeName,
+            GenericConformances: new List<GenericParameterConformance>
+            {
+                new GenericParameterConformance(
+                    Path: new[] { typeName },
+                    ConformanceTarget: SwiftTypeName.FromModuleQualifiedName(protocolName),
+                    Kind: ConformanceKind.Protocol)
+            },
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
     }
 
     private static ModuleDecl CreateModuleDecl(string name)

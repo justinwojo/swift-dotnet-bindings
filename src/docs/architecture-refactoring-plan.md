@@ -1,7 +1,7 @@
 # Architecture Refactoring Plan
 
 **Created**: March 13, 2026
-**Last updated**: March 14, 2026
+**Last updated**: March 15, 2026
 
 This document captures architectural improvements identified during a full-codebase deep dive (~103K LOC generator, ~12K LOC runtime, ~6K test facts, 88 validation targets). Each phase is independent and can be tackled in any order, though Phase 1 reduces risk for Phase 2.
 
@@ -67,9 +67,9 @@ Two major subsystems were evaluated and determined to be **self-contained** — 
 
 ---
 
-## Phase 1: Unified Validation Pipeline
+## Phase 1: Unified Validation Pipeline ✅ COMPLETED
 
-**Impact**: High | **Effort**: Medium | **Risk**: Low
+**Impact**: High | **Effort**: Medium | **Risk**: Low | **Completed**: March 14, 2026
 
 ### Problem
 
@@ -107,92 +107,84 @@ A full inventory found **150+ distinct validation gates** scattered across 5 tie
 
 **Key duplication**: BoundGenericsHandler gates (HasBareGenericUsage, HasNonSwiftObjectGenericArg, TryGetFirstUnsatisfiedConstraint) are called independently from MethodHandler, PropertyHandler, SubscriptHandler, and ConstructorHandler — each handler performs the same checks in slightly different order with slightly different error handling.
 
-### Proposed Design
+### Implemented Design
 
-Create a single `MemberValidationPipeline` that runs once per member declaration and returns a definitive answer:
+A single `MemberValidationPipeline` class with ordered gate phases. Rather than the originally proposed per-gate classes (`IValidationGate`), the implementation uses inline checks in a single method — simpler, fewer files, same benefits:
 
 ```csharp
-public sealed class MemberValidationPipeline
+public class MemberValidationPipeline
 {
-    // Single entry point — replaces 150+ scattered checks
-    public ValidationResult Validate(BaseDecl member, ValidationContext context);
-}
+    // Emission validation: 14 gates across 6 ordered phases
+    public ValidationResult ValidateMethodEmission(MethodDecl methodDecl, ValidationContext? context);
 
-public record ValidationResult
-{
-    public bool ShouldEmit { get; init; }
-    public bool ShouldEmitWrapper { get; init; }  // Tier 4 result
-    public string? SkipReason { get; init; }       // For diagnostics/reporting
-    public SkipCategory Category { get; init; }    // Maps to SkipReason enum (21 values)
+    // Wrapper eligibility: forwards to existing ShouldEmitWrapper methods
+    public WrapperValidationResult ValidateMethodWrapperEligibility(MethodEnvironment env);
+    public WrapperValidationResult ValidatePropertyWrapperEligibility(PropertyDecl propertyDecl, MethodEnvironment accessorEnv);
+    public WrapperValidationResult ValidateSubscriptWrapperEligibility(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env);
 }
 ```
 
-**Gate categories to consolidate:**
+**Gate phases in `ValidateMethodEmission`:**
 
-1. **Module gates**: Unsupported modules (SwiftUI, Combine, _Concurrency) — currently in MemberEmissionValidator + inline handler checks
-2. **Type gates**: Unsupported type patterns (bare generics, non-SwiftObject generic args, unsupported existentials) — currently in BoundGenericsHandler + ExistentialHandler + inline handler checks
-3. **Closure gates**: Unsupported closure parameter types, thunk requirements — currently in ClosureHandler + inline handler checks
-4. **Constraint gates**: Protocol constraint filtering — currently in MethodValidationGates + MemberEmissionValidator (three parallel paths)
-5. **Dedup gates**: Raw signature dedup, projected C# key dedup — currently in BaseHandler.HandleBaseDecl
-6. **Suppression gates**: Underscore-prefix, @_spi, synthesized protocol methods, implicit+overriding constructors — currently in BaseHandler + MemberEmissionValidator
-7. **Member-specific gates**: Property-only checks (async accessors, AnyType), method-only checks (placeholder types)
-8. **Wrapper eligibility gates**: All Tier 4 checks — currently in 4 separate wrapper emitter classes
+| Phase | Gates | Source |
+|-------|-------|--------|
+| 1. Suppression | @_spi, module-internal, implicit+overriding ctor, synthesized protocol | Was inline in HandleBaseDecl |
+| 2. Closure + module | Synthesized Codable, unsupported closures, SwiftUI/Combine refs, async tuple | Was in `ShouldSkipMethodEmission` |
+| 3. Generic type callback | Thunk closure in PInvokeHelperContext, async in generic type | Was inline in ConstructorHandler + MethodHandler |
+| 4. Protocol constraint | PAT / Self-requirement constraints (non-constructor) | Was in MethodHandler via `MethodValidationGates` |
+| 5. Bound generic | Bare generic, non-ISwiftObject, unsatisfied constraint (non-accessor) | Was inline in ConstructorHandler + MethodHandler |
+| 6. Generic ctor params | Method-own generic params on constructors | Was inline in ConstructorHandler |
 
-**Each gate becomes a class implementing `IValidationGate`:**
-
-```csharp
-public interface IValidationGate
-{
-    GateCategory Category { get; }
-    bool AppliesTo(MemberKind kind); // Method, Property, Constructor, Subscript
-    ValidationResult Check(BaseDecl member, ValidationContext context);
-}
-```
+**What remains in handlers:** Existential type argument accumulation (feeds bypass/bridge fallback logic that requires emission context). Dedup gates remain in HandleBaseDecl (stateful, shared with post-processors). Property accessor-level protocol constraint checks remain in PropertyHandler (accessor MethodDecls don't go through HandleBaseDecl — they're processed by PropertyHandler directly after type-handler iteration).
 
 ### Integration with Existing Reporting
 
-The existing reporting system (ReportCollector + EmissionReport) is well-designed with 21 skip reasons and workaround recommendations. The validation pipeline should enhance it, not replace it:
+The existing reporting system (ReportCollector + EmissionReport) is well-designed with 21 skip reasons and workaround recommendations. The validation pipeline enhances it:
 
-- Each `IValidationGate` maps to a `SkipReason` enum value
-- `ValidationResult.SkipReason` feeds directly into `ReportCollector.RecordMemberSkipped()`
+- Each gate phase returns a `ValidationResult` with `SkipReason` enum + human-readable details
+- `HandleBaseDecl` feeds `ValidationResult.Reason` directly into `ReportCollector.RecordMemberSkipped()`
+- Synthesized protocol members use `ValidationResult.IsSynthesized` → `ReportCollector.RecordMemberSynthesized()`
 - Wrapper eligibility results feed into `ModuleEmissionContext.IncrementWrapperSkipReason()`
-- The pipeline produces richer diagnostics than today because every skip has a single, traceable gate class
+- Every skip has a traceable phase and reason string (visible in `--verbose` output)
 
-### What This Fixes
+### What This Fixed
 
-- Adding a new gate = adding one class, registering it in the pipeline
-- "Three parallel paths must stay aligned" constraints disappear — one path
-- Gate ordering is explicit and testable
-- Wrapper eligibility gates (52 conditions across 4 classes) consolidate alongside emission gates
-- Diagnostics get free skip-reason reporting (useful for `--verbose` output)
-- ~30% of CLAUDE.md "critical constraints" become unnecessary
+- Adding a new emission gate = adding one check in `ValidateMethodEmission`, no handler changes needed
+- "Three parallel paths must stay aligned" for protocol constraints → one path in pipeline Phase 4
+- Gate ordering is explicit (6 ordered phases) and tested (41 pipeline tests including 4 E2E)
+- Handler inline gates (thunk closure, protocol constraints, bound generics, generic ctor) consolidated from MethodHandler + ConstructorHandler into pipeline Phases 3-6
+- Wrapper eligibility gates (52 conditions across 4 classes) forwarded through pipeline API (ready for future consolidation)
+- Safety net patterns removed from post-processor (~60% reduction)
+- Diagnostics enhanced: every skip has a traceable `SkipReason` + details string
 
-### Post-Processor Simplification (Bonus)
+### Post-Processor Simplification ✅ DONE
 
-`SwiftWrapperPostProcessor` has 8 patterns, but **6 are safety nets** — they're now prevented at emission time and fire regression warnings if they match. Only 2 patterns actively fire:
+Safety net patterns (b)-(f) have been removed from `SwiftWrapperPostProcessor`. Only 3 active patterns remain:
 
-| Pattern | Status | Action |
-|---------|--------|--------|
-| EveryProtocol conformance removal | **Active** | Keep |
-| Internal type reference stripping | **Active** | Keep |
-| Module/type name collision fix | **Active** | Keep |
-| `self.` in free function | Safety net | Remove after Phase 1 (gate prevents emission) |
-| `__self.init()` in async init | Safety net | Remove after Phase 1 |
-| Non-escaping closure in Task | Safety net | Remove after Phase 1 |
-| Raw generic params τ_0_0 | Safety net | Remove after Phase 1 |
-| Mutating on let existential | Already removed | N/A |
+| Pattern | Status |
+|---------|--------|
+| EveryProtocol conformance removal | **Active** — unconditional by design |
+| Internal type reference stripping | **Active** — requires swiftinterface parsing not yet available |
+| Module/type name collision fix | **Active** — post-hoc rewriting for name conflicts |
+| `self.` in free function | ✅ Removed — never fired (all emitters use extension blocks) |
+| `__self.init()` in async init | ✅ Removed — prevented at emission time |
+| Non-escaping closure in Task | ✅ Removed — prevented at emission time |
+| Raw generic params τ_0_0 | ✅ Removed — prevented by `HasRawGenericTypeParams` gate in `DefaultParameterOverloadEmitter` + wrapper emitters |
+| Mutating on let existential | Already removed (pre-Phase 1) |
 
-After Phase 1 lands, the post-processor can be reduced by ~60% — the validation pipeline prevents the patterns that the safety nets catch.
+Post-processor reduced by ~60% as planned. `ClosureParamPattern`, `RawGenericParamPattern` regexes and `ContainsRawGenericParam` method deleted.
 
-### Migration Strategy
+### Migration Strategy (as executed)
 
-1. Create `MemberValidationPipeline` with all existing gates as `IValidationGate` implementations
-2. Add integration tests: for every member in the test library, assert pipeline result matches current emission behavior
-3. Replace handler-level checks one at a time (PropertyHandler first — it has the most complete validation, ~20 conditions)
-4. Migrate wrapper eligibility gates from 4 wrapper emitter classes into the pipeline
-5. Remove redundant checks from BaseHandler.HandleBaseDecl as they move into the pipeline
-6. Remove safety-net patterns from SwiftWrapperPostProcessor
-7. Validate against all 88 library targets after each handler migration
+1. ✅ Created `MemberValidationPipeline` + `ValidationContext` + `ValidationResult` (Session 1)
+2. ✅ Integrated into `HandleBaseDecl` — replaces inline SPI, implicit+overriding, synthesized, ShouldSkipMethodEmission (Session 1)
+3. ✅ Moved exact handler inline checks (not EvaluateHardGates superset) into pipeline Phases 3-6 (Session 2)
+4. ✅ Removed duplicate checks from ConstructorHandler.Emit + MethodHandler.Emit (Session 2)
+5. ✅ Fixed emission-time gap: `DefaultParameterOverloadEmitter` raw generic param gate (Session 2)
+6. ✅ Removed safety-net patterns (b)-(f) from `SwiftWrapperPostProcessor` (Session 2)
+7. ✅ Validated against all 90 library targets after each step — zero regressions
+8. ✅ Migrated PropertyHandler bound generic gates to `ValidatePropertyEmission` (Session 2 — codex review follow-up)
+9. Wrapper eligibility gates forwarded through pipeline API (ready for future inlining)
 
 ---
 
@@ -393,34 +385,19 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 
 ## Session Breakdown
 
-4 sessions, each designed to be mostly autonomous. Start each session by referencing this doc. End each session with full validation (`run-tests.sh` + `validate-libraries.sh`). Use `/next-session` between sessions for continuity.
+3 completed, 2 remaining. Each session is mostly autonomous. Start each session by referencing this doc. End each session with full validation (`run-tests.sh` + `validate-libraries.sh`). Use `/next-session` between sessions for continuity.
 
 ---
 
-### Session 1: Validation Pipeline (Phase 1)
+### Sessions 1-2: Validation Pipeline (Phase 1) ✅ COMPLETED
 
-**Goal**: Extract all 150+ validation gates into a single `MemberValidationPipeline`. Migrate all handlers. Simplify post-processor.
-
-**Steps:**
-1. Read all gate source code directly: `MemberEmissionValidator.cs`, `MethodValidationGates.cs`, `BaseHandler`/`HandleBaseDecl`, all 4 handler Emit() methods, all 4 wrapper emitter ShouldEmitWrapper() methods, `ClosureHandler`, `ExistentialHandler`, `BoundGenericsHandler`
-2. Design and implement `IValidationGate`, `MemberValidationPipeline`, `ValidationContext`, `ValidationResult`
-3. Implement gate classes — most are mechanical extractions (take existing if-check, wrap in class). Expect ~35-45 gate classes covering all 5 tiers. Group by category (module, type, closure, constraint, dedup, suppression, member-specific, wrapper eligibility)
-4. Write parity integration tests: for every member in the test library + at least 2 validation libraries (Nuke, Alamofire), assert pipeline result matches current emission behavior
-5. Migrate handlers to use pipeline: PropertyHandler first (most complete validation, ~20 conditions), then MethodHandler (~30), ConstructorHandler, SubscriptHandler
-6. Migrate wrapper eligibility gates from 4 wrapper emitter classes into the pipeline (52 conditions)
-7. Remove 6 safety-net patterns from `SwiftWrapperPostProcessor`
-8. Update CLAUDE.md: remove critical constraints that are now enforced by the pipeline
-9. Run `run-tests.sh 2>&1 | tee /tmp/session1-tests.txt` + `validate-libraries.sh 2>&1 | tee /tmp/session1-validation.txt`
-
-**Exit criteria**: All existing tests pass. All 88 validation targets match baseline. No behavioral change in emitted code.
-
-**Risk**: Gate ordering dependencies. Some gates have implicit ordering (e.g., dedup must run after projection, module gate must run before type-specific gates). Parity tests will catch these — fix ordering until parity holds.
-
-**Estimated scope**: ~2,500-3,500 LOC new (gate classes + pipeline + tests), ~1,500 LOC removed from handlers.
+Executed across two sessions. See Session Log below for details. Summary:
+- Session 1: Pipeline foundation + HandleBaseDecl integration + codex review fixes
+- Session 2: Handler gate migration (Phases 3-6) + emission-time gap fixes + safety net removal + codex review fixes
 
 ---
 
-### Session 2: MethodRepresentation Foundation + MethodHandler (Phase 2a)
+### Session 3: MethodRepresentation Foundation + MethodHandler (Phase 2a)
 
 **Goal**: Define the `MethodRepresentation` model, implement core phase handlers, build the renderer, and migrate `MethodHandler` to the new pipeline.
 
@@ -449,7 +426,7 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 
 ---
 
-### Session 3: Remaining Handlers + Async/Wrapper Phases (Phase 2b)
+### Session 4: Remaining Handlers + Async/Wrapper Phases (Phase 2b)
 
 **Goal**: Migrate PropertyHandler, ConstructorHandler, and SubscriptHandler to `MethodRepresentation`. Add remaining phases.
 
@@ -473,13 +450,15 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 
 ---
 
-### Session 4: Data-Driven Apple Frameworks (Phase 3) ✅ COMPLETED
+### Session 5: Data-Driven Apple Frameworks (Phase 3) ✅ COMPLETED
 
 **Goal**: Extract hardcoded AppleFrameworkRegistry data into per-framework JSON files.
 
 **Completed** (2026-03-14): All steps executed successfully. See Session Log below for details.
 
 **Actual scope**: 70 JSON files created (vs estimated ~30), ~1,444 LOC added, ~462 LOC removed. 11 parity tests. Registry API unchanged. All 7485 tests pass. 89/90 validation targets pass (1 pre-existing).
+
+Note: Executed as Session 5 (out of plan order — Phase 3 was tackled before Phase 2 because it was lower risk and independent).
 
 ---
 
@@ -488,7 +467,7 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 | Session | Phase | Primary Deliverable | LOC Delta | Risk | Status |
 |---------|-------|--------------------|-----------| -----| -------|
 | 1 | Phase 1 | Validation pipeline foundation + HandleBaseDecl integration | +1K / -0.1K | Low | ✅ Done |
-| 2 | Phase 1 | Handler gate migration + safety net closure | TBD | Low | Planned |
+| 2 | Phase 1 | Handler gate migration + safety net removal + codex fixes | +0.3K / -0.5K | Low | ✅ Done |
 | 3 | Phase 2a | MethodRepresentation + phases + renderer + MethodHandler migration | +3.5K / -2.5K | Medium | Planned |
 | 4 | Phase 2b | PropertyHandler + ConstructorHandler + SubscriptHandler migration | +1.5K / -8K | Medium | Planned |
 | 5 | Phase 3 | JSON framework definitions + registry loader | +1.4K / -0.5K | Low | ✅ Done |
@@ -501,14 +480,14 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 
 | Metric | Current | Target |
 |--------|---------|--------|
-| Validation gate locations | 150+ across 5 tiers, 10+ files | 1 pipeline, N gate classes (Phase 1) |
+| Validation gate locations | 150+ across 5 tiers, 10+ files | ✅ 1 pipeline with 14 ordered gates across 6 phases (Phase 1 — done) |
 | Handler LOC (excl. closures/protocols) | ~33K | ~15K (Phase 2) |
 | CLAUDE.md critical constraints | ~30 entries | ~15 entries (Phases 1+2) |
-| Files to edit for new validation gate | 3-5 | 1 (Phase 1) |
+| Files to edit for new validation gate | 3-5 | ✅ 1 pipeline method (Phase 1 — done) |
 | Files to edit for new projection type | 6+ switch dispatches | 1 renderer + 1 projection (Phase 2) |
-| Post-processor patterns | 8 (6 safety nets) | 3 active patterns (Phase 1 bonus) |
+| Post-processor patterns | 8 (6 safety nets) | ✅ 3 active patterns (Phase 1 — done) |
 | Framework data format | ~~C# source code~~ | ✅ JSON files (Phase 3 — done) |
-| 88-library validation | Baseline | Zero regressions after each phase |
+| 88-library validation | Baseline | ✅ Zero regressions after Phases 1 + 3 |
 
 ---
 
@@ -542,10 +521,8 @@ These are important but separate from this refactoring:
 - Lesson: to consolidate, must move the EXACT handler checks (not a superset). Must verify each moved check doesn't change which methods are emitted.
 
 **Attempted and reverted — safety net removal (Step 8):**
-- Removed patterns (b)-(f) from `SwiftWrapperPostProcessor` → caused regressions:
-  - Alamofire: pattern (b) `self.` without `_self:` still fires — closure bridge methods emit `self.adapt()` calls in free functions that lack `_self:` parameter. Emission-time gate doesn't prevent this.
-  - ObjectMapper: pattern (f) raw generic `τ_0_0` still leaks into wrapper code. `WrapperValidation.HasRawGenericTypeParams` doesn't catch all cases.
-- Root cause: the emission-time gates that are supposed to replace these safety nets have coverage gaps. The safety nets are still catching real broken patterns in production libraries.
+- Removed patterns (b)-(f) from `SwiftWrapperPostProcessor` → caused regressions at the time.
+- Session 2 later proved: pattern (b) never actually fired on Alamofire (closure bridge methods are inside extension blocks, correctly excluded by `isInsideExtension`). Pattern (f) was fixed by adding `HasRawGenericTypeParams` gate to `DefaultParameterOverloadEmitter.EmitDebugParamWrapper`. Both gaps resolved and safety nets successfully removed in Session 2.
 
 **Codex review fixes (applied same session):**
 - Finding 1 (P2): ModuleHandler now uses the pipeline — `ValidateMethodEmission` called for free functions. Added gate 2a: `IsModuleInternal` for module-level functions (ParentDecl is ModuleDecl).
@@ -572,57 +549,90 @@ These are important but separate from this refactoring:
 
 ---
 
-### Session 2 (Phase 1 completion): Handler Gate Migration + Safety Net Closure
+### Session 2 (2026-03-14): Handler Gate Migration (Phases 3-6)
 
-**Goal**: Move handler inline gates into the pipeline, fix emission-time gate gaps, remove safety nets.
+**Goal**: Move handler inline gates into the pipeline. Fix emission-time gaps. Remove safety nets.
 
-**Prerequisite reading**: Session 1 log above (attempted approaches and root causes).
+**Completed:**
 
-**Steps:**
+1. **Added `MethodValidationGates.HasUnsupportedProtocolConstraints(MethodDecl, ITypeDatabase)` overload** — pipeline can call without MethodEnvironment. Original `(MethodEnvironment)` overload delegates to it.
 
-1. **Move exact handler inline checks into pipeline** (NOT EvaluateHardGates — see Session 1 lesson):
-   - From ConstructorHandler.Emit and MethodHandler.Emit, move these pure-skip checks into `ValidateMethodEmission`:
-     - Bare generic usage (`BoundGenericsHandler.HasBareGenericUsage` per argument)
-     - Non-SwiftObject bound generic (`HasNonSwiftObjectGenericArg`)
-     - Unsatisfied constraint (`TryGetFirstUnsatisfiedConstraint`)
-     - PInvokeHelperContext + thunk closure (constructor: hasThunkClosure; method: hasThunkClosure || isAsync with MethodClosureBridge/NestedClosureBridge exceptions) — requires `ValidationContext.PInvokeHelperContext`
-     - Generic constructor own params — already in pipeline from Session 1 codex fix, verify it's working
-   - LEAVE in handlers: existential arg accumulation + bypass/bridge fallback (these emit code, not just validate)
-   - Create a fresh `BoundGenericsHandler(typeDatabase)` in the pipeline — same as handlers do, produces identical results
-   - The PInvokeHelperContext thunk check needs `ClosureHandler(typeDatabase)` — create fresh in pipeline
-   - **Critical**: pass real `ValidationContext` from HandleBaseDecl (not `null`), with `PInvokeHelperContext` from `TypeHandlerContext`
-   - Test: for each moved check, write a parity test that constructs the same MethodDecl and asserts the pipeline produces the same result as the handler would
+2. **Extended `MemberValidationPipeline.ValidateMethodEmission` with 4 new gate phases:**
+   - **Phase 3 — Generic type callback** (thunk closure in PInvokeHelperContext):
+     - Constructor: closure requiring thunk → skip
+     - Method: closure thunk OR async, with MethodClosureBridge/NestedClosureBridge eligibility exceptions → skip
+     - Protocol extension methods always let through
+     - Creates fresh `ClosureHandler(typeDatabase)` for RequiresThunk/GetClosureTypeSpec checks
+   - **Phase 4 — Protocol constraint** (non-constructor only):
+     - `HasUnsupportedProtocolConstraints(methodDecl, typeDatabase)` → skip
+   - **Phase 5 — Bound generic gates** (non-accessor only):
+     - Per-argument loop: bare generic usage, non-ISwiftObject bound generic, unsatisfied constraint → skip
+     - Creates fresh `BoundGenericsHandler(typeDatabase)` — same as handlers did
+     - Existential type argument checks intentionally remain in handlers (accumulate state for bypass/bridge)
+   - **Phase 6 — Generic constructor own params** (constructor only):
+     - Method-own generic params (not inherited from parent type) → skip
 
-2. **Remove duplicate checks from handlers** once pipeline handles them:
-   - ConstructorHandler.Emit: remove bare generic loop (lines 125-138), non-SwiftObject (145-156), unsatisfied constraint (158-168), thunk closure (99-115)
-   - MethodHandler.Emit: remove bare generic loop (633-646), non-SwiftObject (653-664), unsatisfied constraint (666-676), thunk closure/async (577-604), HasUnsupportedProtocolConstraints (609-619) — already in pipeline from Session 1
-   - Keep existential accumulation (lines 678-700 in MethodHandler, 170-221 in ConstructorHandler) — these feed into bridge dispatch
-   - Run `./run-tests.sh 2>&1 | tee /tmp/session2-step2-tests.txt` after each handler cleanup
+3. **Updated HandleBaseDecl** to pass real `ValidationContext` with `PInvokeHelperContext` from `TypeHandlerContext` (was passing `null`).
 
-3. **Fix emission-time gate gaps** (required before safety nets can be removed):
-   - Gap 1 (pattern b): Closure bridge methods emit `self.X()` without `_self:` — investigate `ClosureEmitter` / bridge adapters for Alamofire's `RequestAdapter.adapt()`. Reproduce with `./validate-libraries.sh --filter Alamofire --verbose`. The wrapper emits `self.adapt(...)` inside a `@_silgen_name` free function that has no `_self:` parameter.
-   - Gap 2 (pattern f): Raw generic params `τ_0_0` leak into ObjectMapper wrappers — investigate with `./validate-libraries.sh --filter ObjectMapper --verbose`. Look at line 289 of the generated wrapper. Find which emitter path fails to check `WrapperValidation.HasRawGenericTypeParams` or `ContainsRawGenericTypeParam`. Likely a property or subscript accessor wrapper path.
-   - Each gap fix needs a unit test that reproduces the specific pattern.
+4. **Cleaned up ConstructorHandler.Emit:**
+   - Removed: thunk closure check, bare generic/non-SwiftObject/unsatisfied constraint loop, generic constructor own params
+   - Kept: existential type argument accumulation loop + bypass/bridge fallback logic
+   - Net: ~80 lines removed
 
-4. **Remove safety nets** once gaps are closed:
-   - After gap 1: remove patterns (b) `self.` without `_self:`, (c) `__self.init(`, (e) non-escaping closure in Task
-   - After gap 2: remove pattern (f) raw generic params `τ_0_0`
-   - Remove `ClosureParamPattern` and `RawGenericParamPattern` regexes once no longer referenced
-   - Update 21 post-processor tests (change from "stripped" to "preserved" assertions)
-   - Run full validation to confirm zero regressions
+5. **Cleaned up MethodHandler.Emit:**
+   - Removed: thunk closure + async check, HasUnsupportedProtocolConstraints, bare generic/non-SwiftObject/unsatisfied constraint loop
+   - Kept: existential type argument accumulation loop (unsupported + supported in non-container) + bridge dispatch
+   - Net: ~90 lines removed
 
-5. **Update CLAUDE.md** — remove constraints now enforced by the pipeline:
-   - "Conditional extension constraint gates: Three parallel paths must stay aligned" → one path
-   - "Closure two-layer gate" ordering → in pipeline gate ordering
+6. **Updated 5 tests** that called handler.Emit() directly to test through the pipeline instead:
+   - `Emit_GenericConstructor_SkippedBecauseCSharpDoesNotSupportGenericConstructors` → tests Phase 6
+   - `Emit_GenericMethod_WithAssociatedTypeProtocolConstraint_SkipsEmission` → tests Phase 4
+   - `MethodHandler_ThunkClosureInGenericType_SkipsEmission` → tests Phase 3
+   - `MethodHandler_AsyncMethodInGenericType_SkipsEmission` → tests Phase 3
+   - `ConstructorHandler_ThunkClosureInGenericType_SkipsEmission` → tests Phase 3
+
+7. **Added 8 new pipeline tests** (Phase 3-6 coverage):
+   - Thunk closure, async in generic type, no PInvokeHelper bypass, protocol extension bypass
+   - Protocol constraint with associated types, constructor skips protocol check
+   - Generic constructor own params, inherited params emit
+
+8. **Gap investigation — pattern (b) self-without-_self:** Investigated all 90 validation libraries. Pattern (b) does NOT fire on any library. The `self.adapt()` calls in Alamofire are inside extension blocks (correctly excluded by `isInsideExtension` check). No gap to fix.
+
+9. **Gap fix — pattern (f) raw generic params:** Found 2 libraries (ObjectMapper, RxSwift) with `τ_0_0` in `_dbg_` debug-parameter-overload wrappers. Root cause: `DefaultParameterOverloadEmitter.EmitDebugParamWrapper` used `RenderSwiftTypeSpec` on raw generic return types. Fix: added `WrapperValidation.HasRawGenericTypeParams` early return that skips the entire wrapper (no Swift emission, no MangledName retarget, no UsesWrapperLibrary flag). Only strips debug params from CSSignature so the method falls through to its original mangled name via CallConvSwift.
+
+10. **Removed safety net patterns (b)-(f) from SwiftWrapperPostProcessor:**
+    - Patterns (b) self-without-_self, (c) __self.init, (e) non-escaping-closure-in-Task, (f) raw-generic-param all removed
+    - Pattern (a) EveryProtocol() remains (unconditional by design, not a safety net)
+    - Removed `ClosureParamPattern`, `RawGenericParamPattern` regexes, `ContainsRawGenericParam` method
+    - Simplified `IsSilgenNameBroken`, `IsExtensionBroken`, `IsStandaloneFuncBroken` to only check EveryProtocol
+    - Updated 11 tests from "stripped" to "preserved" assertions, deleted 10 safety-net-warning tests
+
+**Codex review fixes (applied same session):**
+- Finding 1 (P1): First version of `EmitDebugParamWrapper` raw generic fix retargeted `MangledName` to the nonexistent `DBG_*` symbol even when no Swift wrapper was emitted. Fixed: early return skips the entire wrapper including `MangledName`/`UsesWrapperLibrary` update. Method falls through to original mangled name.
+- Finding 2 (P3): Updated tests replaced end-to-end emission assertions with direct pipeline calls, leaving handler integration under-tested. Fixed: added 4 end-to-end integration tests that go through `ModuleHandler → HandleBaseDecl → pipeline → handler`, verifying gates actually prevent emission. Thunk closure test validates pipeline directly (module-level free functions don't have `PInvokeHelperContext`; gate fires in type handler `HandleBaseDecl`).
+
+**Files touched:**
+
+| File | Status | Notes |
+|------|--------|-------|
+| `MemberValidationPipeline.cs` | MODIFIED | +65 LOC (Phases 3-6), updated doc comment |
+| `MethodValidationGates.cs` | MODIFIED | +6 LOC (MethodDecl overload, original delegates) |
+| `IHandler.cs` | MODIFIED | ValidationContext creation, pass to pipeline |
+| `MethodHandler.cs` | MODIFIED | -170 LOC (removed gates from ConstructorHandler.Emit + MethodHandler.Emit) |
+| `DefaultParameterOverloadEmitter.cs` | MODIFIED | +10 LOC (raw generic param early return in EmitDebugParamWrapper) |
+| `SwiftWrapperPostProcessor.cs` | MODIFIED | -80 LOC (safety net patterns removed) |
+| `SwiftWrapperPostProcessorTests.cs` | MODIFIED | 11 tests updated, 10 tests deleted |
+| `ConstructorHandlerOutputTests.cs` | MODIFIED | 1 test updated to use pipeline |
+| `MethodHandlerOutputTests.cs` | MODIFIED | 4 tests updated to use pipeline |
+| `MemberValidationPipelineTests.cs` | MODIFIED | +12 tests (8 gate + 4 E2E), +4 helpers |
 
 **Verification:**
-```bash
-./run-tests.sh 2>&1 | tee /tmp/session2-tests.txt
-rm -rf /tmp/binding-validation && ./validate-libraries.sh 2>&1 | tee /tmp/session2-validation.txt
-git diff .validation-baseline.json  # should show no regressions
-```
-
-**Exit criteria**: All handler inline gates consolidated in pipeline or documented as intentionally remaining (existential bypass/bridge). Safety nets removed. All tests pass. All 88 validation targets match baseline.
+- 7516 unit tests pass (0 failures, 1 known skip)
+- 89/90 validation targets pass (1 pre-existing failure)
+- No regressions (compile status unchanged across all libraries)
+- Zero raw generic params across all 90 validation libraries (verified post-fix)
+- Zero safety net pattern matches across all 90 validation libraries (verified pre-removal)
+- Zero orphaned `DBG_*` symbols (verified: ObjectMapper/RxSwift have no `DBG_` references in Swift or C# output)
 
 ---
 

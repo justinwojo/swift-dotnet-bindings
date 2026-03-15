@@ -81,6 +81,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, reason, details);
         }
 
+        // Pipeline: property-level bound generic gates (bare generic, non-ISwiftObject, unsatisfied constraint)
+        var pipeline = new MemberValidationPipeline(propertyEnv.TypeDatabase);
+        var propertyValidation = pipeline.ValidatePropertyEmission(propertyDecl, null);
+        if (!propertyValidation.ShouldEmit)
+        {
+            SkipProperty(propertyValidation.Reason ?? SkipReason.Unknown, propertyValidation.Details ?? "");
+            return;
+        }
+
         // Handle AsyncStream properties - emit as IAsyncEnumerable<T>
         bool isAsyncStream = propertyEnv.AsyncStreamHandler.IsAsyncStream(propertyDecl.SwiftTypeSpec);
         if (isAsyncStream)
@@ -185,12 +194,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        if (propertyEnv.BoundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl))
-        {
-            _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - type '{propertyDecl.SwiftTypeSpec}' contains generic declaration used without type arguments.");
-            SkipProperty(SkipReason.UnsupportedSignature, $"Type '{propertyDecl.SwiftTypeSpec}' contains generic declaration used without type arguments.");
-            return;
-        }
+        // Bare generic, non-ISwiftObject, and unsatisfied constraint gates are now
+        // in MemberValidationPipeline.ValidatePropertyEmission (called above).
 
         // Build generic context early — needed for bound generic translation, factory projection, and getter/setter emission.
         var propertyGenericContext = propertyDecl.ParentDecl is TypeDecl propParentType && propParentType.IsGeneric
@@ -228,20 +233,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
         else if (propertyEnv.BoundGenericsHandler.IsBoundGeneric(propertyDecl))
         {
-            if (propertyEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(propertyDecl.SwiftTypeSpec))
-            {
-                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - bound generic contains non-ISwiftObject type argument.");
-                SkipProperty(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
-                return;
-            }
-
-            if (propertyEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(propertyDecl.SwiftTypeSpec, propertyDecl, out var constraintDetails))
-            {
-                _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} - {constraintDetails}");
-                SkipProperty(SkipReason.UnsatisfiedGenericConstraint, constraintDetails);
-                return;
-            }
-
+            // Non-ISwiftObject and unsatisfied constraint gates moved to pipeline.
+            // Existential check stays inline (feeds skip logic that requires emission context).
             if (propertyEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(propertyDecl.SwiftTypeSpec, out var existentialType))
             {
                 if (!propertyEnv.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(propertyDecl.SwiftTypeSpec))

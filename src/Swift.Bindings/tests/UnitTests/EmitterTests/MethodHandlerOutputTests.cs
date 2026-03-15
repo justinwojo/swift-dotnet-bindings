@@ -236,6 +236,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void Emit_GenericMethod_WithAssociatedTypeProtocolConstraint_SkipsEmission()
     {
+        // This gate is now in MemberValidationPipeline (Phase 4).
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.SequenceLike", TypeRecordFlags.HasAssociatedTypes);
 
@@ -254,10 +255,11 @@ public class MethodHandlerOutputTests
                 CreateGenericArgumentWithProtocolConformance("T", "TestModule.SequenceLike")
             });
 
-        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(method, null);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericProtocolConstraint, result.Reason);
     }
 
     [Fact]
@@ -985,6 +987,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void MethodHandler_ThunkClosureInGenericType_SkipsEmission()
     {
+        // This gate is now in MemberValidationPipeline (Phase 3).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1005,10 +1008,13 @@ public class MethodHandlerOutputTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
-        var (csOutput, swiftOutput) = EmitMethodInGenericContext(method, typeDatabase);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
     }
 
     [Fact]
@@ -1046,6 +1052,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void MethodHandler_AsyncMethodInGenericType_SkipsEmission()
     {
+        // This gate is now in MemberValidationPipeline (Phase 3 — async in generic type).
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1060,10 +1067,13 @@ public class MethodHandlerOutputTests
             throws: false,
             methodType: MethodType.Instance);
 
-        var (csOutput, swiftOutput) = EmitMethodInGenericContext(method, typeDatabase);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
     }
 
     [Fact]
@@ -1092,6 +1102,7 @@ public class MethodHandlerOutputTests
     [Fact]
     public void ConstructorHandler_ThunkClosureInGenericType_SkipsEmission()
     {
+        // This gate is now in MemberValidationPipeline (Phase 3).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1121,10 +1132,13 @@ public class MethodHandlerOutputTests
         };
         parentDecl.Methods.Add(ctor);
 
-        var (csOutput, swiftOutput) = EmitConstructorInGenericContext(ctor, typeDatabase);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(ctor, validationCtx);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
     }
 
     [Fact]

@@ -769,6 +769,19 @@ public static class DefaultParameterOverloadEmitter
 
         var swiftFuncName = $"_dbg_{methodDecl.Name}_{hash}";
 
+        // If the method has raw generic type params (τ_0_0, etc.), the Swift wrapper would
+        // contain invalid source. Skip the entire wrapper — don't emit Swift code, don't
+        // retarget MangledName, don't set UsesWrapperLibrary. Only strip debug params from
+        // CSSignature so downstream C# emission doesn't see #file/#line params.
+        // The method will emit via CallConvSwift targeting the original mangled name.
+        if (WrapperValidation.HasRawGenericTypeParams(methodDecl))
+        {
+            methodDecl.CSSignature = methodDecl.CSSignature
+                .Where((a, i) => i == 0 || !IsDebugParameter(a))
+                .ToList();
+            return;
+        }
+
         swiftWriter.WriteLine();
 
         if (isFreeFunction)

@@ -96,76 +96,18 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
-            // Skip constructors that need [UnmanagedCallersOnly] callbacks in generic types.
-            // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
-            if (methodEnv.PInvokeHelperContext != null)
-            {
-                bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
-                    .Where(arg => methodEnv.ClosureHandler.IsClosure(arg))
-                    .Any(arg => methodEnv.ClosureHandler.RequiresThunk(
-                        methodEnv.ClosureHandler.GetClosureTypeSpec(arg)!));
-                if (hasThunkClosure)
-                {
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method, methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
-                        "Constructor requires [UnmanagedCallersOnly] callback inside generic type.");
-                    return;
-                }
-            }
+            // Phases 3-6 (thunk closure, protocol constraints, bound generic skip gates,
+            // generic constructor own params) are now in MemberValidationPipeline.
+            // Only existential type argument accumulation remains here — it feeds
+            // bypass/bridge fallback logic that requires emission context.
 
-            var isAccessor = methodEnv.MethodDecl.IsAccessor;
-
-            // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulate+bypass
-            // Note: unsupported-module gate intentionally NOT here — MethodHandler never had it,
-            // and ShouldSkipMethodEmission skips B19 for constructors. Adding it would change behavior.
             bool hasExistentialArg = false;
             string? firstExistentialType = null;
 
             foreach (var argument in methodEnv.MethodDecl.CSSignature)
             {
-                // Bare generic usage
-                if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
-                {
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bare generic usage in signature");
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsupportedSignature,
-                        $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.");
-                    return;
-                }
-
                 if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
-                {
                     continue;
-                }
-
-                // Non-ISwiftObject bound generic
-                if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
-                {
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: non-ISwiftObject bound generic arg");
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsatisfiedGenericConstraint,
-                        "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
-                    return;
-                }
-
-                if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))
-                {
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: {constraintDetails}");
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsatisfiedGenericConstraint,
-                        constraintDetails);
-                    return;
-                }
 
                 if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                 {
@@ -285,28 +227,6 @@ namespace BindingsGeneration
                     "Constrained existential parameter(s) bridged via @_silgen_name wrapper.");
                 methodEnv.MethodDecl.WasEmitted = true;
                 return;
-            }
-
-            // C# does not support generic constructors. If the constructor has method-own
-            // generic parameters (not inherited from the parent type), skip it.
-            if (methodEnv.MethodDecl.IsGeneric)
-            {
-                var typeParamNames = methodEnv.ParentDecl is TypeDecl td2 && td2.IsGeneric
-                    ? new HashSet<string>(td2.GenericParameters.Select(p => p.TypeName))
-                    : new HashSet<string>();
-                bool hasMethodOwnGenericParams = methodEnv.MethodDecl.GenericParameters
-                    .Any(p => !typeParamNames.Contains(p.TypeName));
-                if (hasMethodOwnGenericParams)
-                {
-                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: C# does not support generic constructors.");
-                    ReportCollector.RecordMemberSkipped(
-                        BindingItemKind.Method,
-                        methodEnv.MethodDecl.Name,
-                        methodEnv.MethodDecl.ParentDecl,
-                        SkipReason.UnsupportedSignature,
-                        "C# does not support generic constructors with method-own type parameters.");
-                    return;
-                }
             }
 
             // Emit Swift wrapper for constructors with debug params (#file, #line, etc.)
@@ -574,49 +494,11 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
-            // Skip methods that need [UnmanagedCallersOnly] callbacks in generic types.
-            // DllImport is handled by PInvokeHelperContext hoisting, but callbacks can't be hoisted.
-            // Exceptions: ProtocolExtensionClosureBridge and MethodClosureBridge emit
-            // callbacks in a non-generic helper class via PInvokeHelperContext.RawCodeBlocks.
-            if (methodEnv.PInvokeHelperContext != null && !methodEnv.MethodDecl.IsProtocolExtensionMethod)
-            {
-                bool hasThunkClosure = methodEnv.MethodDecl.CSSignature.Skip(1)
-                    .Where(arg => methodEnv.ClosureHandler.IsClosure(arg))
-                    .Any(arg => methodEnv.ClosureHandler.RequiresThunk(
-                        methodEnv.ClosureHandler.GetClosureTypeSpec(arg)!));
-                bool isAsync = methodEnv.MethodDecl.IsAsync;
-                if (hasThunkClosure || isAsync)
-                {
-                    // Allow MethodClosureBridge/NestedClosureBridge-eligible methods through —
-                    // they hoist callbacks to the helper class like ProtocolExtensionClosureBridge.
-                    if (!MethodClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler,
-                            methodEnv.TypeDatabase) &&
-                        !NestedClosureBridge.IsEligible(methodEnv.MethodDecl, methodEnv.ClosureHandler,
-                            methodEnv.TypeDatabase))
-                    {
-                        if (!methodEnv.MethodDecl.IsAccessor)
-                            ReportCollector.RecordMemberSkipped(
-                                BindingItemKind.Method, methodEnv.MethodDecl.Name,
-                                methodEnv.MethodDecl.ParentDecl, SkipReason.GenericTypeCallback,
-                                "Member requires [UnmanagedCallersOnly] callback inside generic type.");
-                        return;
-                    }
-                }
-            }
+            // Phases 3-5 (thunk closure, protocol constraints, bound generic skip gates)
+            // are now in MemberValidationPipeline. Only existential type argument
+            // accumulation remains here — it feeds bypass/bridge fallback logic.
 
             var isAccessor = methodEnv.MethodDecl.IsAccessor;
-
-            // Skip methods with constraints on protocols with associated types
-            // (these protocols generate generic C# interfaces which can't be used as constraints without type arguments)
-            if (MethodValidationGates.HasUnsupportedProtocolConstraints(methodEnv))
-            {
-                _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: has constraints on protocols with associated types or self requirements");
-                if (!isAccessor)
-                {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.GenericProtocolConstraint, "Method has constraints on protocols with associated types or self requirements.");
-                }
-                return;
-            }
 
             // Existential state accumulated by validation loop, passed to bridge dispatch table.
             // Declared at method scope so BridgeEmitterContext can reference them for both accessor
@@ -626,54 +508,10 @@ namespace BindingsGeneration
 
             if (!isAccessor)
             {
-                // MH-specific gates: bare generic, non-ISwiftObject, unsatisfied constraints, existential accumulation
-                // Note: unsupported-module gate intentionally NOT here — MethodHandler never had it.
-                // ShouldSkipMethodEmission handles B19 for non-constructors; adding it here would change semantics.
-
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
-                    // Bare generic usage
-                    if (methodEnv.BoundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodEnv.MethodDecl.ModuleDecl))
-                    {
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: bare generic usage in signature");
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl,
-                            SkipReason.UnsupportedSignature,
-                            $"Type '{argument.SwiftTypeSpec}' contains generic declaration used without type arguments.");
-                        return;
-                    }
-
                     if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
-                    {
                         continue;
-                    }
-
-                    // Non-ISwiftObject bound generic
-                    if (methodEnv.BoundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
-                    {
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: non-ISwiftObject bound generic arg");
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl,
-                            SkipReason.UnsatisfiedGenericConstraint,
-                            "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
-                        return;
-                    }
-
-                    if (methodEnv.BoundGenericsHandler.TryGetFirstUnsatisfiedConstraint(argument.SwiftTypeSpec, methodEnv.MethodDecl, out var constraintDetails))
-                    {
-                        _logger.LogWarning($"Skipping method {methodEnv.MethodDecl.Name}: {constraintDetails}");
-                        ReportCollector.RecordMemberSkipped(
-                            BindingItemKind.Method,
-                            methodEnv.MethodDecl.Name,
-                            methodEnv.MethodDecl.ParentDecl,
-                            SkipReason.UnsatisfiedGenericConstraint,
-                            constraintDetails);
-                        return;
-                    }
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
                     {

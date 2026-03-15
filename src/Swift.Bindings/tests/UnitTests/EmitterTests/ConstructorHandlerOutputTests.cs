@@ -17,6 +17,7 @@ public class ConstructorHandlerOutputTests
     {
         // C# does not allow generic constructors. A Swift init<T: Loadable>() on a
         // non-generic type has method-own generic params that can't be represented.
+        // This gate is now in MemberValidationPipeline (Phase 6).
         var typeDatabase = CreateTypeDatabase();
         RegisterProtocol(typeDatabase, "TestModule.Loadable", TypeRecordFlags.None);
 
@@ -31,10 +32,12 @@ public class ConstructorHandlerOutputTests
                 CreateGenericArgumentWithProtocolConformance("T", "TestModule.Loadable")
             });
 
-        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var result = pipeline.ValidateMethodEmission(constructor, null);
 
-        // Constructor is skipped — no output emitted
-        Assert.Equal(string.Empty, csOutput);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("generic constructors", result.Details!);
     }
 
     [Fact]

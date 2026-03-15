@@ -1,11 +1,11 @@
 {
-  "git_sha": "820b8b25",
+  "git_sha": "06800df2",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50243,
+        "lines": 50215,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "dep_only",
         "errors": 0,
-        "lines": 12028,
+        "lines": 12026,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,28 +33,28 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21804,
+        "lines": 21802,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 90249,
+        "lines": 90196,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4611,
+        "lines": 4610,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "fail",
         "errors": 4,
-        "lines": 55238,
+        "lines": 55316,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,35 +89,35 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21709,
+        "lines": 21787,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21709,
+        "lines": 21787,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21709,
+        "lines": 21787,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12425,
+        "lines": 12414,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14209,
+        "lines": 14204,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15706,
+        "lines": 15705,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,21 +306,21 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5259,
+        "lines": 5257,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13991,
+        "lines": 13983,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17367,
+        "lines": 17365,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,14 +334,14 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8301,
+        "lines": 8299,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4238,
+        "lines": 4237,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3792,
+        "lines": 3785,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,14 +383,14 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22033,
+        "lines": 22022,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "AnimatedCollectionViewLayout": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2873,
+        "lines": 2872,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

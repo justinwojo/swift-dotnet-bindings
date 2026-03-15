@@ -126,8 +126,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_SilgenNameWithBareSelf_Stripped()
+        public void Process_SilgenNameWithBareSelf_Preserved()
         {
+            // Pattern (b) removed — self. without _self: is now prevented at emission time.
             var input = """
                 @_silgen_name("free_func")
                 public func free_func() {
@@ -136,8 +137,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("self.doSomething", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("self.doSomething", result.CleanedContent);
         }
 
         [Fact]
@@ -156,8 +157,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_SilgenNameWithAsyncInit_Stripped()
+        public void Process_SilgenNameWithAsyncInit_Preserved()
         {
+            // Pattern (c) removed — __self.init is now prevented at emission time.
             var input = """
                 @_silgen_name("init_wrapper")
                 public func init_wrapper() {
@@ -166,8 +168,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("__self.init", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("__self.init", result.CleanedContent);
         }
 
         [Fact]
@@ -206,8 +208,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_SilgenNameWithNonEscapingClosureTask_Stripped()
+        public void Process_SilgenNameWithNonEscapingClosureTask_Preserved()
         {
+            // Pattern (e) removed — non-escaping closure in Task is now prevented at emission time.
             var input = """
                 @_silgen_name("closure_task_func")
                 public func closure_task_func(_self: UnsafeMutableRawPointer, callback: (Int32) -> Int32) {
@@ -218,7 +221,8 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("closure_task_func", result.CleanedContent);
         }
 
         [Fact]
@@ -261,8 +265,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ExtensionWithAsyncInit_Stripped()
+        public void Process_ExtensionWithAsyncInit_Preserved()
         {
+            // Pattern (c) removed — __self.init is now prevented at emission time.
             var input = """
                 extension SomeType {
                     func wrapper() {
@@ -272,7 +277,9 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SomeType", result.CleanedContent);
+            Assert.Contains("__self.init", result.CleanedContent);
         }
 
         [Fact]
@@ -292,8 +299,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ExtensionWithClosureInTask_Stripped()
+        public void Process_ExtensionWithClosureInTask_Preserved()
         {
+            // Pattern (e) removed — non-escaping closure in Task is now prevented at emission time.
             var input = """
                 extension SomeType {
                     func asyncFunc(_self: UnsafeMutableRawPointer, callback: (Int32) -> Void) {
@@ -305,7 +313,9 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SomeType", result.CleanedContent);
+            Assert.Contains("callback(42)", result.CleanedContent);
         }
     }
 
@@ -471,8 +481,11 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_MultiplePatterns_AllStripped()
+        public void Process_MultiplePatterns_OnlyEveryProtocolStripped()
         {
+            // Pattern (b) removed — self. without _self: is no longer stripped.
+            // Only EveryProtocol-related blocks are stripped (class, extension, SBW_ func).
+            // The @_silgen_name("bad1") func with self.foo() is now preserved.
             var input = """
                 class EveryProtocol {
                     var x: Int = 0
@@ -493,15 +506,17 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(4, result.StrippedBlockCount);
+            Assert.Equal(3, result.StrippedBlockCount);
             Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
-            Assert.DoesNotContain("bad1", result.CleanedContent);
+            Assert.Contains("bad1", result.CleanedContent);
             Assert.DoesNotContain("SBW_bad2", result.CleanedContent);
         }
 
         [Fact]
         public void Process_PreservesImportsAndComments()
         {
+            // Pattern (b) removed — self. without _self: is no longer stripped.
+            // Both functions are preserved alongside imports and comments.
             var input = """
                 import Foundation
                 import SwiftBindingsTestLib
@@ -520,10 +535,12 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
             Assert.Contains("import Foundation", result.CleanedContent);
             Assert.Contains("import SwiftBindingsTestLib", result.CleanedContent);
+            Assert.Contains("// This is a comment", result.CleanedContent);
             Assert.Contains("// Keep this", result.CleanedContent);
+            Assert.Contains("broken", result.CleanedContent);
             Assert.Contains("good", result.CleanedContent);
         }
     }
@@ -535,8 +552,9 @@ namespace BindingsGeneration.Tests
     public class PostProcessorRawGenericParamTests
     {
         [Fact]
-        public void Process_SilgenNameWithTau_Stripped()
+        public void Process_SilgenNameWithTau_Preserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
             var input = """
                 @_silgen_name("generic_wrapper")
                 public func generic_wrapper(_self: UnsafeMutableRawPointer) -> τ_0_0 {
@@ -546,13 +564,14 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("τ_0_0", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("τ_0_0", result.CleanedContent);
         }
 
         [Fact]
-        public void Process_ExtensionWithTau_Stripped()
+        public void Process_ExtensionWithTau_Preserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
             var input = """
                 extension SomeType {
                     func wrapper() -> τ_1_0 {
@@ -562,13 +581,14 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("τ_1_0", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("τ_1_0", result.CleanedContent);
         }
 
         [Fact]
-        public void Process_StandaloneFuncWithTau_Stripped()
+        public void Process_StandaloneFuncWithTau_Preserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
             var input = """
                 public func SBW_generic(_ arg: τ_0_1) {
                     print(arg)
@@ -576,13 +596,14 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("τ_0_1", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("τ_0_1", result.CleanedContent);
         }
 
         [Fact]
-        public void Process_MultipleTauVariants_AllStripped()
+        public void Process_MultipleTauVariants_AllPreserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
             var input = """
                 @_silgen_name("multi_generic")
                 public func multi_generic(_self: UnsafeMutableRawPointer, _ a: τ_0_0, _ b: τ_1_0) -> τ_0_1 {
@@ -591,7 +612,10 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("τ_0_0", result.CleanedContent);
+            Assert.Contains("τ_1_0", result.CleanedContent);
+            Assert.Contains("τ_0_1", result.CleanedContent);
         }
 
         [Fact]
@@ -610,8 +634,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_MixedTauAndClean_OnlyTauStripped()
+        public void Process_MixedTauAndClean_BothPreserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
+            // Both the clean func and the tau func are preserved.
             var input = """
                 @_silgen_name("good_func")
                 public func good_func(_self: UnsafeMutableRawPointer) {
@@ -625,9 +651,10 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlockCount);
             Assert.Contains("good_func", result.CleanedContent);
-            Assert.DoesNotContain("bad_generic", result.CleanedContent);
+            Assert.Contains("bad_generic", result.CleanedContent);
+            Assert.Contains("τ_0_0", result.CleanedContent);
         }
     }
 
@@ -672,8 +699,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_CdeclWithRawGenericParam_StripsEntireBlock()
+        public void Process_CdeclWithRawGenericParam_Preserved()
         {
+            // Pattern (f) removed — raw generic params are now prevented at emission time.
             var input = """
                 @_cdecl("SBW_GenericFunc")
                 public func SBW_GenericFunc(_ ptr: UnsafeMutableRawPointer) -> τ_0_0 {
@@ -682,8 +710,9 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("SBW_GenericFunc", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_GenericFunc", result.CleanedContent);
+            Assert.Contains("τ_0_0", result.CleanedContent);
         }
 
         [Fact]
@@ -1099,194 +1128,9 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region I. Safety-Net Warning Callback Tests
-
-    public class PostProcessorSafetyNetWarningTests
-    {
-        [Fact]
-        public void Process_VarExistentialCode_NotStripped()
-        {
-            // var existential is safe — pattern (d) was removed
-            var code = "@_silgen_name(\"test\")\n" +
-                       "public func test(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {\n" +
-                       "    var existential = containerPtr.load(as: (any TestModule.MyProtocol).self)\n" +
-                       "    let result = existential.value\n" +
-                       "    let ptr = UnsafeMutablePointer<Int>.allocate(capacity: 1)\n" +
-                       "    ptr.initialize(to: result)\n" +
-                       "    return UnsafeMutableRawPointer(ptr)\n" +
-                       "}\n";
-            var result = SwiftWrapperPostProcessor.Process(code);
-            Assert.Equal(0, result.StrippedBlockCount);
-            Assert.Contains("var existential", result.CleanedContent);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_FiresForSelfWithoutSelfParam()
-        {
-            var code = "@_cdecl(\"test\")\n" +
-                       "public func test() {\n" +
-                       "    self.doSomething()\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("self-without-_self", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_FiresForRawGenericParam()
-        {
-            var code = "@_cdecl(\"test\")\n" +
-                       "public func test(_ arg: \u03C4_0_0) {\n" +
-                       "    print(arg)\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("raw-generic-param", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_FiresForAsyncInit()
-        {
-            var code = "@_silgen_name(\"init_wrapper\")\n" +
-                       "public func init_wrapper() {\n" +
-                       "    __self.init(value: 42)\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("__self.init", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_FiresForNonEscapingClosureInTask()
-        {
-            var code = "@_silgen_name(\"closure_task_func\")\n" +
-                       "public func closure_task_func(_self: UnsafeMutableRawPointer, callback: (Int32) -> Int32) {\n" +
-                       "    Task {\n" +
-                       "        let result = callback(42)\n" +
-                       "    }\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("non-escaping-closure-in-Task", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_NoWarning_WhenNothingStripped()
-        {
-            var code = "@_cdecl(\"test\")\n" +
-                       "public func test(_ _self: UnsafeRawPointer) {\n" +
-                       "    let result = _self.load(as: Int.self)\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(0, result.StrippedBlockCount);
-            Assert.Empty(warnings);
-        }
-
-        [Fact]
-        public void Process_NoWarning_ForEveryProtocol()
-        {
-            // EveryProtocol stripping is unconditional by design — NOT a safety net.
-            // Verify it does NOT fire the warning callback.
-            var code = "@_cdecl(\"test\")\n" +
-                       "public func test() {\n" +
-                       "    let proxy = EveryProtocol()\n" +
-                       "    proxy.execute()\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Empty(warnings);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_ExtensionWithRawGenericParam()
-        {
-            var code = "extension SomeType {\n" +
-                       "    func wrapper() -> \u03C4_1_0 {\n" +
-                       "        return self.getValue() as! \u03C4_1_0\n" +
-                       "    }\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("raw-generic-param", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_ExtensionWithAsyncInit()
-        {
-            var code = "extension SomeType {\n" +
-                       "    func wrapper() {\n" +
-                       "        __self.init(value: 1)\n" +
-                       "    }\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("__self.init", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_SafetyNetWarning_StandaloneFuncWithRawGenericParam()
-        {
-            var code = "public func SBW_generic(_ arg: \u03C4_0_1) {\n" +
-                       "    print(arg)\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("raw-generic-param", warnings[0]);
-        }
-
-        [Fact]
-        public void Process_IndentedSilgenName_SelfInExtension_NotStripped()
-        {
-            // Default-parameter-overload wrappers are emitted as extension methods with
-            // @_silgen_name. They call self.method() which is legitimate (self is implicit).
-            // The post-processor must NOT strip these despite the self. reference.
-            var code = "extension SnapKit.ConstraintMakerRelatable {\n" +
-                       "    @_silgen_name(\"DBW_equalTo_1234\")\n" +
-                       "    public func _dbw_equalTo_1234(_ other: ConstraintRelatableTarget) -> ConstraintMakerEditable {\n" +
-                       "        return self.equalTo(other)\n" +
-                       "    }\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(0, result.StrippedBlockCount);
-            Assert.Empty(warnings);
-            Assert.Contains("self.equalTo", result.CleanedContent);
-        }
-
-        [Fact]
-        public void Process_TopLevelSilgenName_SelfWithoutSelfParam_StillStripped()
-        {
-            // Top-level (not indented) @_silgen_name with self. but no _self: param
-            // should still be stripped — this IS the broken pattern.
-            var code = "@_silgen_name(\"test\")\n" +
-                       "public func test() {\n" +
-                       "    self.doSomething()\n" +
-                       "}\n";
-            var warnings = new List<string>();
-            var result = SwiftWrapperPostProcessor.Process(code, null, w => warnings.Add(w));
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.Single(warnings);
-            Assert.Contains("self-without-_self", warnings[0]);
-        }
-    }
-
-    #endregion
+    // Region I (Safety-Net Warning Callback Tests) deleted — safety-net patterns (b)-(f)
+    // were removed from SwiftWrapperPostProcessor. These patterns are now prevented at
+    // emission time and no longer need post-processing.
 
     #region H. Module/Type Name Collision
 
