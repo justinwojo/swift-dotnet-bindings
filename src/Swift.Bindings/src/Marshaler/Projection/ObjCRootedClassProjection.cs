@@ -26,14 +26,17 @@ public class ObjCRootedClassProjection : ITypeProjection
     {
         // ObjC-rooted classes use Handle (the NSObject pointer, which IS the Swift object pointer).
         // Swift wrappers expect a buffer address for non-self class params, so create call-scoped temp.
+        // Strip verbatim prefix for compound variable names: @in → in, so _{bareName}_ptr = _in_ptr (valid),
+        // not _@in_ptr (invalid — @ is only valid at the START of a C# identifier).
+        var bareName = NameProvider.StripVerbatimPrefix(paramName);
         return new MarshalPlan
         {
             SetupStatements = new List<MarshalStatement>
             {
-                new MarshalStatement.Line($"IntPtr* _{paramName}_ptr = stackalloc IntPtr[1];"),
-                new MarshalStatement.Line($"*_{paramName}_ptr = {paramName}.Handle;"),
+                new MarshalStatement.Line($"IntPtr* _{bareName}_ptr = stackalloc IntPtr[1];"),
+                new MarshalStatement.Line($"*_{bareName}_ptr = {paramName}.Handle;"),
             },
-            PInvokeExpression = $"(IntPtr)_{paramName}_ptr",
+            PInvokeExpression = $"(IntPtr)_{bareName}_ptr",
             RequiresUnsafe = true
         };
     }

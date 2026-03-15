@@ -3256,6 +3256,85 @@ public class EnumHandlerOutputTests
 
     #endregion
 
+    #region Keyword Label Tests (S1 — verbatim prefix in compound names)
+
+    [Fact]
+    public void Emit_EnumCaseWithKeywordLabel_StringParam_UsesValidCompoundNames()
+    {
+        // S1 bug: enum case with keyword label "in" → SanitizeParameterName returns "@in"
+        // Compound variable names were emitted as "__@in" (invalid) instead of "__in" (valid).
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("FilterScope", moduleDecl, isFrozen: false);
+
+        var includeCase = CreateCase("include");
+        var stringType = new NamedTypeSpec("Swift.String") { TypeLabel = "in" };
+        includeCase.AssociatedValues.Add(stringType);
+        enumDecl.Cases.Add(includeCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Method signature should use @in (valid verbatim identifier)
+        Assert.Contains("string @in", csOutput);
+        // Compound variable name must NOT contain __@in (@ after other chars is invalid)
+        Assert.DoesNotContain("__@in", csOutput);
+        // Compound variable name should use __in (stripped prefix)
+        Assert.Contains("__in", csOutput);
+        Assert.Contains("new SwiftString(@in)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithKeywordLabel_IntParam_UsesValidCompoundNames()
+    {
+        // Same S1 bug with non-string keyword label — no compound variable needed,
+        // but verify the parameter name in the signature is correct (@for).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("FilterScope", moduleDecl, isFrozen: false);
+
+        var excludeCase = CreateCase("exclude");
+        var intType = new NamedTypeSpec("Swift.Int") { TypeLabel = "for" };
+        excludeCase.AssociatedValues.Add(intType);
+        enumDecl.Cases.Add(excludeCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Parameter in method signature should be escaped: long @for
+        Assert.Contains("@for", csOutput);
+        // No compound variable names should have __@for
+        Assert.DoesNotContain("__@for", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithMultipleKeywordLabels_UsesValidCompoundNames()
+    {
+        // Multiple keyword-labeled associated values (matches FilterScope.swift fixture)
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("FilterScope", moduleDecl, isFrozen: false);
+
+        var customCase = CreateCase("custom");
+        var operatorType = new NamedTypeSpec("Swift.String") { TypeLabel = "operator" };
+        var classType = new NamedTypeSpec("Swift.String") { TypeLabel = "class" };
+        customCase.AssociatedValues.Add(operatorType);
+        customCase.AssociatedValues.Add(classType);
+        enumDecl.Cases.Add(customCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Both keyword params should use valid verbatim identifiers in the signature
+        Assert.Contains("@operator", csOutput);
+        Assert.Contains("@class", csOutput);
+        // Neither should produce invalid compound names
+        Assert.DoesNotContain("__@operator", csOutput);
+        Assert.DoesNotContain("__@class", csOutput);
+        // Valid compound names should be present
+        Assert.Contains("__operator", csOutput);
+        Assert.Contains("__class", csOutput);
+    }
+
+    #endregion
+
     private static (string csOutput, string swiftOutput) EmitEnum(EnumDecl enumDecl, TypeDatabase typeDatabase)
     {
         var csOutput = new StringWriter();

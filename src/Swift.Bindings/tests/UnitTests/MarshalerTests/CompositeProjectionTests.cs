@@ -472,5 +472,26 @@ public class CompositeProjectionTests
         Assert.Equal("IntPtr", proj.PInvokeType);
     }
 
+    [Fact]
+    public void ObjCRootedClassProjection_KeywordParamName_ProducesValidCompoundNames()
+    {
+        // P1 from Codex review: ObjCRootedClassProjection builds _{paramName}_ptr locals.
+        // With keyword param "@in", this produced "_@in_ptr" (invalid — @ mid-identifier).
+        // Fix: strip verbatim prefix for compound names, keep @ for parameter references.
+        var proj = new ObjCRootedClassProjection("UIKit.UIView");
+        var plan = proj.GetParameterPlan("@in");
+
+        // Compound variable name must not contain _@in_ptr (@ after prefix is invalid C#)
+        Assert.DoesNotContain("_@in_ptr", plan.PInvokeExpression);
+        Assert.Contains("_in_ptr", plan.PInvokeExpression);
+
+        // Setup statements: compound name stripped, but parameter reference keeps @
+        var setupCode = string.Join("\n", plan.SetupStatements.Select(s => ((MarshalStatement.Line)s).Code));
+        Assert.DoesNotContain("_@in_ptr", setupCode);
+        Assert.Contains("_in_ptr", setupCode);
+        // Parameter reference in .Handle access must keep @ prefix
+        Assert.Contains("@in.Handle", setupCode);
+    }
+
     #endregion
 }

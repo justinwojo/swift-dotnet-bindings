@@ -255,25 +255,9 @@ Swift Bindings is under active development. The core generator, MSBuild SDK, and
 
 ## Contributing
 
-Swift Bindings is in its early stages and evolving rapidly. The best way to contribute right now is through **issue reports**:
+The best way to contribute right now is through [issue reports](https://github.com/justinwojo/swift-dotnet-bindings/issues) — binding errors, feature requests, and bug reports help prioritize the most impactful work. Pull requests are welcome too, but please open an issue first to discuss the change.
 
-- **Binding errors** — if the generator produces C# that doesn't compile for your library, [open an issue](https://github.com/justinwojo/swift-dotnet-bindings/issues) with the details below
-- **Feature requests** — if there's a Swift pattern or workflow the generator doesn't handle, let us know
-- **Bug reports** — unexpected crashes, incorrect generated code, or runtime failures
-
-This helps prioritize the most impactful work across the many libraries and Swift patterns in the wild.
-
-**Pull requests** are welcome, but please open an issue first to discuss the change — especially for anything beyond a trivial fix. The generator internals are changing frequently, and coordinating upfront avoids wasted effort on both sides. Once the project reaches a more stable state, we'll formalize a more open contribution workflow.
-
-### Reporting Issues
-
-When filing an issue, please include:
-
-1. **Generator logs** — run with `-v 2` for verbose output
-2. **The binding report** — `binding-report.json` from the output directory
-3. **The xcframework** (if possible) — or at minimum the ABI JSON and TBD file
-
-See [Troubleshooting](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting) for common issues and solutions.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, PR guidelines, and details on the AI-assisted workflow used to build this project.
 
 ---
 

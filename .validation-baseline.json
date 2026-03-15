@@ -1,5 +1,5 @@
 {
-  "git_sha": "b3c5a90d",
+  "git_sha": "babc9e8c",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -7,7 +7,7 @@
         "errors": 0,
         "lines": 50215,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkID": {
         "compile": "ok",

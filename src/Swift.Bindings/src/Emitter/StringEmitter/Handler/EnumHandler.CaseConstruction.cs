@@ -107,13 +107,17 @@ namespace BindingsGeneration
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];
+                // Strip @ verbatim prefix for compound variable names (e.g., @in → in).
+                // The @ prefix is valid at the START of a C# identifier but invalid mid-identifier.
+                // Compound names like __{bareName} produce @__in (valid), not __@in (invalid).
+                var bareName = NameProvider.StripVerbatimPrefix(name);
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
-                    csWriter.WriteLine($"using var __{name} = new SwiftString({name});");
+                    csWriter.WriteLine($"using var __{bareName} = new SwiftString({name});");
                 }
                 else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                 {
-                    csWriter.WriteLine($"var __{name} = Swift.Data.FromByteArray({name});");
+                    csWriter.WriteLine($"var __{bareName} = Swift.Data.FromByteArray({name});");
                 }
                 else if (typeSpec is TupleTypeSpec tupleSpec && publicType != type)
                 {
@@ -144,14 +148,14 @@ namespace BindingsGeneration
                         {
                             // String: public is `string`, P/Invoke tuple element is IntPtr.
                             // Convert string → SwiftString, then extract IntPtr handle.
-                            var elemVarName = $"__{name}_e{j}";
+                            var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
                             elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase));
                         }
                         else if (proj is DataProjection)
                         {
                             // Data: convert byte[] → Swift.Data for P/Invoke tuple element.
-                            var elemVarName = $"__{name}_e{j}";
+                            var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"var {elemVarName} = Swift.Data.FromByteArray({elementAccess});");
                             elementExprs.Add(elemVarName);
                         }
@@ -159,7 +163,7 @@ namespace BindingsGeneration
                         {
                             // NativeRemapped (URL, etc.): factory creates wrapper, but P/Invoke tuple
                             // element is IntPtr. Use factory setup, then extract IntPtr from the wrapper.
-                            var elemVarName = $"__{name}_e{j}";
+                            var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"var {elemVarName} = {elementAccess};");
                             var elemPlan = nrp.GetParameterPlan(elemVarName);
                             MarshalPlanRenderer.RenderStatements(csWriter, elemPlan.SetupStatements);
@@ -175,7 +179,7 @@ namespace BindingsGeneration
                         {
                             // These projections produce PInvokeExpression that already matches
                             // the tuple P/Invoke type (IntPtr for Optional/Array/Dict, ExistentialContainer for existentials).
-                            var elemVarName = $"__{name}_e{j}";
+                            var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"var {elemVarName} = {elementAccess};");
                             var elemPlan = proj.GetParameterPlan(elemVarName);
                             MarshalPlanRenderer.RenderStatements(csWriter, elemPlan.SetupStatements);
@@ -249,9 +253,10 @@ namespace BindingsGeneration
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     var (_, _, name, typeSpec) = parameters[i];
+                    var bareName = NameProvider.StripVerbatimPrefix(name);
                     if (typeConversionHandler.IsSwiftString(typeSpec))
                     {
-                        csWriter.WriteLine($"using var __{name}Payload = __{name}.PayloadBuffer;");
+                        csWriter.WriteLine($"using var __{bareName}Payload = __{bareName}.PayloadBuffer;");
                     }
                     else if (existentialHandler.IsExistential(typeSpec))
                     {
@@ -261,12 +266,12 @@ namespace BindingsGeneration
                             var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
                             if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                             {
-                                csWriter.WriteLine($"var {name}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
+                                csWriter.WriteLine($"var {bareName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
                             }
                             else
                             {
                                 // Unknown protocol: container is already the right type
-                                csWriter.WriteLine($"var {name}Container = {name};");
+                                csWriter.WriteLine($"var {bareName}Container = {name};");
                             }
                         }
                     }
@@ -277,7 +282,7 @@ namespace BindingsGeneration
                         // Tuples with projected elements (string, existential, container) are
                         // gated out by ShouldEmitCaseFactoryWrapper → IsTupleElementAbiCompatible,
                         // so only ABI-identical tuples (primitives, frozen structs, etc.) reach here.
-                        csWriter.WriteLine($"var {name}Tuple = {name};");
+                        csWriter.WriteLine($"var {bareName}Tuple = {name};");
                     }
                 }
             }
@@ -306,14 +311,15 @@ namespace BindingsGeneration
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, _, name, typeSpec) = parameters[i];
+                var bareName = NameProvider.StripVerbatimPrefix(name);
                 if (typeSpec is NamedTypeSpec genericParamType &&
                     TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
                 {
-                    csWriter.WriteLine($"var {name}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
-                    csWriter.WriteLine($"byte* {name}SwiftBuffer = stackalloc byte[(int){name}Metadata.Size];");
-                    csWriter.WriteLine($"var {name}SwiftSpan = new Span<byte>({name}SwiftBuffer, (int){name}Metadata.Size);");
-                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {name}SwiftSpan);");
-                    argList.Add($"(IntPtr){name}SwiftBuffer");
+                    csWriter.WriteLine($"var {bareName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
+                    csWriter.WriteLine($"byte* {bareName}SwiftBuffer = stackalloc byte[(int){bareName}Metadata.Size];");
+                    csWriter.WriteLine($"var {bareName}SwiftSpan = new Span<byte>({bareName}SwiftBuffer, (int){bareName}Metadata.Size);");
+                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {bareName}SwiftSpan);");
+                    argList.Add($"(IntPtr){bareName}SwiftBuffer");
                 }
                 else if (projectedArgs.TryGetValue(i, out var projPlan))
                 {
@@ -322,7 +328,7 @@ namespace BindingsGeneration
                 else if (useCdeclWrapper && typeSpec is TupleTypeSpec)
                 {
                     // @_cdecl: pass tuple by pointer (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"(IntPtr)(&{name}Tuple)");
+                    argList.Add($"(IntPtr)(&{bareName}Tuple)");
                 }
                 else if (tuplePInvokeExprs.TryGetValue(i, out var tupleExpr))
                 {
@@ -331,18 +337,18 @@ namespace BindingsGeneration
                 else if (useCdeclWrapper && typeConversionHandler.IsSwiftString(typeSpec))
                 {
                     // @_cdecl: pass SwiftString.Buffer (16-byte struct = two words matching Swift's two Int params)
-                    argList.Add($"__{name}Payload.Buffer");
+                    argList.Add($"__{bareName}Payload.Buffer");
                 }
                 else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
                 {
                     // @_cdecl: pass container by reference (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"ref {name}Container");
+                    argList.Add($"ref {bareName}Container");
                 }
                 else
                 {
                     var isConvertedToLocal = typeConversionHandler.IsSwiftString(typeSpec) ||
                         (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data");
-                    var argName = isConvertedToLocal ? $"__{name}" : name;
+                    var argName = isConvertedToLocal ? $"__{bareName}" : name;
                     argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
                 }
             }
@@ -865,11 +871,9 @@ namespace BindingsGeneration
             if (result.Length > 0 && char.IsDigit(result[0]))
                 result = "_" + result;
 
-            // Handle C# reserved keywords
-            var keywords = new HashSet<string> { "string", "int", "bool", "float", "double", "object", "class", "struct", "enum", "delegate", "event", "interface", "namespace", "using", "static", "public", "private", "protected", "internal", "abstract", "sealed", "virtual", "override", "new", "return", "if", "else", "for", "foreach", "while", "do", "switch", "case", "default", "break", "continue", "goto", "throw", "try", "catch", "finally", "lock", "using", "checked", "unchecked", "fixed", "unsafe", "volatile", "extern", "ref", "out", "in", "params", "this", "base", "null", "true", "false", "is", "as", "typeof", "sizeof", "stackalloc", "await", "async", "yield", "nameof", "var", "dynamic" };
-
-            if (keywords.Contains(result))
-                result = "@" + result;
+            // Handle C# reserved keywords — delegate to NameProvider's canonical keyword list
+            // to avoid divergence between the two keyword sets.
+            result = NameProvider.EscapeForCSharpSignature(result);
 
             return string.IsNullOrEmpty(result) ? "value" : result;
         }

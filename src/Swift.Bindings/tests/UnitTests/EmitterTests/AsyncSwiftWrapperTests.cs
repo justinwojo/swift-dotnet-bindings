@@ -328,6 +328,40 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async DynamicSelf Return Type Tests
+
+    [Fact]
+    public void AsyncWrapper_DynamicSelfReturn_UsesParentClassName()
+    {
+        // DynamicSelf (Self return type) in async wrappers is emitted as a free function,
+        // where bare "Self" is invalid Swift. The wrapper must resolve Self to the parent
+        // class type name (e.g., "Alamofire.DataRequest") for MemoryLayout calculations.
+        var (_, swiftOutput) = GenerateAsyncMethodWithDynamicSelfReturn();
+
+        // Should NOT contain MemoryLayout<Self> (invalid in free functions)
+        Assert.DoesNotContain("MemoryLayout<Self>", swiftOutput);
+
+        // Should use Unmanaged.passRetained (class type path, not struct copyMemory path)
+        Assert.Contains("Unmanaged.passRetained(", swiftOutput);
+        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_DynamicSelfReturn_TreatsAsClassType()
+    {
+        // DynamicSelf is only allowed for class parents (validated by WrapperValidation).
+        // The async wrapper must treat it as a class type, using Unmanaged.passRetained
+        // instead of the struct/enum copyMemory path.
+        var (_, swiftOutput) = GenerateAsyncMethodWithDynamicSelfReturn();
+
+        // Should use class path (Unmanaged.passRetained), NOT struct path (copyMemory)
+        Assert.Contains("Unmanaged.passRetained(", swiftOutput);
+        Assert.DoesNotContain("copyMemory(from:", swiftOutput);
+        Assert.DoesNotContain("withUnsafePointer(to:", swiftOutput);
+    }
+
+    #endregion
+
     #region Async _sbwTask Parameter Naming Tests
 
     [Fact]
@@ -960,6 +994,104 @@ public class AsyncSwiftWrapperTests
         var signatureHandler = new SignatureHandler(env);
         var wrapperEmitter = new WrapperEmitter(env, signatureHandler);
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
+    }
+
+    /// <summary>
+    /// Generates Swift output for an async method returning DynamicSelf (Self).
+    /// Used to test that Self is resolved to the parent class type in async free-function wrappers.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithDynamicSelfReturn()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "DataRequest",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataRequest"),
+            MangledName = "$s10TestModule11DataRequestCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        // DynamicSelf return type: NamedTypeSpec("Self") makes IsDynamicSelf true
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Self"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "onHTTPResponse",
+            MangledName = "$s10TestModule11DataRequestC14onHTTPResponseACXDySo17NSHTTPURLResponseCYaYbc_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        // Setup type database
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        // Register the parent class
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataRequest"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = "$s10TestModule11DataRequestCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        // Generate the wrapper
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }

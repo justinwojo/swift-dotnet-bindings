@@ -398,6 +398,45 @@ public class NameProviderParameterTests
 
     #endregion
 
+    #region StripVerbatimPrefix Tests
+
+    [Theory]
+    [InlineData("@in", "in")]
+    [InlineData("@for", "for")]
+    [InlineData("@class", "class")]
+    [InlineData("@operator", "operator")]
+    [InlineData("@event", "event")]
+    [InlineData("@object", "object")]
+    public void StripVerbatimPrefix_KeywordPrefixed_StripsAt(string input, string expected)
+    {
+        Assert.Equal(expected, NameProvider.StripVerbatimPrefix(input));
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("count")]
+    [InlineData("value")]
+    public void StripVerbatimPrefix_NonPrefixed_PassesThrough(string input)
+    {
+        Assert.Equal(input, NameProvider.StripVerbatimPrefix(input));
+    }
+
+    [Fact]
+    public void StripVerbatimPrefix_CompoundNamePattern_ProducesValidIdentifier()
+    {
+        // Verifies the fix for S1: compound variable names with keyword params.
+        // @in → stripped to "in", then compound "__in" is valid C#.
+        // Without fix: "__@in" (@ mid-identifier) is invalid C#.
+        var name = "@in";
+        var bareName = NameProvider.StripVerbatimPrefix(name);
+        var compoundName = $"__{bareName}";
+
+        Assert.Equal("__in", compoundName);
+        Assert.DoesNotContain("@", compoundName);
+    }
+
+    #endregion
+
     #region ToPascalCase — SCREAMING_CASE conversion (WU3)
 
     [Theory]

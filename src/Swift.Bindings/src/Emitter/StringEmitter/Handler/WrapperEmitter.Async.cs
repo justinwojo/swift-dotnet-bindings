@@ -407,9 +407,19 @@ namespace BindingsGeneration
                     var resultVar = $"result{_env.MethodDecl.Name}";
                     var swiftReturnType = returnTypeSpec.ToString();
 
+                    // DynamicSelf (Self return type): resolve to the parent class type.
+                    // Async wrappers are emitted as free functions where bare "Self" is invalid.
+                    // DynamicSelf is only allowed for class parents (validation gate in WrapperValidation),
+                    // so we can safely treat it as a class and use the parent type name.
+                    if (returnTypeSpec.IsDynamicSelf && _env.ParentDecl is TypeDecl dynamicSelfParent)
+                    {
+                        swiftReturnType = dynamicSelfParent.SwiftTypeName.ModuleQualifiedName;
+                    }
+
                     // Check if this is a class type (needs retain to prevent ARC deallocation)
                     _env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var complexReturnTypeRecord);
-                    bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class;
+                    bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class
+                                       || returnTypeSpec.IsDynamicSelf;
 
                     // Allocate memory, copy result value, pass pointer through callback
                     // C# will read from this memory and call SBW_Free to release it
