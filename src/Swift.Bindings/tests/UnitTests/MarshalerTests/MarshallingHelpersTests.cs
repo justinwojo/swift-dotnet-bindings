@@ -288,6 +288,31 @@ public class MarshallingHelpersTests
         Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
     }
 
+    [Fact]
+    public void MethodRequiresIndirectResult_CdeclArrayReturn_ReturnsTrue()
+    {
+        // Bug 2: @_cdecl method returning Swift.Array<T> must use indirect result.
+        // Swift wrapper writes to resultPtr via initializeMemory(as:). Without this fix,
+        // the P/Invoke returned IntPtr (the non-@_cdecl bound generic path), causing
+        // a signature mismatch with the void+resultPtr Swift wrapper.
+        var arrayReturn = new NamedTypeSpec("Swift.Array");
+        arrayReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: arrayReturn);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void MethodRequiresIndirectResult_NonCdeclArrayReturn_ReturnsFalse()
+    {
+        // Inverse: non-@_cdecl Array returns use IntPtr directly (bound generic path).
+        var arrayReturn = new NamedTypeSpec("Swift.Array");
+        arrayReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: arrayReturn);
+        // No UsesCdeclMethodWrapper set — falls through to bound generic path
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
     #endregion
 
     #region IsCoreFoundationType Tests

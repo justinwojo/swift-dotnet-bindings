@@ -255,6 +255,15 @@ public static class SwiftMarshal
         }
 #endif
 
+        // Frozen blittable structs (e.g., Swift.CGSize, Swift.CGPoint, Swift.CGRect)
+        // are plain C# value types with sequential layout. Read directly from native memory.
+        // Gate: must be unmanaged (no managed references like string?, object fields) to avoid
+        // manufacturing invalid managed pointers from raw Swift memory.
+        if (type.IsValueType && !type.IsEnum && RuntimeHelpers.IsReferenceOrContainsReferences<T>() == false)
+        {
+            unsafe { return Unsafe.Read<T>((void*)swiftSource); }
+        }
+
         throw new NotSupportedException($"Cannot marshal type {type} from Swift");
     }
 

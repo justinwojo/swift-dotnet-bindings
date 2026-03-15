@@ -192,6 +192,273 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains("NativeMemory.Alloc", plan.IndirectResultMethod.AllocationCode);
     }
 
+    [Fact]
+    public void IndirectResult_CdeclNonFrozenStructReturn_CleanupCodeIsNull()
+    {
+        // Bug 1: @_cdecl property getter returning non-frozen struct must NOT free the payload
+        // buffer. NewFromPayload takes ownership of the buffer pointer — freeing it causes
+        // use-after-free. CleanupCode must be null so no NativeMemory.Free is emitted.
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = new StructDecl
+        {
+            Name = "Config",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+            MangledName = "$s10TestModule6ConfigVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule6ConfigVMa"
+        };
+        moduleDecl.Types.Add(structDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "config_Get",
+            MangledName = "SBW_TestModule_Loader_config_Get",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclPropertyWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Config"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = CreateClassDecl("Loader", moduleDecl),
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader", structName: "Config", frozen: false);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Config", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclComplexEnumReturn_CleanupCodeIsNull()
+    {
+        // Bug 1: @_cdecl method returning complex enum must NOT free the payload buffer.
+        // NewFromPayload takes ownership — same as non-frozen struct.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Parser", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "parse",
+            MangledName = "SBW_TestModule_Parser_parse",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Result"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Parser");
+        RegisterType(testModule, "TestModule.Result", "TestModule", "Result",
+            TypeRecordFlags.None, TypeRecordKind.Enum);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Result", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclFrozenStructReturn_CleanupCodeIsNotNull()
+    {
+        // Bug 1 inverse: @_cdecl method returning frozen struct MUST free the buffer.
+        // Frozen structs are copied out by value — the temp buffer must be freed.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Fetcher", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getPoint",
+            MangledName = "SBW_TestModule_Fetcher_getPoint",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Point"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Fetcher", structName: "Point", frozen: true);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Point", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclUtf8SliceReturn_CleanupCodeIsNotNull()
+    {
+        // Bug 1 inverse: @_cdecl method returning Utf8Slice MUST free the buffer.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Fetcher", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getName",
+            MangledName = "SBW_TestModule_Fetcher_getName",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.String"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("Utf8Slice", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclFrozenBlittableReturn_UsesUnsafeSizeOf()
+    {
+        // Bug 3: @_cdecl method returning frozen blittable struct (like CGSize) must use
+        // Unsafe.SizeOf instead of TypeMetadata.GetTypeMetadataOrThrow. Frozen blittable
+        // structs are plain C# value types with no ISwiftObject implementation.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Canvas", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getSize",
+            MangledName = "SBW_TestModule_Canvas_getSize",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("CoreFoundation.CGSize"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var typeDb = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterPrimitive(swiftModule, "Swift.Int", "System", "Int64", "$sSiMa");
+        typeDb.AddModuleDatabase(swiftModule);
+        // Register CGSize in a CoreFoundation module (frozen blittable, no RequiresMemoryManagement)
+        var cfModule = new ModuleTypeDatabase("CoreFoundation", "/usr/lib/swift/libswiftCoreFoundation.dylib");
+        RegisterType(cfModule, "CoreFoundation.CGSize", "Swift", "CGSize",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+        typeDb.AddModuleDatabase(cfModule);
+        var canvasModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        canvasModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Canvas"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Canvas"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Canvas"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(canvasModule);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("Swift.CGSize", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Contains("Unsafe.SizeOf<Swift.CGSize>", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclFrozenWithMemoryReturn_UsesTypeMetadata()
+    {
+        // Bug 3 inverse: Frozen struct WITH RequiresMemoryManagement (e.g., URL) must still
+        // use TypeMetadata — it's not a plain blittable struct.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Fetcher", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getUrl",
+            MangledName = "SBW_TestModule_Fetcher_getUrl",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.UrlWrapper"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher", structName: "UrlWrapper",
+            frozen: true, requiresMemoryManagement: true);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.UrlWrapper", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("Unsafe.SizeOf", plan.IndirectResultMethod.AllocationCode);
+    }
+
     #endregion
 
     #region OptionalReturnBuffer Tests

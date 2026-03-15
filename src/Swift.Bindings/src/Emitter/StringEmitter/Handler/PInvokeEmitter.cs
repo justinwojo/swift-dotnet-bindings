@@ -39,6 +39,13 @@ namespace BindingsGeneration
                 {
                     // Fall through to MethodRequiresIndirectResult check below
                 }
+                else if (_env.MethodDecl.UsesCdeclWrapper &&
+                    _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) &&
+                    MethodWrapperEmitter.IsSupportedCollectionType(returnType.SwiftTypeSpec))
+                {
+                    // @_cdecl collection returns (Array, Dict, Set): fall through to IndirectResult path.
+                    // Swift wrapper writes to resultPtr via initializeMemory(as:).
+                }
                 else
                 {
                     // Large Optional returns use out-buffer pattern — PInvoke returns void

@@ -291,4 +291,73 @@ public class TupleTests : IClassFixture<TupleTests.TestFixture>
     }
 
     #endregion
+
+    #region MarshalFromSwift Value Type Fallback Tests
+
+    /// <summary>
+    /// A plain blittable struct (SequentialLayout) that mimics CoreFoundation.CGSize.
+    /// No ISwiftObject implementation — verifies the Unsafe.Read fallback path.
+    /// </summary>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct TestSize
+    {
+        public double Width;
+        public double Height;
+    }
+
+    [Fact]
+    public unsafe void MarshalFromSwift_BlittableValueType_ReadsCorrectly()
+    {
+        // Bug 3: MarshalFromSwift must handle plain value types (like CGSize) that
+        // are NOT ISwiftObject, NOT primitive, NOT tuple, NOT existential container.
+        // The Unsafe.Read<T>() fallback was added to handle frozen blittable structs.
+        var original = new TestSize { Width = 320.0, Height = 480.0 };
+        var size = sizeof(TestSize);
+        var buffer = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)size);
+        try
+        {
+            System.Runtime.CompilerServices.Unsafe.Write(buffer, original);
+            var result = SwiftMarshal.MarshalFromSwift<TestSize>((IntPtr)buffer);
+
+            Assert.Equal(320.0, result.Width);
+            Assert.Equal(480.0, result.Height);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(buffer);
+        }
+    }
+
+    /// <summary>
+    /// A plain blittable struct with a single field — verifies the Unsafe.Read fallback
+    /// handles minimal structs correctly (not captured by IsPrimitive check).
+    /// </summary>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct TestRadius
+    {
+        public double Value;
+    }
+
+    [Fact]
+    public unsafe void MarshalFromSwift_BlittableValueType_SingleField_ReadsCorrectly()
+    {
+        // Edge case: single-field struct still routes through the value type fallback,
+        // not the primitive path (since the struct itself is NOT IsPrimitive).
+        var original = new TestRadius { Value = 12.5 };
+        var size = sizeof(TestRadius);
+        var buffer = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)size);
+        try
+        {
+            System.Runtime.CompilerServices.Unsafe.Write(buffer, original);
+            var result = SwiftMarshal.MarshalFromSwift<TestRadius>((IntPtr)buffer);
+
+            Assert.Equal(12.5, result.Value);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(buffer);
+        }
+    }
+
+    #endregion
 }

@@ -148,6 +148,13 @@ namespace BindingsGeneration
             if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
                 return true;
 
+            // Bound generic collection returns (Array, Dictionary, Set): @_cdecl can't return
+            // generics directly. Swift wrapper writes to resultPtr via initializeMemory(as:).
+            if (env.BoundGenericsHandler.IsBoundGeneric(returnTypeForCdecl) &&
+                env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnTypeForCdecl) &&
+                MethodWrapperEmitter.IsSupportedCollectionType(returnTypeForCdecl.SwiftTypeSpec))
+                return true;
+
             // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.
             if (returnTypeForCdecl.SwiftTypeSpec.IsDynamicSelf)
                 return false;

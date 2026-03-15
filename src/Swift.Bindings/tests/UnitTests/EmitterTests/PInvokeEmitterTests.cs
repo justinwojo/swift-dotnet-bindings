@@ -220,6 +220,46 @@ public class PInvokeEmitterTests
         Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftIndirectResult"));
     }
 
+    [Fact]
+    public void ReturnType_CdeclArrayReturn_VoidWithResultPtr()
+    {
+        // Bug 2: @_cdecl method returning Swift.Array<T> must use void return + resultPtr.
+        // Without the fix, the bound generic path returned IntPtr, mismatching the Swift
+        // wrapper's void+resultPtr signature.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getItems", classDecl, moduleDecl);
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[0] = CreateArg("", arrayType, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal("void", sig.ReturnType);
+        Assert.Contains(sig.Parameters, p => p.Name == "resultPtr");
+    }
+
+    [Fact]
+    public void ReturnType_NonCdeclArrayReturn_ReturnsIntPtr()
+    {
+        // Bug 2 inverse: non-@_cdecl Array returns use IntPtr (bound generic path).
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getItems", classDecl, moduleDecl);
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        method.CSSignature[0] = CreateArg("", arrayType, moduleDecl);
+        // No UsesCdeclMethodWrapper
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Equal("IntPtr", sig.ReturnType);
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "resultPtr");
+    }
+
     #endregion
 
     #region Parameter Marshalling

@@ -112,6 +112,48 @@ public class IndirectResultDecompositionTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public void IsCdeclIndirectResult_BoundGenericArray_ReturnsTrue()
+    {
+        // Bug 2: Bound generic collection returns (Swift.Array<T>) must return true.
+        // @_cdecl can't return generics directly — Swift wrapper writes to resultPtr
+        // via initializeMemory(as:).
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: arrayType);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        var result = MarshallingHelpers.IsCdeclIndirectResultRequired(env);
+        Assert.NotNull(result);
+        Assert.True(result!.Value);
+    }
+
+    [Fact]
+    public void IsCdeclIndirectResult_BoundGenericDictionary_ReturnsTrue()
+    {
+        // Bug 2: Swift.Dictionary<K,V> is also a collection type needing indirect result.
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: dictType);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        var result = MarshallingHelpers.IsCdeclIndirectResultRequired(env);
+        Assert.NotNull(result);
+        Assert.True(result!.Value);
+    }
+
+    [Fact]
+    public void IsCdeclIndirectResult_BoundGenericSet_ReturnsTrue()
+    {
+        // Bug 2: Swift.Set<T> is also a collection type needing indirect result.
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: setType);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        var result = MarshallingHelpers.IsCdeclIndirectResultRequired(env);
+        Assert.NotNull(result);
+        Assert.True(result!.Value);
+    }
+
     #endregion
 
     #region IsConstructorIndirectResultRequired Tests

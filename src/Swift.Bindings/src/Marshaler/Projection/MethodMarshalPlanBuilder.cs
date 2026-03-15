@@ -378,26 +378,76 @@ internal class MethodMarshalPlanBuilder
                         allocTypeName = projection.ContainerTypeName;
                 }
 
-                // Utf8Slice is a C# struct (no Swift metadata); use fixed-size allocation.
-                // Real Swift types use TypeMetadata for correct size.
+                // Determine allocation strategy based on the return type:
+                // - Utf8Slice: fixed 2-pointer size (C# struct, no Swift metadata)
+                // - Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs,
+                //   no ISwiftObject/TypeMetadata. Use Unsafe.SizeOf for allocation.
+                // - All other types: use TypeMetadata for correct size.
                 var isUtf8Slice = allocTypeName == "Utf8Slice";
-                var allocCode = isUtf8Slice
-                    ? """
+                bool isFrozenBlittable = false;
+                if (!isUtf8Slice && returnArg.SwiftTypeSpec is NamedTypeSpec allocNts && allocNts.HasModule())
+                {
+                    var allocSwiftName = SwiftTypeName.FromTypeSpec(allocNts);
+                    if (_env.TypeDatabase.TryGetTypeRecord(allocSwiftName, out var allocRecord))
+                    {
+                        isFrozenBlittable = allocRecord.Kind == TypeRecordKind.Struct &&
+                            MarshallingHelpers.IsTypeFrozen(allocRecord) &&
+                            !MarshallingHelpers.RequiresMemoryManagement(allocRecord);
+                    }
+                }
+
+                string allocCode;
+                if (isUtf8Slice)
+                {
+                    allocCode = """
                         payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
                         var resultPtr = (IntPtr)payload;
-                        """
-                    : $$"""
+                        """;
+                }
+                else if (isFrozenBlittable)
+                {
+                    // Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs with
+                    // no ISwiftObject implementation. Use Unsafe.SizeOf instead of TypeMetadata.
+                    allocCode = $$"""
+                        payload = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
+                        var resultPtr = (IntPtr)payload;
+                        """;
+                }
+                else
+                {
+                    allocCode = $$"""
                         var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
                         payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
                         var resultPtr = (IntPtr)payload;
                         """;
+                }
+
+                // Non-frozen structs and complex enums: NewFromPayload stores the buffer
+                // pointer directly in SwiftSafeHandle (ownership transfer). Don't free here —
+                // SwiftSafeHandle.ReleaseHandle() frees the buffer when disposed.
+                // All other types (Utf8Slice, closures, frozen structs, collections) copy the
+                // data out, so the temp buffer must be freed.
+                string? cleanupCode = "NativeMemory.Free(payload);";
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts && returnNts.HasModule())
+                {
+                    var returnTypeName = SwiftTypeName.FromTypeSpec(returnNts);
+                    if (_env.TypeDatabase.TryGetTypeRecord(returnTypeName, out var returnTypeRecord))
+                    {
+                        bool isNonFrozenStruct = returnTypeRecord.Kind == TypeRecordKind.Struct &&
+                            !MarshallingHelpers.IsTypeFrozen(returnTypeRecord);
+                        bool isComplexEnum = returnTypeRecord.Kind == TypeRecordKind.Enum &&
+                            !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                        if (isNonFrozenStruct || isComplexEnum)
+                            cleanupCode = null;
+                    }
+                }
 
                 return new IndirectResultSetup
                 {
                     IsConstructor = false,
                     ReturnTypeName = allocTypeName,
                     AllocationCode = allocCode,
-                    CleanupCode = "NativeMemory.Free(payload);"
+                    CleanupCode = cleanupCode
                 };
             }
 
