@@ -2465,6 +2465,62 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain($"FromRawValue({swiftRawType} rawValue)", csOutput);
     }
 
+    [Theory]
+    [InlineData("Double", "double")]
+    [InlineData("CGFloat", "double")]
+    [InlineData("Float", "float")]
+    public void Emit_NonStringRawValueEnum_UsesCaseByIndexWhenWrapperLibAvailable(string swiftRawType, string expectedCSharpType)
+    {
+        // ABI JSON lacks actual raw values, so ordinal-based FromRawValue(i) fails
+        // for enums with non-sequential raw values (e.g., Unit: TimeInterval where seconds=1).
+        // When a wrapper library is available, CaseByIndex constructs cases directly.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Unit", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = swiftRawType;
+        enumDecl.Cases.Add(CreateCase("seconds"));
+        enumDecl.Cases.Add(CreateCase("milliseconds"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, $"Swift.{swiftRawType}"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Static case properties must use CaseByIndex, NOT FromRawValue(ordinal)
+        Assert.Contains("PInvoke_CaseByIndex(0)", csOutput);
+        Assert.Contains("PInvoke_CaseByIndex(1)", csOutput);
+        Assert.DoesNotContain("FromRawValue(0)", csOutput);
+        Assert.DoesNotContain("FromRawValue(1)", csOutput);
+        // CaseByIndex P/Invoke must target the wrapper library
+        Assert.Contains("TestModuleSwiftBindings", csOutput);
+        Assert.Contains("CaseByIndex", csOutput);
+        // FromRawValue method itself must still exist for user code
+        Assert.Contains($"FromRawValue({expectedCSharpType} rawValue)", csOutput);
+        // Swift wrapper must emit CaseByIndex function
+        Assert.Contains("SBW_TestModule_Unit_CaseByIndex", swiftOutput);
+        Assert.Contains("case 0: value = .seconds", swiftOutput);
+        Assert.Contains("case 1: value = .milliseconds", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_NonStringRawValueEnum_FallsBackToOrdinalWithoutWrapperLib()
+    {
+        // Without wrapper library (manual mode), non-string enums fall back to FromRawValue(ordinal)
+        var typeDatabase = CreateTypeDatabase();
+        // AsyncLibraryName NOT set — simulates manual mode
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Unit", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "Double";
+        enumDecl.Cases.Add(CreateCase("seconds"));
+        enumDecl.Cases.Add(CreateCase("milliseconds"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, "Swift.Double"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without wrapper library, falls back to ordinal-based FromRawValue
+        Assert.Contains("FromRawValue(0)", csOutput);
+        Assert.DoesNotContain("CaseByIndex", csOutput);
+    }
+
     [Fact]
     public void Emit_CGFloatRawValueEnum_DoesNotEmitAsSimpleEnum()
     {

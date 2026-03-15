@@ -1156,13 +1156,16 @@ public static class ExistentialBypassEmitter
                     var elems = string.Join(", ", argsTuple.Elements.Select(e =>
                     {
                         var rendered = RenderSwiftTypeSpecCore(e, moduleQualified);
-                        return !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {rendered}" : rendered;
+                        var inoutPrefix = e.IsInOut ? "inout " : "";
+                        var labeled = !string.IsNullOrEmpty(e.TypeLabel) ? $"{e.TypeLabel}: {inoutPrefix}{rendered}" : $"{inoutPrefix}{rendered}";
+                        return labeled;
                     }));
                     argsRendered = $"({elems})";
                 }
                 else
                 {
-                    argsRendered = $"({RenderSwiftTypeSpecCore(closureTypeSpec.Arguments, moduleQualified)})";
+                    var singleInout = closureTypeSpec.Arguments.IsInOut ? "inout " : "";
+                    argsRendered = $"({singleInout}{RenderSwiftTypeSpecCore(closureTypeSpec.Arguments, moduleQualified)})";
                 }
                 var ret = RenderSwiftTypeSpecCore(closureTypeSpec.ReturnType, moduleQualified);
                 var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";

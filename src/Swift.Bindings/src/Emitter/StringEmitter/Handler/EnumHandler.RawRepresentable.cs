@@ -64,17 +64,26 @@ namespace BindingsGeneration
                 return;
             }
 
-            // For String raw types, emit Swift wrapper and C# marshalling infrastructure
+            // For String raw types, emit Swift wrapper for init(rawValue:) conversion
             string? wrapperSymbol = null;
             string? caseByIndexSymbol = null;
+            var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
             if (isStringRawType)
             {
                 // Use full module-qualified name to avoid collisions for same-named nested enums
                 // e.g., BlinkID.Foo.ErrorType and BlinkID.Bar.ErrorType get unique symbols
-                var sanitizedName = enumDecl.SwiftTypeName.ModuleQualifiedName.Replace(".", "_");
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                caseByIndexSymbol = $"SBW_{sanitizedName}_CaseByIndex";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
+            }
+
+            // Emit CaseByIndex Swift wrapper for raw-representable enums.
+            // - String enums: always (case name != raw value is common, e.g., case ok = "OK")
+            // - Non-string enums: when wrapper library exists (ABI JSON lacks actual raw values,
+            //   so ordinal-based FromRawValue(i) fails for enums like Unit: TimeInterval where seconds=1)
+            // CaseByIndex constructs cases directly (.seconds, .milliseconds) without needing raw values.
+            if (isStringRawType || !string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
+            {
+                caseByIndexSymbol = $"SBW_{sanitizedName}_CaseByIndex";
                 EmitCaseByIndexSwiftWrapper(swiftWriter, enumDecl, simpleCases, caseByIndexSymbol, ctx);
             }
 
@@ -333,9 +342,9 @@ namespace BindingsGeneration
                 }
             }
 
-            // For string enums with a wrapper library, emit CaseByIndex P/Invoke
+            // Emit CaseByIndex P/Invoke for enums with a wrapper library
             // (allows constructing cases by index without knowing raw values)
-            if (isStringRawType && caseByIndexSymbol != null)
+            if (caseByIndexSymbol != null)
             {
                 if (pinvokeHelperContext != null)
                 {
@@ -371,10 +380,10 @@ namespace BindingsGeneration
                     NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
                 var fieldName = caseName;
 
-                // For string enums with CaseByIndex wrapper: construct cases by index
+                // For enums with CaseByIndex wrapper: construct cases by index
                 // This avoids the ABI JSON limitation where actual raw values are unknown.
-                // FromRawValue(caseName) fails when the raw value != case name (e.g., case ok = "OK").
-                if (isStringRawType && caseByIndexSymbol != null)
+                // FromRawValue(ordinal) fails when the raw value != ordinal (e.g., seconds=1.0 not 0).
+                if (caseByIndexSymbol != null)
                 {
                     var caseByIndexCall = pinvokeHelperContext != null
                         ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_CaseByIndex{enumPInvokeSuffix}({i})"
@@ -502,7 +511,7 @@ namespace BindingsGeneration
                 // Frozen enum: return Optional pointer directly
                 // Returns nil (NULL) if rawValue is invalid
                 swiftWriter.WriteLines($$"""
-                    @_silgen_name("{{wrapperSymbol}}")
+                    @_cdecl("{{wrapperSymbol}}")
                     public func {{wrapperSymbol}}(_ slicePtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
                         let slice = slicePtr.load(as: SBW_Utf8Slice.self)
                         let str: String
@@ -529,7 +538,7 @@ namespace BindingsGeneration
                 // Non-frozen enum: write result to indirect return buffer
                 // The caller provides the buffer for Optional<EnumType>
                 swiftWriter.WriteLines($$"""
-                    @_silgen_name("{{wrapperSymbol}}")
+                    @_cdecl("{{wrapperSymbol}}")
                     public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
                         let slice = slicePtr.load(as: SBW_Utf8Slice.self)
                         let str: String
@@ -567,7 +576,7 @@ namespace BindingsGeneration
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
 
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"@_silgen_name(\"{caseByIndexSymbol}\")");
+            sb.AppendLine($"@_cdecl(\"{caseByIndexSymbol}\")");
             sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Int) -> UnsafeMutableRawPointer {{");
             sb.AppendLine($"    let value: {enumFullName}");
             sb.AppendLine("    switch index {");

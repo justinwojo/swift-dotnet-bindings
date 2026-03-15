@@ -669,6 +669,220 @@ public class TypeHandlerHelpersTests
 
     #endregion
 
+    #region ClassEqualityMethodsWriter Tests
+
+    [Fact]
+    public void ClassEquality_Equatable_EmitsSwiftEquatableEquals()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget", false, false);
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        // Without SwiftWriter, should fall back to SwiftEquatable.Equals
+        Assert.Contains("SwiftEquatable.Equals", result);
+    }
+
+    [Fact]
+    public void ClassEquality_NotEquatable_EmitsNothing()
+    {
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"));
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget", false, false);
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        Assert.DoesNotContain("Equals", result);
+        Assert.DoesNotContain("operator ==", result);
+    }
+
+    [Fact]
+    public void ClassEquality_WithSwiftWriter_EmitsCdeclWrapper()
+    {
+        // When SwiftWriter and ModuleEmissionContext are provided, class equality should use
+        // @_cdecl P/Invoke instead of SwiftEquatable.Equals (which crashes on NativeAOT).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var classDecl = CreateClassDeclWithConformances("ImageCache", CreateModuleDecl("Nuke"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("Nuke.ImageCache"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        classDecl.MangledName = "$s4Nuke10ImageCacheCN";
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "ImageCache",
+            false, false, swiftWriter, emissionContext, "NukeSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        var swiftResult = swiftOutput.ToString();
+
+        // C# should use PInvoke_eq with GetSwiftHandle() instead of SwiftEquatable.Equals
+        Assert.Contains("PInvoke_eq(", csResult);
+        Assert.Contains("GetSwiftHandle()", csResult);
+        Assert.DoesNotContain("SwiftEquatable.Equals", csResult);
+        // C# should emit the P/Invoke declaration
+        Assert.Contains("LibraryImport(\"NukeSwiftBindings\"", csResult);
+        Assert.Contains("PInvoke_eq(IntPtr lhs, IntPtr rhs)", csResult);
+        // Swift should emit the @_cdecl wrapper with Unmanaged<AnyObject> (not assumingMemoryBound)
+        Assert.Contains("@_cdecl(", swiftResult);
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue()", swiftResult);
+        Assert.Contains("as! Nuke.ImageCache", swiftResult);
+        Assert.Contains("(l == r) ? 1 : 0", swiftResult);
+        // Must NOT use assumingMemoryBound (that's for structs, not classes)
+        Assert.DoesNotContain("assumingMemoryBound", swiftResult);
+    }
+
+    [Fact]
+    public void ClassEquality_WithoutSwiftWriter_FallsBackToSwiftEquatable()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget", false, false);
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        // Should fall back to SwiftEquatable.Equals
+        Assert.Contains("SwiftEquatable.Equals", csResult);
+        Assert.DoesNotContain("PInvoke_eq", csResult);
+    }
+
+    [Fact]
+    public void ClassEquality_GenericClass_SkipsCdecl()
+    {
+        // Generic classes can't have @_cdecl wrappers (can't instantiate generic from wrapper).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var classDecl = CreateClassDeclWithConformances("Container", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        classDecl.GenericParameters.Add(new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Container<T>",
+            false, false, swiftWriter, emissionContext, "TestModuleSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        var swiftResult = swiftOutput.ToString();
+
+        // Generic: should fall back to SwiftEquatable.Equals
+        Assert.Contains("SwiftEquatable.Equals", csResult);
+        Assert.DoesNotContain("PInvoke_eq", csResult);
+        // No Swift wrapper should be emitted
+        Assert.DoesNotContain("@_cdecl", swiftResult);
+    }
+
+    [Fact]
+    public void ClassEquality_ExplicitOperators_SkipsOperators()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        classDecl.MangledName = "$s10TestModule6WidgetCN";
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget",
+            hasExplicitEqualityOperator: true, hasExplicitInequalityOperator: true,
+            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "TestModuleSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        // Should not emit operator == or != since both are explicit
+        Assert.DoesNotContain("operator ==(", csResult);
+        Assert.DoesNotContain("operator !=(", csResult);
+        // Should still emit Equals and GetHashCode
+        Assert.Contains("public override bool Equals(object? obj)", csResult);
+        Assert.Contains("public bool Equals(Widget? other)", csResult);
+    }
+
+    [Fact]
+    public void ClassEquality_Hashable_EmitsSwiftHashable()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc1"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                "$sMc2"));
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget", false, false);
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        Assert.Contains("SwiftHashable.GetHashCode(this)", csResult);
+    }
+
+    [Fact]
+    public void ClassEquality_NullableOperatorParams()
+    {
+        // Class operators must use nullable params (classes are reference types)
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var classDecl = CreateClassDeclWithConformances("Widget", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        classDecl.MangledName = "$s10TestModule6WidgetCN";
+
+        var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Widget",
+            false, false, swiftWriter, emissionContext, "TestModuleSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        // Operators should have nullable params and null guards
+        Assert.Contains("operator ==(Widget? left, Widget? right)", csResult);
+        Assert.Contains("if (left is null) return right is null;", csResult);
+        Assert.Contains("operator !=(Widget? left, Widget? right)", csResult);
+        Assert.Contains("if (left is null) return right is not null;", csResult);
+        Assert.Contains("if (other is null) return false;", csResult);
+    }
+
+    #endregion
+
     #region ToStringHelper Tests
 
     [Fact]

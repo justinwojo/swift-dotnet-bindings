@@ -221,6 +221,21 @@ public class ClassInheritanceEmissionTests
     #region Payload Sharing Tests
 
     [Fact]
+    public void RootClass_NoPayloadSizeField()
+    {
+        // Classes do NOT emit _payloadSize — only structs/enums use it for allocation.
+        // Class constructors use Unmanaged.passRetained().toOpaque(), not _payloadSize.
+        // Emitting _payloadSize triggers SwiftObjectHelper<T>.GetTypeMetadata().Size at
+        // class load time, which can cause crashes (e.g., CryptoSwift SIGABRT).
+        var output = EmitClassHierarchy(
+            baseClass: CreateClassDecl("Animal"),
+            derived: CreateClassDecl("Dog"));
+
+        var baseBody = GetClassBody(output, "Animal");
+        Assert.DoesNotContain("nuint _payloadSize", baseBody);
+    }
+
+    [Fact]
     public void DerivedClass_NoPayloadFieldDeclaration()
     {
         var output = EmitClassHierarchy(
@@ -231,10 +246,11 @@ public class ClassInheritanceEmissionTests
         var derivedBody = GetClassBody(output, "Dog");
         // Derived should not declare a _payload field (the `SwiftSafeHandle ... _payload = ...Zero` line).
         // It WILL reference _payload in the constructor, which is fine (inherited from base).
-        // Derived DOES have its own _payloadSize (private static, no 'new' since base's is also private).
+        // Classes do NOT emit _payloadSize — only structs/enums use it for allocation.
+        // Class constructors use Unmanaged.passRetained().toOpaque().
         Assert.DoesNotContain("_payload = SwiftSafeHandle", derivedBody);
         Assert.DoesNotContain("SwiftSafeHandle<Dog>.Zero", derivedBody);
-        Assert.Contains("nuint _payloadSize", derivedBody);
+        Assert.DoesNotContain("nuint _payloadSize", derivedBody);
     }
 
     [Fact]

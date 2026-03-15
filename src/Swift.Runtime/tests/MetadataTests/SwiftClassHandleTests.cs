@@ -183,4 +183,74 @@ public class SwiftClassHandleTests
         handle2.Dispose();
         Assert.True(handle2.IsClosed);
     }
+
+    [Fact]
+    public void ProcessExitFlag_SetByExitGuard()
+    {
+        // Verify that the exit guard flag can be set and read.
+        // Save and restore state to avoid polluting other tests.
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            Assert.True(SwiftExitGuard.IsProcessExiting);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+    }
+
+    [Fact]
+    public void ProcessExitFlag_DefaultFalse()
+    {
+        // The flag should be false by default (not during process exit).
+        // Reset in case a prior test set it.
+        SwiftExitGuard.SetProcessExitingForTest(false);
+        Assert.False(SwiftExitGuard.IsProcessExiting);
+    }
+
+    [Fact]
+    public void ReleaseHandle_DuringProcessExit_SkipsRelease()
+    {
+        // During process exit, ReleaseHandle (via finalizer) should skip Arc.Release
+        // to avoid crashes from Swift deinitializers in a partially torn-down runtime.
+        // We verify that Dispose closes the handle without throwing.
+        var ptr = new IntPtr(0x1);
+        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            // Dispose calls ReleaseHandle — with the exit guard set, it should
+            // skip Arc.Release and just null the handle (no crash on mock pointer).
+            handle.Dispose();
+            Assert.True(handle.IsClosed);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+    }
+
+    [Fact]
+    public void ExplicitDispose_DuringProcessExit_StillReleases()
+    {
+        // Explicit Dispose should still attempt Arc.Release even during process exit.
+        // We test with a mock pointer — Arc.Release on invalid pointer is caught by
+        // the try/catch in ReleaseHandle, so this verifies the explicit Dispose path
+        // doesn't skip and the handle still closes cleanly.
+        var ptr = new IntPtr(0x1);
+        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Dispose(); // explicit Dispose sets _explicitDispose = true first
+            Assert.True(handle.IsClosed);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+    }
 }

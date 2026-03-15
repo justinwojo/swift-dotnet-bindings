@@ -3431,4 +3431,78 @@ public class ProtocolHandlerOutputTests
     }
 
     #endregion
+
+    #region Internal Protocol Suppression
+
+    [Fact]
+    public void Emit_InternalProtocol_InterfaceAndProxyStillEmitted()
+    {
+        // Internal protocols still emit their interface and proxy class.
+        // The interface is needed because public types may conform to internal protocols.
+        // The proxy is needed because marshalling code references it (e.g., `new BoxProxy(existential)`).
+        // The EveryProtocol conformance is skipped for internal protocols (ModuleHandler),
+        // so the proxy's vtable/witness table P/Invokes will fail at runtime
+        // (EntryPointNotFoundException), but the C# compilation must pass.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Box",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+            MangledName = "$s10TestModule3BoxP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            IsModuleInternal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface IS emitted (public types may conform to internal protocols)
+        Assert.Contains("public interface IBox", csOutput);
+        // Proxy IS also emitted (needed by marshalling code like `new BoxProxy(existential)`)
+        Assert.Contains("class BoxProxy", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PublicProtocol_NotSuppressed()
+    {
+        // Public protocols should emit normally.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Loadable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loadable"),
+            MangledName = "$s10TestModule8LoadableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            IsModuleInternal = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("public interface ILoadable", csOutput);
+    }
+
+    #endregion
 }

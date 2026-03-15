@@ -321,7 +321,49 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod!.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclBufferVariable_DoesNotCollideWithPayloadParam()
+    {
+        // Regression test: @_cdecl result buffer variable was named "payload" which caused
+        // CS0136 when a method parameter was also named "payload" (e.g., Starscream.WSFramer.createWriteFrame).
+        // The variable is now named "_cdeclBuf" to avoid collision.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Framer", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "createWriteFrame",
+            MangledName = "SBW_TestModule_Framer_createWriteFrame",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Point"), moduleDecl),  // return type
+                CreateArg("payload", new NamedTypeSpec("Swift.String"), moduleDecl)  // param named "payload"
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Framer", structName: "Point", frozen: true);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Point", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        // Buffer variable must NOT be named "payload" — it would collide with the method parameter
+        Assert.DoesNotContain("payload", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("payload", plan.IndirectResultMethod.CleanupCode ?? "");
+        Assert.Contains("_cdeclBuf", plan.IndirectResultMethod.AllocationCode);
     }
 
     [Fact]
@@ -357,7 +399,7 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod!.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
     }
 
     [Fact]
@@ -400,7 +442,7 @@ public class MethodMarshalPlanBuilderTests
         // Must use fixed Utf8Slice allocation, not TypeMetadata.GetTypeMetadataOrThrow<string>()
         Assert.Contains("nint.Size * 2", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]
@@ -442,7 +484,7 @@ public class MethodMarshalPlanBuilderTests
         // Must use SwiftArray metadata, not IReadOnlyList<string>
         Assert.Contains("SwiftArray<SwiftString>", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("IReadOnlyList", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]
@@ -484,7 +526,7 @@ public class MethodMarshalPlanBuilderTests
         // Must use SwiftDictionary metadata, not IReadOnlyDictionary
         Assert.Contains("SwiftDictionary<SwiftString, SwiftString>", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("IReadOnlyDictionary", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]
@@ -544,7 +586,7 @@ public class MethodMarshalPlanBuilderTests
         Assert.NotNull(plan.IndirectResultMethod);
         Assert.Contains("Unsafe.SizeOf<Swift.CGSize>", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]

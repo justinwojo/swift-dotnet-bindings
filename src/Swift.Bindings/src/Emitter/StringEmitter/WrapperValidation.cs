@@ -241,7 +241,15 @@ public static class WrapperValidation
         if (typeDatabase.TryGetTypeRecord(spec, out var typeRecord) &&
             typeRecord.Kind == TypeRecordKind.Struct &&
             MarshallingHelpers.IsTypeFrozen(typeRecord))
+        {
+            // Known Apple framework value types (e.g., Foundation.Date = Double wrapper)
+            // are simple blittable value types safe for @_cdecl by-value passing.
+            // Custom frozen structs (e.g., LottieColor) are NOT safe — they trigger
+            // "Swift structs cannot be represented in Objective-C" at wrapper compilation.
+            if (spec is NamedTypeSpec namedSpec && AppleFrameworkRegistry.IsKnownValueType(namedSpec.Name))
+                return false;
             return true;
+        }
         return false;
     }
 

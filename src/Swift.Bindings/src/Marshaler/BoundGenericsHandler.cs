@@ -1176,6 +1176,8 @@ public class BoundGenericsHandler
 
         // Protocol existentials → Optional uses nullable pointer ABI → NOT large.
         // ExistentialContainer is large but the P/Invoke marshals it as IntPtr.
+        // Note: For PARAMETERS passed to @_cdecl wrappers, Optional<Protocol> still needs
+        // DangerousGetHandle — this is handled separately via IsLargeOptionalProtocolParam().
         if (_typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
             innerRecord.Kind == TypeRecordKind.Protocol)
             return false;
@@ -1199,7 +1201,7 @@ public class BoundGenericsHandler
     public bool HasLargeOptionalParams(MethodDecl methodDecl)
     {
         return methodDecl.CSSignature.Skip(1)
-            .Any(p => IsLargeOptionalParam(p.SwiftTypeSpec));
+            .Any(p => IsLargeOptionalParam(p.SwiftTypeSpec) || IsLargeOptionalProtocolParam(p.SwiftTypeSpec));
     }
 
     /// <summary>
@@ -1213,6 +1215,35 @@ public class BoundGenericsHandler
             return false;
         var returnType = methodDecl.CSSignature.FirstOrDefault();
         return returnType != null && IsLargeOptionalParam(returnType.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Returns true if typeSpec is Optional&lt;Protocol&gt; — an Optional wrapping a protocol existential.
+    /// These are excluded from <see cref="IsLargeOptionalParam"/> (returns false) because the return
+    /// type path uses ExistentialContainer1 projection. But for PARAMETERS passed to @_cdecl wrappers,
+    /// the SwiftOptional buffer contains the full Optional&lt;ExistentialContainer&gt; (40+ bytes on arm64),
+    /// so the C# side must pass the buffer ADDRESS (DangerousGetHandle), not a truncated
+    /// PayloadBuffer&lt;IntPtr&gt;.Buffer (8 bytes). This method detects that case.
+    /// </summary>
+    public bool IsLargeOptionalProtocolParam(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType || namedType.Name != "Swift.Optional")
+            return false;
+        var innerElement = namedType.GenericParameters.FirstOrDefault();
+
+        // Check TypeDatabase for protocol kind (NamedTypeSpec inner types only).
+        if (innerElement is NamedTypeSpec innerNamed &&
+            _typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+            innerRecord.Kind == TypeRecordKind.Protocol)
+            return true;
+
+        // Check for protocol existentials including ProtocolListTypeSpec (any P & Q)
+        // and other non-NamedTypeSpec forms. IsProtocolExistentialType handles both
+        // Optional<ProtocolListTypeSpec> and Optional<NamedTypeSpec> protocol forms.
+        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, _typeDatabase))
+            return true;
+
+        return false;
     }
 
     private static bool IsBareStdlibGeneric(NamedTypeSpec typeSpec) => s_stdlibGenerics.Contains(typeSpec.Name);

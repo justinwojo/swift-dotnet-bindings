@@ -246,8 +246,11 @@ namespace BindingsGeneration
                 // ObjC-rooted classes skip all handle/Dispose — lifecycle managed by NSObject.
                 if (!isObjCRooted)
                 {
-                    // All classes need _payloadSize (per-type metadata size for allocation).
-                    WriteClassPayloadSize(csWriter, typeNameWithGenerics, isDerived);
+                    // Class constructors use Unmanaged.passRetained().toOpaque() — no _payloadSize needed.
+                    // Only structs/enums allocate via _payloadSize (SwiftSafeHandle path).
+                    // Emitting _payloadSize for classes triggers SwiftObjectHelper<T>.GetTypeMetadata().Size
+                    // at class load time, which can return garbage or cause crashes (e.g., CryptoSwift SIGABRT).
+
                     // Only root classes emit _handle, Payload property, Dispose().
                     // No DestroyWrapper needed — SwiftClassHandle calls Arc.Release directly.
                     // No generated finalizer needed — SafeHandle's built-in finalizer calls ReleaseHandle.
@@ -284,7 +287,7 @@ namespace BindingsGeneration
 
                 // Emit ISwiftObject implementation
                 var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext());
-                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality);
+                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName);
 
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
                 // (IEquatable<Derived> is a different interface from IEquatable<Base>).
@@ -343,17 +346,6 @@ namespace BindingsGeneration
                && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
 
         /// <summary>
-        /// Writes the _payloadSize static field (all classes — each needs its own metadata size).
-        /// Each class independently declares _payloadSize for its own type metadata.
-        /// </summary>
-        private static void WriteClassPayloadSize(CSharpWriter csWriter, string typeNameWithGenerics, bool isDerived)
-        {
-            csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
-            csWriter.WriteLine();
-        }
-
-        /// <summary>
         /// Writes the _handle instance field (root classes only — derived classes inherit).
         /// Uses SwiftClassHandle&lt;T&gt; which directly holds the Swift object pointer (no buffer).
         /// </summary>
@@ -374,6 +366,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public SwiftClassHandle<{typeNameWithGenerics}> Payload => _handle;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();");
+            csWriter.WriteLine($"internal IntPtr GetSwiftHandle() => _handle.DangerousGetHandle();");
             csWriter.WriteLine();
             var disposeMethods = $$"""
             /// <summary>
@@ -466,6 +459,7 @@ namespace BindingsGeneration
             {
                 // ObjC-rooted boundary class: NSObject.Handle IS the Swift object pointer.
                 _writer.WriteLine("IntPtr ISwiftObject.SwiftHandle => Handle;");
+                _writer.WriteLine("internal IntPtr GetSwiftHandle() => Handle;");
                 _writer.WriteLine();
             }
             WriteGetTypeMetadata();
@@ -885,6 +879,9 @@ namespace BindingsGeneration
         private readonly bool _implementsHashable;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionContext;
+        private readonly string? _wrapperLibraryName;
 
         public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
         {
@@ -903,6 +900,19 @@ namespace BindingsGeneration
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }
 
+        /// <summary>
+        /// Constructor with Swift wrapper support. When swiftWriter and emissionContext are provided,
+        /// emits @_cdecl equality wrappers instead of using SwiftEquatable.Equals (which uses
+        /// CallConvSwift and crashes on NativeAOT).
+        /// </summary>
+        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName)
+            : this(csWriter, classDecl, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator)
+        {
+            _swiftWriter = swiftWriter;
+            _emissionContext = emissionContext;
+            _wrapperLibraryName = wrapperLibraryName;
+        }
+
         public void WriteSwiftEquatableImplementation()
         {
             if (_implementsEquatable)
@@ -915,8 +925,89 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// Gets the @_cdecl symbol name for a class equality wrapper.
+        /// </summary>
+        private static string GetEqualitySymbolName(ClassDecl classDecl)
+        {
+            var moduleName = classDecl.ModuleDecl?.Name ?? "Unknown";
+            var safeTypeName = classDecl.Name.Replace(".", "_");
+            var hash = EmitterUtility.DeterministicHash8(classDecl.MangledName ?? classDecl.Name);
+            return $"SBW_{moduleName}_{safeTypeName}_eq_{hash}";
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl Swift wrapper for class equality comparison and returns the symbol name.
+        /// Uses Unmanaged&lt;AnyObject&gt;.fromOpaque to safely cast opaque pointers back to class instances.
+        /// Returns null if wrapper emission is not available or not needed.
+        /// </summary>
+        private string? TryEmitSwiftEqualityWrapper()
+        {
+            if (_swiftWriter == null || _emissionContext == null || _wrapperLibraryName == null)
+                return null;
+
+            // Skip for generic types (wrapper can't be instantiated)
+            if (_classDecl.GenericParameters.Count > 0)
+                return null;
+
+            // Skip for module-internal classes — the wrapper library can't name them.
+            // Same guard as metadata wrapper emission (WriteGetTypeMetadata).
+            if (_classDecl.IsModuleInternal)
+                return null;
+
+            var symbolName = GetEqualitySymbolName(_classDecl);
+
+            // Check dedup — don't emit twice for the same symbol
+            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
+                return symbolName; // Already emitted, return for C# P/Invoke
+
+            var swiftTypeName = _classDecl.SwiftTypeName.ToString();
+
+            // Classes use Unmanaged<AnyObject>.fromOpaque to safely convert opaque pointers
+            // back to class instances (NOT assumingMemoryBound which is for structs).
+            _swiftWriter.WriteLines($$"""
+
+            @_cdecl("{{symbolName}}")
+            public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
+                let l = Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
+                let r = Unmanaged<AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}
+                return (l == r) ? 1 : 0
+            }
+            """);
+
+            return symbolName;
+        }
+
+        /// <summary>
+        /// Emits the C# P/Invoke declaration for the class equality wrapper.
+        /// </summary>
+        private void EmitEqualityPInvoke(string symbolName)
+        {
+            _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
+            [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
+            private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
+            """);
+            _writer.WriteLine();
+        }
+
         private void WriteSwiftEquatableImplementationWithSwiftEquals()
         {
+            // Try to emit @_cdecl equality wrapper (avoids CallConvSwift which crashes on NativeAOT).
+            // Only works for non-generic types with wrapper library support.
+            var eqSymbol = TryEmitSwiftEqualityWrapper();
+            if (eqSymbol != null)
+            {
+                EmitEqualityPInvoke(eqSymbol);
+            }
+
+            // Equality comparison expression — use @_cdecl P/Invoke if available.
+            // Classes: extract pointer via GetSwiftHandle() (emitted on root and ObjC boundary classes).
+            string equalsExpr(string lhs, string rhs)
+            {
+                if (eqSymbol == null) return $"Swift.Runtime.SwiftEquatable.Equals({lhs}, {rhs})";
+                return $"PInvoke_eq({lhs}.GetSwiftHandle(), {rhs}.GetSwiftHandle())";
+            }
 
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
@@ -926,7 +1017,7 @@ namespace BindingsGeneration
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
-                return obj is {{_typeNameWithGenerics}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+                return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
             }
 
             public override int GetHashCode()
@@ -947,7 +1038,7 @@ namespace BindingsGeneration
                 {
                     if (left is null) return right is null;
                     if (right is null) return false;
-                    return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    return {{equalsExpr("left", "right")}};
                 }
                 """;
                 _writer.WriteLines(equalityOperator);
@@ -962,7 +1053,7 @@ namespace BindingsGeneration
                 {
                     if (left is null) return right is not null;
                     if (right is null) return true;
-                    return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                    return !{{equalsExpr("left", "right")}};
                 }
                 """;
                 _writer.WriteLines(inequalityOperator);
@@ -974,7 +1065,7 @@ namespace BindingsGeneration
             public bool Equals({{_typeNameWithGenerics}}? other)
             {
                 if (other is null) return false;
-                return Swift.Runtime.SwiftEquatable.Equals(this, other);
+                return {{equalsExpr("this", "other")}};
             }
             """;
 

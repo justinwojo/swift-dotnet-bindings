@@ -469,10 +469,11 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Declares the payload variable before the try block so it's accessible in finally for cleanup.
+        /// Declares the _cdeclBuf variable before the try block so it's accessible in finally for cleanup.
         /// Emitted when @_cdecl wrappers use NativeMemory.Alloc (not stack-based SwiftIndirectResult).
-        /// Also needed when ownership transfers to SafeHandle (no cleanup code, but payload is still
+        /// Also needed when ownership transfers to SafeHandle (no cleanup code, but _cdeclBuf is still
         /// used in the allocation code and must be declared in the enclosing scope).
+        /// Uses _cdeclBuf (not payload) to avoid CS0136 collisions with method parameters named "payload".
         /// </summary>
         private void EmitCdeclPayloadDeclaration(CSharpWriter csWriter)
         {
@@ -483,7 +484,7 @@ namespace BindingsGeneration
             if (_syncPlan?.IndirectResultMethod?.CleanupCode != null ||
                 _syncPlan?.IndirectResultMethod?.AllocationCode != null)
             {
-                csWriter.WriteLine("void* payload = null;");
+                csWriter.WriteLine("void* _cdeclBuf = null;");
             }
         }
 

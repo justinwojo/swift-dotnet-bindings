@@ -106,6 +106,12 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         SetHandle(handle);
     }
 
+    /// <summary>
+    /// Checks whether the process is exiting. Delegates to the shared flag on
+    /// <see cref="SwiftExitGuard"/> to avoid duplicate ProcessExit handlers.
+    /// </summary>
+    internal static bool IsProcessExiting => SwiftExitGuard.IsProcessExiting;
+
     private string DebugDisplay => IsClosed || IsInvalid
         ? $"SwiftSafeHandle<{typeof(T).Name}> [DISPOSED]"
         : $"SwiftSafeHandle<{typeof(T).Name}> (0x{handle:X})";
@@ -155,6 +161,16 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         // Early exit for already-freed handles
         if (handle == IntPtr.Zero)
             return true;
+
+        // During process exit, skip Destroy for finalizer-triggered cleanup.
+        // Swift deinitializers can crash if the Swift runtime is partially torn down.
+        // Explicit Dispose() always cleans up regardless of process state.
+        if (IsProcessExiting && !_explicitDispose)
+        {
+            NativeMemory.Free((void*)handle);
+            handle = IntPtr.Zero;
+            return true;
+        }
 
         // Warn when handle is finalized without explicit Dispose on Mono,
         // where the finalizer cannot safely call Destroy.

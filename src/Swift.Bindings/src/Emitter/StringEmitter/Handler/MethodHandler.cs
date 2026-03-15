@@ -698,9 +698,14 @@ namespace BindingsGeneration
             var parentTypeDecl = methodEnv.ParentDecl as TypeDecl;
             bool needsOptionalPointerWrapper = false;
             bool optPtrCdecl = false;
+            // DynamicSelf returns can't be expressed in a free function (@_silgen_name / @_cdecl),
+            // so skip the optional pointer wrapper path for those methods.
+            var returnSpec = methodEnv.MethodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool hasDynamicSelfReturn = returnSpec?.IsDynamicSelf == true;
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !methodEnv.MethodDecl.IsModuleInternal &&
+                !hasDynamicSelfReturn &&
                 !WrapperValidation.HasRawGenericTypeParams(methodEnv.MethodDecl) &&
                 !_requiresOpaqueReturn(methodEnv) &&
                 parentTypeDecl?.IsGeneric != true &&

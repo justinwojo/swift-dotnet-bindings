@@ -204,6 +204,47 @@ public class SilgenNameTrampolineTests
         Assert.False(MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, typeDb));
     }
 
+    [Fact]
+    public void IsNonPrimitiveFrozenStructParam_AppleValueType_ReturnsFalse()
+    {
+        // Foundation.Date is a known Apple value type (blittable Double wrapper).
+        // It should be allowed through @_cdecl wrappers despite being a frozen struct.
+        var typeDb = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterSwiftCoreTypes(swiftModule);
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Date"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "Date"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Date"),
+                MetadataAccessor = "$s10Foundation4DateVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(foundationModule);
+
+        var arg = CreateArgument("date", new NamedTypeSpec("Foundation.Date"));
+
+        Assert.False(MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, typeDb));
+    }
+
+    [Fact]
+    public void IsNonPrimitiveFrozenStructParam_CustomFrozenStruct_ReturnsTrue()
+    {
+        // Custom frozen structs (LottieColor, etc.) must still be blocked —
+        // they trigger "Swift structs cannot be represented in Objective-C" at wrapper compilation.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.CustomColor", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+
+        var arg = CreateArgument("color", new NamedTypeSpec("TestModule.CustomColor"));
+
+        Assert.True(MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, typeDb));
+    }
+
     #endregion
 
     #region Closure Wrapper @_cdecl Conversion Tests

@@ -76,6 +76,7 @@ namespace BindingsGeneration
             _compositionCollector = context.CompositionCollector;
             var protocolEnv = (TypeEnvironment)env;
             var protocolDecl = (ProtocolDecl)protocolEnv.TypeDecl;
+
             ReportCollector.RecordTypeEmitted(protocolDecl);
 
             var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);

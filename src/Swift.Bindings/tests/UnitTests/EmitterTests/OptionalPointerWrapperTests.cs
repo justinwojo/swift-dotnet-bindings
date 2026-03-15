@@ -86,6 +86,70 @@ public class OptionalPointerWrapperTests
         Assert.False(handler.HasLargeOptionalParams(method));
     }
 
+    [Fact]
+    public void IsLargeOptionalParam_OptionalProtocol_ReturnsFalse()
+    {
+        // Optional<Protocol> returns false for IsLargeOptionalParam because the return
+        // path uses ExistentialContainer1 projection. The separate IsLargeOptionalProtocolParam
+        // method handles the parameter DangerousGetHandle path.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyProtocol"));
+
+        Assert.False(handler.IsLargeOptionalParam(typeSpec));
+    }
+
+    [Fact]
+    public void IsLargeOptionalProtocolParam_OptionalProtocol_ReturnsTrue()
+    {
+        // Protocol existentials use ExistentialContainer (40+ bytes on arm64).
+        // Optional<Protocol> parameters must use DangerousGetHandle (buffer address),
+        // not PayloadBuffer<IntPtr>.Buffer which truncates to 8 bytes → crash.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyProtocol"));
+
+        Assert.True(handler.IsLargeOptionalProtocolParam(typeSpec));
+    }
+
+    [Fact]
+    public void IsLargeOptionalProtocolParam_OptionalString_ReturnsFalse()
+    {
+        // Only protocol existentials trigger the protocol-specific check.
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        Assert.False(handler.IsLargeOptionalProtocolParam(typeSpec));
+    }
+
+    [Fact]
+    public void IsLargeOptionalProtocolParam_OptionalClass_ReturnsFalse()
+    {
+        // Classes are reference types, not protocol existentials.
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.Foo"));
+
+        Assert.False(handler.IsLargeOptionalProtocolParam(typeSpec));
+    }
+
+    [Fact]
+    public void IsLargeOptionalParam_OptionalClass_ReturnsFalse()
+    {
+        // Classes are reference types — Optional is pointer-sized.
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var typeSpec = new NamedTypeSpec("Swift.Optional");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.Foo"));
+
+        Assert.False(handler.IsLargeOptionalParam(typeSpec));
+    }
+
     #endregion
 
     #region Entry-Point Routing Tests
@@ -1377,6 +1441,49 @@ public class OptionalPointerWrapperTests
                 MetadataAccessor = "$s10TestModule6ConfigVMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocol()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Foo"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Foo"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Foo"),
+                MetadataAccessor = "$s10TestModule3FooCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IMyProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyProtocol"),
+                MetadataAccessor = "$s10TestModule10MyProtocolMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
             });
         typeDatabase.AddModuleDatabase(module);
 

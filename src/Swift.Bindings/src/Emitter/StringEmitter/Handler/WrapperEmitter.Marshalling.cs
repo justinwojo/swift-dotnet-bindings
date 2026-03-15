@@ -364,10 +364,15 @@ namespace BindingsGeneration
                 }
             }
 
-            // Check if large Optional param needs DangerousGetHandle override
+            // Check if large Optional param needs DangerousGetHandle override.
+            // This covers both regular large Optionals (String, URL, structs ≥ 8B) and
+            // Optional<Protocol> where ExistentialContainer (40+ bytes) would be truncated
+            // to 8 bytes via PayloadBuffer<IntPtr>.Buffer → SIGSEGV.
             if (projection is OptionalProjection optProjForHandle)
             {
-                bool needsLargeOptOverride = _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec) &&
+                bool isLargeOpt = _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec);
+                bool isOptProtocol = _env.BoundGenericsHandler.IsLargeOptionalProtocolParam(argumentDecl.SwiftTypeSpec);
+                bool needsLargeOptOverride = (isLargeOpt || isOptProtocol) &&
                     (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary ||
                      _env.MethodDecl.IsAsync || _requiresOpaqueReturnWrapper);
                 if (needsLargeOptOverride)

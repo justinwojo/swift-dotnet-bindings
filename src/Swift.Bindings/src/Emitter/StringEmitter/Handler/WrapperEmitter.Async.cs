@@ -57,7 +57,8 @@ namespace BindingsGeneration
 
             // Identify large Optional params that need UnsafeRawPointer widening (separate from non-frozen)
             var largeOptionalParams = _env.MethodDecl.CSSignature.Skip(1)
-                .Where(p => _env.BoundGenericsHandler.IsLargeOptionalParam(p.SwiftTypeSpec))
+                .Where(p => _env.BoundGenericsHandler.IsLargeOptionalParam(p.SwiftTypeSpec) ||
+                            _env.BoundGenericsHandler.IsLargeOptionalProtocolParam(p.SwiftTypeSpec))
                 .ToList();
             bool hasReadCode = nonFrozenParams.Count > 0 || largeOptionalParams.Count > 0;
 

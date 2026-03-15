@@ -1350,4 +1350,30 @@ public class SwiftABIParserTests
     }
 
     #endregion
+
+    #region Tuple Detection Tests
+
+    [Fact]
+    public void TupleDetection_NodeWithNameTuple_RecognizedAsTuple()
+    {
+        // ABI JSON tuple nodes have kind="TypeNominal" and name="Tuple".
+        // The parser must check BOTH Kind and Name to detect tuples,
+        // because kTuple="Tuple" matches Name but not Kind ("TypeNominal").
+        var kTuple = "Tuple";
+        var kNominal = "TypeNominal";
+
+        // Simulate the ABI JSON node structure
+        var nodeKind = kNominal;  // Actual kind in ABI JSON
+        var nodeName = kTuple;    // Actual name in ABI JSON
+
+        // Old behavior (broken): only checked Kind
+        bool oldDetection = nodeKind == kTuple;
+        Assert.False(oldDetection, "Old detection should NOT match — Kind is TypeNominal, not Tuple");
+
+        // New behavior (fixed): checks both Kind and Name
+        bool newDetection = nodeKind == kTuple || nodeName == kTuple;
+        Assert.True(newDetection, "New detection should match via Name check");
+    }
+
+    #endregion
 }

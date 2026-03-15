@@ -344,7 +344,7 @@ internal class MethodMarshalPlanBuilder
             if (_env.MethodDecl.UsesCdeclWrapper)
             {
                 // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
-                // payload is declared before try block (EmitCdeclPayloadDeclaration)
+                // _cdeclBuf is declared before try block (EmitCdeclPayloadDeclaration)
                 // so it's accessible in finally for NativeMemory.Free cleanup.
                 var returnArg = _env.MethodDecl.CSSignature.First();
                 var allocTypeName = _wrapperSignature.ReturnType;
@@ -357,10 +357,10 @@ internal class MethodMarshalPlanBuilder
                         IsConstructor = false,
                         ReturnTypeName = "SwiftClosureData",
                         AllocationCode = """
-                            payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                            var resultPtr = (IntPtr)payload;
+                            _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                            var resultPtr = (IntPtr)_cdeclBuf;
                             """,
-                        CleanupCode = "NativeMemory.Free(payload);"
+                        CleanupCode = "NativeMemory.Free(_cdeclBuf);"
                     };
                 }
 
@@ -410,8 +410,8 @@ internal class MethodMarshalPlanBuilder
                 if (isUtf8Slice)
                 {
                     allocCode = """
-                        payload = NativeMemory.Alloc((nuint)(nint.Size * 2));
-                        var resultPtr = (IntPtr)payload;
+                        _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                        var resultPtr = (IntPtr)_cdeclBuf;
                         """;
                 }
                 else if (isFrozenBlittable)
@@ -419,16 +419,16 @@ internal class MethodMarshalPlanBuilder
                     // Frozen blittable structs (CGSize, CGPoint, CGRect): plain C# structs with
                     // no ISwiftObject implementation. Use Unsafe.SizeOf instead of TypeMetadata.
                     allocCode = $$"""
-                        payload = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
-                        var resultPtr = (IntPtr)payload;
+                        _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{allocTypeName}}>());
+                        var resultPtr = (IntPtr)_cdeclBuf;
                         """;
                 }
                 else
                 {
                     allocCode = $$"""
                         var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
-                        payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                        var resultPtr = (IntPtr)payload;
+                        _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                        var resultPtr = (IntPtr)_cdeclBuf;
                         """;
                 }
 
@@ -437,7 +437,7 @@ internal class MethodMarshalPlanBuilder
                 // SwiftSafeHandle.ReleaseHandle() frees the buffer when disposed.
                 // All other types (Utf8Slice, closures, frozen structs, collections) copy the
                 // data out, so the temp buffer must be freed.
-                string? cleanupCode = "NativeMemory.Free(payload);";
+                string? cleanupCode = "NativeMemory.Free(_cdeclBuf);";
                 if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts && returnNts.HasModule())
                 {
                     var returnTypeName = SwiftTypeName.FromTypeSpec(returnNts);

@@ -20,6 +20,11 @@ namespace Swift.Runtime;
 /// Finalizer-safe: <see cref="Arc.Release"/> uses <c>CallingConvention.Cdecl</c>
 /// (direct P/Invoke to swift_release), not CallConvSwift. This avoids the
 /// jit-info.c:918 assertion crash that affects CallConvSwift on Mono.
+///
+/// Process exit safety: During process exit, GC finalization can trigger swift_release
+/// which runs Swift deinitializers. If the Swift runtime is partially torn down, this
+/// crashes. The ProcessExit handler sets a flag to skip Arc.Release during finalization
+/// on exit — only explicit Dispose() calls (using var) still release.
 /// </summary>
 [DebuggerDisplay("{DebugDisplay}")]
 public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where T : ISwiftObject
@@ -28,6 +33,12 @@ public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid wher
     /// Returns a SwiftClassHandle with a zero (invalid) value.
     /// </summary>
     public static readonly SwiftClassHandle<T> Zero = new SwiftClassHandle<T>(IntPtr.Zero);
+
+    /// <summary>
+    /// Tracks whether Dispose() was explicitly called (vs finalizer).
+    /// Explicit Dispose always releases, even during process exit.
+    /// </summary>
+    private volatile bool _explicitDispose;
 
     /// <summary>
     /// Constructs a SwiftClassHandle from a retained Swift object pointer.
@@ -51,9 +62,12 @@ public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid wher
     /// Unlike struct handles, explicit Dispose is NOT required for correctness —
     /// the finalizer also calls Arc.Release safely. Use Dispose for deterministic
     /// cleanup of scarce resources (same pattern as FileStream).
+    ///
+    /// Explicit Dispose always releases, even during process exit.
     /// </summary>
     public new void Dispose()
     {
+        _explicitDispose = true;
         GC.SuppressFinalize(this);
         base.Dispose();
     }
@@ -62,11 +76,24 @@ public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid wher
     /// Releases the Swift ARC reference. Called by both explicit Dispose and finalizer.
     /// Thread-safe: swift_release is an atomic decrement. Swift deinit may run but
     /// has no thread affinity requirement (same as ObjC dealloc in Xamarin).
+    ///
+    /// During process exit, finalization-triggered releases are skipped to avoid crashes
+    /// from Swift deinitializers running against a partially torn-down Swift runtime.
+    /// Explicit Dispose() calls always release regardless of process state.
     /// </summary>
     protected override bool ReleaseHandle()
     {
         if (handle == IntPtr.Zero)
             return true;
+
+        // During process exit, skip Arc.Release for finalizer-triggered cleanup.
+        // Swift deinitializers can crash if the Swift runtime is partially torn down.
+        // Explicit Dispose() always releases — the caller is still on a live thread.
+        if (SwiftExitGuard.IsProcessExiting && !_explicitDispose)
+        {
+            handle = IntPtr.Zero;
+            return true;
+        }
 
         try
         {

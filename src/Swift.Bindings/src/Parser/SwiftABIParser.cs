@@ -949,7 +949,7 @@ namespace BindingsGeneration
                         {
                             // The second child should be the associated values
                             var assocValuesNode = innerFuncChildren[1];
-                            if (assocValuesNode.Kind == kTuple)
+                            if (assocValuesNode.Kind == kTuple || assocValuesNode.Name == kTuple)
                             {
                                 // Parse the full tuple printedName to preserve associated value labels.
                                 // e.g., "(radius: Swift.Double)" → TypeSpec with TypeLabel = "radius"
