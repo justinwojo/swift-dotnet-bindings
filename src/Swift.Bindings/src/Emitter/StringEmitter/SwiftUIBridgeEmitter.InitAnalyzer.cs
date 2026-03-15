@@ -164,7 +164,7 @@ public static partial class SwiftUIBridgeEmitter
             var mapped = MapPrimitiveOrString($"arg{argIndex}", namedArg);
             if (mapped == null && context?.TypeDatabase != null)
             {
-                mapped = MapDatabaseType($"arg{argIndex}", namedArg, context.TypeDatabase);
+                mapped = MapDatabaseType($"arg{argIndex}", namedArg, context);
                 if (mapped != null && mapped.Kind != BridgeParameterKind.BoundType)
                     mapped = null; // Only classes via TypeDB in closures, not enums/structs
             }
@@ -225,7 +225,7 @@ public static partial class SwiftUIBridgeEmitter
         // TypeDatabase lookup for bound enums
         if (context?.TypeDatabase != null)
         {
-            return MapDatabaseType(paramName, namedSpec, context.TypeDatabase);
+            return MapDatabaseType(paramName, namedSpec, context);
         }
 
         // Unsupported type
@@ -260,11 +260,20 @@ public static partial class SwiftUIBridgeEmitter
     /// <summary>
     /// Looks up a type in the TypeDatabase. Currently handles enums (BoundEnum).
     /// </summary>
-    private static BridgeParameter? MapDatabaseType(string paramName, NamedTypeSpec namedSpec, ITypeDatabase typeDatabase)
+    private static BridgeParameter? MapDatabaseType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
     {
+        if (context?.TypeDatabase == null)
+            return null;
+
+        var typeDatabase = context.TypeDatabase;
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedSpec.Name);
 
         if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+            return null;
+
+        // Guard: nested types whose parent is a suppressed SwiftUI View don't exist
+        // in the main C# bindings. Referencing them causes CS0234.
+        if (IsNestedTypeUnderSwiftUIView(swiftTypeName, context.ModuleDecl))
             return null;
 
         if (record.Kind == TypeRecordKind.Enum)
@@ -334,6 +343,31 @@ public static partial class SwiftUIBridgeEmitter
 
         // Other TypeDatabase types not yet supported
         return null;
+    }
+
+    /// <summary>
+    /// Returns true if the type is nested under a SwiftUI View type.
+    /// Such nested types are suppressed from the main C# bindings because their
+    /// parent type is skipped during emission.
+    /// </summary>
+    private static bool IsNestedTypeUnderSwiftUIView(SwiftTypeName typeName, ModuleDecl? moduleDecl)
+    {
+        if (moduleDecl == null)
+            return false;
+
+        // Nested types have 3+ parts: "Module.Parent.Nested"
+        var parts = typeName.ModuleQualifiedName.Split('.');
+        if (parts.Length < 3)
+            return false;
+
+        var parentName = parts[1];
+        foreach (var typeDecl in moduleDecl.Types)
+        {
+            if (typeDecl.Name == parentName && SwiftUIViewDetector.IsSwiftUIView(typeDecl))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>

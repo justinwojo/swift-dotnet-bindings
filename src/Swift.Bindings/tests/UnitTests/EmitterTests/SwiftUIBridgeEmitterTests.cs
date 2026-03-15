@@ -1279,6 +1279,93 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("TestModule.AlertStyle style", csContent);
     }
 
+    [Fact]
+    public void InitAnalyzer_FallsBackToTemplate_ForNestedTypeUnderSwiftUIView()
+    {
+        // KFImage.Context is a nested type under KFImage (a SwiftUI View).
+        // KFImage is suppressed from main bindings, so KFImage.Context doesn't exist in C#.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.ParentView.Context"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ParentView.Context"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ParentView.Context"),
+                MetadataAccessor = "$s10TestModule10ParentView7ContextCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var parentView = CreateSimpleViewStruct("ParentView");
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { parentView },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+        };
+        var context = new BridgeContext(typeDb, moduleDecl);
+        var ctor = CreateConstructorWithNamedType("context", "TestModule.ParentView.Context");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result); // Falls back to template
+    }
+
+    [Fact]
+    public void InitAnalyzer_AllowsNestedType_WhenParentIsNotSwiftUIView()
+    {
+        // A nested type under a non-View parent should still be supported.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Config.Options"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Config.Options"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config.Options"),
+                MetadataAccessor = "$s10TestModule6Config7OptionsCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        // Config is NOT a SwiftUI View (no View conformance)
+        var configType = new StructDecl
+        {
+            Name = "Config",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Config"),
+            MangledName = "$s10TestModule6ConfigV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(), // No View conformance
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6ConfigVMa",
+        };
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { configType },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+        };
+        var context = new BridgeContext(typeDb, moduleDecl);
+        var ctor = CreateConstructorWithNamedType("options", "TestModule.Config.Options");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].Kind);
+        Assert.Equal("Config.Options", result[0].BridgeTypeName);
+    }
+
     #endregion
 
     #region Optional<BoundType> (Phase 1B/1D)

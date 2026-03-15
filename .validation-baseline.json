@@ -1,5 +1,5 @@
 {
-  "git_sha": "ab48eafc",
+  "git_sha": "b3c5a90d",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -52,8 +52,8 @@
         "swift_compile": "ok"
       },
       "Kingfisher": {
-        "compile": "fail",
-        "errors": 4,
+        "compile": "ok",
+        "errors": 0,
         "lines": 55316,
         "dep_compile": "none",
         "swift_compile": "ok"
