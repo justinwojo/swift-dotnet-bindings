@@ -99,6 +99,10 @@ namespace BindingsGeneration
             csWriter.Indent++;
             csWriter.WriteLine($"var {resultVarName} = new {enumTypeName}();");
 
+            // Determine early if this case can use a @_cdecl wrapper (needed for String marshalling below)
+            var useCdeclWrapper = swiftWriter != null && emissionCtx != null &&
+                EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDatabase);
+
             // Emit conversions for parameters that differ between public and internal types
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
             var projectedArgs = new Dictionary<int, MarshalPlan>();
@@ -113,7 +117,15 @@ namespace BindingsGeneration
                 var bareName = NameProvider.StripVerbatimPrefix(name);
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
-                    csWriter.WriteLine($"using var __{bareName} = new SwiftString({name});");
+                    if (useCdeclWrapper)
+                    {
+                        // @_cdecl: encode string to UTF-8 bytes, pass pointer + length
+                        csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({name});");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"using var __{bareName} = new SwiftString({name});");
+                    }
                 }
                 else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                 {
@@ -212,10 +224,6 @@ namespace BindingsGeneration
                 }
             }
 
-            // Determine if this case can use a @_cdecl wrapper for NativeAOT compatibility
-            var useCdeclWrapper = swiftWriter != null && emissionCtx != null &&
-                EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDatabase);
-
             string? cdeclSymbol = null;
             if (useCdeclWrapper)
             {
@@ -244,8 +252,8 @@ namespace BindingsGeneration
                     swiftWriter!, enumDecl, caseDecl, cdeclSymbol, wrapperEnv, emissionCtx);
             }
 
-            // @_cdecl wrappers need additional setup for string and existential params:
-            // - Strings: extract PayloadBuffer to pass SwiftString.Buffer (16-byte blittable struct = two words)
+            // @_cdecl wrappers need additional setup for existential and tuple params:
+            // - Strings: handled above (UTF-8 encoding), no extra setup needed
             // - Existentials: extract container into local for pass-by-ref (UnsafeRawPointer in Swift)
             if (useCdeclWrapper)
             {
@@ -254,11 +262,7 @@ namespace BindingsGeneration
                 {
                     var (_, _, name, typeSpec) = parameters[i];
                     var bareName = NameProvider.StripVerbatimPrefix(name);
-                    if (typeConversionHandler.IsSwiftString(typeSpec))
-                    {
-                        csWriter.WriteLine($"using var __{bareName}Payload = __{bareName}.PayloadBuffer;");
-                    }
-                    else if (existentialHandler.IsExistential(typeSpec))
+                    if (existentialHandler.IsExistential(typeSpec))
                     {
                         var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                         if (protocolList != null)
@@ -336,8 +340,9 @@ namespace BindingsGeneration
                 }
                 else if (useCdeclWrapper && typeConversionHandler.IsSwiftString(typeSpec))
                 {
-                    // @_cdecl: pass SwiftString.Buffer (16-byte struct = two words matching Swift's two Int params)
-                    argList.Add($"__{bareName}Payload.Buffer");
+                    // @_cdecl: pass UTF-8 pointer + length (wrapped in fixed block below)
+                    argList.Add($"(IntPtr)__{bareName}Ptr");
+                    argList.Add($"__{bareName}Utf8.Length");
                 }
                 else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
                 {
@@ -359,6 +364,31 @@ namespace BindingsGeneration
             }
 
             var invokeArgList = string.Join(", ", argList);
+
+            // Collect string params that need fixed blocks for UTF-8 byte pinning
+            var stringFixedParams = new List<string>();
+            if (useCdeclWrapper)
+            {
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    var (_, _, name, typeSpec) = parameters[i];
+                    if (typeConversionHandler.IsSwiftString(typeSpec))
+                        stringFixedParams.Add(NameProvider.StripVerbatimPrefix(name));
+                }
+            }
+
+            // Wrap P/Invoke call in fixed blocks for string UTF-8 byte arrays
+            if (stringFixedParams.Count > 0)
+            {
+                csWriter.WriteLine("unsafe {");
+                csWriter.Indent++;
+                foreach (var bareName in stringFixedParams)
+                {
+                    csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8) {{");
+                    csWriter.Indent++;
+                }
+            }
+
             if (pinvokeHelperContext != null)
             {
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
@@ -369,6 +399,19 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"{pInvokeName}({invokeArgList});");
             }
+
+            // Close fixed blocks
+            if (stringFixedParams.Count > 0)
+            {
+                for (int i = 0; i < stringFixedParams.Count; i++)
+                {
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+
             csWriter.WriteLine($"{resultVarName}._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine($"return {resultVarName};");
             csWriter.Indent--;
@@ -380,7 +423,7 @@ namespace BindingsGeneration
             {
                 // @_cdecl wrapper: C calling convention, associated value params + IntPtr resultPtr
                 // Types must match the Swift wrapper ABI from GetCdeclParamMapping:
-                // - Strings: SwiftString.Buffer (16-byte struct = two words, not IntPtr)
+                // - Strings: IntPtr + int (UTF-8 pointer + length, NativeAOT-safe)
                 // - Existentials: ref ExistentialContainer (pass by ref = pointer, not by value)
                 // - Everything else: same as legacy GetPInvokeType
                 var pInvokeParams = new List<string>();
@@ -390,7 +433,8 @@ namespace BindingsGeneration
                     var (_, _, name, typeSpec) = parameters[i];
                     if (typeConversionHandler.IsSwiftString(typeSpec))
                     {
-                        pInvokeParams.Add($"Swift.SwiftString.Buffer {name}");
+                        pInvokeParams.Add($"IntPtr {name}Utf8Ptr");
+                        pInvokeParams.Add($"nint {name}Utf8Len");
                     }
                     else if (cdeclExistentialHandler.IsExistential(typeSpec))
                     {

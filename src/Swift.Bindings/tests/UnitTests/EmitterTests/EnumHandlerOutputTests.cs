@@ -3070,10 +3070,10 @@ public class EnumHandlerOutputTests
     #region Session 9C: @_cdecl Enum Case Factory ABI Tests
 
     [Fact]
-    public void Emit_CdeclEnumCaseWithString_UsesSwiftStringBuffer()
+    public void Emit_CdeclEnumCaseWithString_UsesUtf8PtrLen()
     {
-        // @_cdecl enum case factory with string associated value must use SwiftString.Buffer
-        // (16-byte blittable struct = two words) in P/Invoke, NOT IntPtr
+        // @_cdecl enum case factory with string associated value must use UTF-8 pointer + length
+        // in P/Invoke (NativeAOT-safe), not SwiftString.Buffer (struct marshalling fails on NativeAOT)
         var typeDatabase = CreateTypeDatabaseWithString();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -3086,17 +3086,18 @@ public class EnumHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
-        // C# P/Invoke should use SwiftString.Buffer, not IntPtr
-        Assert.Contains("Swift.SwiftString.Buffer value0", csOutput);
-        Assert.DoesNotContain("IntPtr value0", csOutput);
-        // C# body should extract PayloadBuffer for the string
-        Assert.Contains("PayloadBuffer", csOutput);
-        // C# call arg should use .Buffer (the blittable struct value)
-        Assert.Contains("Payload.Buffer", csOutput);
-        // Swift side should have two-word param pattern
-        Assert.Contains("_sW0_", swiftOutput);
-        Assert.Contains("_sW1_", swiftOutput);
-        Assert.Contains("unsafeBitCast", swiftOutput);
+        // C# P/Invoke should use IntPtr + int (UTF-8 pointer + length)
+        Assert.Contains("IntPtr value0Utf8Ptr", csOutput);
+        Assert.Contains("int value0Utf8Len", csOutput);
+        Assert.DoesNotContain("Swift.SwiftString.Buffer", csOutput);
+        // C# body should encode to UTF-8 bytes
+        Assert.Contains("Encoding.UTF8.GetBytes", csOutput);
+        // C# body should use fixed block for pinning
+        Assert.Contains("fixed (byte*", csOutput);
+        // Swift side should use UTF-8 reconstruction
+        Assert.Contains("Utf8Ptr: UnsafePointer<UInt8>", swiftOutput);
+        Assert.Contains("Utf8Len: Int", swiftOutput);
+        Assert.Contains("UnsafeBufferPointer", swiftOutput);
     }
 
     [Fact]

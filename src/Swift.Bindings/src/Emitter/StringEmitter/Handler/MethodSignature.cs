@@ -517,12 +517,12 @@ namespace BindingsGeneration
                 var csParamName = NameProvider.GetCSharpParameterName(argument);
 
                 // @_cdecl property wrapper: String params use UTF-8 pointer + length.
-                // Must match the P/Invoke signature (IntPtr {name}Utf8Ptr, int {name}Utf8Len).
+                // nint matches Swift's Int (64-bit on ARM64) to avoid truncation.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     argument.SwiftTypeSpec is NamedTypeSpec cdeclStrArgNts && cdeclStrArgNts.Name == "Swift.String")
                 {
                     AddParameter("IntPtr", csParamName + "Utf8Ptr");
-                    AddParameter("int", csParamName + "Utf8Len");
+                    AddParameter("nint", csParamName + "Utf8Len");
                     continue;
                 }
 

@@ -267,7 +267,7 @@ public static class SubscriptWrapperEmitter
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                         var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                            param, label, env, omitLabels: false);
+                            param, label, env, omitLabels: false, useUtf8Strings: true);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);
@@ -432,7 +432,7 @@ public static class SubscriptWrapperEmitter
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                         var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                            param, label, env, omitLabels: false);
+                            param, label, env, omitLabels: false, useUtf8Strings: true);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                             reconstructionLines.Add(reconstruction);

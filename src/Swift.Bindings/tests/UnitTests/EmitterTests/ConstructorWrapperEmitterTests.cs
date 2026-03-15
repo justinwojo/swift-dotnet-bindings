@@ -2824,4 +2824,78 @@ public class ConstructorWrapperEmitterTests
     }
 
     #endregion
+
+    #region @_cdecl Collection Param Marshalling Tests
+
+    /// <summary>
+    /// Verifies that GetCdeclParamMapping for generic container types (Array, Dictionary, Set)
+    /// produces UnsafeRawPointer param with .load(as:) reconstruction on the Swift side.
+    /// The C# side must pass Payload.DangerousGetHandle() (pointer TO the value),
+    /// NOT PayloadBuffer.Buffer (which dereferences to the value itself).
+    /// Regression test for CryptoSwift HMAC(byte[]) 6.5GB allocation crash.
+    /// </summary>
+    [Fact]
+    public void GetCdeclParamMapping_ArrayContainer_UsesLoadReconstruction()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+
+        var containerSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.UInt8"));
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = containerSpec,
+            Name = "items",
+            PrivateName = "items",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) =
+            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "items", env);
+
+        // Swift side: must use UnsafeRawPointer and .load(as:) to read the container value
+        Assert.Contains("UnsafeRawPointer", cdeclParam);
+        Assert.NotNull(reconstruction);
+        Assert.Contains(".load(as:", reconstruction);
+    }
+
+    [Fact]
+    public void GetCdeclParamMapping_DictionaryContainer_UsesLoadReconstruction()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+
+        var containerSpec = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.String"));
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = containerSpec,
+            Name = "dict",
+            PrivateName = "dict",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) =
+            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "dict", env);
+
+        // Swift side: must use UnsafeRawPointer and .load(as:) to read the container value
+        Assert.Contains("UnsafeRawPointer", cdeclParam);
+        Assert.NotNull(reconstruction);
+        Assert.Contains(".load(as:", reconstruction);
+    }
+
+    #endregion
 }

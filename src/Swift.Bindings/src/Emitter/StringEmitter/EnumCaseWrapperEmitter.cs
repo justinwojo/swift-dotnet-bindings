@@ -212,7 +212,7 @@ public static class EnumCaseWrapperEmitter
             };
 
             var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
-                argDecl, label, env, omitLabels: false);
+                argDecl, label, env, omitLabels: false, useUtf8Strings: true);
 
             swiftParams.Add(cdeclParam);
             if (reconstruction != null)

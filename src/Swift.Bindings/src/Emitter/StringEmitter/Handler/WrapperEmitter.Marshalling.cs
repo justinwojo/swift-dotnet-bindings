@@ -181,10 +181,17 @@ namespace BindingsGeneration
                     if (_env.TypeDatabase.TryGetTypeRecord(rootTypeName, out var argTypeRecord) &&
                         MarshallingHelpers.IsFrozenStructProjectedAsClass(argTypeRecord))
                     {
+                        // @_cdecl wrapper: Swift receives UnsafeRawPointer and does .load(as: T.self).
+                        // Pass pointer TO the value (DangerousGetHandle), not the dereferenced value
+                        // (PayloadBuffer.Buffer). The .load(as:) reads from the pointer location.
+                        if (_env.MethodDecl.UsesCdeclWrapper)
+                        {
+                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                        }
                         // Large optional accessor params (e.g., Optional<SwiftString>) have payloads
                         // exceeding IntPtr size. PayloadBuffer<IntPtr> would truncate — use the full
                         // buffer via DangerousGetHandle instead.
-                        if (_env.MethodDecl.IsAccessor && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
+                        else if (_env.MethodDecl.IsAccessor && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
                         {
                             csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
                         }
@@ -382,6 +389,31 @@ namespace BindingsGeneration
             }
 
             var plan = projection.GetParameterPlan(csName);
+
+            // @_cdecl wrapper: collection params (Array, Dictionary, Set) pass a pointer to the
+            // container value via UnsafeRawPointer. Swift does .load(as: T.self) from the pointer.
+            // The projection's plan uses PayloadBuffer<IntPtr>.Buffer which DEREFERENCES the buffer
+            // (extracts the value, not a pointer to it). For @_cdecl, use .Payload.DangerousGetHandle()
+            // which gives the pointer TO the value — matching what .load(as:) expects.
+            if (_env.MethodDecl.UsesCdeclWrapper &&
+                (projection is ArrayProjection or DictionaryProjection or SetProjection))
+            {
+                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                // Render only the container creation setup (Using SwiftArray/Dict/Set),
+                // then pass the handle directly instead of dereferencing via PayloadBuffer.
+                foreach (var stmt in plan.SetupStatements)
+                {
+                    // Skip PayloadBuffer and .Buffer lines — replace with DangerousGetHandle
+                    if (stmt is MarshalStatement.Using u && u.Type.StartsWith("PayloadBuffer"))
+                        continue;
+                    if (stmt is MarshalStatement.Line l && l.Code.Contains("Disposable.Buffer"))
+                        continue;
+                    MarshalPlanRenderer.RenderStatement(csWriter, stmt);
+                }
+                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Swift.Payload.DangerousGetHandle();");
+                return true;
+            }
+
             MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
             return true;
         }

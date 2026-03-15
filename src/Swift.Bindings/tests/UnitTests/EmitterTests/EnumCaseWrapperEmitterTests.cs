@@ -268,7 +268,7 @@ public class EnumCaseWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitWrapper_StringAssociatedValue_EmitsBitCastReconstruction()
+    public void EmitWrapper_StringAssociatedValue_EmitsUtf8Reconstruction()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -287,9 +287,10 @@ public class EnumCaseWrapperEmitterTests
             swiftWriter, enumDecl, caseDecl, "SBW_TestModule_Message_text_12345678", env, ctx);
 
         var output = sw.ToString();
-        // String params use unsafeBitCast from two Int words
-        Assert.Contains("unsafeBitCast", output);
-        Assert.Contains("to: String.self", output);
+        // String params use UTF-8 pointer + length reconstruction (NativeAOT-safe)
+        Assert.Contains("Utf8Ptr: UnsafePointer<UInt8>", output);
+        Assert.Contains("Utf8Len: Int", output);
+        Assert.Contains("UnsafeBufferPointer", output);
     }
 
     [Fact]

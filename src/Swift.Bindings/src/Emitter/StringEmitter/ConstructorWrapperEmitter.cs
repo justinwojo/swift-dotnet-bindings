@@ -566,8 +566,10 @@ public static class ConstructorWrapperEmitter
     /// and call argument expression.
     /// </summary>
     /// <param name="omitLabels">When true, omit argument labels (used when calling _dbw_init_* which uses _ for all params).</param>
+    /// <param name="useUtf8Strings">When true, String params use UTF-8 ptr+len (for subscript/enum case wrappers
+    /// where C# already sends UTF-8). When false, uses two Int words matching SwiftString.Buffer layout.</param>
     internal static (string cdeclParam, string? reconstruction, string callArg) GetCdeclParamMapping(
-        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false)
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false, bool useUtf8Strings = false)
     {
         var swiftTypeSpec = arg.SwiftTypeSpec;
 
@@ -661,14 +663,27 @@ public static class ConstructorWrapperEmitter
 
         // String: @_cdecl bridges String ↔ NSString* (ObjC interop) which is incompatible
         // with the raw SwiftString.Buffer that C# passes via CallConvCdecl.
-        // Accept as two Int words matching the 16-byte buffer layout and reconstruct.
-        // On ARM64, C# passes SwiftString.Buffer (16-byte struct) in two consecutive GP registers,
-        // exactly matching two Int parameters in the @_cdecl signature.
         if (swiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
         {
-            return ($"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
-                    $"let {label}Val = unsafeBitCast((_sW0_{label}, _sW1_{label}), to: String.self)",
-                    $"{argLabel}{label}Val");
+            if (useUtf8Strings)
+            {
+                // UTF-8 pointer + length: C# encodes to UTF-8 bytes, pins them, and passes
+                // (IntPtr ptr, nint len). NativeAOT-safe — no struct marshalling needed.
+                // nint matches Swift's Int (64-bit on ARM64) to avoid truncation.
+                // Used by subscript and enum case wrappers where C# already sends UTF-8.
+                return ($"_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int",
+                        $"let {label}Val = String(bytes: UnsafeBufferPointer(start: {label}Utf8Ptr, count: {label}Utf8Len), encoding: .utf8)!",
+                        $"{argLabel}{label}Val");
+            }
+            else
+            {
+                // Two Int words matching the 16-byte buffer layout: C# passes SwiftString.Buffer
+                // (16-byte struct) in two consecutive GP registers on ARM64.
+                // Used by constructor/method wrappers where C# marshals via SwiftString.
+                return ($"_ _sW0_{label}: Int, _ _sW1_{label}: Int",
+                        $"let {label}Val = unsafeBitCast((_sW0_{label}, _sW1_{label}), to: String.self)",
+                        $"{argLabel}{label}Val");
+            }
         }
 
         // Classes: receive as UnsafeMutableRawPointer, reconstruct via Unmanaged

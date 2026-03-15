@@ -407,12 +407,14 @@ namespace BindingsGeneration
                 // Determine ref modifier for inout parameters
                 var inoutModifier = argument.IsInOut ? "ref" : "";
 
-                // @_cdecl property wrapper: String params via UTF-8 pointer + length
+                // @_cdecl property/subscript wrapper: String params via UTF-8 pointer + length.
+                // Swift @_cdecl receives UnsafePointer<UInt8> + Int, reconstructs String from UTF-8.
+                // Constructor/method wrappers use SwiftString.Buffer (two-word) path instead.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     argument.SwiftTypeSpec is NamedTypeSpec argStrNamed && argStrNamed.Name == "Swift.String")
                 {
                     AddParameter("IntPtr", csName + "Utf8Ptr");
-                    AddParameter("int", csName + "Utf8Len");
+                    AddParameter("nint", csName + "Utf8Len");
                     continue;
                 }
 
