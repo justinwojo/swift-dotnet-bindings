@@ -12,7 +12,7 @@ These are "trap" constraints — easy to accidentally violate, hard to discover 
 - **ModuleEmissionContext threading**: ALL code paths creating `WrapperEmitter` in `MethodHandler` MUST pass `context.GetEmissionContext()` to avoid dedup failures. Also applies to `Utf8SliceEmitter.EmitIfNeeded`/`EmitFreeIfNeeded`.
 - **Tj dispatch thunks**: Non-final class instance methods need `Tj` suffix. Gates: `!classParent.IsFinal && !methodDecl.IsFinal`.
 - **Bool P/Invoke**: All `== "bool"` comparisons use `MarshallingHelpers.IsBoolType()`. Parameter-level: `[MarshalAs(UnmanagedType.U1)]`.
-- **Overload/dedup key consistency**: `DefaultParameterOverloadEmitter.GetProjectedOverloadKey` must match `IHandler.GetProjectedCSharpMethodKey` exactly. ~21 call sites across 15 files.
+- **Overload/dedup key consistency**: `DefaultParameterOverloadEmitter.GetProjectedOverloadKey` must match `IHandler.GetProjectedCSharpMethodKey` exactly. ~26 call sites across 15 files.
 - **C# `@` verbatim identifiers**: `@` at START is valid, AFTER other chars is INVALID. Compound variable names need `StripVerbatimPrefix` before prepending.
 - **WasEmitted flag**: Set at 13 emission points across 6 files (MethodHandler x7, PropertyHandler x2, NestedClosureBridge x1, ProtocolExtensionClosureBridge x1, MethodClosureBridge x1, GenericClosureBridgeEmitter x1). Required by `HasMethodInResolvedAncestors`/`HasPropertyInResolvedAncestors`.
 - **ProtocolExtensionEmitter pipeline timing**: MUST happen AFTER `typeDatabase.AddModuleDatabase()` and BEFORE `stringEmitter.EmitModule()`.
@@ -23,7 +23,7 @@ These are "trap" constraints — easy to accidentally violate, hard to discover 
 - **Closure two-layer gate**: Layer 1 (`IsSupportedClosureParameterType`) decides if method emits. Layer 2 (`IsCdeclCompatibleType`) decides if `@_cdecl` wrapper is generated. `.All()` not `.Any()`.
 - **WitnessDispatchEmitter branch order**: String FIRST (Swift.String is a frozen+RefFields struct). Property dispatch must check `IsTypeBlittable || IsStringType` directly (NOT `IsPropertyGetterDispatchable`).
 - **IReadOnlyDictionary invariance**: Element conversions in containers need explicit cast `(IProtocol)new ProtocolProxy(v)` -- unlike covariant `IReadOnlyList<T>`.
-- **GetPublicMethodName parameterCount**: `parameterCount = 0` controls "Get" prefix. ~21 call sites across 15 files must pass consistent param count.
+- **GetPublicMethodName parameterCount**: `parameterCount = 0` controls "Get" prefix. ~22 call sites across 15 files must pass consistent param count.
 - **nint->int narrowing safety**: Properties ARE narrowed. Method return types are NOT narrowed (C# overload resolution prefers `int` overloads -> silent 64-bit truncation). Protocol receiver getters widen int->(nint) for 8-byte ABI; setters narrow.
 - **Cross-module proxy class qualification**: Use `GetQualifiedProxyClassName()` (not `GetProxyClassName()`) when emitting marshalling code. ALL `ProjectionContext` creations must include `CurrentModuleName`. Proxy ExistentialContainer constructor is `public` for cross-assembly access.
 - **IsOptionalObjCBridged parity with TypeProjectionFactory**: Must match exactly. ObjCRooted does NOT use IntPtr (uses SwiftOptional<T>). Both fallbacks use `AppleFrameworkRegistry.IsOptionalFallbackModule` + `!IsNestedType` + `!IsKnownAppleValueType` + `HasObjCClassPrefix` — must stay in sync.

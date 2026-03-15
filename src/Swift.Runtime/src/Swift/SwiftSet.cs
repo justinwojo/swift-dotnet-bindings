@@ -22,7 +22,7 @@ public interface ISwiftHashable { }
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>
-public class SwiftSet<Element> : ISwiftObject, ICollection<Element>, IReadOnlyCollection<Element>, IReadOnlySet<Element>
+public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element>, IReadOnlyCollection<Element>, IReadOnlySet<Element>
 {
     // Lazy initialization to avoid calling Swift runtime during static construction.
     // This prevents crashes when Element is an existential container type, where

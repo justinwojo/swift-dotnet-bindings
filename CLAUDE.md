@@ -182,6 +182,33 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 - `src/Swift.Bindings.Sdk/Sdk/Sdk.targets` — 9 build targets (discover → fingerprint → generate → compile → pack)
 - `src/Swift.Bindings.Sdk/build-sdk.sh` — publishes generator + packs SDK NuGet
 
+## NuGet Packages
+
+The `Swift.*` prefix is reserved on NuGet.org (by Microsoft, the original project). Our packages use `SwiftBindings.*`:
+- **SwiftBindings.Runtime** (assembly/namespace is still `Swift.Runtime`)
+- **SwiftBindings.Sdk** (MSBuild SDK, `<Project Sdk="SwiftBindings.Sdk/...">`)
+- **SwiftBindings.Templates** (`dotnet new install SwiftBindings.Templates`)
+
+### Building local packages
+
+To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
+
+1. **Temporarily set version** in these 6 locations, then revert after building:
+   - `src/Swift.Runtime/src/Swift/Swift.Runtime.csproj` → `<PackageVersion>`
+   - `src/Swift.Bindings.Sdk/SwiftBindings.Sdk.csproj` → `<PackageVersion>`
+   - `src/Swift.Bindings.Templates/SwiftBindings.Templates.csproj` → `<PackageVersion>`
+   - `src/Swift.Bindings.Sdk/Sdk/Sdk.props` → `<_SwiftBindingSdkVersion>` AND `<SwiftRuntimeVersion>`
+   - `src/Swift.Bindings.Templates/content/ProjectName.csproj` → `<SwiftRuntimeVersion>`
+2. **Build packages**:
+   ```bash
+   dotnet pack src/Swift.Runtime/src/Swift/Swift.Runtime.csproj -c Release -o /tmp/swift-nuget/
+   cd src/Swift.Bindings.Sdk && ./build-sdk.sh && dotnet pack SwiftBindings.Sdk.csproj -c Release -o /tmp/swift-nuget/ && cd ../..
+   dotnet pack src/Swift.Bindings.Templates/SwiftBindings.Templates.csproj -c Release -o /tmp/swift-nuget/
+   ```
+3. **Revert version changes** — do NOT commit version bumps to source.
+4. **Copy to consumer**: `cp /tmp/swift-nuget/*.nupkg /path/to/local-packages/`
+5. **Consumer override**: Use `-p:SwiftRuntimeVersion=0.1.1` or set `<SwiftRuntimeVersion>` in consumer `.csproj`.
+
 ## Working Guidelines
 
 - **All work must have tests.** Every session, feature, bug fix, and regression fix must include targeted unit or integration tests that exercise the specific behavior. Library validation passing alone is not sufficient — write tests that would catch a regression if the fix were reverted. If fixing a validation regression, add a test case that reproduces the specific pattern that broke.
@@ -194,12 +221,22 @@ Use `<SwiftFrameworkDependency>` when your library imports another Swift framewo
 - Do NOT commit unless the user explicitly asks.
 - `run-tests.sh` is fine to run per sub-task. `validate-libraries.sh`, `build-and-test.sh`, and `TestFramework/golden/check-golden-files.sh` should only run at the end of all sub-tasks or when absolutely needed mid-session.
 - NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
+- Test files are organized by domain, not by milestone/session/SDK version. Place tests in their respective domain test files (e.g., closure tests go in closure test files, not in a "phase-15" file).
 
-## Known Runtime Issues
+## Known Issues
 
+### Runtime
 - **Mono JIT assertion (jit-info.c:918)**: Simulator-only. Kills process on closure P/Invoke + SwiftString.PInvoke_GetLength via CallConvSwift. Bridge tests (`@_cdecl`) unaffected. NativeAOT (device builds) is unaffected.
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
+- DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
 - See `src/docs/known-issues-workarounds.md` for full details
+
+### Generator (open bugs)
+- String enum raw values use case names (ABI JSON lacks raw values)
+- `UnsafePointer<T>` → AnyType (no concrete projection)
+- `async throws(ErrorType)` free functions: `_payload`/`this` in static context (guarded)
+- ExistentialContainer0 in tuple element (blocked by `HasClosureUnsafeTupleElements` gate)
+- Optional<any Protocol> in closures: deferred (`MarshalFromSwift` limitation)
 
 ## Key References
 

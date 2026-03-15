@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// CoreImage.CIContext is a class in Swift/Objective-C, so we wrap it with a handle-based approach.
 /// </remarks>
-public sealed class CIContext : ISwiftObject, IDisposable
+public sealed class CIContext : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<CIContext> _payload = SwiftSafeHandle<CIContext>.Zero;
     private bool _disposed;

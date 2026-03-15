@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// Foundation.URLResponse is a class in Swift, wrapping an Objective-C class (NSURLResponse).
 /// </remarks>
-public sealed class URLResponse : ISwiftObject, IDisposable
+public sealed class URLResponse : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<URLResponse> _payload = SwiftSafeHandle<URLResponse>.Zero;
     private bool _disposed;

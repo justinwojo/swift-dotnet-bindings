@@ -15,7 +15,7 @@ namespace Swift;
 /// Hasher is a non-frozen struct in Swift, so we wrap it with a handle-based approach.
 /// This type is primarily used as an inout parameter in hash(into:) methods.
 /// </remarks>
-public sealed class Hasher : ISwiftObject, IDisposable
+public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<Hasher> _payload = SwiftSafeHandle<Hasher>.Zero;
     private bool _disposed;

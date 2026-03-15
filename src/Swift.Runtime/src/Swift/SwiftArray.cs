@@ -23,7 +23,7 @@ public interface ISwiftCollection { }
 /// Represents a Swift array.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
-public class SwiftArray<Element> : ISwiftObject, IReadOnlyList<Element>, IList<Element>, IDisposable
+public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Element>, IList<Element>, IDisposable
 {
     // Lazy initialization to avoid calling Swift runtime during static construction.
     // This prevents crashes when Element is an existential container type, where

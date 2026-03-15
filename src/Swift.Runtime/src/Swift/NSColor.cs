@@ -19,7 +19,7 @@ namespace Swift;
 /// AppKit.NSColor is a class in Swift/Objective-C, so we wrap it with a handle-based approach.
 /// This type is only available on macOS.
 /// </remarks>
-public sealed class NSColor : ISwiftObject, IDisposable
+public sealed class NSColor : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<NSColor> _payload = SwiftSafeHandle<NSColor>.Zero;
     private bool _disposed;
@@ -150,7 +150,7 @@ namespace Swift;
 /// Stub for NSColor on non-macOS platforms. NSColor is only available on macOS/Mac Catalyst.
 /// This stub exists to allow code that references NSColor to compile on other platforms.
 /// </summary>
-public sealed class NSColor : ISwiftObject, IDisposable
+public sealed class NSColor : ISwiftObject, ISwiftStruct, IDisposable
 {
     private NSColor() => throw new PlatformNotSupportedException("NSColor is only available on macOS/Mac Catalyst.");
 

@@ -16,6 +16,11 @@ namespace BindingsGeneration
         public required string EffectiveMinimumOSVersion { get; init; }
         public required bool HasWrapperXCFramework { get; init; }
         /// <summary>
+        /// Absolute path to the source xcframework. Used to compute the relative path
+        /// from the output directory in the ProjectReference.targets file.
+        /// </summary>
+        public string? XcframeworkPath { get; init; }
+        /// <summary>
         /// Platform info for multi-platform support. Defaults to iOS if not specified.
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
@@ -30,6 +35,8 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a {PackageId}.targets file into the output directory.
         /// This file is packaged into buildTransitive/net10.0-ios/ in the NuGet.
+        /// Also emits a {PackageId}.ProjectReference.targets file for local ProjectReference
+        /// consumers, which uses paths relative to the intermediate output directory.
         /// </summary>
         public static void Emit(ConsumerTargetsEmitterOptions options, ILogger logger)
         {
@@ -109,6 +116,80 @@ namespace BindingsGeneration
 
             File.WriteAllText(targetsPath, content);
             logger.LogInformation("Wrote consumer targets to {Path}", targetsPath);
+
+            // Also emit a ProjectReference-friendly targets file.
+            // NativeReference doesn't propagate through ProjectReference in .NET iOS,
+            // so consuming projects that use ProjectReference (local development) need
+            // to import this file. It uses $(MSBuildThisFileDirectory) to resolve paths
+            // relative to the intermediate output directory where the xcframeworks live.
+            EmitProjectReferenceTargets(options, pi, sanitized, logger);
+        }
+
+        /// <summary>
+        /// Emits a {PackageId}.ProjectReference.targets file for local ProjectReference consumers.
+        /// Uses paths relative to the intermediate output directory (where this file lives).
+        /// Consuming projects import this via:
+        ///   &lt;Import Project="path/to/obj/Debug/net10.0-ios/swift-binding/{PackageId}.ProjectReference.targets"
+        ///           Condition="Exists('...')" /&gt;
+        /// </summary>
+        private static void EmitProjectReferenceTargets(
+            ConsumerTargetsEmitterOptions options, PlatformInfo pi, string sanitized, ILogger logger)
+        {
+            var localTargetsPath = Path.Combine(options.OutputDirectory, $"{options.PackageId}.ProjectReference.targets");
+
+            var wrapperNativeRef = options.HasWrapperXCFramework
+                ? $"""
+                          <NativeReference Include="$(MSBuildThisFileDirectory){options.ModuleName}SwiftBindings.xcframework"
+                                           Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}SwiftBindings.xcframework')">
+                            <Kind>Framework</Kind>
+                          </NativeReference>
+                """
+                : "";
+
+            // Compute the relative path from the output directory to the source xcframework.
+            // This avoids hardcoding directory traversal depth, which breaks if the consumer
+            // customizes IntermediateOutputPath or BaseIntermediateOutputPath.
+            var sourceXcfwRef = "";
+            if (options.XcframeworkPath != null)
+            {
+                var outputFullPath = Path.GetFullPath(options.OutputDirectory);
+                var xcfwFullPath = Path.GetFullPath(options.XcframeworkPath);
+                var relativePath = Path.GetRelativePath(outputFullPath, xcfwFullPath);
+                sourceXcfwRef = $"""
+                      <NativeReference Include="$(MSBuildThisFileDirectory){relativePath}"
+                                       Condition="Exists('$(MSBuildThisFileDirectory){relativePath}')">
+                        <Kind>Framework</Kind>
+                      </NativeReference>
+                """;
+            }
+
+            var content = $"""
+                <Project>
+                  <!-- ProjectReference consumer targets for {options.PackageId}.
+                       Import this file in projects that reference this library via ProjectReference
+                       (local development). NativeReference items don't propagate through ProjectReference
+                       in .NET iOS, so this file injects them at build time.
+
+                       The NativeReference items are inside a Target (not a static ItemGroup) to ensure
+                       the Exists() conditions evaluate AFTER the library project builds — on a clean build,
+                       the wrapper xcframework doesn't exist at MSBuild evaluation time. -->
+
+                  <!-- Idempotency guard -->
+                  <Target Name="_ResolveLocal{sanitized}NativeReferences"
+                          BeforeTargets="ResolveNativeReferences"
+                          DependsOnTargets="ResolveProjectReferences"
+                          Condition="'$(_SwiftBinding_{sanitized}_Injected)' != 'true'">
+                    <PropertyGroup>
+                      <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
+                    </PropertyGroup>
+                    <ItemGroup>
+                {sourceXcfwRef}{wrapperNativeRef}    </ItemGroup>
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(localTargetsPath, content);
+            logger.LogInformation("Wrote ProjectReference consumer targets to {Path}", localTargetsPath);
         }
 
         /// <summary>

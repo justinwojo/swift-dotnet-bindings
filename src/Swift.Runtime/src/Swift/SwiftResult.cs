@@ -28,7 +28,7 @@ public enum SwiftResultCase : uint
 /// Full case discrimination and value extraction requires understanding Swift enum memory layout
 /// and will be implemented in future work.
 /// </remarks>
-public class SwiftResult<TSuccess, TFailure> : ISwiftObject, IDisposable
+public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisposable
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata().Size;
 

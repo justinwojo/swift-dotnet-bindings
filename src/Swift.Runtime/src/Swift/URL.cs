@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// Foundation.URL is a non-frozen struct in Swift, so we wrap it with a handle-based approach.
 /// </remarks>
-public sealed class URL : ISwiftObject, IDisposable
+public sealed class URL : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<URL> _payload = SwiftSafeHandle<URL>.Zero;
     private bool _disposed;
@@ -186,9 +186,15 @@ public sealed class URL : ISwiftObject, IDisposable
 
     #region Private Constructor
 
-    private URL(IntPtr handle)
+    private unsafe URL(IntPtr handle)
     {
-        _payload = new SwiftSafeHandle<URL>(handle);
+        // Copy the data into our own buffer (like SwiftOptional and SwiftString do).
+        // The caller's buffer may be freed in a finally block after NewFromPayload returns,
+        // so we must not steal ownership of it.
+        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)metadata.Size);
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
+        _payload = new SwiftSafeHandle<URL>(bufferPtr);
     }
 
     #endregion

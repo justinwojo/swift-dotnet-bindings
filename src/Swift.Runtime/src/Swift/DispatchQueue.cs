@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// Dispatch.DispatchQueue is a class in Swift, so we wrap it with a handle-based approach.
 /// </remarks>
-public sealed class DispatchQueue : ISwiftObject, IDisposable
+public sealed class DispatchQueue : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<DispatchQueue> _payload = SwiftSafeHandle<DispatchQueue>.Zero;
     private bool _disposed;

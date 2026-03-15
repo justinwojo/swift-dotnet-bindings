@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// Foundation.URLRequest is a non-frozen struct in Swift, so we wrap it with a handle-based approach.
 /// </remarks>
-public sealed class URLRequest : ISwiftObject, IDisposable
+public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<URLRequest> _payload = SwiftSafeHandle<URLRequest>.Zero;
     private bool _disposed;

@@ -19,7 +19,7 @@ namespace Swift;
 /// UIKit.UIImage is a class in Swift/Objective-C, so we wrap it with a handle-based approach.
 /// This type is only available on iOS and tvOS.
 /// </remarks>
-public sealed class UIImage : ISwiftObject, IDisposable
+public sealed class UIImage : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<UIImage> _payload = SwiftSafeHandle<UIImage>.Zero;
     private bool _disposed;
@@ -141,7 +141,7 @@ namespace Swift;
 /// Stub for UIImage on non-iOS/tvOS platforms. UIImage is only available on iOS/tvOS.
 /// This stub exists to allow code that references UIImage to compile on other platforms.
 /// </summary>
-public sealed class UIImage : ISwiftObject, IDisposable
+public sealed class UIImage : ISwiftObject, ISwiftStruct, IDisposable
 {
     private UIImage() => throw new PlatformNotSupportedException("UIImage is only available on iOS/tvOS.");
 

@@ -17,7 +17,7 @@ namespace Swift;
 /// </summary>
 /// <typeparam name="TKey">The key type (must be Hashable in Swift).</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
-public class SwiftDictionary<TKey, TValue> : ISwiftObject, IReadOnlyDictionary<TKey, TValue>, IDisposable
+public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOnlyDictionary<TKey, TValue>, IDisposable
     where TKey : notnull
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata().Size;

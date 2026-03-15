@@ -685,6 +685,7 @@ namespace BindingsGeneration
                             PackageId = effectivePackageId,
                             EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
                             HasWrapperXCFramework = hasWrapperXcfw,
+                            XcframeworkPath = xcframeworkPath,
                             PlatformInfo = platformInfo,
                         }, logger);
 

@@ -18,7 +18,7 @@ namespace Swift;
 /// <summary>
 /// Represents a Swift string with Foundation.Data payload.
 /// </summary>
-public class SwiftString : ISwiftObject, IDisposable
+public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
 {
     private static nuint _payloadSize = SwiftObjectHelper<SwiftString>.GetTypeMetadata().Size;
 

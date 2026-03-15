@@ -24,7 +24,7 @@ public enum SwiftOptionalCases : uint
 /// <summary>
 /// Represents a Swift Optional type
 /// </summary>
-public class SwiftOptional<T> : ISwiftObject, IDisposable
+public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata().Size;
 
@@ -238,10 +238,29 @@ public class SwiftOptional<T> : ISwiftObject, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                // Heap-copy the payload bytes. We can't use stackalloc because
-                // ISwiftObject.NewFromPayload takes ownership of the pointer
-                // (stores it in SwiftSafeHandle which calls NativeMemory.Free).
                 byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+
+                // For true Swift class types (SwiftClassHandle), the payload IS
+                // the class pointer (8 bytes). MarshalFromSwift/NewFromPayload for class
+                // types expects the pointer value directly, not a pointer to memory
+                // containing it. Read the class pointer and pass it directly.
+                //
+                // Buffer-backed types (SwiftSafeHandle) — including C# classes wrapping
+                // Swift structs like SwiftString, URL, SwiftArray — implement ISwiftStruct
+                // and must use the heap-copy path below, because their NewFromPayload
+                // expects a pointer to memory containing the struct's raw bytes.
+                if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
+                    && !typeof(T).IsValueType
+                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
+                {
+                    IntPtr classPointer = *(IntPtr*)sourcePayload;
+                    return SwiftMarshal.MarshalFromSwift<T>(classPointer);
+                }
+
+                // For value types, ISwiftStruct types, and non-ISwiftObject types: heap-copy the payload
+                // bytes. We can't use stackalloc because ISwiftObject.NewFromPayload
+                // takes ownership of the pointer (stores it in SwiftSafeHandle which
+                // calls NativeMemory.Free).
                 byte* heapCopy = (byte*)NativeMemory.Alloc(_payloadSize);
                 new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(
                     new Span<byte>(heapCopy, (int)_payloadSize));

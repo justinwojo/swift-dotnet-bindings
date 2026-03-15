@@ -14,7 +14,7 @@ namespace Swift;
 /// <remarks>
 /// Foundation.OperationQueue is a class in Swift/Objective-C, so we wrap it with a handle-based approach.
 /// </remarks>
-public sealed class OperationQueue : ISwiftObject, IDisposable
+public sealed class OperationQueue : ISwiftObject, ISwiftStruct, IDisposable
 {
     private SwiftSafeHandle<OperationQueue> _payload = SwiftSafeHandle<OperationQueue>.Zero;
     private bool _disposed;

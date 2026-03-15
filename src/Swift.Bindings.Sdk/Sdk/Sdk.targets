@@ -443,6 +443,64 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 6a: GetNativeManifest — propagate NativeReference through       -->
+  <!--            ProjectReference for consuming projects                     -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- MSBuild's ResolveProjectReferences calls GetNativeManifest on each
+       ProjectReference and captures the output into the consumer's
+       NativeReference items. This is the built-in .NET iOS mechanism for
+       transitive native framework propagation.
+
+       Without this, consuming projects that use <ProjectReference> (instead
+       of NuGet) must manually add NativeReference items for the source and
+       wrapper xcframeworks — which is fragile (silent omission on clean
+       builds if using static ItemGroup with Exists() conditions).
+
+       This target reads metadata directly from binding-metadata.props
+       (which was written during the Build that completed before this call)
+       rather than depending on _ImportSwiftBindingMetadata, which would
+       pull in the entire generator pipeline. -->
+  <Target Name="GetNativeManifest"
+          DependsOnTargets="_DiscoverSwiftFrameworks"
+          Returns="@(_SwiftBindingNativeManifest)">
+
+    <!-- Read wrapper metadata from the props file generated during Build -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasWrapperXCFramework/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_GNM_HasWrapper" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingWrapperModuleName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_GNM_WrapperModule" />
+    </XmlPeek>
+
+    <!-- All paths must be absolute — relative paths resolve against the CONSUMER
+         project, not this library project, when flowing through GetNativeManifest. -->
+    <ItemGroup>
+      <!-- Source xcframework -->
+      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('%(SwiftFramework.Identity)'))">
+        <Kind>Framework</Kind>
+      </_SwiftBindingNativeManifest>
+
+      <!-- Wrapper xcframework (generated during Build) -->
+      <_SwiftBindingNativeManifest Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework"
+                                   Condition="'$(SwiftFrameworkType)' != 'ObjC'
+                                              AND '$(_GNM_HasWrapper)' == 'True'
+                                              AND Exists('$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework')">
+        <Kind>Framework</Kind>
+      </_SwiftBindingNativeManifest>
+
+      <!-- Dependency xcframeworks -->
+      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('%(SwiftFrameworkDependency.Identity)'))"
+                                   Condition="'@(SwiftFrameworkDependency)' != '' AND Exists('%(SwiftFrameworkDependency.Identity)')">
+        <Kind>Framework</Kind>
+      </_SwiftBindingNativeManifest>
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 6b: Validate dependency metadata before pack                    -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftDependencyMetadata"
