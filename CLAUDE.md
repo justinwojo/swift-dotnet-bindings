@@ -226,7 +226,7 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 ## Known Issues
 
 ### Runtime
-- **Mono JIT assertion (jit-info.c:918)**: Simulator-only. Kills process on closure P/Invoke + SwiftString.PInvoke_GetLength via CallConvSwift. Bridge tests (`@_cdecl`) unaffected. NativeAOT (device builds) is unaffected.
+- **Mono JIT assertion (mini-generic-sharing.c:2759 / jit-info.c:918)**: Affects ALL Mono JIT (simulator AND device). Kills process on any `SwiftObjectHelper<T>.GetTypeMetadata()` call — meaning all Swift type access. NativeAOT (device builds) is unaffected. NativeAOT on simulator is not supported by the .NET iOS SDK. See `src/docs/sim-validation-findings.md` for full details and device test results.
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
 - DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
 - See `src/docs/known-issues-workarounds.md` for full details

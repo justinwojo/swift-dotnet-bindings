@@ -1141,22 +1141,26 @@ public class BoundGenericsHandler
         return false;
     }
 
-    // 8-byte Swift stdlib value types whose Optionals exceed IntPtr capacity.
-    // String = 16 bytes → Optional is 16 bytes. Others = 8 bytes → Optional is 9 bytes (value + discriminator).
-    // Int/UInt are 8 bytes because all supported targets are 64-bit ARM64.
-    private static readonly HashSet<string> s_largeOptionalInnerTypes = new(StringComparer.Ordinal)
+    // Swift value types < 8 bytes whose Optional<T> fits within IntPtr (8 bytes).
+    // Optional<T> = T + discriminant byte for value types. Only types < 8 bytes are safe.
+    // Types ≥ 8 bytes (Int, String, URL, non-frozen structs, etc.) produce Optionals > 8 bytes.
+    private static readonly HashSet<string> s_smallOptionalInnerTypes = new(StringComparer.Ordinal)
     {
-        "Swift.String",
-        "Swift.Int",
-        "Swift.UInt",
-        "Swift.Int64",
-        "Swift.UInt64",
-        "Swift.Double",
+        "Swift.Bool",       // 1 byte  → Optional = 2 bytes
+        "Swift.Int8",       // 1 byte  → Optional = 2 bytes
+        "Swift.UInt8",      // 1 byte  → Optional = 2 bytes
+        "Swift.Int16",      // 2 bytes → Optional = 3 bytes
+        "Swift.UInt16",     // 2 bytes → Optional = 3 bytes
+        "Swift.Int32",      // 4 bytes → Optional = 5 bytes
+        "Swift.UInt32",     // 4 bytes → Optional = 5 bytes
+        "Swift.Float",      // 4 bytes → Optional = 5 bytes
     };
 
     /// <summary>
-    /// Returns true if typeSpec is Optional&lt;T&gt; where T's size is ≥ 8 bytes,
-    /// making the Optional too large for IntPtr (8 bytes) to hold without truncation.
+    /// Returns true if typeSpec is Optional&lt;T&gt; where T's size makes the Optional too large
+    /// for IntPtr (8 bytes) to hold without truncation. This includes all value types ≥ 8 bytes
+    /// (Int, String, URL, non-frozen structs, etc.). Only reference types (classes, ObjC-bridged)
+    /// and small primitives (&lt; 8 bytes) produce Optionals that fit in IntPtr.
     /// </summary>
     public bool IsLargeOptionalParam(TypeSpec typeSpec)
     {
@@ -1165,7 +1169,28 @@ public class BoundGenericsHandler
         var innerElement = namedType.GenericParameters.FirstOrDefault();
         if (innerElement is not NamedTypeSpec innerNamed)
             return false;
-        return s_largeOptionalInnerTypes.Contains(innerNamed.Name);
+
+        // Reference types (classes, ObjC-bridged) → Optional is pointer-sized → NOT large.
+        if (MethodWrapperEmitter.IsOptionalWithReferenceInner(typeSpec, _typeDatabase))
+            return false;
+
+        // Protocol existentials → Optional uses nullable pointer ABI → NOT large.
+        // ExistentialContainer is large but the P/Invoke marshals it as IntPtr.
+        if (_typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+            innerRecord.Kind == TypeRecordKind.Protocol)
+            return false;
+        // Also check for unresolved protocol existentials (not in TypeDatabase but in ProtocolList form).
+        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, _typeDatabase))
+            return false;
+
+        // Small value types (< 8 bytes) → Optional fits in IntPtr → NOT large.
+        if (s_smallOptionalInnerTypes.Contains(innerNamed.Name))
+            return false;
+
+        // Everything else (Int, String, URL, non-frozen structs, enums, etc.) → large.
+        // The previous approach used a hardcoded "known large" list that missed types like
+        // Foundation.URL (~40 bytes), causing buffer truncation → SIGSEGV on NativeAOT.
+        return true;
     }
 
     /// <summary>

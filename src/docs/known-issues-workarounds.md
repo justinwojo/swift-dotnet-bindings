@@ -26,11 +26,17 @@ The generator uses `@_cdecl` Swift wrapper functions as the primary ABI boundary
 
 ### What It Is
 
-Mono's JIT compiler incorrectly marks `CallConvSwift` P/Invoke frames as "async", then hits the assertion `!ji->async` at `jit-info.c:918` during stack unwinding. **This is a process-fatal abort** — it bypasses all managed exception handlers and kills the application immediately.
+Two related Mono JIT assertions make all Swift type access fatal:
+
+1. **`mini-generic-sharing.c:2759`** — `is_ok(error)` assertion fails during `SwiftObjectHelper<T>.GetTypeMetadata()` for any Swift type `T`. This is triggered by the static field initializer `static nuint _payloadSize = SwiftObjectHelper<T>.GetTypeMetadata().Size;` on first access to any generated Swift type. **This blocks 100% of Swift interop on Mono**, not just CallConvSwift P/Invokes.
+
+2. **`jit-info.c:918`** — `!ji->async` assertion fails during stack unwinding after the first crash.
+
+Both are **process-fatal SIGABRT** — they bypass all managed exception handlers and kill the application immediately. **This affects all Mono JIT** (simulator AND physical device), not just simulator as previously documented. Confirmed on iPhone 13 with Mono debug builds (2026-03-15).
 
 ### Impact
 
-With @_cdecl wrappers covering 78.5% of P/Invokes, most generated bindings work correctly on Mono. The remaining ~21.5% CallConvSwift P/Invokes may trigger this crash.
+**No Swift types can be accessed under Mono.** The crash happens before any @_cdecl wrapper or CallConvSwift P/Invoke is reached — it's in the type metadata initialization path. Pure C# enums (no Swift runtime calls) and apps that don't touch Swift types work fine.
 
 ### Mitigation
 
@@ -131,33 +137,46 @@ The .NET runtime does not properly preserve `SafeHandle` across async P/Invoke w
 
 ---
 
-## NativeAOT on iOS Simulator (Recommended for Development)
+## NativeAOT on Device (Required for Runtime Testing)
 
-All Mono JIT issues — the `jit-info.c:918` crash, non-blittable type rejections, SafeHandle async limitations — are **eliminated** by using NativeAOT on the iOS Simulator.
+All Mono JIT issues — the `mini-generic-sharing.c:2759` crash, `jit-info.c:918` assertion, non-blittable type rejections, SafeHandle async limitations — are **eliminated** by using NativeAOT.
+
+**NativeAOT on iOS simulator is NOT supported** — the .NET iOS SDK requires a device architecture for `dotnet publish` (`iossimulator-arm64` is rejected). NativeAOT requires a physical device with `ios-arm64`.
 
 ### How to Enable
 
 ```xml
 <PropertyGroup>
   <TargetFramework>net10.0-ios</TargetFramework>
-  <RuntimeIdentifier>iossimulator-arm64</RuntimeIdentifier>
+  <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
   <PublishAot>true</PublishAot>
   <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+  <!-- Code signing required for device -->
+  <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
+  <CodesignProvision>Wildcard Dev</CodesignProvision>
+  <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
 </PropertyGroup>
 ```
 
 ```bash
 dotnet publish -c Release
+xcrun devicectl device install app --device $UDID path/to/App.app
+xcrun devicectl device process launch --device $UDID --console $BUNDLE_ID
 ```
 
 ### Trade-offs
 
-| Aspect | Mono JIT (default) | NativeAOT |
+| Aspect | Mono JIT (default) | NativeAOT (device) |
 |--------|-------------------|-----------|
+| Swift interop | **Broken** (SIGABRT on all type access) | Works (90.6% pass rate across 15 libraries) |
 | Build time | Fast (~5s) | Slow (~30-60s) |
-| `CallConvSwift` | Crashes (workarounds needed) | Works correctly |
+| Target | Simulator or device | Device only |
 | Incremental builds | Supported | Full rebuild required |
 | Debugging | Full managed debugger | Limited (native debugger) |
+
+### Validated Results (2026-03-15)
+
+See `src/docs/sim-validation-findings.md` for full device test results across 15 real-world libraries (309/341 tests pass). Test infrastructure at `/Users/wojo/Dev/sim-validation/`.
 
 ---
 

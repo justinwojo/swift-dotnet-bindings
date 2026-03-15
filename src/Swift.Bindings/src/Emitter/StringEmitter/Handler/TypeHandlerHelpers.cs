@@ -467,6 +467,9 @@ namespace BindingsGeneration
         private readonly bool _isRefType;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionContext;
+        private readonly string? _wrapperLibraryName;
 
         public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics)
             : this(csWriter, structDecl, refType, typeNameWithGenerics, false, false)
@@ -490,6 +493,19 @@ namespace BindingsGeneration
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }
 
+        /// <summary>
+        /// Constructor with Swift wrapper support. When swiftWriter and emissionContext are provided,
+        /// emits @_cdecl equality wrappers instead of using SwiftEquatable.Equals (which uses
+        /// CallConvSwift and crashes on NativeAOT).
+        /// </summary>
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName)
+            : this(csWriter, structDecl, refType, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator)
+        {
+            _swiftWriter = swiftWriter;
+            _emissionContext = emissionContext;
+            _wrapperLibraryName = wrapperLibraryName;
+        }
+
         public void WriteSwiftEquatableImplementation()
         {
             if (_implementsEquatable)
@@ -502,8 +518,102 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// Gets the @_cdecl symbol name for an equality wrapper.
+        /// </summary>
+        private static string GetEqualitySymbolName(StructDecl structDecl)
+        {
+            var moduleName = structDecl.ModuleDecl?.Name ?? "Unknown";
+            var safeTypeName = structDecl.Name.Replace(".", "_");
+            var hash = EmitterUtility.DeterministicHash8(structDecl.MangledName ?? structDecl.Name);
+            return $"SBW_{moduleName}_{safeTypeName}_eq_{hash}";
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl Swift wrapper for equality comparison and returns the symbol name.
+        /// Returns null if wrapper emission is not available or not needed.
+        /// </summary>
+        private string? TryEmitSwiftEqualityWrapper()
+        {
+            if (_swiftWriter == null || _emissionContext == null || _wrapperLibraryName == null)
+                return null;
+
+            // Skip for generic types (wrapper can't be instantiated)
+            if (_structDecl.GenericParameters.Count > 0)
+                return null;
+
+            var symbolName = GetEqualitySymbolName(_structDecl);
+
+            // Check dedup — don't emit twice for the same symbol
+            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
+                return symbolName; // Already emitted, return for C# P/Invoke
+
+            var swiftTypeName = _structDecl.SwiftTypeName.ToString();
+
+            // Use symbolName as Swift func name (unique per type via hash) to avoid
+            // redeclaration errors when multiple types share the same simple name.
+            _swiftWriter.WriteLines($$"""
+
+            @_cdecl("{{symbolName}}")
+            public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
+                let l = lhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
+                let r = rhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
+                return (l == r) ? 1 : 0
+            }
+            """);
+
+            return symbolName;
+        }
+
+        /// <summary>
+        /// Emits the C# P/Invoke declaration for the equality wrapper.
+        /// </summary>
+        private void EmitEqualityPInvoke(string symbolName)
+        {
+            _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
+            [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
+            private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
+            """);
+            _writer.WriteLine();
+        }
+
         private void WriteSwiftEquatableImplementationWithSwiftEquals(bool refType)
         {
+            // Try to emit @_cdecl equality wrapper (avoids CallConvSwift which crashes on NativeAOT).
+            // Only works for non-generic types with wrapper library support.
+            var eqSymbol = TryEmitSwiftEqualityWrapper();
+            if (eqSymbol != null)
+            {
+                EmitEqualityPInvoke(eqSymbol);
+            }
+
+            // Equality comparison expression — use @_cdecl P/Invoke if available.
+            // Reference types (projected as class): extract pointer from Payload SafeHandle.
+            // Value types (frozen struct as C# struct): take address via Unsafe.AsPointer in unsafe block.
+            string equalsExpr(string lhs, string rhs)
+            {
+                if (eqSymbol == null) return $"Swift.Runtime.SwiftEquatable.Equals({lhs}, {rhs})";
+                if (refType)
+                    return $"PInvoke_eq({lhs}.Payload.DangerousGetHandle(), {rhs}.Payload.DangerousGetHandle())";
+                // Value types: wrap in unsafe + use Unsafe.AsPointer to pass stack addresses
+                return $"_PInvoke_eq_value(ref {lhs}, ref {rhs})";
+            }
+            // For value types, emit a helper that wraps the unsafe pointer extraction
+            bool needsValueHelper = eqSymbol != null && !refType;
+            if (needsValueHelper)
+            {
+                _writer.WriteLines($$"""
+                private static unsafe bool _PInvoke_eq_value(ref {{_typeNameWithGenerics}} lhs, ref {{_typeNameWithGenerics}} rhs)
+                {
+                    return PInvoke_eq(
+                        (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref lhs),
+                        (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref rhs));
+                }
+                """);
+                _writer.WriteLine();
+            }
+
             // Always write Equals and GetHashCode methods
             // Use simple name for is-check and error messages
             var hashCodeBody = _implementsHashable
@@ -512,7 +622,7 @@ namespace BindingsGeneration
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
-                return obj is {{_typeNameWithGenerics}} other && Swift.Runtime.SwiftEquatable.Equals(this, other);
+                return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
             }
 
             public override int GetHashCode()
@@ -536,7 +646,7 @@ namespace BindingsGeneration
                     {
                         if (left is null) return right is null;
                         if (right is null) return false;
-                        return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                        return {{equalsExpr("left", "right")}};
                     }
                     """;
                 }
@@ -545,7 +655,7 @@ namespace BindingsGeneration
                     equalityBody = $$"""
                     public static bool operator ==({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                     {
-                        return Swift.Runtime.SwiftEquatable.Equals(left, right);
+                        return {{equalsExpr("left", "right")}};
                     }
                     """;
                 }
@@ -564,7 +674,7 @@ namespace BindingsGeneration
                     {
                         if (left is null) return right is not null;
                         if (right is null) return true;
-                        return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                        return !{{equalsExpr("left", "right")}};
                     }
                     """;
                 }
@@ -573,7 +683,7 @@ namespace BindingsGeneration
                     inequalityBody = $$"""
                     public static bool operator !=({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
                     {
-                        return !Swift.Runtime.SwiftEquatable.Equals(left, right);
+                        return !{{equalsExpr("left", "right")}};
                     }
                     """;
                 }
@@ -585,7 +695,7 @@ namespace BindingsGeneration
             var equatableEquals = $$"""
             public bool Equals({{_typeNameWithGenerics}}{{(refType == true ? "?" : "")}} other)
             {
-                {{(refType == true ? "if (other is null) return false;\n            " : "")}}return Swift.Runtime.SwiftEquatable.Equals(this, other);
+                {{(refType == true ? "if (other is null) return false;\n            " : "")}}return {{equalsExpr("this", "other")}};
             }
             """;
 

@@ -575,6 +575,98 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain("left is null", result);
     }
 
+    [Fact]
+    public void WriteSwiftEquatable_WithSwiftWriter_EmitsCdeclWrapper()
+    {
+        // When SwiftWriter and ModuleEmissionContext are provided, equality should use
+        // @_cdecl P/Invoke instead of SwiftEquatable.Equals (which crashes on NativeAOT).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var structDecl = CreateStructDeclWithConformances("Emphasis", CreateModuleDecl("BonMot"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("BonMot.Emphasis"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.MangledName = "$s6BonMot8EmphasisVN";
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: true, "Emphasis",
+            hasExplicitEqualityOperator: false, hasExplicitInequalityOperator: false,
+            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "BonMotSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        var swiftResult = swiftOutput.ToString();
+
+        // C# should use PInvoke_eq instead of SwiftEquatable.Equals
+        Assert.Contains("PInvoke_eq(", csResult);
+        Assert.DoesNotContain("SwiftEquatable.Equals", csResult);
+        // C# should emit the P/Invoke declaration
+        Assert.Contains("LibraryImport(\"BonMotSwiftBindings\"", csResult);
+        Assert.Contains("PInvoke_eq(IntPtr lhs, IntPtr rhs)", csResult);
+        // Swift should emit the @_cdecl wrapper
+        Assert.Contains("@_cdecl(", swiftResult);
+        Assert.Contains("BonMot.Emphasis.self", swiftResult);
+        Assert.Contains("(l == r) ? 1 : 0", swiftResult);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_WithoutSwiftWriter_FallsBackToSwiftEquatable()
+    {
+        // Without SwiftWriter, equality should use SwiftEquatable.Equals (legacy path).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        var structDecl = CreateStructDeclWithConformances("Point", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: true, "Point");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        // Should fall back to SwiftEquatable.Equals
+        Assert.Contains("SwiftEquatable.Equals", csResult);
+        Assert.DoesNotContain("PInvoke_eq", csResult);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_ValueTypeWithSwiftWriter_UsesValuePInvokePath()
+    {
+        // Value-type structs (refType=false) with SwiftWriter must use the _PInvoke_eq_value
+        // helper path, NOT SwiftEquatable.Equals (which crashes on NativeAOT via CallConvSwift).
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var structDecl = CreateStructDeclWithConformances("CGPoint", CreateModuleDecl("CoreGraphics"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.MangledName = "$s12CoreGraphics7CGPointVN";
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: false, "CGPoint",
+            hasExplicitEqualityOperator: false, hasExplicitInequalityOperator: false,
+            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "CoreGraphicsSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+        // Must use value-type P/Invoke helper, not SwiftEquatable.Equals
+        Assert.Contains("_PInvoke_eq_value(ref", csResult);
+        Assert.DoesNotContain("SwiftEquatable.Equals", csResult);
+        // Must emit the unsafe helper method
+        Assert.Contains("private static unsafe bool _PInvoke_eq_value", csResult);
+        Assert.Contains("Unsafe.AsPointer(ref lhs)", csResult);
+    }
+
     #endregion
 
     #region ToStringHelper Tests

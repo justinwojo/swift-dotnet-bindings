@@ -304,8 +304,9 @@ namespace BindingsGeneration
                 bool hasEquality = emittedOperatorSymbols.Contains("==");
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
-                // Add Equatable support if the struct conforms to Equatable
-                var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, typeNameWithGenerics, hasEquality, hasInequality);
+                // Add Equatable support if the struct conforms to Equatable.
+                // Pass SwiftWriter + context for @_cdecl equality wrapper (avoids CallConvSwift crash).
+                var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, isProjectedAsClass, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName);
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
                 ISwiftObjectMethodWriter.WriteFrozenStructImplementation(pinvokeHelperContext, isProjectedAsClass);
 

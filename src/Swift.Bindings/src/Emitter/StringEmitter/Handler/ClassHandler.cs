@@ -917,6 +917,7 @@ namespace BindingsGeneration
 
         private void WriteSwiftEquatableImplementationWithSwiftEquals()
         {
+
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
             var hashCodeBody = _implementsHashable

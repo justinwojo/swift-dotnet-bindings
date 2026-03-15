@@ -361,6 +361,133 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
+    public void IndirectResult_CdeclStringReturn_UsesUtf8SliceAllocation()
+    {
+        // String return via @_cdecl wrapper: the Swift wrapper converts the String to
+        // SBW_Utf8Slice (ptr + len), so C# must allocate fixed 2-pointer size.
+        // Using the projected C# type "string" with TypeMetadata.GetTypeMetadataOrThrow
+        // crashes at runtime because C# string has no Swift type metadata.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Fetcher", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getName",
+            MangledName = "SBW_TestModule_Fetcher_getName",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.String"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Fetcher");
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Wrapper signature says "string" (the projected C# type), NOT "Utf8Slice"
+        var wrapperSig = new Signature("string", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        // Must use fixed Utf8Slice allocation, not TypeMetadata.GetTypeMetadataOrThrow<string>()
+        Assert.Contains("nint.Size * 2", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod.AllocationCode);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclArrayReturn_UsesSwiftArrayAllocation()
+    {
+        // Array return via @_cdecl wrapper: the Swift wrapper writes the full Swift.Array
+        // value to the result buffer. C# must allocate using SwiftArray<T> metadata, not
+        // the projected IReadOnlyList<T> which has no Swift type metadata.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Store", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getKeys",
+            MangledName = "SBW_TestModule_Store_getKeys",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Store");
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Wrapper signature says "IReadOnlyList<string>" (the projected C# type)
+        var wrapperSig = new Signature("IReadOnlyList<string>", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        // Must use SwiftArray metadata, not IReadOnlyList<string>
+        Assert.Contains("SwiftArray<SwiftString>", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("IReadOnlyList", plan.IndirectResultMethod.AllocationCode);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_CdeclDictionaryReturn_UsesSwiftDictionaryAllocation()
+    {
+        // Dictionary return via @_cdecl wrapper: allocation must use SwiftDictionary<K,V>,
+        // not the projected IReadOnlyDictionary<K,V>.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Config", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getAll",
+            MangledName = "SBW_TestModule_Config_getAll",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Dictionary",
+                    new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.String")), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Config");
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Wrapper signature says "IReadOnlyDictionary<string, string>" (projected type)
+        var wrapperSig = new Signature("IReadOnlyDictionary<string, string>", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        // Must use SwiftDictionary metadata, not IReadOnlyDictionary
+        Assert.Contains("SwiftDictionary<SwiftString, SwiftString>", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("IReadOnlyDictionary", plan.IndirectResultMethod.AllocationCode);
+        Assert.Equal("NativeMemory.Free(payload);", plan.IndirectResultMethod.CleanupCode);
+    }
+
+    [Fact]
     public void IndirectResult_CdeclFrozenBlittableReturn_UsesUnsafeSizeOf()
     {
         // Bug 3: @_cdecl method returning frozen blittable struct (like CGSize) must use
@@ -455,7 +582,11 @@ public class MethodMarshalPlanBuilderTests
         var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
 
         Assert.NotNull(plan.IndirectResultMethod);
-        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow", plan.IndirectResultMethod!.AllocationCode);
+        // Must use real type name (UrlWrapper), NOT the .Buffer ABI struct.
+        // FrozenWithMemoryProjection.ContainerTypeName returns "Foo.Buffer" but
+        // MarshalFromSwiftType returns the real type — allocation must use the real type.
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<TestModule.UrlWrapper>", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain(".Buffer", plan.IndirectResultMethod.AllocationCode);
         Assert.DoesNotContain("Unsafe.SizeOf", plan.IndirectResultMethod.AllocationCode);
     }
 

@@ -364,10 +364,20 @@ internal class MethodMarshalPlanBuilder
                     };
                 }
 
-                // Optional<value-type>: projected as C# nullable (double?), but TypeMetadata
-                // needs the Swift container type (SwiftOptional<double>) for correct size.
-                if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
-                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                // @_cdecl String returns: the Swift wrapper converts the String to SBW_Utf8Slice
+                // (pointer + length), not a Swift.String value. Use fixed Utf8Slice allocation.
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec strRetNts && strRetNts.Name == "Swift.String")
+                {
+                    allocTypeName = "Utf8Slice";
+                }
+                // Projected types: C# wrapper uses the public type (IReadOnlyList<T>, double?,
+                // IReadOnlyDictionary<K,V>, etc.) but allocation needs a type with valid TypeMetadata.
+                // Use MarshalFromSwiftType (not ContainerTypeName) because FrozenWithMemoryProjection's
+                // ContainerTypeName is "Foo.Buffer" (ABI struct without metadata), while
+                // MarshalFromSwiftType is the real type name that has TypeMetadata.
+                // Skip Optional<reference-type> which uses IntPtr (no indirect result buffer).
+                else if (!(MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
+                    MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
@@ -375,7 +385,7 @@ internal class MethodMarshalPlanBuilder
                             ParentTypeDecl = _env.ParentDecl as TypeDecl,
                             CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                     if (projection != null)
-                        allocTypeName = projection.ContainerTypeName;
+                        allocTypeName = projection.MarshalFromSwiftType;
                 }
 
                 // Determine allocation strategy based on the return type:

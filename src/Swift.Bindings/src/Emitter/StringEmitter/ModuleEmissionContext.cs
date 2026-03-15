@@ -276,6 +276,13 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
     public bool TryAddEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Add(symbol);
 
+    // ==================== Equality @_cdecl Wrapper ====================
+
+    private readonly HashSet<string> _equalityWrapperSymbols = new();
+
+    /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddEqualityWrapperSymbol(string symbol) => _equalityWrapperSymbols.Add(symbol);
+
     // ==================== Emission Report Accumulators ====================
 
     private readonly Dictionary<string, int> _wrapperStrategyCounts = new();
