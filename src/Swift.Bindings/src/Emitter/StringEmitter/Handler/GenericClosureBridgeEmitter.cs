@@ -952,15 +952,8 @@ public static class GenericClosureBridgeEmitter
 
     /// <summary>
     /// Gets the Swift argument label for a parameter.
-    /// Mirrors ClosureEmitter.GetSwiftArgLabel (private).
+    /// Delegates to the canonical implementation in ClosureEmitter.
     /// </summary>
     private static string GetSwiftArgLabel(ArgumentDecl arg)
-    {
-        var name = arg.Name;
-        if (name.StartsWith("arg"))
-            return ""; // Unlabeled
-        if (name.StartsWith("_"))
-            return $"{name.Substring(1)}: "; // Strip leading underscore
-        return $"{name}: ";
-    }
+        => ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
 }

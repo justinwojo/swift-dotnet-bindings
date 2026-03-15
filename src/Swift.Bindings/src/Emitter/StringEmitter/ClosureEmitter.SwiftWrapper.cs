@@ -383,8 +383,10 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Checks if a Swift type name is a primitive that passes directly in @convention(c).
+    /// Includes Bool. Callers that handle Bool separately (byte conversion) may check Bool
+    /// before calling this — adding Bool here is safe because their early check takes precedence.
     /// </summary>
-    private static bool IsSwiftPrimitive(string swiftTypeName)
+    internal static bool IsSwiftPrimitive(string swiftTypeName)
     {
         return swiftTypeName switch
         {
@@ -393,7 +395,8 @@ public static partial class ClosureEmitter
             "Swift.Int16" or "Swift.UInt16" or
             "Swift.Int32" or "Swift.UInt32" or
             "Swift.Int64" or "Swift.UInt64" or
-            "Swift.Float" or "Swift.Double" => true,
+            "Swift.Float" or "Swift.Double" or
+            "Swift.Bool" => true,
             _ => false
         };
     }

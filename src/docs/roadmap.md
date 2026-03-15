@@ -58,7 +58,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 | **SPM package support** (source -> xcframework -> bind) | Large | `Future/sdk-future-work.md` |
 | **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
 | **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
-| **Emitter architecture redesign** | Very large | `Completed/emitter-redesign-proposal.md` |
+| ~~Emitter architecture redesign~~ | ~~Very large~~ | Reconsidered — handlers already well-factored after Phases 1+3. See `architecture-refactoring-plan.md` |
 
 ---
 

@@ -62,125 +62,20 @@ public static partial class ClosureEmitter
         var invokeArgsString = string.Join(", ", invokeArgs);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
 
-        // For bool returns, we need to convert: (byte)(result ? 1 : 0)
-        // For well-known protocol returns (AnyError), unwrap to ExistentialContainer for P/Invoke
+        // Build the return statement using the shared conversion logic
         string returnStatement;
         if (!hasReturn)
         {
             returnStatement = $"del({invokeArgsString});";
         }
-        else if (returnIsBool)
-        {
-            returnStatement = $"return (byte)(del({invokeArgsString}) ? 1 : 0);";
-        }
-        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out _))
-        {
-            returnStatement = $"return del({invokeArgsString}).GetExistentialContainer();";
-        }
-        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out _))
-        {
-            // Known protocol: delegate returns IProtocol, extract container for P/Invoke
-            var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
-            returnStatement = $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)del({invokeArgsString})).GetExistentialContainer();";
-        }
-        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
-        {
-            // Unknown protocol: delegate returns object, unbox for P/Invoke
-            var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
-            returnStatement = $"return ({ct})del({invokeArgsString});";
-        }
-        else if (returnType == "void*" && closureTypeSpec.ReturnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
-        {
-            // Pointer return types (OpaquePointer, UnsafeRawPointer, etc.): delegate returns IntPtr,
-            // callback ABI expects void* — just cast the pointer value directly.
-            returnStatement = $"return (void*)del({invokeArgsString});";
-        }
-        else if (returnType == "void*" && closureHandler.IsClassType(closureTypeSpec.ReturnType))
-        {
-            // Class returns: delegate returns ClassName, callback returns void* (raw handle)
-            returnStatement = $"return (void*)del({invokeArgsString}).Payload.DangerousGetHandle();";
-        }
-        else if (returnType == "void*" && closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-        {
-            // ObjC-bridged returns: delegate returns NSError/UIImage/etc., callback returns void* (.Handle)
-            returnStatement = $"return (void*)del({invokeArgsString}).Handle;";
-        }
-        else if (returnType == "void*" && IsOptionalReferenceReturn(closureTypeSpec.ReturnType, closureHandler))
-        {
-            // Optional<Class/ObjC> returns: delegate returns ClassName?, callback returns void* (null-safe)
-            var isClass = closureHandler.IsClassType(((NamedTypeSpec)closureTypeSpec.ReturnType).GenericParameters[0]);
-            if (isClass)
-                returnStatement = $$"""
-                    var _optResult = del({{invokeArgsString}});
-                            return _optResult != null ? (void*)_optResult.Payload.DangerousGetHandle() : null;
-                    """;
-            else // ObjC-bridged
-                returnStatement = $$"""
-                    var _optResult = del({{invokeArgsString}});
-                            return _optResult != null ? (void*)_optResult.Handle : null;
-                    """;
-        }
-        else if (closureTypeSpec.ReturnType is TupleTypeSpec retTuple &&
-                 retTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
-                                             closureHandler.NeedsProxyWrapping(e, out _) ||
-                                             closureHandler.IsExistentialParam(e) ||
-                                             closureHandler.IsSimpleEnum(e)))
-        {
-            var elems = new List<string>();
-            for (int i = 0; i < retTuple.Elements.Count; i++)
-            {
-                var elem = retTuple.Elements[i];
-                var acc = $"_tupleResult.Item{i + 1}";
-                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out _))
-                    elems.Add($"{acc}.GetExistentialContainer()");
-                else if (closureHandler.NeedsProxyWrapping(elem, out _))
-                {
-                    var ct = closureHandler.GetPInvokeExistentialType(elem);
-                    elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
-                }
-                else if (closureHandler.IsExistentialParam(elem))
-                {
-                    var ct = closureHandler.GetPInvokeExistentialType(elem);
-                    elems.Add($"({ct}){acc}");
-                }
-                else if (closureHandler.IsSimpleEnum(elem))
-                {
-                    var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
-                    elems.Add($"({underlyingType}){acc}");
-                }
-                else
-                    elems.Add(acc);
-            }
-            returnStatement = $"""
-                    var _tupleResult = del({invokeArgsString});
-                            return ({string.Join(", ", elems)});
-                """;
-        }
-        else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
-        {
-            // Simple enum returns: delegate returns C# enum, callback returns underlying integer
-            var underlyingType = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType)?.csUnderlying ?? "int";
-            returnStatement = $"return ({underlyingType})del({invokeArgsString});";
-        }
-        else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
-        {
-            // Non-frozen struct / ObjC class returns: the callback signature uses void*
-            // but del() returns the C# type. Marshal to a native buffer.
-            var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnStatement = $"""
-                    var _result = del({invokeArgsString});
-                            var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<{csharpRetType}>();
-                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
-                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
-                            SwiftMarshal.MarshalToSwift(_result, ref _resultSpan);
-                            return _resultBuffer;
-                """;
-        }
         else
         {
-            returnStatement = $"return del({invokeArgsString});";
+            returnStatement = BuildCallbackReturnStatement(
+                closureTypeSpec.ReturnType,
+                $"del({invokeArgsString})",
+                closureHandler,
+                returnType);
         }
 
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
@@ -393,6 +288,123 @@ public static partial class ClosureEmitter
 
             return _invoker;
             """);
+    }
+
+    /// <summary>
+    /// Builds the return statement for a closure callback that marshals the result value
+    /// from C# types to P/Invoke types. Shared between escaping and throwing callback emitters
+    /// to ensure all return type cases are handled consistently.
+    /// </summary>
+    /// <param name="returnType">The closure's return TypeSpec.</param>
+    /// <param name="resultExpr">The expression that produces the result (e.g., "del(args)" or "swiftResult.Success").</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <param name="callbackReturnType">The callback's declared return type string (e.g., "void*", "byte").</param>
+    /// <returns>One or more lines of C# code for the return statement.</returns>
+    internal static string BuildCallbackReturnStatement(
+        TypeSpec returnType,
+        string resultExpr,
+        ClosureHandler closureHandler,
+        string callbackReturnType)
+    {
+        if (MarshallingHelpers.IsBoolType(returnType))
+            return $"return (byte)({resultExpr} ? 1 : 0);";
+
+        if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out _))
+            return $"return {resultExpr}.GetExistentialContainer();";
+
+        if (closureHandler.NeedsProxyWrapping(returnType, out _))
+        {
+            var ct = closureHandler.GetPInvokeExistentialType(returnType);
+            return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
+        }
+
+        if (closureHandler.IsExistentialParam(returnType))
+        {
+            var ct = closureHandler.GetPInvokeExistentialType(returnType);
+            return $"return ({ct}){resultExpr};";
+        }
+
+        if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
+            return $"return (void*){resultExpr};";
+
+        if (callbackReturnType == "void*" && closureHandler.IsClassType(returnType))
+            return $"return (void*){resultExpr}.Payload.DangerousGetHandle();";
+
+        if (callbackReturnType == "void*" && closureHandler.IsObjCBridgedClass(returnType))
+            return $"return (void*){resultExpr}.Handle;";
+
+        if (callbackReturnType == "void*" && IsOptionalReferenceReturn(returnType, closureHandler))
+        {
+            var isClass = closureHandler.IsClassType(((NamedTypeSpec)returnType).GenericParameters[0]);
+            if (isClass)
+                return $$"""
+                    var _optResult = {{resultExpr}};
+                            return _optResult != null ? (void*)_optResult.Payload.DangerousGetHandle() : null;
+                    """;
+            else
+                return $$"""
+                    var _optResult = {{resultExpr}};
+                            return _optResult != null ? (void*)_optResult.Handle : null;
+                    """;
+        }
+
+        if (returnType is TupleTypeSpec retTuple &&
+            retTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
+                                        closureHandler.NeedsProxyWrapping(e, out _) ||
+                                        closureHandler.IsExistentialParam(e) ||
+                                        closureHandler.IsSimpleEnum(e)))
+        {
+            var elems = new List<string>();
+            for (int i = 0; i < retTuple.Elements.Count; i++)
+            {
+                var elem = retTuple.Elements[i];
+                var acc = $"_tupleResult.Item{i + 1}";
+                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out _))
+                    elems.Add($"{acc}.GetExistentialContainer()");
+                else if (closureHandler.NeedsProxyWrapping(elem, out _))
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(elem);
+                    elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                }
+                else if (closureHandler.IsExistentialParam(elem))
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(elem);
+                    elems.Add($"({ct}){acc}");
+                }
+                else if (closureHandler.IsSimpleEnum(elem))
+                {
+                    var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
+                    elems.Add($"({underlyingType}){acc}");
+                }
+                else
+                    elems.Add(acc);
+            }
+            return $"""
+                    var _tupleResult = {resultExpr};
+                            return ({string.Join(", ", elems)});
+                """;
+        }
+
+        if (closureHandler.IsSimpleEnum(returnType))
+        {
+            var underlyingType = closureHandler.GetSimpleEnumInfo(returnType)?.csUnderlying ?? "int";
+            return $"return ({underlyingType}){resultExpr};";
+        }
+
+        if (callbackReturnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(returnType))
+        {
+            var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);
+            return $"""
+                    var _result = {resultExpr};
+                            var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<{csharpRetType}>();
+                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
+                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
+                            SwiftMarshal.MarshalToSwift(_result, ref _resultSpan);
+                            return _resultBuffer;
+                """;
+        }
+
+        return $"return {resultExpr};";
     }
 
     /// <summary>

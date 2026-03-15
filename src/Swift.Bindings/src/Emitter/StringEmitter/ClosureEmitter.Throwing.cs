@@ -103,72 +103,13 @@ public static partial class ClosureEmitter
 
         if (hasReturn)
         {
-            if (returnIsBool)
-            {
-                csWriter.WriteLine("        return (byte)(swiftResult.Success ? 1 : 0);");
-            }
-            else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out _))
-            {
-                csWriter.WriteLine("        return swiftResult.Success.GetExistentialContainer();");
-            }
-            else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out _))
-            {
-                var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
-                csWriter.WriteLine($"        return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)swiftResult.Success).GetExistentialContainer();");
-            }
-            else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
-            {
-                var ct = closureHandler.GetPInvokeExistentialType(closureTypeSpec.ReturnType);
-                csWriter.WriteLine($"        return ({ct})swiftResult.Success;");
-            }
-            else if (returnType == "void*" && closureTypeSpec.ReturnType is NamedTypeSpec retNamedType && IsPointerType(retNamedType))
-            {
-                // Pointer return types (OpaquePointer, UnsafeRawPointer, etc.): delegate returns IntPtr,
-                // callback ABI expects void* — just cast the pointer value directly.
-                csWriter.WriteLine("        return (void*)swiftResult.Success;");
-            }
-            else if (returnType == "void*" && closureHandler.IsClassType(closureTypeSpec.ReturnType))
-            {
-                // Class returns: delegate returns ClassName, callback returns void* (raw handle)
-                csWriter.WriteLine("        return (void*)swiftResult.Success.Payload.DangerousGetHandle();");
-            }
-            else if (returnType == "void*" && closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-            {
-                // ObjC-bridged returns: delegate returns NSError/UIImage/etc., callback returns void* (.Handle)
-                csWriter.WriteLine("        return (void*)swiftResult.Success.Handle;");
-            }
-            else if (returnType == "void*" && IsOptionalReferenceReturn(closureTypeSpec.ReturnType, closureHandler))
-            {
-                // Optional<Class/ObjC> returns: null-safe pointer extraction
-                var isClass = closureHandler.IsClassType(((NamedTypeSpec)closureTypeSpec.ReturnType).GenericParameters[0]);
-                if (isClass)
-                    csWriter.WriteLine("        return swiftResult.Success != null ? (void*)swiftResult.Success.Payload.DangerousGetHandle() : null;");
-                else
-                    csWriter.WriteLine("        return swiftResult.Success != null ? (void*)swiftResult.Success.Handle : null;");
-            }
-            else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
-            {
-                // Simple enum returns: cast C# enum to underlying integer
-                var underlyingType = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType)?.csUnderlying ?? "int";
-                csWriter.WriteLine($"        return ({underlyingType})swiftResult.Success;");
-            }
-            else if (returnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
-            {
-                // Non-frozen struct / ObjC class returns: the callback signature uses void*
-                // but swiftResult.Success is the C# type. Marshal to a native buffer.
-                var csharpSuccessType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-                csWriter.WriteLines($$"""
-                            var _successMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpSuccessType}}>();
-                            var _successBuffer = (void*)NativeMemory.Alloc(_successMetadata.Size);
-                            var _successSpan = new Span<byte>(_successBuffer, (int)_successMetadata.Size);
-                            SwiftMarshal.MarshalToSwift(swiftResult.Success, ref _successSpan);
-                            return _successBuffer;
-                    """);
-            }
-            else
-            {
-                csWriter.WriteLine("        return swiftResult.Success;");
-            }
+            // Use the shared return conversion logic — same cases as EmitEscapingClosureCallback
+            var successReturn = BuildCallbackReturnStatement(
+                closureTypeSpec.ReturnType,
+                "swiftResult.Success",
+                closureHandler,
+                returnType);
+            csWriter.WriteLine($"        {successReturn}");
         }
 
         csWriter.WriteLine("    }");

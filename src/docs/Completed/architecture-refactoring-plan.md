@@ -188,11 +188,27 @@ Post-processor reduced by ~60% as planned. `ClosureParamPattern`, `RawGenericPar
 
 ---
 
-## Phase 2: Method Representation Decomposition
+## Phase 2: Method Representation Decomposition — RECONSIDERED (Not Needed)
 
-**Impact**: Highest | **Effort**: Large | **Risk**: Medium
+**Impact**: ~~Highest~~ Low | **Effort**: Large | **Risk**: Medium | **Status**: Reconsidered (2026-03-14)
 
-### Problem
+### Reconsidered Rationale (2026-03-14)
+
+A thorough analysis of the actual handler code revealed that the MethodRepresentation decomposition is not justified:
+
+1. **Handlers are not duplicating each other.** PropertyHandler and SubscriptHandler already **delegate to `MethodHandler.Emit()`** for accessor emission — they're consumers of the method pipeline, not parallel reimplementations. The "~33K handler LOC" estimate included closure infrastructure (~9.9K), protocol proxy (~6.2K), and enum handlers (~4.5K), all of which are explicitly excluded from Phase 2.
+
+2. **Shared infrastructure is already extracted.** `SignatureHandler`, `PInvokeEmitter`, `WrapperEmitter`, `TypeProjectionFactory`, `AccessorConversionVisitors`, and `MemberValidationPipeline` already handle the common patterns. Only ~2.5% genuine duplication exists across wrapper emitters (~50 lines of self-reconstruction + string return + direct return switch).
+
+3. **The "projection parity pattern" is already solved.** PropertyHandler and SubscriptHandler use the visitor pattern via `IProjectionVisitor<T>` — adding a new projection type without implementing visitor methods causes a **compile error**. Only ProtocolProxyEmitter.Receivers still uses switch dispatches with `_ => null` fallback.
+
+4. **Actual Phase 2 target is ~12.6K LOC** (MethodHandler 1,187 + PropertyHandler 994 + SubscriptHandler 777 + wrapper emitters ~8,400 + supporting ~1,600), not 33K. The handlers are already ~1K LOC each after Phase 1 removed validation logic.
+
+**Conclusion:** Phase 1 addressed the actual pain point (scattered validation across 150+ gates). The remaining handler code is well-factored with clean delegation boundaries. A `MethodRepresentation` abstraction would add complexity over working code with minimal structural benefit.
+
+**Alternative actions taken:** Small targeted improvements (utility dedup, return-marshalling unification in closure emitters) that address the few genuine duplication points without introducing new abstractions.
+
+### Original Problem (preserved for reference)
 
 MethodHandler (1,348 LOC + 5 partials), PropertyHandler (1,001 LOC), and ConstructorHandler all replicate the same orchestration logic:
 
@@ -385,7 +401,7 @@ All hardcoded Apple framework data in `AppleFrameworkRegistry.cs` has been extra
 
 ## Session Breakdown
 
-3 completed, 2 remaining. Each session is mostly autonomous. Start each session by referencing this doc. End each session with full validation (`run-tests.sh` + `validate-libraries.sh`). Use `/next-session` between sessions for continuity.
+3 completed, Phase 2 reconsidered (not needed). Each session is mostly autonomous. Start each session by referencing this doc. End each session with full validation (`run-tests.sh` + `validate-libraries.sh`). Use `/next-session` between sessions for continuity.
 
 ---
 
@@ -468,8 +484,8 @@ Note: Executed as Session 5 (out of plan order — Phase 3 was tackled before Ph
 |---------|-------|--------------------|-----------| -----| -------|
 | 1 | Phase 1 | Validation pipeline foundation + HandleBaseDecl integration | +1K / -0.1K | Low | ✅ Done |
 | 2 | Phase 1 | Handler gate migration + safety net removal + codex fixes | +0.3K / -0.5K | Low | ✅ Done |
-| 3 | Phase 2a | MethodRepresentation + phases + renderer + MethodHandler migration | +3.5K / -2.5K | Medium | Planned |
-| 4 | Phase 2b | PropertyHandler + ConstructorHandler + SubscriptHandler migration | +1.5K / -8K | Medium | Planned |
+| 3 | Phase 2a | ~~MethodRepresentation + phases + renderer + MethodHandler migration~~ | ~~+3.5K / -2.5K~~ | ~~Medium~~ | Reconsidered |
+| 4 | Phase 2b | ~~PropertyHandler + ConstructorHandler + SubscriptHandler migration~~ | ~~+1.5K / -8K~~ | ~~Medium~~ | Reconsidered |
 | 5 | Phase 3 | JSON framework definitions + registry loader | +1.4K / -0.5K | Low | ✅ Done |
 
 **Autonomous operation**: Each session can run with minimal human input. The doc provides the design, the code provides the source of truth, and the validation scripts provide the gate. The only reason to pause is if validation fails in an unexpected way that requires a design decision.
@@ -481,10 +497,10 @@ Note: Executed as Session 5 (out of plan order — Phase 3 was tackled before Ph
 | Metric | Current | Target |
 |--------|---------|--------|
 | Validation gate locations | 150+ across 5 tiers, 10+ files | ✅ 1 pipeline with 14 ordered gates across 6 phases (Phase 1 — done) |
-| Handler LOC (excl. closures/protocols) | ~33K | ~15K (Phase 2) |
+| Handler LOC (excl. closures/protocols) | ~33K (original estimate) | ~17K actual — already well-factored, Phase 2 not needed |
 | CLAUDE.md critical constraints | ~30 entries | ~15 entries (Phases 1+2) |
 | Files to edit for new validation gate | 3-5 | ✅ 1 pipeline method (Phase 1 — done) |
-| Files to edit for new projection type | 6+ switch dispatches | 1 renderer + 1 projection (Phase 2) |
+| Files to edit for new projection type | 6+ switch dispatches | Visitor pattern (compile-time exhaustive) in PropertyHandler/SubscriptHandler — already safe |
 | Post-processor patterns | 8 (6 safety nets) | ✅ 3 active patterns (Phase 1 — done) |
 | Framework data format | ~~C# source code~~ | ✅ JSON files (Phase 3 — done) |
 | 88-library validation | Baseline | ✅ Zero regressions after Phases 1 + 3 |

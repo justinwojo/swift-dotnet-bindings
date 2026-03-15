@@ -1,5 +1,5 @@
 {
-  "git_sha": "06800df2",
+  "git_sha": "ab48eafc",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 90196,
+        "lines": 90200,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15705,
+        "lines": 15706,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

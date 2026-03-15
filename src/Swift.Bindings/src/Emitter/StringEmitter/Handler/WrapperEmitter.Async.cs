@@ -1658,26 +1658,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Checks if a Swift type name is a primitive type that can be passed directly
         /// through @convention(c) callbacks without pointer indirection.
+        /// Delegates to the canonical implementation in ClosureEmitter.
         /// </summary>
         private static bool IsSwiftPrimitive(string swiftTypeName)
-        {
-            return swiftTypeName switch
-            {
-                "Swift.Int" => true,
-                "Swift.UInt" => true,
-                "Swift.Int8" => true,
-                "Swift.UInt8" => true,
-                "Swift.Int16" => true,
-                "Swift.UInt16" => true,
-                "Swift.Int32" => true,
-                "Swift.UInt32" => true,
-                "Swift.Int64" => true,
-                "Swift.UInt64" => true,
-                "Swift.Float" => true,
-                "Swift.Double" => true,
-                "Swift.Bool" => true,
-                _ => false
-            };
-        }
+            => ClosureEmitter.IsSwiftPrimitive(swiftTypeName);
     }
 }
