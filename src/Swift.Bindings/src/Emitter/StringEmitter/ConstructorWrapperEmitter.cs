@@ -661,6 +661,15 @@ public static class ConstructorWrapperEmitter
                     $"{argLabel}{label}Val");
         }
 
+        // Foundation.Date: @_cdecl bridges Date ↔ NSDate* (ObjC interop) which is incompatible
+        // with the raw double that C# passes. Accept Double and reconstruct Date inside wrapper.
+        if (swiftTypeSpec is NamedTypeSpec dateNamed && dateNamed.Name == "Foundation.Date")
+        {
+            return ($"_ {label}: Double",
+                    $"let {label}Val = Foundation.Date(timeIntervalSinceReferenceDate: {label})",
+                    $"{argLabel}{label}Val");
+        }
+
         // String: @_cdecl bridges String ↔ NSString* (ObjC interop) which is incompatible
         // with the raw SwiftString.Buffer that C# passes via CallConvCdecl.
         if (swiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
