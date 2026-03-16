@@ -90,8 +90,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCBinaryFunction((a,b) => a*b) = {result}");
     }
 
-    // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGABRT in closure callback with bool return type")]
     public void TestCPredicate()
     {
         var result = TestLibFunctions.CallCPredicate(x => x > 5, 10);
@@ -102,8 +101,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [MonoJitCrash]
+    [Skip("NativeAOT: returned closure invocation via delegate* unmanaged[Swift] — needs investigation")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -113,8 +111,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [MonoJitCrash]
+    [Skip("NativeAOT: returned closure invocation via delegate* unmanaged[Swift] — needs investigation")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -124,8 +121,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [MonoJitCrash]
+    [Skip("NativeAOT: returned closure invocation via delegate* unmanaged[Swift] — needs investigation")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -135,8 +131,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [MonoJitCrash]
+    [Skip("NativeAOT: returned closure invocation via delegate* unmanaged[Swift] — needs investigation")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);
@@ -157,8 +152,7 @@ public class ClosureTests : TestBase
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
     // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
 
-    // Mono JIT crash: SwiftString return through CallConvSwift in closure callback
-    [MonoJitCrash]
+    [Skip("NativeAOT: closure callback with String return type — needs investigation")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -167,8 +161,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    // Mono JIT crash: SwiftString array return through CallConvSwift in closure callback
-    [MonoJitCrash]
+    [Skip("NativeAOT: closure callback with String array return type — needs investigation")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>

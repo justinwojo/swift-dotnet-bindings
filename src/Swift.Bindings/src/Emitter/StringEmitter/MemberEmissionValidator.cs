@@ -274,7 +274,21 @@ public static class MemberEmissionValidator
             }
             else if (typeRecord != null)
             {
-                projectedTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                // Try factory-based projection first for parity with interface type projection
+                // (mirrors CanEmitMethod's return type projection via TypeProjectionFactory).
+                // Without this, String properties project to "Swift.SwiftString" here but
+                // GetInterfacePropertyType projects to "string", causing AreTypesCompatible
+                // to reject valid protocol conformances.
+                var propFactory = new TypeProjectionFactory();
+                var propProjection = propFactory.Project(property.SwiftTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = false,
+                    GenericContext = GenericContext.Empty,
+                    ParentTypeDecl = property.ParentDecl as TypeDecl
+                });
+                projectedTypeName = propProjection?.PublicType
+                    ?? typeRecord.CSharpTypeName.FullyQualifiedName;
             }
             else
             {

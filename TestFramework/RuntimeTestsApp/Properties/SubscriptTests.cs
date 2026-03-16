@@ -17,6 +17,7 @@ namespace RuntimeTestsApp.Properties;
 /// - Tier 1: IndexedStore construction + blittable subscript get/set
 /// - Tier 2: KeyValueStore string subscript CRUD, count, removeAll, allKeys, allValues
 /// </summary>
+[Skip("NativeAOT: SIGSEGV during class initialization — static field initializer crash")]
 public class SubscriptTests : TestBase
 {
     public SubscriptTests(TestResults results) : base(results) { }

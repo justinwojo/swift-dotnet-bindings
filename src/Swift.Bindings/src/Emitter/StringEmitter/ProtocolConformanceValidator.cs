@@ -64,6 +64,53 @@ public class ProtocolConformanceValidator
     }
 
     /// <summary>
+    /// Checks if a protocol has any members that would appear in its generated C# interface.
+    /// If ALL non-static members are filtered out (e.g., UIKit dependencies), the protocol
+    /// handler won't generate the interface, and adding it to a class declaration would cause CS0246.
+    /// </summary>
+    public bool HasEmittableInterfaceMembers(ProtocolDecl protocolDecl)
+    {
+        var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
+        var evaluator = new MemberGateEvaluator(_typeDatabase);
+
+        // Check if any non-static property would be emitted in the interface
+        foreach (var prop in protocolDecl.Properties)
+        {
+            if (prop.IsStatic) continue;
+            if (MemberEmissionValidator.ReferencesUnsupportedModule(prop.SwiftTypeSpec, _typeDatabase))
+                continue;
+            var result = evaluator.EvaluateProperty(prop, _moduleDecl, protocolDecl);
+            if (!result.IsSkipped)
+                return true;  // At least one property would appear in the interface
+        }
+
+        // Check if any non-static, non-constructor method would be emitted
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+            var result = evaluator.EvaluateMethod(method, _moduleDecl, protocolDecl);
+            if (!result.IsSkipped)
+                return true;  // At least one method would appear in the interface
+        }
+
+        // Check if any non-static subscript would be emitted in the interface
+        foreach (var subscript in protocolDecl.Subscripts)
+        {
+            if (subscript.IsStatic) continue;
+            var result = evaluator.EvaluateSubscript(subscript, _moduleDecl, protocolDecl);
+            if (!result.IsSkipped)
+                return true;  // At least one subscript would appear in the interface
+        }
+
+        // Protocol has no emittable interface members — it's either empty (marker) or all-filtered.
+        // Empty protocols (no members at all) still get generated → return true.
+        bool hasMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
+                         protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+                         protocolDecl.Subscripts.Any(s => !s.IsStatic);
+        return !hasMembers;  // true if empty protocol, false if all members were filtered
+    }
+
+    /// <summary>
     /// Checks if a CONCRETE TYPE can fully implement a protocol interface.
     /// Validates the TYPE'S MEMBERS (not protocol requirements) against interface.
     /// </summary>
@@ -274,6 +321,7 @@ public class ProtocolConformanceValidator
             if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName))
                 return false;
         }
+
 
         // NOTE: Inherited protocol recursive check is intentionally disabled.
         // InheritedProtocols was recently populated (was always empty before), but

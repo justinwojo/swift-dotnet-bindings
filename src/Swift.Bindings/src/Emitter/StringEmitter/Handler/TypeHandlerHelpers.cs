@@ -866,6 +866,12 @@ internal static class ProtocolConformanceHelper
                     // For other cross-module protocols, we trust ShouldEmitConformance already validated.
                     if (protocolDecl != null)
                     {
+                        // Check if the protocol interface would actually be generated.
+                        // If ALL non-static members reference unsupported modules (e.g., UIKit),
+                        // the protocol handler won't emit the interface → CS0246.
+                        if (!conformanceValidator.HasEmittableInterfaceMembers(protocolDecl))
+                            continue;
+
                         // Same-module protocol - validate concrete type members
                         if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
                             continue;  // Skip interface if we can't fully implement it

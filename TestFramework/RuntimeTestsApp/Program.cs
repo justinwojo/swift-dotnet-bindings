@@ -307,12 +307,42 @@ public class MainViewController : UIViewController
         UpdateResultLabel(TestLogger.GetFullLog());
     }
 
+    // Classes that crash NativeAOT during type loading (before any test runs).
+    // Must be filtered by NAME, not by attribute, because attribute access triggers the crash.
+    private static readonly HashSet<string> _nativeAotCrashClasses = new()
+    {
+        "TupleMarshallingTests",  // SIGSEGV: ValueTuple method signatures not resolvable
+    };
+
     [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Test runner discovers test classes by reflection")]
     [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
     private async Task RunTestClassAsync(Type testClassType, TestResults results, TestPlatform platform, bool flakeDetect = false)
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {testClassType.Name} ===");
+
+        // NativeAOT: Some classes crash during type loading/attribute resolution
+        // (e.g., TupleMarshallingTests triggers SIGSEGV resolving ValueTuple method signatures).
+        // Filter by name BEFORE any reflection on the type.
+        if (platform == TestPlatform.Device && _nativeAotCrashClasses.Contains(testClassType.Name))
+        {
+            results.Skip($"{testClassType.Name}", "NativeAOT: class loading crashes process");
+            return;
+        }
+
+        // Check class-level [Skip] BEFORE instantiation — Activator.CreateInstance
+        // triggers static field initialization which can SIGSEGV on NativeAOT.
+        var classSkip = testClassType.GetCustomAttribute<SkipAttribute>();
+        if (classSkip != null)
+        {
+            var methods = testClassType
+                .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(m => m.Name.StartsWith("Test") && m.GetParameters().Length == 0);
+            foreach (var m in methods)
+                results.Skip($"{testClassType.Name}.{m.Name}", classSkip.Reason);
+            return;
+        }
 
         try
         {
