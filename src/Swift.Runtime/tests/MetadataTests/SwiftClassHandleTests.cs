@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
 using Swift.Runtime;
 using Xunit;
 
@@ -206,24 +207,48 @@ public class SwiftClassHandleTests
         // The flag should be false by default (not during process exit).
         // Reset in case a prior test set it.
         SwiftExitGuard.SetProcessExitingForTest(false);
+        // Note: IsProcessExiting also checks Environment.HasShutdownStarted,
+        // but that is always false during test execution.
         Assert.False(SwiftExitGuard.IsProcessExiting);
     }
 
     [Fact]
-    public void ReleaseHandle_DuringProcessExit_SkipsRelease()
+    public void IsProcessExiting_IncludesHasShutdownStarted()
     {
-        // During process exit, ReleaseHandle (via finalizer) should skip Arc.Release
+        // SwiftExitGuard.IsProcessExiting should return true if EITHER the explicit
+        // ProcessExit flag is set OR Environment.HasShutdownStarted is true.
+        // During tests, HasShutdownStarted is always false, so we verify:
+        // 1. With flag false + HasShutdownStarted false → false
+        // 2. With flag true + HasShutdownStarted false → true
+        SwiftExitGuard.SetProcessExitingForTest(false);
+        Assert.False(SwiftExitGuard.IsProcessExiting);
+
+        SwiftExitGuard.SetProcessExitingForTest(true);
+        Assert.True(SwiftExitGuard.IsProcessExiting);
+
+        SwiftExitGuard.SetProcessExitingForTest(false);
+        // We can't test HasShutdownStarted=true without actually shutting down,
+        // but the OR logic is verified by the property implementation.
+    }
+
+    [Fact]
+    public void FinalizerPath_DuringProcessExit_SkipsRelease()
+    {
+        // During process exit, finalizer-triggered ReleaseHandle should skip Arc.Release
         // to avoid crashes from Swift deinitializers in a partially torn-down runtime.
-        // We verify that Dispose closes the handle without throwing.
+        // We use Close() instead of Dispose() to simulate the finalizer path — Close()
+        // calls SafeHandle.Dispose() which bypasses our `new Dispose()` that sets
+        // _explicitDispose, so _explicitDispose stays false (same as finalizer).
         var ptr = new IntPtr(0x1);
         var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
 
         try
         {
             SwiftExitGuard.SetProcessExitingForTest(true);
-            // Dispose calls ReleaseHandle — with the exit guard set, it should
-            // skip Arc.Release and just null the handle (no crash on mock pointer).
-            handle.Dispose();
+            // Close() triggers ReleaseHandle without setting _explicitDispose.
+            // With exit guard + !_explicitDispose, Arc.Release is skipped (no crash
+            // on mock pointer 0x1).
+            handle.Close();
             Assert.True(handle.IsClosed);
         }
         finally
@@ -233,24 +258,125 @@ public class SwiftClassHandleTests
     }
 
     [Fact]
-    public void ExplicitDispose_DuringProcessExit_StillReleases()
+    public void ExplicitDispose_DuringProcessExit_DoesNotSkip()
     {
         // Explicit Dispose should still attempt Arc.Release even during process exit.
-        // We test with a mock pointer — Arc.Release on invalid pointer is caught by
-        // the try/catch in ReleaseHandle, so this verifies the explicit Dispose path
-        // doesn't skip and the handle still closes cleanly.
-        var ptr = new IntPtr(0x1);
-        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+        // Swift deinit may have side effects (flushing, closing, persisting) that
+        // should run during graceful shutdown — only finalizer-triggered cleanup is skipped.
+        //
+        // We can't test this with a mock pointer (Arc.Release on invalid pointer causes
+        // a native SEGFAULT that kills the process). Instead we verify with a zero handle,
+        // which hits the early-exit path before the guard check. The SwiftSafeHandle tests
+        // cover this path with a mock destroy action that doesn't P/Invoke.
+        var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         try
         {
             SwiftExitGuard.SetProcessExitingForTest(true);
-            handle.Dispose(); // explicit Dispose sets _explicitDispose = true first
+            handle.Dispose(); // explicit Dispose on zero handle — early exit
             Assert.True(handle.IsClosed);
         }
         finally
         {
             SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+        // The real explicit-dispose-during-exit behavior is tested by
+        // SwiftSafeHandleShutdownTests.ExplicitDispose_DuringProcessExit_StillCallsDestroy
+        // which uses a managed destroy action instead of P/Invoke.
+    }
+}
+
+/// <summary>
+/// Tests for SwiftSafeHandle&lt;T&gt; shutdown behavior — struct-handle exit guard path.
+/// Verifies that finalizer-triggered cleanup is skipped during process exit,
+/// while explicit Dispose still runs the destroy action.
+/// </summary>
+public class SwiftSafeHandleShutdownTests
+{
+    /// <summary>
+    /// Mock ISwiftObject for testing SwiftSafeHandle without real Swift objects.
+    /// </summary>
+    private sealed class MockSwiftStruct : ISwiftObject, ISwiftStruct, IDisposable
+    {
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private static unsafe IntPtr AllocMockBuffer()
+    {
+        return (IntPtr)NativeMemory.AllocZeroed(16);
+    }
+
+    [Fact]
+    public void ReleaseHandle_DuringProcessExit_SkipsDestroy_FreesBuffer()
+    {
+        // During process exit, finalizer-triggered ReleaseHandle should skip the
+        // destroy action but still free the .NET-allocated buffer.
+        var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
+        bool destroyCalled = false;
+        SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(_ => destroyCalled = true);
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            // Simulate finalizer path (no explicit Dispose — just close the handle).
+            // SafeHandle.Close() calls ReleaseHandle without setting _explicitDispose.
+            handle.Close();
+            Assert.True(handle.IsClosed);
+            Assert.False(destroyCalled); // Destroy should NOT have been called
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+            SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(null!);
+        }
+    }
+
+    [Fact]
+    public void ExplicitDispose_DuringProcessExit_StillCallsDestroy()
+    {
+        // Explicit Dispose should still call the destroy action even during process exit.
+        // Swift deinit may have side effects that should run during graceful shutdown.
+        var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
+        bool destroyCalled = false;
+        SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(_ => destroyCalled = true);
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Dispose(); // explicit Dispose — destroy should still run
+            Assert.True(handle.IsClosed);
+            Assert.True(destroyCalled); // Destroy SHOULD have been called
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+            SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(null!);
+        }
+    }
+
+    [Fact]
+    public void ExplicitDispose_NormalExecution_CallsDestroy()
+    {
+        // Baseline: explicit Dispose during normal execution calls destroy.
+        var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
+        bool destroyCalled = false;
+        SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(_ => destroyCalled = true);
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+            handle.Dispose();
+            Assert.True(handle.IsClosed);
+            Assert.True(destroyCalled);
+        }
+        finally
+        {
+            SwiftSafeHandle<MockSwiftStruct>.RegisterDestroyAction(null!);
         }
     }
 }

@@ -162,9 +162,11 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
-        // During process exit, skip Destroy for finalizer-triggered cleanup.
-        // Swift deinitializers can crash if the Swift runtime is partially torn down.
-        // Explicit Dispose() always cleans up regardless of process state.
+        // During process exit, skip Destroy for finalizer-triggered cleanup only.
+        // Explicit Dispose() still runs Destroy — Swift deinit may flush/close/persist.
+        // On NativeAOT/iOS, GC finalization can start before ProcessExit fires,
+        // and the Swift runtime may already be partially torn down.
+        // We still free the .NET-allocated buffer since NativeMemory.Free is always safe.
         if (IsProcessExiting && !_explicitDispose)
         {
             NativeMemory.Free((void*)handle);
