@@ -39,12 +39,13 @@ namespace BindingsGeneration
         /// Writes the implementation for ISwiftObject methods for non-frozen structs.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        public void WriteNonFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null)
+        public void WriteNonFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null, bool emitBoxable = false)
         {
             WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadNonFrozenStruct();
             WriteMarshalToSwiftNonFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
+            WriteBoxAsExistential1(emitBoxable);
         }
 
         /// <summary>
@@ -52,12 +53,13 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
         /// <param name="isProjectedAsClass">True if the frozen struct is projected as a class (already has Dispose via _payload).</param>
-        public void WriteFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null, bool isProjectedAsClass = false)
+        public void WriteFrozenStructImplementation(PInvokeHelperContext? pinvokeHelperContext = null, bool isProjectedAsClass = false, bool emitBoxable = false)
         {
             WriteGetTypeMetadata(pinvokeHelperContext);
             WriteNewFromPayloadFrozenStruct();
             WriteMarshalToSwiftFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
+            WriteBoxAsExistential1(emitBoxable);
             if (!isProjectedAsClass)
             {
                 // Frozen value-type structs have no managed resources to dispose
@@ -387,6 +389,26 @@ namespace BindingsGeneration
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
             }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes the IExistentialBoxable.BoxAsExistential1 implementation.
+        /// Enables concrete types to be boxed into existential containers for protocol parameter passing.
+        /// Only emits when the interface list includes IExistentialBoxable (controlled by caller).
+        /// </summary>
+        private void WriteBoxAsExistential1(bool emit = true)
+        {
+            if (!emit)
+                return;
+
+            var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+                => ExistentialContainerFactory.Create<{{_typeNameWithGenerics}}, TProtocol>(this);
             """;
 
             _writer.WriteLines(text);
@@ -752,6 +774,7 @@ internal static class ProtocolConformanceHelper
             _ => Enumerable.Empty<TypeConformance>()
         };
 
+        bool hasProtocolConformance = false;
         foreach (var conformance in conformances)
         {
             // Hashable is a marker interface (ISwiftHashable) for PWT lookup only — not a user-facing
@@ -770,7 +793,10 @@ internal static class ProtocolConformanceHelper
 
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
                 if (emitted.Add(iface))
+                {
                     interfaces.Add(iface);
+                    hasProtocolConformance = true;
+                }
             }
             else
             {
@@ -801,7 +827,10 @@ internal static class ProtocolConformanceHelper
                                 typeNameWithGenerics, conformance.Protocol.Module);
                             var genericIface = $"{baseName}<{typeNameWithGenerics}>";
                             if (emitted.Add(genericIface))
+                            {
                                 interfaces.Add(genericIface);
+                                hasProtocolConformance = true;
+                            }
                             continue;
                         }
                     }
@@ -809,9 +838,18 @@ internal static class ProtocolConformanceHelper
 
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
                 if (emitted.Add(iface))
+                {
                     interfaces.Add(iface);
+                    hasProtocolConformance = true;
+                }
             }
         }
+
+        // Add IExistentialBoxable if any protocol conformances were emitted.
+        // This enables concrete types to be passed where protocol existentials are expected
+        // (e.g., passing ECB where 'any BlockMode' is needed) via ExistentialContainerFactory.GetOrCreate.
+        if (hasProtocolConformance)
+            interfaces.Add("Swift.Runtime.IExistentialBoxable");
 
         return interfaces;
     }
@@ -857,7 +895,7 @@ internal static class ProtocolConformanceHelper
         return string.Join(",\n", entries);
     }
 
-    private static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
+    internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)
     {
         // Preserve existing behavior for Equatable/Hashable even when protocol records are unavailable.
         if (conformance.Protocol.ModuleQualifiedName == "Swift.Equatable")

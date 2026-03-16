@@ -308,7 +308,7 @@ namespace BindingsGeneration
             }
 
             // Emit ISwiftObject implementation
-            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext());
+            var iSwiftObjectWriter = new EnumISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, enumDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext(), hasBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
             iSwiftObjectWriter.WriteEnumImplementation();
 
             // Collect all emitted member names for method/property collision detection.

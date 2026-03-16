@@ -20,8 +20,9 @@ namespace BindingsGeneration
         private readonly PInvokeHelperContext? _pinvokeHelperContext;
         private readonly SwiftWriter? _swiftWriter;
         private readonly ModuleEmissionContext? _emissionCtx;
+        private readonly bool _hasBoxable;
 
-        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
+        public EnumISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, EnumDecl enumDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null, bool hasBoxable = false)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
@@ -33,6 +34,7 @@ namespace BindingsGeneration
             _pinvokeHelperContext = pinvokeHelperContext;
             _swiftWriter = swiftWriter;
             _emissionCtx = emissionCtx;
+            _hasBoxable = hasBoxable;
         }
 
         /// <summary>
@@ -44,6 +46,7 @@ namespace BindingsGeneration
             WriteNewFromPayload();
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
+            WriteBoxAsExistential1(_hasBoxable);
         }
 
         /// <summary>
@@ -269,6 +272,21 @@ namespace BindingsGeneration
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
             }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private void WriteBoxAsExistential1(bool emit)
+        {
+            if (!emit)
+                return;
+
+            var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+                => ExistentialContainerFactory.Create<{{_typeNameWithGenerics}}, TProtocol>(this);
             """;
 
             _writer.WriteLines(text);

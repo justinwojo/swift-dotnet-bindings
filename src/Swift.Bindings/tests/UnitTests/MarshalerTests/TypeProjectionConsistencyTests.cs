@@ -524,7 +524,7 @@ public class TypeProjectionConsistencyTests
             "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetParameterPlan("item");
 
-        Assert.Contains("GetExistentialContainer", plan.PInvokeExpression);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", plan.PInvokeExpression);
     }
 
     [Fact]

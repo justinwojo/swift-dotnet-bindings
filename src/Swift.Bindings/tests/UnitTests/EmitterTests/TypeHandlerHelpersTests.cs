@@ -262,6 +262,139 @@ public class TypeHandlerHelpersTests
 
     #endregion
 
+    #region IExistentialBoxable Interface Tests
+
+    [Fact]
+    public void GetImplementedInterfaces_WithProtocolConformance_IncludesIExistentialBoxable()
+    {
+        // Types with at least one emitted protocol conformance should get IExistentialBoxable
+        // so they can be passed where protocol existentials are expected.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "Describable");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                "$s10TestModule5PointVDescribableMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Point", "TestModule", typeDatabase);
+
+        Assert.Contains("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_WithNoProtocolConformance_DoesNotIncludeIExistentialBoxable()
+    {
+        // Types without any protocol conformances should NOT get IExistentialBoxable.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            classDecl, "Loader", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_OnlyHashable_DoesNotIncludeIExistentialBoxable()
+    {
+        // Hashable alone is a marker interface (not emitted as a C# interface),
+        // so it should NOT trigger IExistentialBoxable.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Token", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Token"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                "$s10TestModule5TokenVSHAAMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Token", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_EquatableConformance_IncludesIExistentialBoxable()
+    {
+        // Equatable IS emitted as IEquatable<T>, so it triggers IExistentialBoxable.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$s10TestModule5PointVSQAAMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Point", "TestModule", typeDatabase);
+
+        Assert.Contains("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_MultipleConformances_IncludesIExistentialBoxableOnce()
+    {
+        // Multiple protocol conformances should still result in exactly one IExistentialBoxable.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "Describable");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$s10TestModule5PointVSQAAMc"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                "$s10TestModule5PointVDescribableMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Point", "TestModule", typeDatabase);
+
+        Assert.Single(interfaces, i => i == "Swift.Runtime.IExistentialBoxable");
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_ClassWithProtocol_IncludesIExistentialBoxable()
+    {
+        // IExistentialBoxable should work for classes, not just structs.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "Describable");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDeclWithConformances("Widget", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                "$s10TestModule6WidgetCDescribableMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            classDecl, "Widget", "TestModule", typeDatabase);
+
+        Assert.Contains("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_CrossModuleProtocol_ExcludedConformance_DoesNotTriggerIExistentialBoxable()
+    {
+        // Cross-module protocol without a TypeRecord is excluded — so if it's the only
+        // conformance, IExistentialBoxable should NOT be present.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Point", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("OtherModule.SomeProtocol"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Point", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain("Swift.Runtime.IExistentialBoxable", interfaces);
+    }
+
+    #endregion
+
     #region ConformanceDescriptor Tests
 
     [Fact]

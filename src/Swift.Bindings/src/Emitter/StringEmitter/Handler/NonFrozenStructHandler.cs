@@ -217,7 +217,7 @@ namespace BindingsGeneration
                 // Pass SwiftWriter + context for @_cdecl equality wrapper (avoids CallConvSwift crash).
                 var SwiftEquatableMethodWriter = new EqualityMethodsWriter(csWriter, structDecl, true, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName);
                 SwiftEquatableMethodWriter.WriteSwiftEquatableImplementation();
-                ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation(pinvokeHelperContext);
+                ISwiftObjectMethodWriter.WriteNonFrozenStructImplementation(pinvokeHelperContext, emitBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
 
                 ToStringHelper.EmitToStringIfDescriptionExists(csWriter, structDecl, propertyRenames);
 

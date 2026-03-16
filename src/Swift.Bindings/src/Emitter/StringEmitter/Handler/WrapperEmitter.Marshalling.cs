@@ -670,8 +670,14 @@ namespace BindingsGeneration
                     if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
                         continue;
                     var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                     var csName = NameProvider.GetCSharpParameterName(arg);
-                    csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
+                    // GetOrCreate only works for single-protocol (EC1) interfaces.
+                    // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
+                    if (containerType == "Swift.Runtime.ExistentialContainer1" && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+                        csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName});");
+                    else
+                        csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
                 }
             }
 

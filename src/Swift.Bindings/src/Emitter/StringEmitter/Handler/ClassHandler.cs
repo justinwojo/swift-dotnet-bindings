@@ -286,7 +286,7 @@ namespace BindingsGeneration
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");
 
                 // Emit ISwiftObject implementation
-                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext());
+                var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext(), hasBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
                 var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName);
 
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
@@ -403,8 +403,9 @@ namespace BindingsGeneration
         private readonly string _rootBaseTypeNameWithGenerics;
         private readonly SwiftWriter? _swiftWriter;
         private readonly ModuleEmissionContext? _emissionCtx;
+        private readonly bool _hasBoxable;
 
-        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
+        public ClassISwiftObjectMethodWriter(CSharpWriter csWriter, ITypeDatabase typeDatabase, ModuleDecl moduleDecl, ClassDecl classDecl, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null, bool hasBoxable = false)
         {
             _writer = csWriter;
             _typeDatabase = typeDatabase;
@@ -420,6 +421,7 @@ namespace BindingsGeneration
             _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
             _swiftWriter = swiftWriter;
             _emissionCtx = emissionCtx;
+            _hasBoxable = hasBoxable;
         }
 
         /// <summary>
@@ -466,6 +468,7 @@ namespace BindingsGeneration
             WriteNewFromPayload();
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
+            WriteBoxAsExistential1(_hasBoxable);
         }
 
         /// <summary>
@@ -777,6 +780,21 @@ namespace BindingsGeneration
                     {{GenerateGetProtocolConformanceDictionaryEntries()}}
                 };
             }
+            """;
+
+            _writer.WriteLines(text);
+            _writer.WriteLine();
+        }
+
+        private void WriteBoxAsExistential1(bool emit)
+        {
+            if (!emit)
+                return;
+
+            var text = $$"""
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+                => ExistentialContainerFactory.Create<{{_typeNameWithGenerics}}, TProtocol>(this);
             """;
 
             _writer.WriteLines(text);

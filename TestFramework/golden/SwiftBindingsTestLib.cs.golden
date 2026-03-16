@@ -299,7 +299,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var itemContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)item).GetExistentialContainer();
+                var itemContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<IDescribable>(item);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -466,7 +466,7 @@ namespace SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<IDescribable>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
                     using var itemsDisposable = itemsSwift.PayloadBuffer;
@@ -4674,7 +4674,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var itemContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)item).GetExistentialContainer();
+                var itemContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<IDescribable>(item);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -5033,7 +5033,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var namedContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)named).GetExistentialContainer();
+                var namedContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<INamed>(named);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -5077,7 +5077,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var prioritizedContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)prioritized).GetExistentialContainer();
+                var prioritizedContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<IPrioritized>(prioritized);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -5121,7 +5121,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var taskContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)task).GetExistentialContainer();
+                var taskContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<ITaskDescriptor>(task);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -5165,7 +5165,7 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
-                var processorContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)processor).GetExistentialContainer();
+                var processorContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<IStringProcessor>(processor);
                 void* _cdeclBuf = null;
                 try
                 {
@@ -5287,7 +5287,7 @@ namespace SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<INamed>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
                     using var itemsDisposable = itemsSwift.PayloadBuffer;
@@ -5322,7 +5322,7 @@ namespace SwiftBindingsTestLib
                 try
                 {
                     
-                    var itemsContainers = items.Select(e => ((ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)e).GetExistentialContainer());
+                    var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<IPrioritized>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
                     using var itemsDisposable = itemsSwift.PayloadBuffer;
@@ -5351,7 +5351,7 @@ namespace SwiftBindingsTestLib
         /// </summary>
         public static void FireExistentialDelegate([global::Swift.OriginalSwiftType("any SwiftBindingsTestLib.ExistentialParamDelegate")]  IExistentialParamDelegate @delegate,  int intValue)
         {
-            var @delegateContainer = ((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)@delegate).GetExistentialContainer();
+            var @delegateContainer = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<IExistentialParamDelegate>(@delegate);
             try
             {
                 
@@ -6359,7 +6359,7 @@ namespace SwiftBindingsTestLib
     /// <summary>
     /// A simple struct conforming to DefaultInitializable.
     /// </summary>
-    public unsafe partial struct MetatypeTestStruct : ISwiftObject, IDisposable, IDefaultInitializable
+    public unsafe partial struct MetatypeTestStruct : ISwiftObject, IDisposable, IDefaultInitializable, Swift.Runtime.IExistentialBoxable
     {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -6480,6 +6480,10 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+            => ExistentialContainerFactory.Create<MetatypeTestStruct, TProtocol>(this);
+        
         public void Dispose() { }
         
         public MetatypeTestStruct()
@@ -6518,7 +6522,7 @@ namespace SwiftBindingsTestLib
     /// <summary>
     /// Another type for metatype comparison tests.
     /// </summary>
-    public unsafe partial struct AnotherMetatypeStruct : ISwiftObject, IDisposable, IDefaultInitializable
+    public unsafe partial struct AnotherMetatypeStruct : ISwiftObject, IDisposable, IDefaultInitializable, Swift.Runtime.IExistentialBoxable
     {
         
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -6638,6 +6642,10 @@ namespace SwiftBindingsTestLib
             }
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
+        
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+            => ExistentialContainerFactory.Create<AnotherMetatypeStruct, TProtocol>(this);
         
         public void Dispose() { }
         
@@ -14263,7 +14271,7 @@ private static partial void PInvoke_effectiveName_BAC85154( IntPtr resultPtr,  I
 /// Dispose() is available for deterministic cleanup but is not required.
 /// The GC finalizer handles ARC release automatically.
 /// </remarks>
-public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
+public partial class ValueAnimal : Animal, ISwiftObject, IHasValue, Swift.Runtime.IExistentialBoxable
 {
     private int Value_Get()
     {
@@ -14395,6 +14403,10 @@ public partial class ValueAnimal : Animal, ISwiftObject, IHasValue
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<ValueAnimal, TProtocol>(this);
     
     public ValueAnimal( string name,  string sound,  int value) : base(default(SwiftInheritanceChain))
     {
@@ -15728,7 +15740,7 @@ public unsafe partial struct BitwiseValue : ISwiftObject, IDisposable
 /// <summary>
 /// Frozen struct for testing comparison operator emission.
 /// </summary>
-public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquatable<ComparableValue>
+public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquatable<ComparableValue>, Swift.Runtime.IExistentialBoxable
 {
     
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -15880,6 +15892,10 @@ public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquat
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<ComparableValue, TProtocol>(this);
+    
     public void Dispose() { }
     
     public ComparableValue( int value)
@@ -15903,7 +15919,7 @@ public unsafe partial struct ComparableValue : ISwiftObject, IDisposable, IEquat
 /// <summary>
 /// Frozen struct with custom equality that uses a tolerance of 5. Two values are considered equal if their difference is within the tolerance. This tests that the binding generator correctly emits custom == operators rather than relying on default memberwise equality.
 /// </summary>
-public unsafe partial struct ApproximatelyEqual : ISwiftObject, IDisposable, IEquatable<ApproximatelyEqual>
+public unsafe partial struct ApproximatelyEqual : ISwiftObject, IDisposable, IEquatable<ApproximatelyEqual>, Swift.Runtime.IExistentialBoxable
 {
     
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -16037,6 +16053,10 @@ public unsafe partial struct ApproximatelyEqual : ISwiftObject, IDisposable, IEq
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<ApproximatelyEqual, TProtocol>(this);
     
     public void Dispose() { }
     
@@ -32140,6 +32160,312 @@ public partial class DerivedClass : OpenBaseClass, ISwiftObject
 
 
 /// <summary>
+/// Enum with associated values using C# keyword argument labels. Tests that the generator correctly escapes labels like &quot;in&quot;, &quot;for&quot;, &quot;operator&quot;, and &quot;class&quot; in enum case factory functions and wrapper methods.
+/// </summary>
+/// <remarks>
+/// This type wraps a Swift enum and must be disposed explicitly.
+/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
+/// </remarks>
+public partial class FilterScope : ISwiftObject, IDisposable
+{
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static nuint _payloadSize = SwiftObjectHelper<FilterScope>.GetTypeMetadata().Size;
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    SwiftSafeHandle<FilterScope> _payload = SwiftSafeHandle<FilterScope>.Zero;
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public SwiftSafeHandle<FilterScope> Payload => _payload;
+    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    #pragma warning disable CS0649
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    internal bool _isCachedSingleton;
+    #pragma warning restore CS0649
+    
+    /// <summary>Releases the underlying Swift object. Safe to call multiple times.</summary>
+    public void Dispose()
+    {
+        if (_isCachedSingleton) return;
+        _payload.Dispose();
+        GC.SuppressFinalize(this);
+    }
+    ~FilterScope()
+    {
+        if (!_isCachedSingleton)
+            Swift.Runtime.SwiftDispose.FinalizerCleanup(_payload);
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static readonly bool _sbw_destroyRegistered = _SBW_RegisterDestroy();
+    private static bool _SBW_RegisterDestroy()
+    {
+        SwiftSafeHandle<FilterScope>.RegisterDestroyAction(_SBW_Destroy);
+        return true;
+    }
+    [global::System.Runtime.InteropServices.DllImport("SwiftBindingsTestLibSwiftBindings", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = "SBW_Destroy_SwiftBindingsTestLib_FilterScope")]
+    private static extern void _SBW_Destroy(IntPtr handle);
+    
+    /// <summary>
+    /// Creates the 'include' case of FilterScope.
+    /// </summary>
+    public static unsafe FilterScope Include(string @in)
+    {
+        var result = new FilterScope();
+        var __inUtf8 = System.Text.Encoding.UTF8.GetBytes(@in);
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        unsafe {
+            fixed (byte* __inPtr = __inUtf8) {
+                PInvoke_Include((IntPtr)__inPtr, __inUtf8.Length, buffer);
+            }
+        }
+        result._payload = new SwiftSafeHandle<FilterScope>(buffer);
+        return result;
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FilterScope_include_9558FA18")]
+    private static partial void PInvoke_Include(IntPtr @inUtf8Ptr, nint @inUtf8Len, IntPtr resultPtr);
+    
+    /// <summary>
+    /// Creates the 'exclude' case of FilterScope.
+    /// </summary>
+    public static unsafe FilterScope Exclude(string @for)
+    {
+        var result = new FilterScope();
+        var __forUtf8 = System.Text.Encoding.UTF8.GetBytes(@for);
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        unsafe {
+            fixed (byte* __forPtr = __forUtf8) {
+                PInvoke_Exclude((IntPtr)__forPtr, __forUtf8.Length, buffer);
+            }
+        }
+        result._payload = new SwiftSafeHandle<FilterScope>(buffer);
+        return result;
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FilterScope_exclude_59C52D72")]
+    private static partial void PInvoke_Exclude(IntPtr @forUtf8Ptr, nint @forUtf8Len, IntPtr resultPtr);
+    
+    /// <summary>
+    /// Creates the 'custom' case of FilterScope.
+    /// </summary>
+    public static unsafe FilterScope Custom(string @operator, string @class)
+    {
+        var result = new FilterScope();
+        var __operatorUtf8 = System.Text.Encoding.UTF8.GetBytes(@operator);
+        var __classUtf8 = System.Text.Encoding.UTF8.GetBytes(@class);
+        var metadata = PInvoke_getMetadata();
+        IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        unsafe {
+            fixed (byte* __operatorPtr = __operatorUtf8) {
+                fixed (byte* __classPtr = __classUtf8) {
+                    PInvoke_Custom((IntPtr)__operatorPtr, __operatorUtf8.Length, (IntPtr)__classPtr, __classUtf8.Length, buffer);
+                }
+            }
+        }
+        result._payload = new SwiftSafeHandle<FilterScope>(buffer);
+        return result;
+    }
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FilterScope_custom_C0A4927E")]
+    private static partial void PInvoke_Custom(IntPtr @operatorUtf8Ptr, nint @operatorUtf8Len, IntPtr @classUtf8Ptr, nint @classUtf8Len, IntPtr resultPtr);
+    
+    /// <summary>
+    /// Enum representing the possible cases of FilterScope.
+    /// Tag values follow Swift's ordering: payload cases first, then no-payload cases.
+    /// </summary>
+    public enum CaseTag : uint
+    {
+        Include = 0,
+        Exclude = 1,
+        Custom = 2,
+    }
+    
+    /// <summary>
+    /// Gets the current case of this enum instance.
+    /// </summary>
+    public CaseTag Tag
+    {
+        get
+        {
+            unsafe
+            {
+                bool success = false;
+                _payload.DangerousAddRef(ref success);
+                try
+                {
+                    var metadata = SwiftObjectHelper<FilterScope>.GetTypeMetadata();
+                    byte* payload = (byte*)_payload.DangerousGetHandle();
+                    return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
+                }
+                finally
+                {
+                    if (success)
+                        _payload.DangerousRelease();
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Attempts to extract the associated value(s) for the 'include' case.
+    /// </summary>
+    /// <param name="value">When this method returns true, contains the associated value(s).</param>
+    /// <returns>True if this enum is the 'include' case; otherwise, false.</returns>
+    public bool TryGetInclude([MaybeNullWhen(false)] out string value)
+    {
+        unsafe
+        {
+            if (Tag != CaseTag.Include)
+            {
+                value = default;
+                return false;
+            }
+            
+            var metadata = SwiftObjectHelper<FilterScope>.GetTypeMetadata();
+            
+            // Create a non-destructive copy of the enum
+            byte* enumCopy = stackalloc byte[(int)metadata.Size];
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+            
+            // Strip the tag to get the raw payload
+            metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+            
+            // Marshal the payload to C# type(s)
+            var __value_raw = SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(enumCopy));
+            value = __value_raw.ToString();
+            return true;
+        }
+    }
+    
+    /// <summary>
+    /// Attempts to extract the associated value(s) for the 'exclude' case.
+    /// </summary>
+    /// <param name="value">When this method returns true, contains the associated value(s).</param>
+    /// <returns>True if this enum is the 'exclude' case; otherwise, false.</returns>
+    public bool TryGetExclude([MaybeNullWhen(false)] out string value)
+    {
+        unsafe
+        {
+            if (Tag != CaseTag.Exclude)
+            {
+                value = default;
+                return false;
+            }
+            
+            var metadata = SwiftObjectHelper<FilterScope>.GetTypeMetadata();
+            
+            // Create a non-destructive copy of the enum
+            byte* enumCopy = stackalloc byte[(int)metadata.Size];
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(enumCopy, (void*)_payload.DangerousGetHandle(), metadata);
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+            
+            // Strip the tag to get the raw payload
+            metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);
+            
+            // Marshal the payload to C# type(s)
+            var __value_raw = SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(enumCopy));
+            value = __value_raw.ToString();
+            return true;
+        }
+    }
+    
+    
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();
+    
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_FilterScope_20775135")]
+    internal static partial TypeMetadata PInvoke_getMetadata();
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+    {
+        var obj = new FilterScope(handle);
+        Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
+        return obj;
+    }
+    
+    FilterScope()
+    {
+    }
+    
+    FilterScope(SwiftHandle handle)
+    {
+        _payload = new SwiftSafeHandle<FilterScope>(handle);
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    unsafe int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
+    {
+        var metadata = SwiftObjectHelper<FilterScope>.GetTypeMetadata();
+        if ((int)metadata.Size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+        }
+        fixed (void* swiftDest = swiftDestSpan)
+        {
+            // Ensure that the instance is valid before making copy
+            bool success = false;
+            _payload.DangerousAddRef(ref success);
+            try
+            {
+                metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
+                return (int)metadata.Size;
+            }
+            finally
+            {
+                if (success)
+                    _payload.DangerousRelease();
+            }
+        }
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    private static Dictionary<Type, string> _protocolConformanceSymbols;
+    static FilterScope()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            
+        };
+    }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
+        where TProtocol : class
+    {
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type FilterScope and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
+    }
+    
+}
+
+
+/// <summary>
 /// Struct with properties that collide with C# reserved keywords. The binding generator must escape these names in C# output.
 /// </summary>
 /// <remarks>
@@ -37169,7 +37495,7 @@ public partial class SimpleItem : ISwiftObject, ISwiftStruct, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHasValue
+public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHasValue, Swift.Runtime.IExistentialBoxable
 {
     private int Value_Get()
     {
@@ -37329,6 +37655,10 @@ public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHas
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<MutableItem, TProtocol>(this);
+    
     
     public MutableItem( int value)
     {
@@ -37416,7 +37746,7 @@ public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHas
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDisplayable
+public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDisplayable, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Text_Get()
     {
@@ -37598,6 +37928,10 @@ public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDis
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<DisplayItem, TProtocol>(this);
+    
     public override string ToString() => Description;
     
     
@@ -37717,7 +38051,7 @@ public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDis
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, IAgeable
+public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, IAgeable, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Name_Get()
     {
@@ -37892,6 +38226,10 @@ public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, IAgeable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<Person, TProtocol>(this);
+    
     
     public Person( string name,  int age)
     {
@@ -37973,7 +38311,7 @@ public interface IDividable
 /// <summary>
 /// Frozen struct conforming to all four arithmetic protocols.
 /// </summary>
-public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, IAddable, ISubtractable, IMultipliable, IDividable
+public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, IAddable, ISubtractable, IMultipliable, IDividable, Swift.Runtime.IExistentialBoxable
 {
     
                 // For frozen structs, we need to emit fields that match the Swift struct's memory layout exactly.
@@ -38096,6 +38434,10 @@ public unsafe partial struct MultiConformingValue : ISwiftObject, IDisposable, I
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<MultiConformingValue, TProtocol>(this);
     
     public void Dispose() { }
     
@@ -39065,7 +39407,7 @@ public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class PrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IPrioritized
+public partial class PrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IPrioritized, Swift.Runtime.IExistentialBoxable
 {
     private SwiftBindingsTestLib.TaskPriority Priority_Get()
     {
@@ -39204,6 +39546,10 @@ public partial class PrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, 
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<PrioritizedItem, TProtocol>(this);
+    
     
     public PrioritizedItem( SwiftBindingsTestLib.TaskPriority priority)
     {
@@ -39233,7 +39579,7 @@ public partial class PrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, 
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutablePrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IMutablePrioritized
+public partial class MutablePrioritizedItem : ISwiftObject, ISwiftStruct, IDisposable, IMutablePrioritized, Swift.Runtime.IExistentialBoxable
 {
     private SwiftBindingsTestLib.TaskPriority Priority_Get()
     {
@@ -39400,6 +39746,10 @@ public partial class MutablePrioritizedItem : ISwiftObject, ISwiftStruct, IDispo
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<MutablePrioritizedItem, TProtocol>(this);
     
     
     public MutablePrioritizedItem( SwiftBindingsTestLib.TaskPriority priority)
@@ -39673,7 +40023,7 @@ public partial class SimpleTask : ISwiftObject, ISwiftStruct, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class EchoProcessor : ISwiftObject, ISwiftStruct, IDisposable, IStringProcessor
+public partial class EchoProcessor : ISwiftObject, ISwiftStruct, IDisposable, IStringProcessor, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Prefix_Get()
     {
@@ -39814,6 +40164,10 @@ public partial class EchoProcessor : ISwiftObject, ISwiftStruct, IDisposable, IS
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<EchoProcessor, TProtocol>(this);
+    
     
     public EchoProcessor( string prefix)
     {
@@ -39939,7 +40293,7 @@ public partial class EchoProcessor : ISwiftObject, ISwiftStruct, IDisposable, IS
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleStatusHandler : ISwiftObject, ISwiftStruct, IDisposable, IStatusHandler
+public partial class SimpleStatusHandler : ISwiftObject, ISwiftStruct, IDisposable, IStatusHandler, Swift.Runtime.IExistentialBoxable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SimpleStatusHandler>.GetTypeMetadata().Size;
@@ -40036,6 +40390,10 @@ public partial class SimpleStatusHandler : ISwiftObject, ISwiftStruct, IDisposab
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<SimpleStatusHandler, TProtocol>(this);
     
     
     public SimpleStatusHandler( SwiftBindingsTestLib.TaskStatus initialStatus = SwiftBindingsTestLib.TaskStatus.Pending)
@@ -40162,7 +40520,7 @@ public partial class SimpleStatusHandler : ISwiftObject, ISwiftStruct, IDisposab
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimplePriorityHandler : ISwiftObject, ISwiftStruct, IDisposable, IPriorityHandler
+public partial class SimplePriorityHandler : ISwiftObject, ISwiftStruct, IDisposable, IPriorityHandler, Swift.Runtime.IExistentialBoxable
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     static nuint _payloadSize = SwiftObjectHelper<SimplePriorityHandler>.GetTypeMetadata().Size;
@@ -40259,6 +40617,10 @@ public partial class SimplePriorityHandler : ISwiftObject, ISwiftStruct, IDispos
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<SimplePriorityHandler, TProtocol>(this);
     
     
     public SimplePriorityHandler( SwiftBindingsTestLib.TaskPriority initialPriority)

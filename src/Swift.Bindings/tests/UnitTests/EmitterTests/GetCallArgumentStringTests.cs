@@ -37,10 +37,9 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_ExistentialContainer_ReturnsConversion()
     {
-        var param = new Parameter(new MarshalledType.Existential("ExistentialContainer1", "IMyProtocol"), "handler");
+        var param = new Parameter(new MarshalledType.Existential("Swift.Runtime.ExistentialContainer1", "IMyProtocol"), "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ISwiftExistentialConvertible<ExistentialContainer1>", result);
-        Assert.Contains("GetExistentialContainer()", result);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IMyProtocol>", result);
     }
 
     [Fact]

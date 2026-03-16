@@ -320,8 +320,8 @@ public class ClosureEmitterDirectTests
             "$s10TestModule9getResultyyF", useCdecl: false);
 
         var result = output.ToString();
-        // Existential return should extract container via ISwiftExistentialConvertible
-        Assert.Contains("GetExistentialContainer()", result);
+        // Existential return should extract container via ExistentialContainerFactory
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate", result);
         // Simple enum return should cast to underlying type
         Assert.Contains("(int)", result);
     }

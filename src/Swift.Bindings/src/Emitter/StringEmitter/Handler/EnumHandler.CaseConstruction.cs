@@ -281,7 +281,14 @@ namespace BindingsGeneration
                             var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
                             if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                             {
-                                csWriter.WriteLine($"var {bareName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
+                                // GetOrCreate only works for single-protocol (EC1) interfaces.
+                                if (containerType == "Swift.Runtime.ExistentialContainer1" && !existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+                                {
+                                    var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                                    csWriter.WriteLine($"var {bareName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name});");
+                                }
+                                else
+                                    csWriter.WriteLine($"var {bareName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
                             }
                             else
                             {
@@ -695,8 +702,13 @@ namespace BindingsGeneration
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                 if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
-                    // Interface-typed parameter: extract the container via ISwiftExistentialConvertible
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
+                    // GetOrCreate only works for single-protocol (EC1) interfaces
+                    if (containerType == "Swift.Runtime.ExistentialContainer1" && !existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+                    {
+                        var publicType = existentialHandler.GetPublicExistentialType(protocolList);
+                        return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({paramName})";
+                    }
                     return $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){paramName}).GetExistentialContainer()";
                 }
                 // Unknown protocol: pass the container directly (it's a blittable struct)

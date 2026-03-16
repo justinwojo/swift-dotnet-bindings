@@ -38,9 +38,17 @@ public class ExistentialProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // GetOrCreate only works for single-protocol existentials (EC1) with proxy classes.
+        // - EC0 (Any/AnyError): AnyError is a value type, can't satisfy class constraint
+        // - EC2+ (compositions): GetOrCreate returns EC1 but P/Invoke expects EC2+
+        // - No proxy (well-known/object): always implement ISwiftExistentialConvertible directly
+        var expr = _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+            ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName})"
+            : $"((ISwiftExistentialConvertible<{_containerType}>){paramName}).GetExistentialContainer()";
+
         return new MarshalPlan
         {
-            PInvokeExpression = $"((ISwiftExistentialConvertible<{_containerType}>){paramName}).GetExistentialContainer()"
+            PInvokeExpression = expr
         };
     }
 
@@ -62,7 +70,9 @@ public class ExistentialProjection : ITypeProjection
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
     public string? GetParameterElementConversion(string elementVar) =>
-        $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
+        _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
+            ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar})"
+            : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     public string? GetReturnElementConversion(string elementVar) =>
         _proxyClassName != null

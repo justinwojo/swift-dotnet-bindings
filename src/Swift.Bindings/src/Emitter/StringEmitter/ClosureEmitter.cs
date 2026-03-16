@@ -314,6 +314,11 @@ public static partial class ClosureEmitter
 
         if (closureHandler.NeedsProxyWrapping(returnType, out _))
         {
+            if (closureHandler.ShouldUseGetOrCreate(returnType))
+            {
+                var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
+                return $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr});";
+            }
             var ct = closureHandler.GetPInvokeExistentialType(returnType);
             return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
         }
@@ -363,8 +368,16 @@ public static partial class ClosureEmitter
                     elems.Add($"{acc}.GetExistentialContainer()");
                 else if (closureHandler.NeedsProxyWrapping(elem, out _))
                 {
-                    var ct = closureHandler.GetPInvokeExistentialType(elem);
-                    elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                    if (closureHandler.ShouldUseGetOrCreate(elem))
+                    {
+                        var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                        elems.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                    }
+                    else
+                    {
+                        var ct = closureHandler.GetPInvokeExistentialType(elem);
+                        elems.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                    }
                 }
                 else if (closureHandler.IsExistentialParam(elem))
                 {
@@ -699,6 +712,11 @@ public static partial class ClosureEmitter
         // Known protocol: extract container from interface for function pointer
         if (closureHandler != null && closureHandler.NeedsProxyWrapping(typeSpec, out _))
         {
+            if (closureHandler.ShouldUseGetOrCreate(typeSpec))
+            {
+                var pt = closureHandler.GetPublicExistentialType(typeSpec) ?? "object";
+                return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex})";
+            }
             var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
             return $"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{argIndex}).GetExistentialContainer()";
         }
@@ -729,8 +747,16 @@ public static partial class ClosureEmitter
                         elements.Add($"{acc}.GetExistentialContainer()");
                     else if (closureHandler.NeedsProxyWrapping(elem, out _))
                     {
-                        var ct = closureHandler.GetPInvokeExistentialType(elem);
-                        elements.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                        if (closureHandler.ShouldUseGetOrCreate(elem))
+                        {
+                            var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
+                            elements.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                        }
+                        else
+                        {
+                            var ct = closureHandler.GetPInvokeExistentialType(elem);
+                            elements.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){acc}).GetExistentialContainer()");
+                        }
                     }
                     else if (closureHandler.IsExistentialParam(elem))
                     {

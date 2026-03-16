@@ -162,8 +162,12 @@ namespace BindingsGeneration
                 { Type: MarshalledType.EnumSafeHandleType } => $"{parameter.Name}.Payload.DangerousGetHandle()",
                 // Simple enums: cast to underlying integer type for P/Invoke
                 { Type: MarshalledType.SimpleEnum(var underlyingType, _) } => $"({underlyingType}){parameter.Name}",
-                // Existential protocol types: extract container from interface
-                { Type: MarshalledType.Existential(var containerType, _) } =>
+                // Existential protocol types: GetOrCreate handles both proxy and concrete types.
+                // Only for single-protocol (EC1) interfaces — compositions (EC2+), well-known
+                // value types (AnyError/EC0), and "object" use direct ISwiftExistentialConvertible.
+                { Type: MarshalledType.Existential(var containerType, var publicType) } when containerType == "Swift.Runtime.ExistentialContainer1" && publicType.StartsWith("I") && publicType.Length > 1 && char.IsUpper(publicType[1]) =>
+                    $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
+                { Type: MarshalledType.Existential(var containerType, var publicType) } =>
                     $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",
                 // @_cdecl existential: ref to pre-extracted container local variable
                 { Type: MarshalledType.CdeclExistential(var containerType, _) } =>

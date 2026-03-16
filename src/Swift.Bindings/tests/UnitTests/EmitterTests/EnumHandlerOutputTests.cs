@@ -1874,9 +1874,8 @@ public class EnumHandlerOutputTests
         // Factory signature should use interface type
         Assert.Contains("IImageProcessing", csOutput);
         Assert.Contains("public static unsafe ImageError ProcessingFailed(IImageProcessing", csOutput);
-        // Body should extract container via ISwiftExistentialConvertible
-        Assert.Contains("ISwiftExistentialConvertible", csOutput);
-        Assert.Contains("GetExistentialContainer()", csOutput);
+        // Body should extract container via ExistentialContainerFactory
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate", csOutput);
     }
 
     [Fact]

@@ -44,8 +44,7 @@ public class ComplexProjectionTests
     {
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetParameterPlan("item");
-        Assert.Contains("ISwiftExistentialConvertible", plan.PInvokeExpression);
-        Assert.Contains("GetExistentialContainer", plan.PInvokeExpression);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -78,7 +77,7 @@ public class ComplexProjectionTests
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var paramConv = proj.GetParameterElementConversion("e");
         Assert.NotNull(paramConv);
-        Assert.Contains("GetExistentialContainer", paramConv);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", paramConv);
 
         var retConv = proj.GetReturnElementConversion("e");
         Assert.NotNull(retConv);
@@ -98,6 +97,52 @@ public class ComplexProjectionTests
     {
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         Assert.False(proj.RequiresSwiftWrapper);
+    }
+
+    [Fact]
+    public void Existential_ParameterPlan_GetOrCreate_UsesPublicTypeAsGenericArg()
+    {
+        // GetParameterPlan must use ExistentialContainerFactory.GetOrCreate<PublicType>(param)
+        // so both proxy types (ISwiftExistentialConvertible) and concrete types (IExistentialBoxable)
+        // can pass through the same call site.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IBlockMode", "BlockModeProxy");
+        var plan = proj.GetParameterPlan("mode");
+
+        Assert.Equal("ExistentialContainerFactory.GetOrCreate<IBlockMode>(mode)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Existential_ParameterPlan_WellKnown_UsesCastFallback()
+    {
+        // Well-known types (AnyError) are value types — can't use GetOrCreate's class constraint.
+        // They use direct ISwiftExistentialConvertible cast instead.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.AnyError", proxyClassName: null);
+        var plan = proj.GetParameterPlan("err");
+
+        Assert.Contains("ISwiftExistentialConvertible", plan.PInvokeExpression);
+        Assert.Contains("GetExistentialContainer()", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Existential_ParameterPlan_Object_UsesCastFallback()
+    {
+        // Unknown protocols (resolved to "object") have no proxy, use direct ISwiftExistentialConvertible cast.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null);
+        var plan = proj.GetParameterPlan("value");
+
+        Assert.Contains("ISwiftExistentialConvertible", plan.PInvokeExpression);
+        Assert.Contains("GetExistentialContainer()", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Existential_ParameterElementConversion_UsesGetOrCreate()
+    {
+        // Element conversion for collection parameters also routes through GetOrCreate.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IRenderable", "RenderableProxy");
+        var conv = proj.GetParameterElementConversion("item");
+
+        Assert.NotNull(conv);
+        Assert.Equal("ExistentialContainerFactory.GetOrCreate<IRenderable>(item)", conv);
     }
 
     #endregion

@@ -87,8 +87,16 @@ public static partial class ClosureEmitter
             else if (closureHandler.NeedsProxyWrapping(arg, out _))
             {
                 // Known protocol: extract container from interface for function pointer
-                var ct = closureHandler.GetPInvokeExistentialType(arg);
-                invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+                if (closureHandler.ShouldUseGetOrCreate(arg))
+                {
+                    var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
+                    invokeArgs.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
+                }
+                else
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(arg);
+                    invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+                }
             }
             else if (closureHandler.IsExistentialParam(arg))
             {
@@ -252,8 +260,16 @@ public static partial class ClosureEmitter
             else if (closureHandler.NeedsProxyWrapping(arg, out _))
             {
                 // Known protocol: extract container from interface for function pointer
-                var ct = closureHandler.GetPInvokeExistentialType(arg);
-                invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+                if (closureHandler.ShouldUseGetOrCreate(arg))
+                {
+                    var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
+                    invokeArgs.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
+                }
+                else
+                {
+                    var ct = closureHandler.GetPInvokeExistentialType(arg);
+                    invokeArgs.Add($"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{i}).GetExistentialContainer()");
+                }
             }
             else if (closureHandler.IsExistentialParam(arg))
             {

@@ -6936,6 +6936,46 @@ public func _sbw_method_9DD2608B(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
+// Per-type destroy wrapper for SwiftBindingsTestLib.FilterScope.
+// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Destroy_SwiftBindingsTestLib_FilterScope")
+public func SBW_Destroy_SwiftBindingsTestLib_FilterScope(_ bufferPtr: UnsafeMutableRawPointer) {
+    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.FilterScope.self).deinitialize(count: 1)
+}
+
+// Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FilterScope.include.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_FilterScope_include_9558FA18")
+public func _sbw_case_include_E6671EAE(_ inParamUtf8Ptr: UnsafePointer<UInt8>, _ inParamUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let inParamVal = String(bytes: UnsafeBufferPointer(start: inParamUtf8Ptr, count: inParamUtf8Len), encoding: .utf8)!
+    let result = SwiftBindingsTestLib.FilterScope.include(in: inParamVal)
+    resultPtr.initializeMemory(as: SwiftBindingsTestLib.FilterScope.self, repeating: result, count: 1)
+}
+
+// Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FilterScope.exclude.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_FilterScope_exclude_59C52D72")
+public func _sbw_case_exclude_35706A62(_ forParamUtf8Ptr: UnsafePointer<UInt8>, _ forParamUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let forParamVal = String(bytes: UnsafeBufferPointer(start: forParamUtf8Ptr, count: forParamUtf8Len), encoding: .utf8)!
+    let result = SwiftBindingsTestLib.FilterScope.exclude(for: forParamVal)
+    resultPtr.initializeMemory(as: SwiftBindingsTestLib.FilterScope.self, repeating: result, count: 1)
+}
+
+// Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FilterScope.custom.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_FilterScope_custom_C0A4927E")
+public func _sbw_case_custom_B6E3B9B5(_ operatorParamUtf8Ptr: UnsafePointer<UInt8>, _ operatorParamUtf8Len: Int, _ classParamUtf8Ptr: UnsafePointer<UInt8>, _ classParamUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let operatorParamVal = String(bytes: UnsafeBufferPointer(start: operatorParamUtf8Ptr, count: operatorParamUtf8Len), encoding: .utf8)!
+    let classParamVal = String(bytes: UnsafeBufferPointer(start: classParamUtf8Ptr, count: classParamUtf8Len), encoding: .utf8)!
+    let result = SwiftBindingsTestLib.FilterScope.custom(operator: operatorParamVal, class: classParamVal)
+    resultPtr.initializeMemory(as: SwiftBindingsTestLib.FilterScope.self, repeating: result, count: 1)
+}
+
+// Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.FilterScope.
+@_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_FilterScope_20775135")
+public func _sbw_getMetadata_B066C24F() -> UnsafeMutableRawPointer {
+    unsafeBitCast(SwiftBindingsTestLib.FilterScope.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.KeywordTest.event.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.

@@ -744,6 +744,28 @@ public static class ExistentialContainerFactory
     }
 
     /// <summary>
+    /// Gets or creates an ExistentialContainer1 for a protocol-typed value.
+    /// Handles both proxy types (which already hold a container via ISwiftExistentialConvertible)
+    /// and concrete types (which construct a container via IExistentialBoxable).
+    /// </summary>
+    /// <typeparam name="TProtocol">The protocol interface type (e.g., IBlockMode).</typeparam>
+    /// <param name="value">The protocol-typed value to box.</param>
+    /// <returns>An ExistentialContainer1 for the value.</returns>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(TProtocol value)
+        where TProtocol : class
+    {
+        if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
+            return convertible.GetExistentialContainer();
+
+        if (value is IExistentialBoxable boxable)
+            return boxable.BoxAsExistential1<TProtocol>();
+
+        throw new InvalidCastException(
+            $"Cannot create ExistentialContainer1 for {value?.GetType().Name ?? "null"}: " +
+            $"type must implement ISwiftExistentialConvertible<ExistentialContainer1> or IExistentialBoxable.");
+    }
+
+    /// <summary>
     /// Creates an existential container from a value using a pre-computed witness table array.
     /// This is useful when the protocol types are not known at compile time.
     /// </summary>

@@ -145,7 +145,7 @@ public class CompositeProjectionTests
         // Should have Select with container extraction
         var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains(".Select(", firstLine.Code);
-        Assert.Contains("GetExistentialContainer", firstLine.Code);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", firstLine.Code);
     }
 
     #endregion
@@ -212,7 +212,7 @@ public class CompositeProjectionTests
         var ifBlock = plan.SetupStatements.OfType<MarshalStatement.Block>()
             .First(b => b.Header.Contains("if ("));
         var someLine = Assert.IsType<MarshalStatement.Line>(ifBlock.Body[0]);
-        Assert.Contains("GetExistentialContainer", someLine.Code);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IImageProcessing>", someLine.Code);
     }
 
     #endregion

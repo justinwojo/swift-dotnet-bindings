@@ -600,8 +600,7 @@ public class MarshalPlanRegressionTests
             "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetParameterPlan("item");
 
-        Assert.Contains("GetExistentialContainer()", plan.PInvokeExpression);
-        Assert.Contains("ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>", plan.PInvokeExpression);
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>(item)", plan.PInvokeExpression);
     }
 
     [Fact]

@@ -1609,6 +1609,32 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Gets the public C# interface type for a given existential type spec.
+    /// Returns the C# interface name (e.g., "IBlockMode") for use with ExistentialContainerFactory.
+    /// </summary>
+    public string? GetPublicExistentialType(TypeSpec typeSpec)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList != null)
+            return _existentialHandler.GetPublicExistentialType(protocolList);
+        return null;
+    }
+
+    /// <summary>
+    /// Returns true if GetOrCreate should be used for this existential type.
+    /// Only valid for single-protocol (EC1) interfaces that aren't well-known types.
+    /// Compositions (EC2+), well-known types (AnyError/EC0), and unknown protocols (object)
+    /// must use ISwiftExistentialConvertible directly.
+    /// </summary>
+    public bool ShouldUseGetOrCreate(TypeSpec typeSpec)
+    {
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null) return false;
+        if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out _)) return false;
+        return _existentialHandler.GetPInvokeExistentialType(protocolList) == "Swift.Runtime.ExistentialContainer1";
+    }
+
+    /// <summary>
     /// Gets the P/Invoke existential container type for a given existential type spec.
     /// Returns the appropriate <c>ExistentialContainer{N}</c> string.
     /// </summary>
