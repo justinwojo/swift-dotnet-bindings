@@ -36,7 +36,8 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Double-dispose did not crash");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // createUniqueResource wrapper stripped during compilation
+    [TestTier(TestTier.Tier3)]
     public void TestUniqueResourceDoubleDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
@@ -108,7 +109,8 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Describe after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // createUniqueResource wrapper stripped during compilation
+    [TestTier(TestTier.Tier3)]
     public void TestUniqueResourceAccessAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -122,7 +124,8 @@ public class OwnershipTests : TestBase
         TestLogger.Info("UniqueResource access after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // createUniqueResource wrapper stripped during compilation
+    [TestTier(TestTier.Tier3)]
     public void TestUniqueResourceMethodAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -159,7 +162,8 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Independent objects have independent lifetimes");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // createUniqueResource wrapper stripped during compilation
+    [TestTier(TestTier.Tier3)]
     public void TestMultipleResourcesIndependent()
     {
         var r1 = TestLibFunctions.CreateUniqueResource(1);

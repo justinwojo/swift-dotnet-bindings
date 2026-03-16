@@ -475,9 +475,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (needsCdeclWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl3 && parentTypeDecl3.SwiftTypeName != null)
                 {
                     bool isGetter = accessor is GetAccessorDecl;
+                    // Use nested type name (e.g., "OrderContainer.Status") not just leaf name ("Status")
+                    // to avoid @_cdecl collisions between nested types with the same name.
+                    var nestedTypeName = parentTypeDecl3.SwiftTypeName.ModuleQualifiedName
+                        .Substring(parentTypeDecl3.SwiftTypeName.Module.Length + 1);
                     var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
                         parentTypeDecl3.SwiftTypeName.Module,
-                        parentTypeDecl3.Name,
+                        nestedTypeName,
                         propertyDecl.Name,
                         isGetter);
 

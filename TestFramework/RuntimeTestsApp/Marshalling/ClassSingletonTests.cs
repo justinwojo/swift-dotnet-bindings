@@ -88,6 +88,7 @@ public class ClassSingletonTests : TestBase
 
     #region Tier 3 — TreeNode (Mono JIT crash on class with string ctor)
 
+    // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestTreeNodeRootNode()
     {
@@ -98,6 +99,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"TreeNode root: Label={root.Label}, Depth={root.GetDepth()}");
     }
 
+    // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestTreeNodeRootLabel()
     {
@@ -106,6 +108,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"TreeNode root GetRootLabel() = \"{root.GetRootLabel()}\"");
     }
 
+    // Mono JIT crash: TreeNode constructor takes SwiftString + optional parent through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestTreeNodeChildNode()
     {
@@ -117,6 +120,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"TreeNode child: Label={child.Label}, Depth={child.GetDepth()}");
     }
 
+    // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestTreeNodeChildGetRootLabel()
     {
@@ -126,6 +130,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"TreeNode child GetRootLabel() = \"{child.GetRootLabel()}\"");
     }
 
+    // Mono JIT crash: TreeNode chain construction with SwiftString through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestTreeNodeDeepChain()
     {
@@ -142,6 +147,7 @@ public class ClassSingletonTests : TestBase
 
     #region Tier 3 — Dog (Mono JIT crash on class with string ctor)
 
+    // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestDogNameProperty()
     {
@@ -150,6 +156,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Dog.Name = \"{dog.Name}\"");
     }
 
+    // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestDogSoundProperty()
     {
@@ -159,6 +166,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Dog.Sound = \"{dog.Sound}\"");
     }
 
+    // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestDogBreedProperty()
     {
@@ -167,6 +175,7 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Dog.Breed = \"{dog.Breed}\"");
     }
 
+    // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestDogGetDescribe()
     {

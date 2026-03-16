@@ -79,26 +79,10 @@ sys.exit(1)
             echo "Skipping runtime tests (no available iPhone simulator found)."
         else
             cd TestFramework
-            RUNTIME_OUTPUT=$(mktemp)
-            set +e
-            ./run-runtime-tests.sh --tier 2 --skip-regen --timeout 90 2>&1 | tee "$RUNTIME_OUTPUT"
-            RUNTIME_EXIT=${PIPESTATUS[0]}
-            set -e
+            # Tier 1+2 must be fully clean: no failures, no crashes.
+            # run-runtime-tests.sh enforces this — crashes in Tier 1/2 are regressions.
+            ./run-runtime-tests.sh --tier 2 --skip-regen --timeout 90
             cd ..
-            if [ $RUNTIME_EXIT -ne 0 ]; then
-                if grep -q "jit-info\.c:918" "$RUNTIME_OUTPUT" 2>/dev/null; then
-                    LAST_CLASS=$(grep -oE '=== [A-Za-z0-9_]+ ===' "$RUNTIME_OUTPUT" | tail -1 | sed 's/=== //;s/ ===//')
-                    echo ""
-                    echo "WARNING: Mono JIT assertion crash at jit-info.c:918 (class: ${LAST_CLASS:-before startup})."
-                    echo "This is a known .NET runtime bug (dotnet/runtime), not a generator regression."
-                else
-                    echo ""
-                    echo "ERROR: Runtime tests failed (exit code $RUNTIME_EXIT)."
-                    rm -f "$RUNTIME_OUTPUT"
-                    exit 1
-                fi
-            fi
-            rm -f "$RUNTIME_OUTPUT"
         fi
     fi
 fi

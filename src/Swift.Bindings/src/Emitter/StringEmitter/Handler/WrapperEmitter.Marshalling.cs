@@ -763,9 +763,10 @@ namespace BindingsGeneration
                 }
 
                 // Free GCHandle for non-escaping closures only (callback fires synchronously).
-                // Escaping closures free their GCHandle inside the callback trampoline
-                // (after the delegate is invoked), because the callback fires asynchronously
-                // after the calling method returns.
+                // Escaping closures are intentionally leaked: Swift may store the function pointer +
+                // context beyond the P/Invoke return (e.g., EventHandler.onComplete stored for later
+                // fire()). Freeing here would leave Swift with a stale GCHandle context.
+                // The callback thunk also does NOT free — escaping closures may fire multiple times.
                 // Async+throwing closures free their GCHandle inside Task.Run's finally block.
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {

@@ -122,6 +122,7 @@ public class ProxyDisposeTests : TestBase
         public void SetValue(int newValue) => _value = newValue;
     }
 
+    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
     [TestTier(TestTier.Tier3)]
     public void TestProxyDisposeReleasesStrongReference()
     {
@@ -136,6 +137,7 @@ public class ProxyDisposeTests : TestBase
         AssertEqual(initialCount, afterDispose, "StrongCount should return to initial value after dispose");
     }
 
+    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
     [TestTier(TestTier.Tier3)]
     public void TestProxyDoubleDisposeIsSafe()
     {
@@ -150,6 +152,7 @@ public class ProxyDisposeTests : TestBase
         TestLogger.Info("Double-dispose on proxy did not crash");
     }
 
+    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
     [TestTier(TestTier.Tier3)]
     public void TestProxyPropertyAccessAfterDisposeThrows()
     {
@@ -164,6 +167,7 @@ public class ProxyDisposeTests : TestBase
         TestLogger.Info("Property access after dispose correctly throws ObjectDisposedException");
     }
 
+    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
     [TestTier(TestTier.Tier3)]
     public void TestProxyMethodAccessAfterDisposeThrows()
     {

@@ -68,29 +68,21 @@ public static partial class ClosureEmitter
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
-        // Generate callback body — indent depends on whether we wrap in try/finally
-        var indent = closureTypeSpec.IsEscaping ? "                " : "            ";
+        // Callback never frees the GCHandle — the calling method's finally block handles cleanup.
+        // Escaping closures may fire multiple times, so freeing in the callback would crash.
+        var indent = "            ";
 
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-            """);
+                var swiftResult = del({{invokeArgsString}});
 
-        if (closureTypeSpec.IsEscaping)
-        {
-            csWriter.WriteLine("            try");
-            csWriter.WriteLine("            {");
-        }
-
-        csWriter.WriteLines($$"""
-            {{indent}}var swiftResult = del({{invokeArgsString}});
-
-            {{indent}}if (swiftResult.IsFailure)
-            {{indent}}{
-            {{indent}}    // Set the error out parameter
-            {{indent}}    *errorOut = swiftResult.Failure;
+                if (swiftResult.IsFailure)
+                {
+                    // Set the error out parameter
+                    *errorOut = swiftResult.Failure;
             """);
 
         if (hasReturn)
@@ -123,23 +115,7 @@ public static partial class ClosureEmitter
             csWriter.WriteLine($"{indent}{successReturn}");
         }
 
-        if (closureTypeSpec.IsEscaping)
-        {
-            // Escaping closures: free the GCHandle inside the callback
-            csWriter.WriteLines($$"""
-                        }
-                        finally
-                        {
-                            GCHandle.FromIntPtr({{contextExtraction}}).Free();
-                        }
-                    }
-                """);
-        }
-        else
-        {
-            // Non-escaping closures: calling method's finally block handles cleanup
-            csWriter.WriteLine("        }");
-        }
+        csWriter.WriteLine("        }");
     }
 
     /// <summary>

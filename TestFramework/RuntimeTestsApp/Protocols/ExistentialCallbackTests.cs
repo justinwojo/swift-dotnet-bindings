@@ -18,6 +18,7 @@ namespace RuntimeTestsApp.Protocols;
 /// Tier 3: Proxy object passes through CallConvSwift P/Invoke.
 /// NativeAOT (device builds) should work.
 /// </summary>
+// Mono JIT assertion (jit-info.c:918): proxy objects through CallConvSwift P/Invoke
 [TestTier(TestTier.Tier3)]
 public class ExistentialCallbackTests : TestBase
 {

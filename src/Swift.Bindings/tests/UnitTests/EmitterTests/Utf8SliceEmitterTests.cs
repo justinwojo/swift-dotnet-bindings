@@ -179,4 +179,36 @@ public class Utf8SliceEmitterTests
         Assert.Contains("SBW_Utf8Slice", outputA.ToString());
         Assert.Contains("SBW_Utf8Slice", outputB.ToString());
     }
+
+    [Fact]
+    public void GetFreeSymbolName_IncludesModuleName()
+    {
+        // Regression: SBW_Free_ was emitted without module name when SwiftTypeName.Module
+        // was null (MethodHandler/SubscriptHandler didn't fall back to ModuleDecl.Name).
+        var symbol = Utf8SliceEmitter.GetFreeSymbolName("SwiftBindingsTestLib");
+        Assert.Equal("SBW_Free_SwiftBindingsTestLib", symbol);
+    }
+
+    [Fact]
+    public void GetFreeSymbolName_EmptyModuleName_ProducesTrailingUnderscore()
+    {
+        // Documents the pathological case: if module name is empty, symbol ends with underscore.
+        // The fix in MethodHandler/SubscriptHandler prevents this by falling back to ModuleDecl.Name.
+        var symbol = Utf8SliceEmitter.GetFreeSymbolName("");
+        Assert.Equal("SBW_Free_", symbol);
+    }
+
+    [Fact]
+    public void FreePInvokeDedup_DistinguishesNestedTypes()
+    {
+        // Regression: nested types with the same leaf name (e.g., OrderContainer.Status vs
+        // PaymentContainer.Status) must use distinct dedup keys to avoid colliding SBW_Free entries.
+        var ctx = new ModuleEmissionContext();
+
+        Utf8SliceEmitter.MarkFreePInvokeEmittedForType("TestModule.OrderContainer.Status", ctx);
+
+        Assert.True(Utf8SliceEmitter.HasFreePInvokeForType("TestModule.OrderContainer.Status", ctx));
+        Assert.False(Utf8SliceEmitter.HasFreePInvokeForType("TestModule.PaymentContainer.Status", ctx),
+            "Different parent types with same leaf name must not share dedup key");
+    }
 }

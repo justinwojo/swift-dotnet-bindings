@@ -16,6 +16,7 @@ namespace RuntimeTestsApp.Async;
 /// Tier 3: Async P/Invoke entry points are in the SwiftBindings wrapper library but
 /// DllImport targets "SwiftBindingsTestLib" → EntryPointNotFoundException at runtime.
 /// Tests are ready for when the generator routes async DllImports to the wrapper library.
+// Async DllImport targets wrong module — entry points are in wrapper lib, not native dylib
 [TestTier(TestTier.Tier3)]
 public class AsyncComplexTypeTests : TestBase
 {

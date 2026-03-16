@@ -503,20 +503,36 @@ elif [ "$RESULT" = "crash" ]; then
         echo "Crash log: $LATEST_CRASH"
         head -30 "$LATEST_CRASH"
     fi
-    # Known Mono JIT bug (jit-info.c:918): fires on CallConvSwift P/Invoke or GC
-    # finalizer thread. Not a regression — tolerate it.
-    if grep -q "jit-info\.c:918" "$OUTPUT_FILE" 2>/dev/null; then
+    # Extract any test failures that occurred before the crash
+    FAIL_COUNT=$(grep -c '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    if [ "$FAIL_COUNT" -gt 0 ]; then
         echo ""
-        echo "WARNING: Known Mono JIT assertion (jit-info.c:918)."
-        echo "This is a pre-existing Mono runtime bug, not a regression."
-        exit 0
+        echo "ERROR: $FAIL_COUNT test(s) failed before crash ($PASS_COUNT passed)."
+        echo "Failing tests:"
+        grep '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" | sed 's/.*\[FAIL\] /  /'
+        exit 1
     fi
-    # Also check crash logs (GHA simctl --console may not capture crash output)
-    if [ -n "$LATEST_CRASH" ] && grep -q "jit-info\|mono_jit\|ReleaseHandle" "$LATEST_CRASH" 2>/dev/null; then
-        echo ""
-        echo "WARNING: Probable Mono JIT crash detected in crash log."
-        echo "This is a pre-existing Mono runtime bug, not a regression."
-        exit 0
+    # Tier 1+2: crashes are regressions (all crash-prone tests moved to Tier 3).
+    # Tier 3: tolerate known Mono JIT crashes since Tier 3 includes crash-prone tests.
+    IS_MONO_JIT_CRASH=false
+    if grep -q "jit-info\.c:918" "$OUTPUT_FILE" 2>/dev/null; then
+        IS_MONO_JIT_CRASH=true
+    elif [ -n "$LATEST_CRASH" ] && grep -q "jit-info\|mono_jit\|ReleaseHandle" "$LATEST_CRASH" 2>/dev/null; then
+        IS_MONO_JIT_CRASH=true
+    fi
+    if [ "$IS_MONO_JIT_CRASH" = true ]; then
+        if [ "$TIER" -ge 3 ]; then
+            echo ""
+            echo "WARNING: Known Mono JIT assertion (jit-info.c:918) during Tier 3 run."
+            echo "This is a pre-existing Mono runtime bug, not a regression."
+            exit 0
+        else
+            echo ""
+            echo "ERROR: Mono JIT crash in Tier $TIER run ($PASS_COUNT tests passed before crash)."
+            echo "All crash-prone tests should be Tier 3. This crash is a regression."
+            exit 1
+        fi
     fi
     exit 1
 elif [ "$RESULT" = "failure" ]; then
@@ -527,18 +543,14 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
     # Process exited or timed out without markers — check if it's the known Mono crash
     echo " RUNTIME TESTS ${RESULT:-TIMEOUT}"
     echo "========================================="
-    # Check crash logs (.ips files)
+    # Detect Mono JIT crash from any available source
+    IS_MONO_JIT_CRASH=false
     LATEST_CRASH=$(ls -t "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | head -1)
     if [ -n "$LATEST_CRASH" ] && grep -q "jit-info\|mono_jit\|ReleaseHandle" "$LATEST_CRASH" 2>/dev/null; then
-        echo "WARNING: Probable Mono JIT crash detected in crash log."
-        echo "This is a pre-existing Mono runtime bug, not a regression."
-        exit 0
+        IS_MONO_JIT_CRASH=true
     fi
-    # Check console output for jit-info marker
     if grep -q "jit-info\.c:918" "$OUTPUT_FILE" 2>/dev/null; then
-        echo "WARNING: Known Mono JIT assertion (jit-info.c:918)."
-        echo "This is a pre-existing Mono runtime bug, not a regression."
-        exit 0
+        IS_MONO_JIT_CRASH=true
     fi
     # Check simulator device log for crash evidence (GHA simctl --console
     # often doesn't capture crash output for simulator apps)
@@ -546,13 +558,24 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
         --predicate 'process == "RuntimeTestsApp" OR (process == "ReportCrash" AND eventMessage CONTAINS "RuntimeTestsApp")' \
         --style compact 2>/dev/null || true)
     if echo "$DEVICE_LOG" | grep -q "jit-info\|mono_jit\|ReleaseHandle\|EXC_BAD_ACCESS\|SIGABRT\|assertion.*not met" 2>/dev/null; then
+        IS_MONO_JIT_CRASH=true
         echo ""
         echo "=== DEVICE LOG (crash evidence) ==="
         echo "$DEVICE_LOG" | grep -i "crash\|assert\|abort\|exc_bad\|jit-info\|ReleaseHandle\|SIGABRT\|fatal" | tail -10
-        echo ""
-        echo "WARNING: Probable Mono JIT crash detected in simulator device log."
-        echo "This is a pre-existing Mono runtime bug, not a regression."
-        exit 0
+    fi
+    if [ "$IS_MONO_JIT_CRASH" = true ]; then
+        PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+        if [ "$TIER" -ge 3 ]; then
+            echo ""
+            echo "WARNING: Mono JIT crash during Tier 3 run ($PASS_COUNT tests passed before crash)."
+            echo "This is a pre-existing Mono runtime bug, not a regression."
+            exit 0
+        else
+            echo ""
+            echo "ERROR: Mono JIT crash in Tier $TIER run ($PASS_COUNT tests passed before crash)."
+            echo "All crash-prone tests should be Tier 3. This crash is a regression."
+            exit 1
+        fi
     fi
     # Show device log for debugging if we still don't know what happened
     if [ -n "$DEVICE_LOG" ]; then

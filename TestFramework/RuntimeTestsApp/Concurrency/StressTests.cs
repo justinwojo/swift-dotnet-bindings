@@ -12,6 +12,7 @@ namespace RuntimeTestsApp.Concurrency;
 /// and GC pressure during active Swift interop calls.
 /// All tests are Tier 3 (nightly).
 /// </summary>
+// Nightly-only: stress tests for concurrent access, rapid alloc/dealloc, GC pressure
 [TestTier(TestTier.Tier3)]
 public class StressTests : TestBase
 {

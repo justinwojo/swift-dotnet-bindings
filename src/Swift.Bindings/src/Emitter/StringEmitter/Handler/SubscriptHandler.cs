@@ -252,7 +252,7 @@ namespace BindingsGeneration
                     if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, context.GetEmissionContext()))
                     {
                         Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, context.GetEmissionContext());
-                        var moduleName = typeDecl.SwiftTypeName?.Module ?? "";
+                        var moduleName = typeDecl.SwiftTypeName?.Module ?? typeDecl.ModuleDecl?.Name ?? "";
                         var wrapperLibPath = typeDatabase.AsyncLibraryName
                             ?? typeDatabase.GetLibraryPath(moduleName);
                         var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);

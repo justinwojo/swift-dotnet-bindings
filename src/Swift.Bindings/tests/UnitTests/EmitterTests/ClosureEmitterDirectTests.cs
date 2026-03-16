@@ -768,16 +768,17 @@ public class ClosureEmitterDirectTests
             "$s10TestModule6doWorkyyF", useCdecl: false);
 
         var result = output.ToString();
-        // Callback should free the GCHandle via try/finally
-        Assert.Contains("GCHandle.FromIntPtr(", result);
-        Assert.Contains(".Free()", result);
-        Assert.Contains("finally", result);
+        // Callback should NOT free the GCHandle — caller's finally block handles it.
+        // Escaping closures may fire multiple times during a synchronous P/Invoke call.
+        Assert.DoesNotContain("GCHandle.FromIntPtr(", result);
+        Assert.DoesNotContain(".Free()", result);
+        Assert.DoesNotContain("finally", result);
     }
 
     [Fact]
-    public void EmitEscapingClosureCallback_CdeclMode_FreesGCHandleInCallback()
+    public void EmitEscapingClosureCallback_CdeclMode_DoesNotFreeGCHandle()
     {
-        // Cdecl variant should also free the GCHandle in the callback.
+        // Cdecl escaping callback should NOT free GCHandle (caller handles it).
         var typeDatabase = CreateTypeDatabaseWithSwiftInt();
         var closureHandler = new ClosureHandler(typeDatabase);
         var closureTypeSpec = new ClosureTypeSpec(
@@ -793,15 +794,14 @@ public class ClosureEmitterDirectTests
             "$s10TestModule6doWorkyyF", useCdecl: true);
 
         var result = output.ToString();
-        // Cdecl callback should also free the GCHandle
-        Assert.Contains("GCHandle.FromIntPtr(contextPtr).Free()", result);
-        Assert.Contains("finally", result);
+        Assert.DoesNotContain("GCHandle.FromIntPtr(", result);
+        Assert.DoesNotContain("finally", result);
     }
 
     [Fact]
-    public void EmitEscapingClosureCallback_VoidReturn_FreesGCHandleInCallback()
+    public void EmitEscapingClosureCallback_VoidReturn_DoesNotFreeGCHandle()
     {
-        // Void-returning escaping closures should also free the GCHandle in the callback.
+        // Void-returning escaping closures should NOT free GCHandle in callback.
         var typeDatabase = CreateTypeDatabaseWithSwiftInt();
         var closureHandler = new ClosureHandler(typeDatabase);
         // Closure: (Int) -> Void
@@ -818,16 +818,14 @@ public class ClosureEmitterDirectTests
             "$s10TestModule6doWorkyyF", useCdecl: false);
 
         var result = output.ToString();
-        Assert.Contains("GCHandle.FromIntPtr(", result);
-        Assert.Contains(".Free()", result);
-        Assert.Contains("try", result);
-        Assert.Contains("finally", result);
+        Assert.DoesNotContain("GCHandle.FromIntPtr(", result);
+        Assert.DoesNotContain("finally", result);
     }
 
     [Fact]
-    public void EmitThrowingClosureCallback_FreesGCHandleInCallback()
+    public void EmitThrowingClosureCallback_DoesNotFreeGCHandle()
     {
-        // Throwing escaping closures should also free the GCHandle in the callback.
+        // Throwing escaping closures should NOT free GCHandle in callback.
         var typeDatabase = CreateTypeDatabaseWithSwiftInt();
         var closureHandler = new ClosureHandler(typeDatabase);
         // Closure: (Int) throws -> Int  (escaping + throwing)
@@ -845,16 +843,15 @@ public class ClosureEmitterDirectTests
             "$s10TestModule6doWorkyyF", useCdecl: false);
 
         var result = output.ToString();
-        Assert.Contains("GCHandle.FromIntPtr(", result);
-        Assert.Contains(".Free()", result);
-        Assert.Contains("finally", result);
+        Assert.DoesNotContain("GCHandle.FromIntPtr(", result);
+        Assert.DoesNotContain("finally", result);
     }
 
     [Fact]
     public void ClosureProjection_EscapingParameterPlan_NoCleanupStatements()
     {
-        // Escaping closures should NOT have cleanup statements in the marshal plan.
-        // The GCHandle is freed in the callback, not the calling method's finally block.
+        // Escaping closures: GCHandle intentionally leaked — Swift may store the closure
+        // beyond the P/Invoke return (e.g., EventHandler.onComplete for later fire()).
         var argProjections = new List<ITypeProjection> { new BlittableProjection("nint") };
         var returnProjection = new BlittableProjection("nint");
         var projection = new ClosureProjection(
@@ -869,14 +866,14 @@ public class ClosureEmitterDirectTests
         Assert.Contains("GCHandle.Alloc", ((MarshalStatement.Line)plan.SetupStatements[0]).Code);
         Assert.Contains("SwiftClosureData", ((MarshalStatement.Line)plan.SetupStatements[1]).Code);
 
-        // Cleanup should be EMPTY for escaping closures
+        // Cleanup should be EMPTY — escaping closures are intentionally leaked
         Assert.Empty(plan.CleanupStatements);
     }
 
     [Fact]
-    public void ClosureProjection_EscapingCallbackDeclaration_FreesGCHandle()
+    public void ClosureProjection_EscapingCallbackDeclaration_DoesNotFreeGCHandle()
     {
-        // The callback declaration for escaping closures should include GCHandle.Free()
+        // The callback declaration should NOT include GCHandle.Free — caller handles it.
         var argProjections = new List<ITypeProjection> { new BlittableProjection("nint") };
         var returnProjection = new BlittableProjection("nint");
         var projection = new ClosureProjection(
@@ -888,14 +885,10 @@ public class ClosureEmitterDirectTests
         Assert.Single(declarations);
 
         var body = declarations[0].Body;
-        // Should contain try and finally blocks with GCHandle.Free
+        // Should NOT contain try/finally blocks
         var blockHeaders = body.OfType<MarshalStatement.Block>().Select(b => b.Header).ToList();
-        Assert.Contains("try", blockHeaders);
-        Assert.Contains("finally", blockHeaders);
-
-        var finallyBlock = body.OfType<MarshalStatement.Block>().First(b => b.Header == "finally");
-        var freeStatement = finallyBlock.Body.OfType<MarshalStatement.Line>().First();
-        Assert.Contains("GCHandle.FromIntPtr(context).Free()", freeStatement.Code);
+        Assert.DoesNotContain("try", blockHeaders);
+        Assert.DoesNotContain("finally", blockHeaders);
     }
 
     #endregion

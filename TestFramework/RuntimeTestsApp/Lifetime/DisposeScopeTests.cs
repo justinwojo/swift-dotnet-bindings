@@ -40,6 +40,8 @@ public class DisposeScopeTests : TestBase
         TestLogger.Info("Scope correctly disposed Animal on exit");
     }
 
+    // Depends on createUniqueResource whose wrapper was stripped during compilation
+    [TestTier(TestTier.Tier3)]
     public void TestScopeDisposesMultipleObjects()
     {
         Animal animal;

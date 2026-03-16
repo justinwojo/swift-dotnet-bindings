@@ -105,6 +105,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 3 — Codec Construction and Properties (Mono JIT crash on class with nested enum)
 
+    // Mono JIT crash: Codec class construction with non-blittable Encoding param through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestCodecConstructionJson()
     {
@@ -115,6 +116,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Json format passed");
     }
 
+    // Mono JIT crash: Codec class construction with non-blittable Encoding param through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestCodecConstructionXml()
     {
@@ -125,6 +127,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
+    // Mono JIT crash: Codec class construction + property access through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestCodecEncodingValueProperty()
     {
@@ -136,6 +139,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
+    // Mono JIT crash: Codec class construction + GetDescribe method through CallConvSwift
     [TestTier(TestTier.Tier3)]
     public void TestCodecGetDescribe()
     {
@@ -230,7 +234,8 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Sha1 passed");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
+    [TestTier(TestTier.Tier3)]
     public void TestHashAlgorithmSha2()
     {
         var algo = HashAlgorithm.Sha2(SHA2Variant.Sha256);
@@ -240,7 +245,8 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Sha2(Sha256) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
+    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
+    [TestTier(TestTier.Tier3)]
     public void TestHashAlgorithmSha2AllVariants()
     {
         var variants = new[] { SHA2Variant.Sha224, SHA2Variant.Sha256, SHA2Variant.Sha384, SHA2Variant.Sha512 };
@@ -277,7 +283,8 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Free Functions
 
-    [TestTier(TestTier.Tier2)]
+    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
+    [TestTier(TestTier.Tier3)]
     public void TestCreateHashAlgorithm()
     {
         var algo = TestLibFunctions.CreateHashAlgorithm(SHA2Variant.Sha512);

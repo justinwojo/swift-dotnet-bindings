@@ -77,6 +77,7 @@ public class ClosureTests : TestBase
     // @convention(c) closures: C# callbacks still use CallConvSwift (Strategy B excludes them)
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
+    // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
     [TestTier(TestTier.Tier3)]
     public void TestConventionCFunction()
     {
@@ -85,6 +86,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCFunction(x => x + 8) = {result}");
     }
 
+    // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
     [TestTier(TestTier.Tier3)]
     public void TestCBinaryFunction()
     {
@@ -93,6 +95,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCBinaryFunction((a,b) => a*b) = {result}");
     }
 
+    // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
     [TestTier(TestTier.Tier3)]
     public void TestCPredicate()
     {
@@ -104,6 +107,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
+    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
     [TestTier(TestTier.Tier3)]
     public void TestMakeAdder()
     {
@@ -114,6 +118,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
+    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
     [TestTier(TestTier.Tier3)]
     public void TestMakeMultiplier()
     {
@@ -124,6 +129,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
+    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
     [TestTier(TestTier.Tier3)]
     public void TestMakeGreaterThan()
     {
@@ -134,6 +140,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
+    // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
     [TestTier(TestTier.Tier3)]
     public void TestClosureFactory()
     {
@@ -155,6 +162,7 @@ public class ClosureTests : TestBase
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
     // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
 
+    // Mono JIT crash: SwiftString return through CallConvSwift in closure callback
     [TestTier(TestTier.Tier3)]
     public void TestClosureWithOptionalStringReturn()
     {
@@ -164,6 +172,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
+    // Mono JIT crash: SwiftString array return through CallConvSwift in closure callback
     [TestTier(TestTier.Tier3)]
     public void TestClosureWithStringArrayReturn()
     {

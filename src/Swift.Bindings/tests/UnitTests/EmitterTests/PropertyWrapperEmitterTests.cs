@@ -266,6 +266,32 @@ public class PropertyWrapperEmitterTests
         Assert.Equal("SBW_Get_Nuke_ImagePipeline_Configuration_dataLoader", symbol);
     }
 
+    [Fact]
+    public void GetAccessorSymbolName_NestedTypesWithSameLeafName_ProduceDistinctSymbols()
+    {
+        // Regression: OrderContainer.Status and PaymentContainer.Status both produced
+        // SBW_Get_Module_Status_rawValue when only the leaf name was used. The fix passes
+        // the module-qualified name (minus the module prefix) so parent types are included.
+        var orderSymbol = PropertyWrapperEmitter.GetAccessorSymbolName(
+            "SwiftBindingsTestLib", "OrderContainer.Status", "rawValue", isGetter: true);
+        var paymentSymbol = PropertyWrapperEmitter.GetAccessorSymbolName(
+            "SwiftBindingsTestLib", "PaymentContainer.Status", "rawValue", isGetter: true);
+
+        Assert.Equal("SBW_Get_SwiftBindingsTestLib_OrderContainer_Status_rawValue", orderSymbol);
+        Assert.Equal("SBW_Get_SwiftBindingsTestLib_PaymentContainer_Status_rawValue", paymentSymbol);
+        Assert.NotEqual(orderSymbol, paymentSymbol);
+    }
+
+    [Fact]
+    public void GetAccessorSymbolName_LeafNameOnly_WouldCollide()
+    {
+        // Documents the bug that was fixed: using just the leaf name "Status"
+        // would produce identical symbols for different nested types.
+        var symbol1 = PropertyWrapperEmitter.GetAccessorSymbolName("Mod", "Status", "rawValue", isGetter: true);
+        var symbol2 = PropertyWrapperEmitter.GetAccessorSymbolName("Mod", "Status", "rawValue", isGetter: true);
+        Assert.Equal(symbol1, symbol2); // Same input → same output (the bug was in the CALLER)
+    }
+
     #endregion
 
     #region Getter Wrapper Swift Emission Tests
