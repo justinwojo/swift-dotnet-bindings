@@ -6090,8 +6090,7 @@ namespace SwiftBindingsTestLib
                 
                 var itemsSwiftDirect = SwiftArray<int>.FromEnumerable(items);
                 using var itemsSwift = itemsSwiftDirect;
-                using var itemsDisposable = itemsSwift.PayloadBuffer;
-                IntPtr itemsBuffer = itemsDisposable.Buffer;
+                IntPtr itemsBuffer = itemsSwift.Payload.DangerousGetHandle();
                 PInvoke_init_97331585(resultPtr, itemsBuffer);
                 
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
@@ -9926,7 +9925,7 @@ namespace SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_Animal_name")]
         private static partial void PInvoke_name_Get_4619F67E( IntPtr resultPtr,  IntPtr _selfClass);
         
-        private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+        private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
         {
             unsafe
             {
@@ -9952,7 +9951,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_Animal_name")]
-        private static partial void PInvoke_name_Set_64AF8E92( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+        private static partial void PInvoke_name_Set_64AF8E92( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
         
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
@@ -10001,7 +10000,7 @@ namespace SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_Animal_sound")]
         private static partial void PInvoke_sound_Get_0CC2FFFC( IntPtr resultPtr,  IntPtr _selfClass);
         
-        private void Sound_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+        private void Sound_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
         {
             unsafe
             {
@@ -10027,7 +10026,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_Animal_sound")]
-        private static partial void PInvoke_sound_Set_B7559760( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+        private static partial void PInvoke_sound_Set_B7559760( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
         
         public virtual string Sound
         {
@@ -10286,7 +10285,7 @@ namespace SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_Dog_breed")]
         private static partial void PInvoke_breed_Get_7C6AFFCF( IntPtr resultPtr,  IntPtr _selfClass);
         
-        private void Breed_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+        private void Breed_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
         {
             unsafe
             {
@@ -10312,7 +10311,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_Dog_breed")]
-        private static partial void PInvoke_breed_Set_B52B38B3( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+        private static partial void PInvoke_breed_Set_B52B38B3( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
         
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
@@ -10892,7 +10891,7 @@ namespace SwiftBindingsTestLib
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_ClassWithProperties_storedString")]
         private static partial void PInvoke_storedString_Get_7A519BFC( IntPtr resultPtr,  IntPtr _selfClass);
         
-        private void StoredString_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+        private void StoredString_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
         {
             unsafe
             {
@@ -10918,7 +10917,7 @@ namespace SwiftBindingsTestLib
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_ClassWithProperties_storedString")]
-        private static partial void PInvoke_storedString_Set_58BC1358( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+        private static partial void PInvoke_storedString_Set_58BC1358( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
         
         [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
         private static partial void SBW_Free(IntPtr ptr);
@@ -11646,7 +11645,7 @@ namespace SwiftBindingsTestLib
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_FrozenStructWithProperties_name")]
     private static partial void PInvoke_name_Get_DA5F92B8( IntPtr resultPtr,  IntPtr _self);
     
-    private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -11672,7 +11671,7 @@ namespace SwiftBindingsTestLib
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_FrozenStructWithProperties_name")]
-    private static partial void PInvoke_name_Set_2953FE4C( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_name_Set_2953FE4C( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -12588,7 +12587,7 @@ private Utf8Slice Label_Get()
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_NestedOuter_label")]
 private static partial void PInvoke_label_Get_1EF700FB( IntPtr resultPtr,  IntPtr _self);
 
-private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
 {
     unsafe
     {
@@ -12614,7 +12613,7 @@ private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_NestedOuter_label")]
-private static partial void PInvoke_label_Set_2B370DCF( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+private static partial void PInvoke_label_Set_2B370DCF( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
 
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
 private static partial void SBW_Free(IntPtr ptr);
@@ -13215,18 +13214,21 @@ public partial class FetchError : ISwiftObject, IDisposable
     public static unsafe FetchError InvalidResponse(string message)
     {
         var result = new FetchError();
-        using var __message = new SwiftString(message);
-        using var __messagePayload = __message.PayloadBuffer;
+        var __messageUtf8 = System.Text.Encoding.UTF8.GetBytes(message);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_InvalidResponse(__messagePayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __messagePtr = __messageUtf8) {
+                PInvoke_InvalidResponse((IntPtr)__messagePtr, __messageUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<FetchError>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FetchError_invalidResponse_04A61B74")]
-    private static partial void PInvoke_InvalidResponse(Swift.SwiftString.Buffer message, IntPtr resultPtr);
+    private static partial void PInvoke_InvalidResponse(IntPtr messageUtf8Ptr, nint messageUtf8Len, IntPtr resultPtr);
     
     private static readonly Lazy<FetchError> _lazy_timeout = new(() =>
     {
@@ -13481,7 +13483,7 @@ public partial class FetchResult : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_FetchResult_data")]
     private static partial void PInvoke_data_Get_2B7C9C6A( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Data_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Data_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -13507,7 +13509,7 @@ public partial class FetchResult : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_FetchResult_data")]
-    private static partial void PInvoke_data_Set_F4B5D2EE( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_data_Set_F4B5D2EE( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -13897,7 +13899,7 @@ private Utf8Slice Name_Get()
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_BatchConfig_name")]
 private static partial void PInvoke_name_Get_09418200( IntPtr resultPtr,  IntPtr _self);
 
-private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
 {
     unsafe
     {
@@ -13923,7 +13925,7 @@ private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_BatchConfig_name")]
-private static partial void PInvoke_name_Set_3473425C( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+private static partial void PInvoke_name_Set_3473425C( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
 
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
 private static partial void SBW_Free(IntPtr ptr);
@@ -14925,7 +14927,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_EventHandler_label")]
     private static partial void PInvoke_label_Get_4E0FD6D9( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -14951,7 +14953,7 @@ public partial class EventHandler : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_EventHandler_label")]
-    private static partial void PInvoke_label_Set_7B02FDF5( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_label_Set_7B02FDF5( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -16279,18 +16281,21 @@ public partial class ParseError : ISwiftObject, IDisposable
     public static unsafe ParseError Overflow(string value)
     {
         var result = new ParseError();
-        using var __value = new SwiftString(value);
-        using var __valuePayload = __value.PayloadBuffer;
+        var __valueUtf8 = System.Text.Encoding.UTF8.GetBytes(value);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_Overflow(__valuePayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __valuePtr = __valueUtf8) {
+                PInvoke_Overflow((IntPtr)__valuePtr, __valueUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<ParseError>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ParseError_overflow_EE9A350D")]
-    private static partial void PInvoke_Overflow(Swift.SwiftString.Buffer value, IntPtr resultPtr);
+    private static partial void PInvoke_Overflow(IntPtr valueUtf8Ptr, nint valueUtf8Len, IntPtr resultPtr);
     
     private static readonly Lazy<ParseError> _lazy_invalidInput = new(() =>
     {
@@ -17153,18 +17158,21 @@ public partial class ValidationError : ISwiftObject, IDisposable
     public static unsafe ValidationError InvalidFormat(string value0)
     {
         var result = new ValidationError();
-        using var __value0 = new SwiftString(value0);
-        using var __value0Payload = __value0.PayloadBuffer;
+        var __value0Utf8 = System.Text.Encoding.UTF8.GetBytes(value0);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_InvalidFormat(__value0Payload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __value0Ptr = __value0Utf8) {
+                PInvoke_InvalidFormat((IntPtr)__value0Ptr, __value0Utf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<ValidationError>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_ValidationError_invalidFormat_F61F933D")]
-    private static partial void PInvoke_InvalidFormat(Swift.SwiftString.Buffer value0, IntPtr resultPtr);
+    private static partial void PInvoke_InvalidFormat(IntPtr value0Utf8Ptr, nint value0Utf8Len, IntPtr resultPtr);
     
     private static readonly Lazy<ValidationError> _lazy_empty = new(() =>
     {
@@ -19356,18 +19364,21 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
     public static unsafe AsyncStatus Completed(string message)
     {
         var result = new AsyncStatus();
-        using var __message = new SwiftString(message);
-        using var __messagePayload = __message.PayloadBuffer;
+        var __messageUtf8 = System.Text.Encoding.UTF8.GetBytes(message);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_Completed(__messagePayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __messagePtr = __messageUtf8) {
+                PInvoke_Completed((IntPtr)__messagePtr, __messageUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<AsyncStatus>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStatus_completed_FD54A5DF")]
-    private static partial void PInvoke_Completed(Swift.SwiftString.Buffer message, IntPtr resultPtr);
+    private static partial void PInvoke_Completed(IntPtr messageUtf8Ptr, nint messageUtf8Len, IntPtr resultPtr);
     
     /// <summary>
     /// Creates the 'failed' case of AsyncStatus.
@@ -19375,18 +19386,21 @@ public partial class AsyncStatus : ISwiftObject, IDisposable
     public static unsafe AsyncStatus Failed(string errorMessage)
     {
         var result = new AsyncStatus();
-        using var __errorMessage = new SwiftString(errorMessage);
-        using var __errorMessagePayload = __errorMessage.PayloadBuffer;
+        var __errorMessageUtf8 = System.Text.Encoding.UTF8.GetBytes(errorMessage);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_Failed(__errorMessagePayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __errorMessagePtr = __errorMessageUtf8) {
+                PInvoke_Failed((IntPtr)__errorMessagePtr, __errorMessageUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<AsyncStatus>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncStatus_failed_C56710CE")]
-    private static partial void PInvoke_Failed(Swift.SwiftString.Buffer errorMessage, IntPtr resultPtr);
+    private static partial void PInvoke_Failed(IntPtr errorMessageUtf8Ptr, nint errorMessageUtf8Len, IntPtr resultPtr);
     
     private static readonly Lazy<AsyncStatus> _lazy_pending = new(() =>
     {
@@ -19729,7 +19743,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_AsyncTask_status")]
     private static partial void PInvoke_status_Get_806B5294( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Status_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Status_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -19755,7 +19769,7 @@ public partial class AsyncTask : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_AsyncTask_status")]
-    private static partial void PInvoke_status_Set_96BD5AA8( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_status_Set_96BD5AA8( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     public virtual string StatusProperty
     {
@@ -27114,7 +27128,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_SharedState_label")]
     private static partial void PInvoke_label_Get_AA6CD18B( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -27140,7 +27154,7 @@ public partial class SharedState : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_SharedState_label")]
-    private static partial void PInvoke_label_Set_BE5F99CF( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_label_Set_BE5F99CF( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -31256,18 +31270,21 @@ public partial class NetworkResponse : ISwiftObject, IDisposable
     public static unsafe NetworkResponse Success(int statusCode, string body)
     {
         var result = new NetworkResponse();
-        using var __body = new SwiftString(body);
-        using var __bodyPayload = __body.PayloadBuffer;
+        var __bodyUtf8 = System.Text.Encoding.UTF8.GetBytes(body);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_Success(statusCode, __bodyPayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __bodyPtr = __bodyUtf8) {
+                PInvoke_Success(statusCode, (IntPtr)__bodyPtr, __bodyUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<NetworkResponse>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_NetworkResponse_success_3407D404")]
-    private static partial void PInvoke_Success(int statusCode, Swift.SwiftString.Buffer body, IntPtr resultPtr);
+    private static partial void PInvoke_Success(int statusCode, IntPtr bodyUtf8Ptr, nint bodyUtf8Len, IntPtr resultPtr);
     
     /// <summary>
     /// Creates the 'redirect' case of NetworkResponse.
@@ -31275,20 +31292,24 @@ public partial class NetworkResponse : ISwiftObject, IDisposable
     public static unsafe NetworkResponse Redirect(string from, string to, bool permanent)
     {
         var result = new NetworkResponse();
-        using var __from = new SwiftString(from);
-        using var __to = new SwiftString(to);
-        using var __fromPayload = __from.PayloadBuffer;
-        using var __toPayload = __to.PayloadBuffer;
+        var __fromUtf8 = System.Text.Encoding.UTF8.GetBytes(from);
+        var __toUtf8 = System.Text.Encoding.UTF8.GetBytes(to);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_Redirect(__fromPayload.Buffer, __toPayload.Buffer, permanent, buffer);
+        unsafe {
+            fixed (byte* __fromPtr = __fromUtf8) {
+                fixed (byte* __toPtr = __toUtf8) {
+                    PInvoke_Redirect((IntPtr)__fromPtr, __fromUtf8.Length, (IntPtr)__toPtr, __toUtf8.Length, permanent, buffer);
+                }
+            }
+        }
         result._payload = new SwiftSafeHandle<NetworkResponse>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_NetworkResponse_redirect_F650FBD9")]
-    private static partial void PInvoke_Redirect(Swift.SwiftString.Buffer from, Swift.SwiftString.Buffer to, [MarshalAs(UnmanagedType.U1)] bool permanent, IntPtr resultPtr);
+    private static partial void PInvoke_Redirect(IntPtr fromUtf8Ptr, nint fromUtf8Len, IntPtr toUtf8Ptr, nint toUtf8Len, [MarshalAs(UnmanagedType.U1)] bool permanent, IntPtr resultPtr);
     
     /// <summary>
     /// Creates the 'clientError' case of NetworkResponse.
@@ -31296,18 +31317,21 @@ public partial class NetworkResponse : ISwiftObject, IDisposable
     public static unsafe NetworkResponse ClientError(int statusCode, string message)
     {
         var result = new NetworkResponse();
-        using var __message = new SwiftString(message);
-        using var __messagePayload = __message.PayloadBuffer;
+        var __messageUtf8 = System.Text.Encoding.UTF8.GetBytes(message);
         var metadata = PInvoke_getMetadata();
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
-        PInvoke_ClientError(statusCode, __messagePayload.Buffer, buffer);
+        unsafe {
+            fixed (byte* __messagePtr = __messageUtf8) {
+                PInvoke_ClientError(statusCode, (IntPtr)__messagePtr, __messageUtf8.Length, buffer);
+            }
+        }
         result._payload = new SwiftSafeHandle<NetworkResponse>(buffer);
         return result;
     }
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_NetworkResponse_clientError_59901B39")]
-    private static partial void PInvoke_ClientError(int statusCode, Swift.SwiftString.Buffer message, IntPtr resultPtr);
+    private static partial void PInvoke_ClientError(int statusCode, IntPtr messageUtf8Ptr, nint messageUtf8Len, IntPtr resultPtr);
     
     /// <summary>
     /// Creates the 'serverError' case of NetworkResponse.
@@ -31727,7 +31751,7 @@ public partial class OpenBaseClass : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_OpenBaseClass_label")]
     private static partial void PInvoke_label_Get_F4266CC6( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -31753,7 +31777,7 @@ public partial class OpenBaseClass : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_OpenBaseClass_label")]
-    private static partial void PInvoke_label_Set_9D25B5BA( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_label_Set_9D25B5BA( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -32159,7 +32183,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_KeywordTest_event")]
     private static partial void PInvoke_event_Get_5AE24940( IntPtr resultPtr,  IntPtr _self);
     
-    private void Event_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Event_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -32185,7 +32209,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_KeywordTest_event")]
-    private static partial void PInvoke_event_Set_D5C9E1D4( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_event_Set_D5C9E1D4( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -32237,7 +32261,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_KeywordTest_delegate")]
     private static partial void PInvoke_delegate_Get_16A71EBF( IntPtr resultPtr,  IntPtr _self);
     
-    private void Delegate_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Delegate_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -32263,7 +32287,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_KeywordTest_delegate")]
-    private static partial void PInvoke_delegate_Set_561B8AAB( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_delegate_Set_561B8AAB( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     /// <summary>
     /// &quot;delegate&quot; is a C# keyword.
@@ -32312,7 +32336,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_KeywordTest_operator")]
     private static partial void PInvoke_operator_Get_A4CB1068( IntPtr resultPtr,  IntPtr _self);
     
-    private void Operator_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Operator_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -32338,7 +32362,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_KeywordTest_operator")]
-    private static partial void PInvoke_operator_Set_D7F5F70C( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_operator_Set_D7F5F70C( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     /// <summary>
     /// &quot;operator&quot; is a C# keyword.
@@ -32387,7 +32411,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_KeywordTest_class")]
     private static partial void PInvoke_class_Get_5B309270( IntPtr resultPtr,  IntPtr _self);
     
-    private void Class_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Class_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -32413,7 +32437,7 @@ public partial class KeywordTest : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_KeywordTest_class")]
-    private static partial void PInvoke_class_Set_8CE101C4( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_class_Set_8CE101C4( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     /// <summary>
     /// &quot;class&quot; is a C# keyword (using backtick-escaped Swift keyword).
@@ -32749,7 +32773,7 @@ private Utf8Slice Name_Get()
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MutableProps_name")]
 private static partial void PInvoke_name_Get_80A1B59E( IntPtr resultPtr,  IntPtr _self);
 
-private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
 {
     unsafe
     {
@@ -32775,7 +32799,7 @@ private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_MutableProps_name")]
-private static partial void PInvoke_name_Set_08F80CDA( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+private static partial void PInvoke_name_Set_08F80CDA( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
 
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
 private static partial void SBW_Free(IntPtr ptr);
@@ -32989,7 +33013,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, ISwiftStruct, IDispos
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_NonFrozenMutableProps_label")]
     private static partial void PInvoke_label_Get_C9C0D374( IntPtr resultPtr,  IntPtr _self);
     
-    private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -33015,7 +33039,7 @@ public partial class NonFrozenMutableProps : ISwiftObject, ISwiftStruct, IDispos
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_NonFrozenMutableProps_label")]
-    private static partial void PInvoke_label_Set_DE436A48( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_label_Set_DE436A48( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -33256,7 +33280,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MutableClass_title")]
     private static partial void PInvoke_title_Get_55826597( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Title_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Title_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -33282,7 +33306,7 @@ public partial class MutableClass : ISwiftObject, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_MutableClass_title")]
-    private static partial void PInvoke_title_Set_BB179B93( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _selfClass);
+    private static partial void PInvoke_title_Set_BB179B93( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -35211,8 +35235,7 @@ private void Count_Set( Swift.SwiftOptional<int> value)
         try
         {
             
-            using PayloadBuffer<IntPtr> valueDisposable = value.PayloadBuffer;
-            IntPtr valueBuffer = valueDisposable.Buffer;
+            IntPtr valueBuffer = value.Payload.DangerousGetHandle();
             
             PInvoke_count_Set_4859601A(valueBuffer, _payload.DangerousGetHandle());
             
@@ -35273,7 +35296,7 @@ private Utf8Slice FallbackLabel_Get()
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_OptionalConfig_fallbackLabel")]
 private static partial void PInvoke_fallbackLabel_Get_08F524D5( IntPtr resultPtr,  IntPtr _self);
 
-private void FallbackLabel_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+private void FallbackLabel_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
 {
     unsafe
     {
@@ -35299,7 +35322,7 @@ private void FallbackLabel_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
 
 [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_OptionalConfig_fallbackLabel")]
-private static partial void PInvoke_fallbackLabel_Set_0149A2F9( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+private static partial void PInvoke_fallbackLabel_Set_0149A2F9( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
 
 [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
 private static partial void SBW_Free(IntPtr ptr);
@@ -35511,7 +35534,7 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_PointerWorker_label")]
     private static partial void PInvoke_label_Get_2B2CD2BA( IntPtr resultPtr,  IntPtr _self);
     
-    private void Label_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Label_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -35537,7 +35560,7 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_PointerWorker_label")]
-    private static partial void PInvoke_label_Set_EF993BFE( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_label_Set_EF993BFE( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -36011,7 +36034,7 @@ public partial class HandleWrapper : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_HandleWrapper_name")]
     private static partial void PInvoke_name_Get_BEAA5EB1( IntPtr resultPtr,  IntPtr _self);
     
-    private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -36037,7 +36060,7 @@ public partial class HandleWrapper : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_HandleWrapper_name")]
-    private static partial void PInvoke_name_Set_58D569F5( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_name_Set_58D569F5( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);
@@ -38872,7 +38895,7 @@ public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MutableNamedItem_name")]
     private static partial void PInvoke_name_Get_39835396( IntPtr resultPtr,  IntPtr _self);
     
-    private void Name_Set( IntPtr valueUtf8Ptr,  int valueUtf8Len)
+    private void Name_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
@@ -38898,7 +38921,7 @@ public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
     
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_MutableNamedItem_name")]
-    private static partial void PInvoke_name_Set_D0B0B1E2( IntPtr valueUtf8Ptr,  int valueUtf8Len,  IntPtr _self);
+    private static partial void PInvoke_name_Set_D0B0B1E2( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _self);
     
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
     private static partial void SBW_Free(IntPtr ptr);

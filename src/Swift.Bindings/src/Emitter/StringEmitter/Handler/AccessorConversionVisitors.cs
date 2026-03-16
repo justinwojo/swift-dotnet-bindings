@@ -15,6 +15,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(StringProjection p) => ($"{_resultExpr}.ToString()", true);
     public (string?, bool) Visit(DataProjection p) => ($"{_resultExpr}.ToByteArray()", false);
     public (string?, bool) Visit(NativeRemappedProjection p) => ($"{_resultExpr}.{p.ToConversionMethod}()", p.RequiresDisposal);
+    public (string?, bool) Visit(DateProjection p) => ($"{DateProjection.SwiftEpoch}.AddSeconds({_resultExpr})", false);
     public (string?, bool) Visit(OptionalProjection p) => OptionalAccessorGetterConversion(p, _resultExpr);
     public (string?, bool) Visit(ArrayProjection p) => ArrayGetterConversion(p, _resultExpr);
     public (string?, bool) Visit(DictionaryProjection p) => DictGetterConversion(p, _resultExpr);
@@ -112,6 +113,8 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
         ($"((Swift.Data?){_resultExpr})?.ToByteArray()", true);
     public (string?, bool) Visit(NativeRemappedProjection p) =>
         ($"(({p.SwiftWrapperType}?){_resultExpr})?.{p.ToConversionMethod}()", true);
+    public (string?, bool) Visit(DateProjection p) =>
+        ($"((double?){_resultExpr}) is {{}} {_resultExpr}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({_resultExpr}DateVal) : null", false);
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
     public (string?, bool) Visit(ObjCBridgedProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
@@ -157,6 +160,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? $"{p.SwiftWrapperType}.{p.FromFactoryMethod}({_valueExpr})"
             : $"new {p.SwiftWrapperType}({_valueExpr})",
         p.RequiresDisposal);
+    public (string?, bool) Visit(DateProjection p) => ($"({_valueExpr} - {DateProjection.SwiftEpoch}).TotalSeconds", false);
     public (string?, bool) Visit(ArrayProjection p) => ArraySetterConversion(p, _valueExpr);
     public (string?, bool) Visit(DictionaryProjection p) => DictSetterConversion(p, _valueExpr);
     public (string?, bool) Visit(SetProjection p) => SetSetterConversion(p, _valueExpr);

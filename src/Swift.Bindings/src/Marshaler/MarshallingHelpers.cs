@@ -22,7 +22,19 @@ namespace BindingsGeneration
                    IsSwiftArray(typeSpec) ||
                    IsSwiftDictionary(typeSpec) ||
                    IsSwiftSet(typeSpec) ||
-                   IsSwiftOptional(typeSpec);
+                   IsSwiftOptional(typeSpec) ||
+                   IsFoundationDate(typeSpec);
+        }
+
+        /// <summary>
+        /// Checks whether the type spec represents Foundation.Date.
+        /// Date needs conversion: Swift Date = Double (8 bytes), C# DateTimeOffset = 12 bytes.
+        /// The type database maps Date → double (matching ABI). DateProjection handles
+        /// the double ↔ DateTimeOffset conversion in method bodies and property accessors.
+        /// </summary>
+        public static bool IsFoundationDate(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named && named.Name == "Foundation.Date";
         }
 
         /// <summary>

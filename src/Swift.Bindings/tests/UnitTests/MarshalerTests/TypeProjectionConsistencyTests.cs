@@ -128,6 +128,9 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "Double (blittable)", N("Swift.Double"), false, "Swift.Double", "Swift.Double", typeof(BlittableProjection) };
         yield return new object[] { "Float (blittable)", N("Swift.Float"), false, "Swift.Float", "Swift.Float", typeof(BlittableProjection) };
 
+        // Foundation.Date — double ABI, DateTimeOffset public
+        yield return new object[] { "Foundation.Date", N("Foundation.Date"), false, "System.DateTimeOffset", "double", typeof(DateProjection) };
+
         // Pointer types
         yield return new object[] { "OpaquePointer", N("Swift.OpaquePointer"), false, "System.IntPtr", "System.IntPtr", typeof(BlittableProjection) };
         yield return new object[] { "UnsafeRawPointer", N("Swift.UnsafeRawPointer"), false, "System.IntPtr", "System.IntPtr", typeof(BlittableProjection) };
@@ -573,6 +576,7 @@ public class TypeProjectionConsistencyTests
         yield return new object[] { "NativeRemapped(frozen)", new NativeRemappedProjection("Foundation.NSUrl", "SwiftURL", true, "ToNSUrl") };
         yield return new object[] { "NativeRemapped(non-frozen)", new NativeRemappedProjection("Foundation.NSDate", "SwiftTimestamp", false, "ToNSDate") };
         yield return new object[] { "Data", new DataProjection() };
+        yield return new object[] { "Date", new DateProjection() };
         yield return new object[] { "Array<String>", new ArrayProjection(new StringProjection(), false) };
         yield return new object[] { "Dict<String,String>", new DictionaryProjection(new StringProjection(), new StringProjection(), false) };
         yield return new object[] { "Optional<String>", new OptionalProjection(new StringProjection()) };

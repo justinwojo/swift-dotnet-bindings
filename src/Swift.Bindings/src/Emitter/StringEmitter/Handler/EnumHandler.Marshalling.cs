@@ -235,6 +235,14 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Foundation.Date → DateTimeOffset: marshal as double, then convert
+            if (typeSpec is NamedTypeSpec dateOffset && dateOffset.Name == "Foundation.Date")
+            {
+                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                return;
+            }
+
             // For bound generics, check if public type differs (needs conversion after marshal).
             // Skip closures — delegate* can't be used as generic type arguments in MarshalFromSwift<T>.
             if (typeSpec is NamedTypeSpec namedOffset && namedOffset.ContainsGenericParameters
@@ -339,6 +347,14 @@ namespace BindingsGeneration
                 }
             }
 
+            // Foundation.Date → DateTimeOffset: marshal as double, then convert
+            if (typeSpec is NamedTypeSpec dateMarshal && dateMarshal.Name == "Foundation.Date")
+            {
+                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
+                csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                return;
+            }
+
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
@@ -413,6 +429,14 @@ namespace BindingsGeneration
                     }
                     return;
                 }
+            }
+
+            // Foundation.Date → DateTimeOffset: marshal as double, then convert
+            if (typeSpec is NamedTypeSpec dateDecl && dateDecl.Name == "Foundation.Date")
+            {
+                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
+                csWriter.WriteLine($"var {varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
+                return;
             }
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);

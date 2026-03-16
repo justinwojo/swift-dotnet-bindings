@@ -3610,8 +3610,8 @@ public func _sbw_case_networkError_75860E2D(_ code: Int, _ resultPtr: UnsafeMuta
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FetchError.invalidResponse.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_FetchError_invalidResponse_04A61B74")
-public func _sbw_case_invalidResponse_5425CC44(_ _sW0_message: Int, _ _sW1_message: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let messageVal = unsafeBitCast((_sW0_message, _sW1_message), to: String.self)
+public func _sbw_case_invalidResponse_5425CC44(_ messageUtf8Ptr: UnsafePointer<UInt8>, _ messageUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let messageVal = String(bytes: UnsafeBufferPointer(start: messageUtf8Ptr, count: messageUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.FetchError.invalidResponse(message: messageVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.FetchError.self, repeating: result, count: 1)
 }
@@ -4181,8 +4181,8 @@ public func SBW_Destroy_SwiftBindingsTestLib_ParseError(_ bufferPtr: UnsafeMutab
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.ParseError.overflow.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_ParseError_overflow_EE9A350D")
-public func _sbw_case_overflow_4CE1D664(_ _sW0_value: Int, _ _sW1_value: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let valueVal = unsafeBitCast((_sW0_value, _sW1_value), to: String.self)
+public func _sbw_case_overflow_4CE1D664(_ valueUtf8Ptr: UnsafePointer<UInt8>, _ valueUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let valueVal = String(bytes: UnsafeBufferPointer(start: valueUtf8Ptr, count: valueUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.ParseError.overflow(value: valueVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.ParseError.self, repeating: result, count: 1)
 }
@@ -4315,8 +4315,8 @@ public func _sbw_case_tooLong_B6653489(_ maxLength: Int32, _ resultPtr: UnsafeMu
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.ValidationError.invalidFormat.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_ValidationError_invalidFormat_F61F933D")
-public func _sbw_case_invalidFormat_E3AE0026(_ _sW0_value0: Int, _ _sW1_value0: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let value0Val = unsafeBitCast((_sW0_value0, _sW1_value0), to: String.self)
+public func _sbw_case_invalidFormat_E3AE0026(_ value0Utf8Ptr: UnsafePointer<UInt8>, _ value0Utf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let value0Val = String(bytes: UnsafeBufferPointer(start: value0Utf8Ptr, count: value0Utf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.ValidationError.invalidFormat(value0Val)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.ValidationError.self, repeating: result, count: 1)
 }
@@ -4717,8 +4717,8 @@ public func _sbw_case_inProgress_D0F0BC2B(_ progress: Int32, _ resultPtr: Unsafe
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.AsyncStatus.completed.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_AsyncStatus_completed_FD54A5DF")
-public func _sbw_case_completed_139FDB99(_ _sW0_message: Int, _ _sW1_message: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let messageVal = unsafeBitCast((_sW0_message, _sW1_message), to: String.self)
+public func _sbw_case_completed_139FDB99(_ messageUtf8Ptr: UnsafePointer<UInt8>, _ messageUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let messageVal = String(bytes: UnsafeBufferPointer(start: messageUtf8Ptr, count: messageUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.AsyncStatus.completed(message: messageVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.AsyncStatus.self, repeating: result, count: 1)
 }
@@ -4726,8 +4726,8 @@ public func _sbw_case_completed_139FDB99(_ _sW0_message: Int, _ _sW1_message: In
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.AsyncStatus.failed.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_AsyncStatus_failed_C56710CE")
-public func _sbw_case_failed_108F3BD4(_ _sW0_errorMessage: Int, _ _sW1_errorMessage: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let errorMessageVal = unsafeBitCast((_sW0_errorMessage, _sW1_errorMessage), to: String.self)
+public func _sbw_case_failed_108F3BD4(_ errorMessageUtf8Ptr: UnsafePointer<UInt8>, _ errorMessageUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let errorMessageVal = String(bytes: UnsafeBufferPointer(start: errorMessageUtf8Ptr, count: errorMessageUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.AsyncStatus.failed(errorMessage: errorMessageVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.AsyncStatus.self, repeating: result, count: 1)
 }
@@ -6752,8 +6752,8 @@ public func SBW_Destroy_SwiftBindingsTestLib_NetworkResponse(_ bufferPtr: Unsafe
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.NetworkResponse.success.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_NetworkResponse_success_3407D404")
-public func _sbw_case_success_78E2F81B(_ statusCode: Int32, _ _sW0_body: Int, _ _sW1_body: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let bodyVal = unsafeBitCast((_sW0_body, _sW1_body), to: String.self)
+public func _sbw_case_success_78E2F81B(_ statusCode: Int32, _ bodyUtf8Ptr: UnsafePointer<UInt8>, _ bodyUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let bodyVal = String(bytes: UnsafeBufferPointer(start: bodyUtf8Ptr, count: bodyUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.NetworkResponse.success(statusCode: statusCode, body: bodyVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.NetworkResponse.self, repeating: result, count: 1)
 }
@@ -6761,9 +6761,9 @@ public func _sbw_case_success_78E2F81B(_ statusCode: Int32, _ _sW0_body: Int, _ 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.NetworkResponse.redirect.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_NetworkResponse_redirect_F650FBD9")
-public func _sbw_case_redirect_720D7F2C(_ _sW0_from: Int, _ _sW1_from: Int, _ _sW0_to: Int, _ _sW1_to: Int, _ permanent: Int8, _ resultPtr: UnsafeMutableRawPointer) {
-    let fromVal = unsafeBitCast((_sW0_from, _sW1_from), to: String.self)
-    let toVal = unsafeBitCast((_sW0_to, _sW1_to), to: String.self)
+public func _sbw_case_redirect_720D7F2C(_ fromUtf8Ptr: UnsafePointer<UInt8>, _ fromUtf8Len: Int, _ toUtf8Ptr: UnsafePointer<UInt8>, _ toUtf8Len: Int, _ permanent: Int8, _ resultPtr: UnsafeMutableRawPointer) {
+    let fromVal = String(bytes: UnsafeBufferPointer(start: fromUtf8Ptr, count: fromUtf8Len), encoding: .utf8)!
+    let toVal = String(bytes: UnsafeBufferPointer(start: toUtf8Ptr, count: toUtf8Len), encoding: .utf8)!
     let permanentVal = permanent != 0
     let result = SwiftBindingsTestLib.NetworkResponse.redirect(from: fromVal, to: toVal, permanent: permanentVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.NetworkResponse.self, repeating: result, count: 1)
@@ -6772,8 +6772,8 @@ public func _sbw_case_redirect_720D7F2C(_ _sW0_from: Int, _ _sW1_from: Int, _ _s
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.NetworkResponse.clientError.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_NetworkResponse_clientError_59901B39")
-public func _sbw_case_clientError_074AFA39(_ statusCode: Int32, _ _sW0_message: Int, _ _sW1_message: Int, _ resultPtr: UnsafeMutableRawPointer) {
-    let messageVal = unsafeBitCast((_sW0_message, _sW1_message), to: String.self)
+public func _sbw_case_clientError_074AFA39(_ statusCode: Int32, _ messageUtf8Ptr: UnsafePointer<UInt8>, _ messageUtf8Len: Int, _ resultPtr: UnsafeMutableRawPointer) {
+    let messageVal = String(bytes: UnsafeBufferPointer(start: messageUtf8Ptr, count: messageUtf8Len), encoding: .utf8)!
     let result = SwiftBindingsTestLib.NetworkResponse.clientError(statusCode: statusCode, message: messageVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.NetworkResponse.self, repeating: result, count: 1)
 }

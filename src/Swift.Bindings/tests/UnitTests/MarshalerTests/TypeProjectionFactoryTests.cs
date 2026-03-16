@@ -114,6 +114,23 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
+    public void Project_FoundationDate_ReturnsDateProjection()
+    {
+        // Foundation.Date → DateProjection with DateTimeOffset public type, double P/Invoke type
+        // Factory short-circuits before type database lookup
+        var db = new MockTypeDatabase();
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.Date");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<DateProjection>(projection);
+        Assert.Equal("System.DateTimeOffset", projection.PublicType);
+        Assert.Equal("double", projection.PInvokeType);
+    }
+
+    [Fact]
     public void Project_NativeRemappedNonFrozen_ReturnsNativeRemappedProjection()
     {
         // Foundation.URL → non-frozen, NativeTypeName = NSUrl, CSharpTypeName = SwiftURL

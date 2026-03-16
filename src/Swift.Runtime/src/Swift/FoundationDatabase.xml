@@ -7,7 +7,7 @@
         <entity managedNameSpace="Swift" managedTypeName="URL">
             <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="DateTimeOffset">
+        <entity managedNameSpace="" managedTypeName="double">
             <typedeclaration kind="struct" name="Date" module="Foundation" mangledName="$s10Foundation4DateV" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="System" managedTypeName="Guid">

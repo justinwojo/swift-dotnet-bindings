@@ -131,6 +131,10 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLine($"var __{bareName} = Swift.Data.FromByteArray({name});");
                 }
+                else if (typeSpec is NamedTypeSpec dateSpec && dateSpec.Name == "Foundation.Date")
+                {
+                    csWriter.WriteLine($"var __{bareName} = ({name} - {DateProjection.SwiftEpoch}).TotalSeconds;");
+                }
                 else if (typeSpec is TupleTypeSpec tupleSpec && publicType != type)
                 {
                     // Tuple with projected elements — emit per-element conversion.
@@ -169,6 +173,13 @@ namespace BindingsGeneration
                             // Data: convert byte[] → Swift.Data for P/Invoke tuple element.
                             var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"var {elemVarName} = Swift.Data.FromByteArray({elementAccess});");
+                            elementExprs.Add(elemVarName);
+                        }
+                        else if (proj is DateProjection)
+                        {
+                            // Date: convert DateTimeOffset → double (seconds since 2001 epoch).
+                            var elemVarName = $"__{bareName}_e{j}";
+                            csWriter.WriteLine($"var {elemVarName} = ({elementAccess} - {DateProjection.SwiftEpoch}).TotalSeconds;");
                             elementExprs.Add(elemVarName);
                         }
                         else if (proj is NativeRemappedProjection nrp)
@@ -352,7 +363,8 @@ namespace BindingsGeneration
                 else
                 {
                     var isConvertedToLocal = typeConversionHandler.IsSwiftString(typeSpec) ||
-                        (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data");
+                        (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data") ||
+                        (typeSpec is NamedTypeSpec dts && dts.Name == "Foundation.Date");
                     var argName = isConvertedToLocal ? $"__{bareName}" : name;
                     argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase));
                 }
@@ -633,6 +645,10 @@ namespace BindingsGeneration
             // Handle Foundation.Data → byte[] for public API
             if (typeSpec is NamedTypeSpec dataType && dataType.Name == "Foundation.Data")
                 return "byte[]";
+
+            // Handle Foundation.Date → DateTimeOffset for public API
+            if (typeSpec is NamedTypeSpec dateType && dateType.Name == "Foundation.Date")
+                return "System.DateTimeOffset";
 
             // Handle bound generics (Optional<T>, Array<T>, Dictionary<K,V>) via factory
             // The factory produces idiomatic public types (string?, IReadOnlyList<T>, IReadOnlyDictionary<K,V>).

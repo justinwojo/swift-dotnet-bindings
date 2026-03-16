@@ -425,6 +425,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"new SwiftString({varName})",
             DataProjection => $"Swift.Data.FromByteArray({varName})",
+            DateProjection => $"({varName} - {DateProjection.SwiftEpoch}).TotalSeconds",
             NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
                 ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
                 : $"new {nrp.SwiftWrapperType}({varName})",
@@ -479,6 +480,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
             DataProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(Swift.Data.FromByteArray({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
+            DateProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(({varName}Val - {DateProjection.SwiftEpoch}).TotalSeconds) : SwiftOptional<{optType}>.NewNone())",
             NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
             ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
             ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
@@ -530,6 +532,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"{varName}.ToString()",
             DataProjection => $"{varName}.ToByteArray()",
+            DateProjection => $"{DateProjection.SwiftEpoch}.AddSeconds({varName})",
             NativeRemappedProjection nrp => $"{varName}.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, varName, nonNull: true),
             ArrayProjection arr => GetReceiverArraySetterConversion(arr, varName),
@@ -577,6 +580,7 @@ public partial class ProtocolProxyEmitter
         {
             StringProjection => $"((SwiftString?){varName})?.ToString()",
             DataProjection => $"((Swift.Data?){varName})?.ToByteArray()",
+            DateProjection => $"((double?){varName}) is {{}} {varName}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({varName}DateVal) : null",
             NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),

@@ -1,5 +1,5 @@
 {
-  "git_sha": "bbb552fb",
+  "git_sha": "103e8fed",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 89748,
+        "lines": 89768,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 54154,
+        "lines": 54157,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -75,7 +75,7 @@
       "MicroblinkPlatform": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4415,
+        "lines": 4416,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12358,
+        "lines": 12365,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5235,
+        "lines": 5253,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21927,
+        "lines": 21873,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

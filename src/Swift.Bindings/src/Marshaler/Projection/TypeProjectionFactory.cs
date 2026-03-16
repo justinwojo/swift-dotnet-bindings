@@ -242,6 +242,9 @@ public class TypeProjectionFactory
         if (name == "Foundation.Data")
             return new DataProjection();
 
+        if (name == "Foundation.Date")
+            return new DateProjection();
+
         // Pointer types are always mapped to System.IntPtr
         if (AppleFrameworkRegistry.IsPointerType(name))
             return new BlittableProjection("System.IntPtr");

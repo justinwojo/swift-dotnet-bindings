@@ -331,6 +331,81 @@ public class SimpleProjectionTests
 
     #endregion
 
+    #region DateProjection
+
+    [Fact]
+    public void DateProjection_Types()
+    {
+        var proj = new DateProjection();
+        Assert.Equal("System.DateTimeOffset", proj.PublicType);
+        Assert.Equal("double", proj.PInvokeType);
+    }
+
+    [Fact]
+    public void DateProjection_PInvokeAttribute_IsNull()
+    {
+        var proj = new DateProjection();
+        Assert.Null(proj.PInvokeAttribute);
+    }
+
+    [Fact]
+    public void DateProjection_ParameterPlan_ConvertsTotalSeconds()
+    {
+        var proj = new DateProjection();
+        var plan = proj.GetParameterPlan("date");
+
+        Assert.Equal("dateSwift", plan.PInvokeExpression);
+        Assert.Single(plan.SetupStatements);
+
+        var setup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("TotalSeconds", setup.Code);
+        Assert.Contains("2001, 1, 1", setup.Code);
+    }
+
+    [Fact]
+    public void DateProjection_ReturnPlan_Direct_AddsSeconds()
+    {
+        var proj = new DateProjection();
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+        Assert.Contains("AddSeconds(result)", plan.PInvokeExpression);
+        Assert.Contains("2001, 1, 1", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void DateProjection_ReturnPlan_IndirectResult_MarshalFromPointer()
+    {
+        var proj = new DateProjection();
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+        Assert.Contains("AddSeconds", plan.PInvokeExpression);
+        Assert.Contains("PtrToStructure<double>", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void DateProjection_ElementConversions()
+    {
+        var proj = new DateProjection();
+
+        var paramConv = proj.GetParameterElementConversion("e");
+        Assert.NotNull(paramConv);
+        Assert.Contains("TotalSeconds", paramConv);
+
+        var returnConv = proj.GetReturnElementConversion("e");
+        Assert.NotNull(returnConv);
+        Assert.Contains("AddSeconds", returnConv);
+
+        Assert.False(proj.ElementRequiresDisposal);
+    }
+
+    [Fact]
+    public void DateProjection_DoesNotRequireSwiftWrapper()
+    {
+        var proj = new DateProjection();
+        Assert.False(proj.RequiresSwiftWrapper);
+        Assert.Null(proj.GetSwiftWrapperCode(new SwiftWrapperContext()));
+    }
+
+    #endregion
+
     #region NativeRemappedProjection
 
     [Fact]

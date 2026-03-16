@@ -28,4 +28,5 @@ public interface IProjectionVisitor<T>
     T Visit(ObjCRootedClassProjection p);
     T Visit(NativeRemappedProjection p);
     T Visit(TupleProjection p);
+    T Visit(DateProjection p);
 }

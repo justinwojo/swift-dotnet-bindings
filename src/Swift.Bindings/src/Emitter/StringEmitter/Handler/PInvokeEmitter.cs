@@ -425,6 +425,16 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Foundation.Date: Swift ABI passes Date as Double (8 bytes in FP register).
+                // C#'s DateTimeOffset is 12 bytes — ABI mismatch on NativeAOT. Use double.
+                // Uses NativeRemappedFrozen marker so GetCallArgumentString returns {name}Swift
+                // (matching DateProjection.GetParameterPlan's PInvokeExpression).
+                if (argument.SwiftTypeSpec is NamedTypeSpec dateArgSpec && dateArgSpec.Name == "Foundation.Date")
+                {
+                    AddParameter(new MarshalledType.NativeRemappedFrozen("double"), csName, inoutModifier);
+                    continue;
+                }
+
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
 
                 // ObjC bridged/rooted types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding.

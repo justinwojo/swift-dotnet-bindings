@@ -498,6 +498,12 @@ namespace BindingsGeneration
                     setupLines.Add($"var {convertedName} = Swift.Data.FromByteArray({paramName});");
                     argParts.Add(convertedName);
                 }
+                else if (proj is DateProjection)
+                {
+                    var convertedName = $"__{bareName}Swift";
+                    setupLines.Add($"var {convertedName} = ({paramName} - {DateProjection.SwiftEpoch}).TotalSeconds;");
+                    argParts.Add(convertedName);
+                }
                 else if (proj is NativeRemappedProjection nrp)
                 {
                     var convertedName = $"__{bareName}Swift";
