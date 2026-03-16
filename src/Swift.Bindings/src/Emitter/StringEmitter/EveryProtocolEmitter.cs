@@ -56,6 +56,109 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Emits stub conformances for Decodable, Encodable, and/or Error on EveryProtocol
+    /// when any suitable protocol inherits from them. Without these stubs, Swift rejects
+    /// `extension EveryProtocol: SomeProtocol` when SomeProtocol inherits Decodable/Encodable/Error.
+    /// The stubs are no-ops since actual encoding/decoding happens on the C# side.
+    /// </summary>
+    public void EmitCodableStubsIfNeeded(SwiftWriter writer, IReadOnlyList<ProtocolDecl> suitableProtocols,
+        IReadOnlyList<ProtocolDecl> allProtocols, ITypeDatabase typeDatabase)
+    {
+        bool needsDecodable = false;
+        bool needsEncodable = false;
+        bool needsError = false;
+
+        foreach (var protocol in suitableProtocols)
+        {
+            foreach (var inherited in protocol.InheritedProtocols)
+            {
+                var simpleName = inherited.NameWithoutModule;
+                if (simpleName is "Decodable" or "Codable")
+                    needsDecodable = true;
+                if (simpleName is "Encodable" or "Codable")
+                    needsEncodable = true;
+                if (simpleName == "Error")
+                    needsError = true;
+
+                // Also check transitively: if an inherited protocol is in allProtocols,
+                // check its inherited protocols recursively
+                CheckTransitiveCodableNeeds(simpleName, inherited.Name, allProtocols, typeDatabase,
+                    ref needsDecodable, ref needsEncodable, ref needsError,
+                    new HashSet<string>(StringComparer.Ordinal));
+            }
+        }
+
+        if (needsDecodable)
+        {
+            writer.WriteLines("""
+                // Stub Decodable conformance for EveryProtocol.
+                // Actual decoding happens on the C# side via vtable dispatch.
+                extension EveryProtocol: Decodable {
+                    public convenience init(from decoder: Decoder) throws {
+                        self.init()
+                    }
+                }
+
+                """);
+        }
+
+        if (needsEncodable)
+        {
+            writer.WriteLines("""
+                // Stub Encodable conformance for EveryProtocol.
+                // Actual encoding happens on the C# side via vtable dispatch.
+                extension EveryProtocol: Encodable {
+                    public func encode(to encoder: Encoder) throws {
+                        // no-op — encoding is handled by C# proxy
+                    }
+                }
+
+                """);
+        }
+
+        if (needsError)
+        {
+            writer.WriteLines("""
+                // Stub Error conformance for EveryProtocol.
+                // Error handling is managed by the C# proxy via vtable dispatch.
+                extension EveryProtocol: Swift.Error {}
+
+                """);
+        }
+    }
+
+    private void CheckTransitiveCodableNeeds(string simpleName, string fullName,
+        IReadOnlyList<ProtocolDecl> allProtocols, ITypeDatabase typeDatabase,
+        ref bool needsDecodable, ref bool needsEncodable, ref bool needsError,
+        HashSet<string> visited)
+    {
+        if (!visited.Add(fullName))
+            return;
+
+        // Look up in same-module protocols
+        var found = allProtocols.FirstOrDefault(p =>
+            p.Name == simpleName || p.Name == fullName ||
+            p.SwiftTypeName?.ToString() == fullName);
+
+        if (found != null)
+        {
+            foreach (var inherited in found.InheritedProtocols)
+            {
+                var innerSimpleName = inherited.NameWithoutModule;
+                if (innerSimpleName is "Decodable" or "Codable")
+                    needsDecodable = true;
+                if (innerSimpleName is "Encodable" or "Codable")
+                    needsEncodable = true;
+                if (innerSimpleName == "Error")
+                    needsError = true;
+
+                CheckTransitiveCodableNeeds(innerSimpleName, inherited.Name, allProtocols, typeDatabase,
+                    ref needsDecodable, ref needsEncodable, ref needsError, visited);
+            }
+        }
+    }
+
+    /// <summary>
     /// Emits the vtable struct for a protocol.
     /// The vtable contains function pointers for each protocol requirement.
     /// </summary>
@@ -375,14 +478,17 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip protocols with Self-typed members (generic type parameters like τ_0_0 in return/params/properties).
+        // Skip protocols with Self-typed INSTANCE members (generic type parameters like τ_0_0 in
+        // return/params/properties). Static members are excluded — they're not part of the witness
+        // table and don't need EveryProtocol implementations.
         // The parser's HasSelfRequirement check looks for "Self" in GenericSig, but ABI JSON uses τ_0_0.
         // SwiftTypeNameHelper converts generic type params to "Any", so Self-returning methods emit
         // "-> Any" instead of "-> Self", which Swift rejects.
         bool hasSelfTypedMembers = protocolDecl.Methods
-            .Where(m => !m.IsConstructor)
+            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
             .Any(m => HasGenericTypeParamInSignature(m));
         bool hasSelfTypedProperties = protocolDecl.Properties
+            .Where(p => !p.IsStatic)
             .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
         bool hasSelfTypedSubscripts = protocolDecl.Subscripts
             .Where(s => !s.IsStatic)
@@ -423,21 +529,88 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip protocols with no implementable instance members
-        // Static members are not part of the witness table, so we only count non-static members
+        // Skip protocols that inherit from stdlib protocols with requirements
+        // EveryProtocol can't satisfy (CustomStringConvertible, CodingKey, etc.).
+        if (InheritsUnsatisfiedStdlibProtocol(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherits unsatisfied stdlib protocol");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "UnsatisfiedStdlibProtocol");
+            return;
+        }
+
+        // Skip protocols with constructor requirements — EveryProtocol can't provide init methods
+        // via the vtable callback pattern. The conformance would be incomplete (missing inits).
+        if (protocolDecl.Methods.Any(m => m.IsConstructor))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has constructor requirements");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "ConstructorRequirements");
+            return;
+        }
+
+        // Check for implementable instance members.
+        // Static members are not part of the witness table, so we only count non-static members.
         var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
                                       protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
                                       protocolDecl.Subscripts.Any(s => !s.IsStatic);
-        if (!hasImplementableMembers)
+
+        // Check if this protocol has static requirements that need stub implementations
+        var hasStaticRequirements = protocolDecl.Properties.Any(p => p.IsStatic) ||
+                                    protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static);
+
+        // Composition/marker protocols (no own instance members) still need EveryProtocol
+        // conformances so C# proxy classes can create existential containers. They are allowed
+        // if they have static requirements OR inherit from non-trivial protocols.
+        bool hasNonTrivialInheritance = protocolDecl.InheritedProtocols.Any(inh =>
+                inh.NameWithoutModule != "AnyObject" &&
+                inh.NameWithoutModule != "Escapable" &&
+                inh.NameWithoutModule != "Copyable" &&
+                inh.NameWithoutModule != "Sendable" &&
+                inh.NameWithoutModule != "SendableMetatype");
+
+        if (!hasImplementableMembers && !hasStaticRequirements && !hasNonTrivialInheritance)
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members (may have only static requirements)");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members and no static requirements");
             _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "NoImplementableMembers");
             return;
         }
 
-        EmitProtocolVtableStruct(writer, protocolDecl);
-        EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
-        EmitSetVtableFunction(writer, protocolDecl);
+        // Skip protocols with static method requirements — static method stubs can't
+        // render correct Swift signatures (parameter labels, types, return type).
+        // Static properties work with fatalError() but methods need full signatures.
+        var hasStaticMethodRequirements = protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static);
+        if (hasStaticMethodRequirements)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has static method requirements (can't generate correct stub signatures)");
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "StaticMethodRequirements");
+            return;
+        }
+
+        if (hasImplementableMembers)
+        {
+            EmitProtocolVtableStruct(writer, protocolDecl);
+            EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
+            EmitSetVtableFunction(writer, protocolDecl);
+        }
+        else
+        {
+            // Static-only or composition protocol: emit conformance with stub implementations
+            // for static property requirements. Instance member vtable dispatch is not needed.
+            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+            writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name} (static/composition protocol)");
+            writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
+            // Emit stubs for static property requirements.
+            // fatalError() returns Never, which satisfies any return type requirement.
+            foreach (var prop in protocolDecl.Properties.Where(p => p.IsStatic))
+            {
+                var propType = ExistentialBypassEmitter.RenderSwiftTypeSpec(prop.SwiftTypeSpec);
+                // Self-typed (τ_0_0) static properties: use EveryProtocol as the concrete Self type
+                if (propType.Contains("τ_0_0") || propType == "Any")
+                    propType = "EveryProtocol";
+                writer.WriteLine($"    public static var {prop.Name}: {propType} {{ fatalError(\"EveryProtocol does not support static protocol requirements\") }}");
+            }
+            writer.WriteLine("}");
+            writer.WriteLine();
+        }
         EmitWitnessTableGetter(writer, protocolDecl);
         _emissionContext?.RecordConformanceDecision(protocolDecl.Name, true, null);
     }
@@ -996,6 +1169,74 @@ public class EveryProtocolEmitter
                     p.Name == simpleName || p.Name == name ||
                     p.SwiftTypeName?.ToString() == name);
                 if (inheritedDecl != null && InheritsCaseIterableRecursive(inheritedDecl, allProtocols, visited))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a protocol inherits (directly or transitively) from a standard library
+    /// protocol that has requirements EveryProtocol can't satisfy. These protocols have
+    /// property or initializer requirements that aren't included in the vtable.
+    /// </summary>
+    internal static bool InheritsUnsatisfiedStdlibProtocol(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        return InheritsUnsatisfiedStdlibProtocolRecursive(protocolDecl, allProtocols, new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Set of stdlib protocol names whose requirements EveryProtocol can't implement.
+    /// These protocols require properties (description), initializers (init(from:)),
+    /// or static members that can't be provided via the vtable callback pattern.
+    /// Note: Codable (Decodable/Encodable) and Error are handled separately via Codable stubs.
+    /// </summary>
+    private static readonly HashSet<string> s_unsatisfiedStdlibProtocols = new(StringComparer.Ordinal)
+    {
+        "CustomStringConvertible",
+        "CustomDebugStringConvertible",
+        "LosslessStringConvertible",
+        "CodingKey",
+        "RawRepresentable",
+        "ExpressibleByStringLiteral",
+        "ExpressibleByIntegerLiteral",
+        "ExpressibleByFloatLiteral",
+        "ExpressibleByBooleanLiteral",
+        "ExpressibleByNilLiteral",
+        "ExpressibleByArrayLiteral",
+        "ExpressibleByDictionaryLiteral",
+        "ExpressibleByStringInterpolation",
+        "ExpressibleByUnicodeScalarLiteral",
+        "ExpressibleByExtendedGraphemeClusterLiteral",
+        "Strideable",
+        "AdditiveArithmetic",
+        "Numeric",
+        "IteratorProtocol",
+    };
+
+    private static bool InheritsUnsatisfiedStdlibProtocolRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        if (s_unsatisfiedStdlibProtocols.Contains(protocolDecl.Name))
+            return true;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var name = inherited.Name;
+            var simpleName = GetSimpleName(name);
+            if (s_unsatisfiedStdlibProtocols.Contains(simpleName))
+                return true;
+
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == name ||
+                    p.SwiftTypeName?.ToString() == name);
+                if (inheritedDecl != null && InheritsUnsatisfiedStdlibProtocolRecursive(inheritedDecl, allProtocols, visited))
                     return true;
             }
         }

@@ -2897,5 +2897,88 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains(".load(as:", reconstruction);
     }
 
+    /// <summary>
+    /// Verifies that GetCdeclParamMapping for Foundation.Data accepts two Int words
+    /// and reconstructs via unsafeBitCast to Foundation.Data.
+    /// Foundation.Data is ObjC-bridged (Data ↔ NSData*) in @_cdecl — passing it by value
+    /// causes ABI mismatch (NSData* pointer in GP register vs raw Data buffer bytes).
+    /// The two-Int-word pattern avoids ObjC bridging: C# passes Swift.Data (16-byte struct)
+    /// in two GP registers, matching two Int parameters on the Swift side.
+    /// Regression test for Nuke DataCache.storeData and Lottie LottieAnimation.from SIGSEGV.
+    /// </summary>
+    [Fact]
+    public void GetCdeclParamMapping_FoundationData_UsesTwoIntWords()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+
+        var dataSpec = new NamedTypeSpec("Foundation.Data");
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = dataSpec,
+            Name = "data",
+            PrivateName = "data",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) =
+            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "data", env);
+
+        // Swift @_cdecl must accept two Int words, not Foundation.Data (ObjC bridging)
+        Assert.Contains("_dW0_data: Int", cdeclParam);
+        Assert.Contains("_dW1_data: Int", cdeclParam);
+        Assert.DoesNotContain("Foundation.Data", cdeclParam);
+
+        // Must reconstruct via unsafeBitCast to Foundation.Data.self inside the wrapper body
+        Assert.NotNull(reconstruction);
+        Assert.Contains("unsafeBitCast", reconstruction);
+        Assert.Contains("Foundation.Data.self", reconstruction);
+
+        // Call argument should use the reconstructed value
+        Assert.Contains("Val", callArg);
+    }
+
+    /// <summary>
+    /// Verifies that Foundation.Data parameter labels are preserved correctly
+    /// in the @_cdecl wrapper argument expression.
+    /// </summary>
+    [Fact]
+    public void GetCdeclParamMapping_FoundationData_PreservesArgumentLabel()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+
+        var dataSpec = new NamedTypeSpec("Foundation.Data");
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = dataSpec,
+            Name = "payload",
+            PrivateName = "payload",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) =
+            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "payload", env);
+
+        // Argument label should be preserved
+        Assert.Equal("payload: payloadVal", callArg);
+        Assert.Contains("_dW0_payload", cdeclParam);
+        Assert.Contains("_dW1_payload", cdeclParam);
+    }
+
     #endregion
 }

@@ -220,7 +220,7 @@ public class OperatorHandlerOutputTests
         // Should allocate memory and create SwiftIndirectResult
         Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<TestModule.BigNum>()", output);
         Assert.Contains("NativeMemory.Alloc((nuint)returnMetadata.Size)", output);
-        Assert.Contains("new SwiftIndirectResult(payload)", output);
+        Assert.Contains("new SwiftIndirectResult(_cdeclBuf)", output);
         // Should call P/Invoke without return prefix (void return via indirect result)
         Assert.Contains("PInvoke_op_Division(swiftIndirectResult", output);
         // Should marshal the result back
@@ -562,7 +562,7 @@ public class OperatorHandlerOutputTests
         // catch-only (not finally) because NewFromPayload takes ownership of the buffer
         // for non-frozen types — using finally would double-free.
         Assert.Contains("try", output);
-        Assert.Contains("catch { NativeMemory.Free(payload); throw; }", output);
+        Assert.Contains("catch { NativeMemory.Free(_cdeclBuf); throw; }", output);
         Assert.DoesNotContain("finally", output);
     }
 

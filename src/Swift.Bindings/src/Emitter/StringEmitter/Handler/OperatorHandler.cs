@@ -326,7 +326,7 @@ namespace BindingsGeneration
                 if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                 // Emit P/Invoke call and return
-                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
+                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
                 if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
 
@@ -360,7 +360,7 @@ namespace BindingsGeneration
                 if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                 // Emit P/Invoke call and return
-                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult);
+                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
                 if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
 
@@ -371,22 +371,44 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits the P/Invoke call and return statement for an operator.
-        /// Handles both direct returns and indirect result allocation (Bug #1).
+        /// Handles both direct returns and indirect result allocation.
         /// </summary>
-        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult)
+        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv = null)
         {
             var pinvokeName = GetPInvokeMethodName(symbol);
             var callArgs = pInvokeSignature.CallArgumentsString();
 
             if (requiresIndirectResult)
             {
-                // Allocate memory and create SwiftIndirectResult for non-frozen/class return types
-                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
-                csWriter.WriteLine($"var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);");
+                // Determine if the buffer should be freed after reading the return value.
+                // Non-frozen structs and complex enums transfer ownership to SafeHandle via
+                // NewFromPayload — the buffer must NOT be freed. All other types copy data out.
+                bool transfersOwnership = false;
+                if (methodEnv != null)
+                {
+                    var returnArg = methodEnv.MethodDecl.CSSignature.First();
+                    if (returnArg.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule())
+                    {
+                        var retTypeName = SwiftTypeName.FromTypeSpec(retNts);
+                        if (methodEnv.TypeDatabase.TryGetTypeRecord(retTypeName, out var retRecord))
+                        {
+                            bool isNonFrozenStruct = retRecord.Kind == TypeRecordKind.Struct &&
+                                !MarshallingHelpers.IsTypeFrozen(retRecord);
+                            bool isComplexEnum = retRecord.Kind == TypeRecordKind.Enum &&
+                                !retRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                            transfersOwnership = isNonFrozenStruct || isComplexEnum;
+                        }
+                    }
+                }
+
+                // Declare _cdeclBuf before try so it's accessible in finally for cleanup.
+                csWriter.WriteLine("void* _cdeclBuf = null;");
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
-                csWriter.WriteLine($"var swiftIndirectResult = new SwiftIndirectResult(payload);");
+                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
+                csWriter.WriteLine($"_cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);");
+                csWriter.WriteLine($"var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);");
 
                 // Call P/Invoke (void return — writes through SwiftIndirectResult)
                 if (pinvokeHelperContext != null)
@@ -400,17 +422,19 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"{pinvokeName}({callArgs});");
                 }
 
-                // Marshal the result back from the indirect result buffer.
-                // For non-frozen types (ClassWithOpaquePayload), NewFromPayload wraps the buffer
-                // in a SafeHandle that takes ownership — buffer must NOT be freed on success.
-                // For frozen types, NewFromPayload copies the data — buffer leaks on success.
-                // Using catch-only is correct: non-frozen types dominate this path (they're the
-                // reason indirect result is needed), and a frozen-type minor leak is acceptable
-                // vs a double-free crash.
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
-                csWriter.WriteLine("catch { NativeMemory.Free(payload); throw; }");
+                if (transfersOwnership)
+                {
+                    // Ownership transfers to SafeHandle — only free on exception
+                    csWriter.WriteLine("catch { NativeMemory.Free(_cdeclBuf); throw; }");
+                }
+                else
+                {
+                    // Data copied out — always free the temp buffer
+                    csWriter.WriteLine("finally { NativeMemory.Free(_cdeclBuf); }");
+                }
             }
             else
             {

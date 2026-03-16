@@ -670,6 +670,19 @@ public static class ConstructorWrapperEmitter
                     $"{argLabel}{label}Val");
         }
 
+        // Foundation.Data: @_cdecl bridges Data ↔ NSData* (ObjC interop) which is incompatible
+        // with the raw Data buffer that C# passes via CallConvCdecl.
+        // Accept as two Int words matching the 16-byte struct layout and reconstruct.
+        // On ARM64, C# passes Swift.Data (16-byte struct) in two consecutive GP registers,
+        // exactly matching two Int parameters in the @_cdecl signature.
+        // Same pattern as the String ↔ NSString* workaround.
+        if (swiftTypeSpec is NamedTypeSpec dataNamed && dataNamed.Name == "Foundation.Data")
+        {
+            return ($"_ _dW0_{label}: Int, _ _dW1_{label}: Int",
+                    $"let {label}Val = unsafeBitCast((_dW0_{label}, _dW1_{label}), to: Foundation.Data.self)",
+                    $"{argLabel}{label}Val");
+        }
+
         // String: @_cdecl bridges String ↔ NSString* (ObjC interop) which is incompatible
         // with the raw SwiftString.Buffer that C# passes via CallConvCdecl.
         if (swiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")

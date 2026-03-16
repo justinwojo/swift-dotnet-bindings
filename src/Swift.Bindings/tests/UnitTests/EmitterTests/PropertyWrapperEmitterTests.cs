@@ -1564,6 +1564,67 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftSetterWrapper_OptionalClass_NullablePointerABI()
+    {
+        // Regression test: Optional<ClassType> setter must use nullable pointer ABI
+        // (UnsafeMutableRawPointer?) — the inner class is reconstructed via Unmanaged.fromOpaque.
+        // C# must pass the actual object pointer or nil, NOT the buffer address.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Animation", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.Animation"));
+        var setterMethod = CreateAccessorMethod("setter:animation", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "animation",
+            SwiftTypeSpec = optionalSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Set_TestModule_MyType_animation";
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Parameter must be nullable pointer (UnsafeMutableRawPointer?)
+        Assert.Contains("_ newValue: UnsafeMutableRawPointer?", output);
+        // Must reconstruct via Unmanaged map — not .load(as:)
+        Assert.Contains("newValue.map { Unmanaged<Animation>.fromOpaque($0).takeUnretainedValue() }", output);
+        // Self must still be reconstructed
+        Assert.Contains("Unmanaged<TestModule.MyType>.fromOpaque(self_).takeUnretainedValue()", output);
+        Assert.Contains("obj.animation = newValueVal", output);
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_OptionalClass_OptionalClassPointer()
+    {
+        // Regression test: Optional<ClassType> returns must use OptionalClassPointer
+        // (UnsafeMutableRawPointer?) — NOT IndirectResult.
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Animation", TypeRecordFlags.None, TypeRecordKind.Class));
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.Animation"));
+
+        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalSpec, typeDb);
+
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.cdeclReturnType);
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer, mapping.Kind);
+        Assert.False(needsResultPtr);
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_ActorIsolatedProperty_ReturnsFalse()
     {
         // Regression test (Issue H): actor-isolated properties cannot be accessed

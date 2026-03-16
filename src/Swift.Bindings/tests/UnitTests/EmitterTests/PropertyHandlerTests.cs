@@ -1702,6 +1702,26 @@ public class PropertyHandlerTests
         Assert.True(secondIdx >= 0, "ObjCBridged Optional conversion duplicates the method call (triggers caching in EmitProjectedGetter)");
     }
 
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_ObjCBridged_CachedExprIsSingleCall()
+    {
+        // Bug fix: When EmitProjectedGetter detects the double-call pattern, it re-derives
+        // the conversion using a cached variable (__ptr). Verify the cached conversion only
+        // references the cached variable — no method call duplication (ARC leak).
+        var inner = new ObjCBridgedProjection("Foundation.NSUrlResponse");
+        var opt = new OptionalProjection(inner);
+
+        var (cachedConversion, _) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "__ptr");
+
+        Assert.NotNull(cachedConversion);
+        // Cached conversion should reference __ptr exactly twice (nil check + bridge call)
+        // but since __ptr is a local variable (not a P/Invoke), there's no ARC leak
+        Assert.Contains("__ptr == IntPtr.Zero", cachedConversion!);
+        Assert.Contains("GetNSObject<Foundation.NSUrlResponse>(__ptr)", cachedConversion);
+        // Must NOT contain any method call pattern (parentheses after name)
+        Assert.DoesNotContain("()", cachedConversion);
+    }
+
     #endregion
 
     #region ObjCRooted Container Accessor Conversion Tests

@@ -525,9 +525,15 @@ namespace BindingsGeneration
                 // Skip internal, @_spi, and @usableFromInline protocols — EveryProtocol can only
                 // conform to protocols whose members are all publicly accessible.
                 .Where(p => !p.IsModuleInternal)
+                // Allow protocols with instance members OR composition protocols (no own members
+                // but inherit from protocols that do have members). Phase 2 handles the final
+                // implementable-members check more precisely.
                 .Where(p => p.Properties.Any() ||
                            p.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                           p.Subscripts.Any())
+                           p.Subscripts.Any() ||
+                           p.InheritedProtocols.Any(inh => inh.NameWithoutModule != "AnyObject" &&
+                               inh.NameWithoutModule != "Escapable" && inh.NameWithoutModule != "Copyable" &&
+                               inh.NameWithoutModule != "Sendable" && inh.NameWithoutModule != "SendableMetatype"))
                 // Bug #14: Filter out protocols not actually defined in this module.
                 // When a module extends stdlib protocols (e.g., CryptoSwift extends Collection),
                 // the parser creates ProtocolDecl entries with the module's name (CryptoSwift.Collection),
@@ -537,9 +543,8 @@ namespace BindingsGeneration
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
                 .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
-                // Skip protocols that inherit from Decodable/Encodable/Codable — EveryProtocol's
-                // handle: UnsafeRawPointer? property can't synthesize Codable conformance.
-                .Where(p => !InheritsCodable(p, protocols, typeDatabase))
+                // Note: InheritsCodable filter removed — EveryProtocol now emits Codable/Error
+                // stub conformances so protocols that inherit Decodable/Encodable are supported.
                 // Skip class-bound protocols (NSObjectProtocol, AnyObject) — EveryProtocol
                 // can't provide NSObject identity semantics. Transitive check.
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
@@ -548,6 +553,10 @@ namespace BindingsGeneration
                 // Skip protocols that inherit from protocols with associated types or Self requirements.
                 // EveryProtocol can't provide concrete associated types for inherited PATs.
                 .Where(p => !InheritsProtocolWithAssociatedTypes(p, protocols, typeDatabase))
+                // Skip protocols that inherit from stdlib protocols with requirements
+                // EveryProtocol can't satisfy (CustomStringConvertible, CodingKey, etc.).
+                // The vtable only includes the protocol's own members, not inherited ones.
+                .Where(p => !EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(p, protocols))
                 // Skip protocols whose member signatures reference types from this module
                 // that are not in the type database (module-internal types). EveryProtocol
                 // can't implement methods requiring internal types.
@@ -562,6 +571,11 @@ namespace BindingsGeneration
 
             // Emit the EveryProtocol class once
             emitter.EmitEveryProtocolClass(swiftWriter);
+
+            // Emit Codable/Error stub conformances on EveryProtocol if any suitable protocol
+            // requires them. These stubs let EveryProtocol satisfy the inherited Codable/Error
+            // requirements when conforming to protocols that inherit Decodable/Encodable/Error.
+            emitter.EmitCodableStubsIfNeeded(swiftWriter, suitableProtocols, protocols, typeDatabase);
 
             // Track emitted method signatures globally to detect conflicts across protocols
             // Key is the Swift method signature (e.g., "removeAll()")

@@ -61,10 +61,11 @@ public class ProtocolExtensionDefaultsIndexTests
     }
 
     [Fact]
-    public void HasMethodDefault_SubProtocol_SatisfiesParent()
+    public void HasMethodDefault_SubProtocol_DoesNotSatisfyParent_WhenInheritanceGraphDisabled()
     {
         // Interpolatable inherits AnyInterpolatable. Extension on Interpolatable provides _interpolate.
-        // This should satisfy AnyInterpolatable's _interpolate requirement.
+        // With the inheritance graph disabled (InheritedProtocols graph building is disabled),
+        // sub-protocol defaults do NOT satisfy parent protocol requirements.
         var protocols = new List<ProtocolDecl>
         {
             CreateProtocolDecl("AnyInterpolatable", "Lottie"),
@@ -80,15 +81,17 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
-        // Direct query (no conformance filter)
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        // With inheritance graph disabled, sub-protocol default is NOT found for parent
+        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)"));
     }
 
     [Fact]
-    public void HasMethodDefault_SubProtocol_WithConcreteConformances()
+    public void HasMethodDefault_SubProtocol_WithConcreteConformances_InheritanceGraphDisabled()
     {
-        // Same setup: Interpolatable inherits AnyInterpolatable
+        // Same setup: Interpolatable inherits AnyInterpolatable.
+        // With the inheritance graph disabled, sub-protocol defaults are NOT found
+        // for parent protocol queries regardless of conformance set.
         var protocols = new List<ProtocolDecl>
         {
             CreateProtocolDecl("AnyInterpolatable", "Lottie"),
@@ -104,12 +107,11 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
-        // Type that conforms to both → should satisfy
+        // With inheritance graph disabled, sub-protocol default is not found for parent
         var conformances = new HashSet<string> { "Lottie.AnyInterpolatable", "Lottie.Interpolatable" };
-        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", conformances));
 
-        // Type that only conforms to AnyInterpolatable (not Interpolatable) → should NOT satisfy
         var onlyParent = new HashSet<string> { "Lottie.AnyInterpolatable" };
         Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", onlyParent));
@@ -187,8 +189,8 @@ public class ProtocolExtensionDefaultsIndexTests
         Assert.False(index.HasDirectMethodDefault("TestModule.AnyWorker", "process()"));
         // Direct check on sub-protocol → true
         Assert.True(index.HasDirectMethodDefault("TestModule.Worker", "process()"));
-        // Full traversal on parent → true (HasMethodDefault does sub-protocol lookup)
-        Assert.True(index.HasMethodDefault("TestModule.AnyWorker", "process()"));
+        // Full traversal on parent → false (inheritance graph is disabled, sub-protocol lookup doesn't work)
+        Assert.False(index.HasMethodDefault("TestModule.AnyWorker", "process()"));
     }
 
     [Fact]

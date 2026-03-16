@@ -75,14 +75,35 @@ namespace BindingsGeneration
             {
                 var stripped = lines[i].TrimStart();
 
-                // Pattern 1: EveryProtocol conformance extensions and class definition
+                // Pattern 1: EveryProtocol blocks that reference internal types.
+                // Valid EveryProtocol conformances and the class definition are preserved.
+                // Codable/Error stub conformances are always preserved (they only use stdlib types).
                 if (stripped.StartsWith("extension EveryProtocol", StringComparison.Ordinal) ||
-                    stripped.StartsWith("class EveryProtocol", StringComparison.Ordinal))
+                    stripped.StartsWith("class EveryProtocol", StringComparison.Ordinal) ||
+                    stripped.StartsWith("public final class EveryProtocol", StringComparison.Ordinal))
                 {
                     int end = FindBlockEnd(lines, i);
-                    removedCount++;
-                    i = end + 1;
-                    continue;
+
+                    // Always preserve: class definition, Codable/Error stubs, composition protocols
+                    if (stripped.StartsWith("class EveryProtocol", StringComparison.Ordinal) ||
+                        stripped.StartsWith("public final class EveryProtocol", StringComparison.Ordinal) ||
+                        IsEveryProtocolCodableStub(stripped) ||
+                        IsEveryProtocolCompositionConformance(lines, i, end))
+                    {
+                        // Don't strip — these are valid EveryProtocol system blocks
+                    }
+                    else
+                    {
+                        // For protocol conformance extensions with method/property bodies,
+                        // strip if the body references an internal type
+                        var body = ScanBlockBody(lines, i, end);
+                        if (ReferencesInternalType(body, internalTypeNames))
+                        {
+                            removedCount++;
+                            i = end + 1;
+                            continue;
+                        }
+                    }
                 }
 
                 // Pattern 2: @_silgen_name / @_cdecl + function blocks with broken patterns
@@ -254,10 +275,18 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsSilgenNameBroken(IReadOnlyList<string> lines, int start, int end, string body, Action<string>? onSafetyNetWarning)
         {
-            // (a) EveryProtocol() — protocol witness dispatch for unimplemented conformances
-            // This is unconditional by design (not a safety net).
+            // (a) EveryProtocol() — strip wrapper functions that use EveryProtocol() as a
+            // placeholder for unimplemented conformances. But PRESERVE witness table getter
+            // functions (Get_EveryProtocol_*) and SetVtable functions — these are valid code
+            // that uses EveryProtocol() to extract the witness table pointer.
             if (body.Contains("EveryProtocol()"))
+            {
+                // Check if this is a valid EveryProtocol system function
+                if (body.Contains("Get_EveryProtocol_") || body.Contains("SetVtable") ||
+                    body.Contains("Set_vtable") || body.Contains("_vtable"))
+                    return false;
                 return true;
+            }
 
             // Safety-net patterns (b)-(f) removed — now prevented at emission time.
             // See architecture-refactoring-plan.md Session 2 log.
@@ -271,9 +300,17 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsExtensionBroken(IReadOnlyList<string> lines, int start, int end, string body, Action<string>? onSafetyNetWarning)
         {
-            // (a) EveryProtocol() — unconditional by design
+            // (a) EveryProtocol() — strip extension blocks that use EveryProtocol() as a
+            // placeholder. But EveryProtocol extensions are handled by Pattern 1 (above),
+            // so this only fires for non-EveryProtocol extensions that somehow reference it.
             if (body.Contains("EveryProtocol()"))
+            {
+                // Valid EveryProtocol system functions use EveryProtocol() for witness table extraction
+                if (body.Contains("Get_EveryProtocol_") || body.Contains("SetVtable") ||
+                    body.Contains("Set_vtable") || body.Contains("_vtable"))
+                    return false;
                 return true;
+            }
 
             // Safety-net patterns (c), (e), (f) removed — now prevented at emission time.
 
@@ -286,9 +323,15 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsStandaloneFuncBroken(string body, int start, Action<string>? onSafetyNetWarning)
         {
-            // (a) EveryProtocol() — unconditional by design
+            // (a) EveryProtocol() — strip standalone functions that use EveryProtocol() as a
+            // placeholder. Preserve valid EveryProtocol system functions.
             if (body.Contains("EveryProtocol()"))
+            {
+                if (body.Contains("Get_EveryProtocol_") || body.Contains("SetVtable") ||
+                    body.Contains("Set_vtable") || body.Contains("_vtable"))
+                    return false;
                 return true;
+            }
 
             // Safety-net pattern (f) removed — now prevented at emission time.
 
@@ -314,6 +357,45 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns true if the extension line is a Codable/Error stub conformance for EveryProtocol.
+        /// These stubs use only Swift stdlib types and should never be stripped.
+        /// </summary>
+        private static bool IsEveryProtocolCodableStub(string strippedLine)
+        {
+            // Match: "extension EveryProtocol: Decodable {", "extension EveryProtocol: Encodable {",
+            //        "extension EveryProtocol: Swift.Error {}", "extension EveryProtocol: Error {}"
+            return strippedLine.StartsWith("extension EveryProtocol: Decodable", StringComparison.Ordinal) ||
+                   strippedLine.StartsWith("extension EveryProtocol: Encodable", StringComparison.Ordinal) ||
+                   strippedLine.StartsWith("extension EveryProtocol: Error", StringComparison.Ordinal) ||
+                   strippedLine.StartsWith("extension EveryProtocol: Swift.Error", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns true if the EveryProtocol extension is a composition conformance (empty body).
+        /// Composition protocols have no own members — the extension is just "{}" or has only comments.
+        /// </summary>
+        private static bool IsEveryProtocolCompositionConformance(IReadOnlyList<string> lines, int start, int end)
+        {
+            // A composition conformance is a single-line or two-line block like:
+            // "extension EveryProtocol: Module.Protocol {}"
+            // or "extension EveryProtocol: Module.Protocol {\n}"
+            for (int j = start; j <= end && j < lines.Count; j++)
+            {
+                var line = lines[j].Trim();
+                // Skip empty lines, comments, and braces
+                if (string.IsNullOrEmpty(line) || line.StartsWith("//") ||
+                    line == "{" || line == "}" || line == "{}")
+                    continue;
+                // Skip the extension declaration line itself
+                if (line.StartsWith("extension EveryProtocol"))
+                    continue;
+                // If any other content exists, it's not a composition conformance
+                return false;
+            }
+            return true;
         }
 
         /// <summary>

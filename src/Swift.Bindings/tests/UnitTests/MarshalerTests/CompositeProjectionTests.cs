@@ -312,8 +312,10 @@ public class CompositeProjectionTests
             callbackName: "enumCb");
 
         // Callback body: PInvoke arg (int) should be cast to public type (Status)
+        // Invoke statements are inside the try block
         var callbacks = closureProj.CallbackDeclarations;
-        var bodyCode = string.Join("\n", callbacks[0].Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        var tryBlock = callbacks[0].Body.OfType<MarshalStatement.Block>().First(b => b.Header == "try");
+        var bodyCode = string.Join("\n", tryBlock.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
         Assert.Contains("(Status)", bodyCode);
 
         // Return plan (closure invoker): public arg (Status) should be cast to PInvoke type (int)
@@ -337,8 +339,10 @@ public class CompositeProjectionTests
             callbackName: "classCb");
 
         // Callback body should NOT contain (MyViewController) cast on the arg
+        // Invoke statements are inside the try block
         var callbacks = closureProj.CallbackDeclarations;
-        var bodyCode = string.Join("\n", callbacks[0].Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        var tryBlock = callbacks[0].Body.OfType<MarshalStatement.Block>().First(b => b.Header == "try");
+        var bodyCode = string.Join("\n", tryBlock.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
         Assert.DoesNotContain("(MyViewController)arg0", bodyCode);
     }
 
@@ -364,7 +368,9 @@ public class CompositeProjectionTests
         Assert.Single(callbacks);
 
         // Callback body should convert string and enum args back to public types
-        var bodyCode = string.Join("\n", callbacks[0].Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        // Invoke statements are inside the try block
+        var tryBlock = callbacks[0].Body.OfType<MarshalStatement.Block>().First(b => b.Header == "try");
+        var bodyCode = string.Join("\n", tryBlock.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
         Assert.Contains("ToString()", bodyCode);
         Assert.Contains("(Status)", bodyCode);
     }

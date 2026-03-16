@@ -614,7 +614,9 @@ public static partial class ClosureEmitter
             returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
             if (needsResultPtr)
             {
-                swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+                // ResultPtr must be FIRST per CdeclSignatureContract:
+                // [ResultPtr?] [Arguments?] [Metadata] [Self?] [ErrorOut?]
+                swiftParams.Insert(0, "_ resultPtr: UnsafeMutableRawPointer");
                 if (cdeclIsStringReturn)
                     Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
             }

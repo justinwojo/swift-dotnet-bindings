@@ -184,9 +184,24 @@ namespace BindingsGeneration
                         // @_cdecl wrapper: Swift receives UnsafeRawPointer and does .load(as: T.self).
                         // Pass pointer TO the value (DangerousGetHandle), not the dereferenced value
                         // (PayloadBuffer.Buffer). The .load(as:) reads from the pointer location.
+                        //
+                        // Exception: Optional<ClassType> uses nullable pointer ABI in @_cdecl
+                        // (UnsafeMutableRawPointer? — nil for .none, object pointer for .some).
+                        // For these, extract the actual IntPtr value via PayloadBuffer, NOT the
+                        // buffer address via DangerousGetHandle. DangerousGetHandle returns the
+                        // buffer address (always non-nil), causing the Swift wrapper to treat the
+                        // buffer address as an object reference → SIGSEGV.
                         if (_env.MethodDecl.UsesCdeclWrapper)
                         {
-                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                            if (MethodWrapperEmitter.IsOptionalWithReferenceInner(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
+                            {
+                                csWriter.WriteLine($"using PayloadBuffer<IntPtr> {csName}Disposable = {csName}.PayloadBuffer;");
+                                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Disposable.Buffer;");
+                            }
+                            else
+                            {
+                                csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                            }
                         }
                         // Large optional accessor params (e.g., Optional<SwiftString>) have payloads
                         // exceeding IntPtr size. PayloadBuffer<IntPtr> would truncate — use the full
@@ -747,14 +762,18 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Free GCHandle for escaping closures
-                // Note: Async+throwing closures free their GCHandle inside Task.Run's finally block
+                // Free GCHandle for non-escaping closures only (callback fires synchronously).
+                // Escaping closures free their GCHandle inside the callback trampoline
+                // (after the delegate is invoked), because the callback fires asynchronously
+                // after the calling method returns.
+                // Async+throwing closures free their GCHandle inside Task.Run's finally block.
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                         _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
-                        !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                        !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
+                        !closureTypeSpec.IsEscaping)
                     {
                         csWriter.WriteLine($"if ({csName}Handle.IsAllocated) {csName}Handle.Free();");
                     }

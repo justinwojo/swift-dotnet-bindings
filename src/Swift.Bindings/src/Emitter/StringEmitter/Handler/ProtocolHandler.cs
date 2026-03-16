@@ -442,21 +442,14 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Gets the list of inherited interfaces for the protocol.
+        /// NOTE: C# interface inheritance from Swift protocol hierarchy is not yet supported.
+        /// InheritedProtocols is populated for EveryProtocol conformance filtering only.
+        /// Emitting C# interface inheritance requires handling generic protocols, missing types,
+        /// and proxy interface member resolution — deferred to a future session.
         /// </summary>
         private static List<string> GetInheritedInterfaceList(ProtocolDecl protocolDecl)
         {
-            var inheritedInterfaces = new List<string>();
-
-            foreach (var inherited in protocolDecl.InheritedProtocols)
-            {
-                // Skip AnyObject as it doesn't translate to a C# interface
-                if (inherited.Name == "AnyObject" || inherited.Name == "Swift.AnyObject")
-                    continue;
-
-                inheritedInterfaces.Add(NameProvider.GetInterfaceName(inherited.NameWithoutModule, moduleName: inherited.Module));
-            }
-
-            return inheritedInterfaces;
+            return new List<string>();
         }
 
         /// <summary>
@@ -1021,18 +1014,12 @@ namespace BindingsGeneration
                 changed = false;
                 foreach (var (protocolDecl, directCount) in protocolDecls)
                 {
+                    // NOTE: Inherited requirement counting is intentionally disabled.
+                    // InheritedProtocols was recently populated (was always empty before),
+                    // but counting inherited requirements would change EmittedMemberCount
+                    // and affect downstream conformance checks. TODO: Enable once all
+                    // consumers handle inherited protocol requirements correctly.
                     int inheritedRequirementCount = 0;
-                    foreach (var inherited in protocolDecl.InheritedProtocols)
-                    {
-                        if (inherited.Name == "AnyObject" || inherited.Name == "Swift.AnyObject")
-                            continue;
-                        var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(inherited.Name);
-                        if (typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var inheritedRecord)
-                            && inheritedRecord.EmittedMemberCount is null or > 0)
-                        {
-                            inheritedRequirementCount++;
-                        }
-                    }
 
                     int totalRequirements = directCount + inheritedRequirementCount;
                     if (typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var currentRecord)

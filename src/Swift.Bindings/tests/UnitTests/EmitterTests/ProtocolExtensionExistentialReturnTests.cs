@@ -493,10 +493,11 @@ public class ProtocolExtensionExistentialReturnTests
     // ─── ModuleProcessor computes InheritedRequirementsOnly flag ──────
 
     [Fact]
-    public void ModuleProcessor_InheritedRequirementsOnly_FlagSet()
+    public void ModuleProcessor_InheritedRequirementsOnly_FlagNotSet_WhenDisabled()
     {
-        // Verify ModuleProcessor.RegisterProtocolType computes the flag for
-        // a protocol with no own instance members but inherited requirements.
+        // InheritedRequirementsOnly flag is intentionally disabled — InheritedProtocols
+        // was recently populated but enabling the flag blocks proxy emission for protocols
+        // that previously worked. Verify the flag is NOT set.
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
         typeDatabase.AddModuleDatabase(swiftModule);
@@ -529,7 +530,7 @@ public class ProtocolExtensionExistentialReturnTests
 
         var swiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ChildProto");
         Assert.True(result.ModuleDatabase.TryGetTypeRecord(swiftName, out var record));
-        Assert.True(record!.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly));
+        Assert.False(record!.Flags.HasFlag(TypeRecordFlags.InheritedRequirementsOnly));
     }
 
     [Fact]

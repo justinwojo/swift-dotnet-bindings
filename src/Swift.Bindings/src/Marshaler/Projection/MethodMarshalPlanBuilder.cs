@@ -497,15 +497,36 @@ internal class MethodMarshalPlanBuilder
                 };
             }
 
+            // Non-cdecl SwiftIndirectResult path: same ownership-transfer logic as @_cdecl.
+            // _cdeclBuf is declared before the try block (EmitCdeclPayloadDeclaration) so
+            // the finally block can free it. Non-frozen structs and complex enums transfer
+            // ownership to SwiftSafeHandle — don't free for those.
+            string? swiftIndirectCleanup = "NativeMemory.Free(_cdeclBuf);";
+            var returnArg2 = _env.MethodDecl.CSSignature.First();
+            if (returnArg2.SwiftTypeSpec is NamedTypeSpec returnNts2 && returnNts2.HasModule())
+            {
+                var returnTypeName2 = SwiftTypeName.FromTypeSpec(returnNts2);
+                if (_env.TypeDatabase.TryGetTypeRecord(returnTypeName2, out var returnTypeRecord2))
+                {
+                    bool isNonFrozenStruct2 = returnTypeRecord2.Kind == TypeRecordKind.Struct &&
+                        !MarshallingHelpers.IsTypeFrozen(returnTypeRecord2);
+                    bool isComplexEnum2 = returnTypeRecord2.Kind == TypeRecordKind.Enum &&
+                        !returnTypeRecord2.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                    if (isNonFrozenStruct2 || isComplexEnum2)
+                        swiftIndirectCleanup = null;
+                }
+            }
+
             return new IndirectResultSetup
             {
                 IsConstructor = false,
                 ReturnTypeName = _wrapperSignature.ReturnType,
                 AllocationCode = $$"""
                     var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{_wrapperSignature.ReturnType}}>();
-                    var payload = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                    var swiftIndirectResult = new SwiftIndirectResult(payload);
-                    """
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);
+                    """,
+                CleanupCode = swiftIndirectCleanup
             };
         }
     }

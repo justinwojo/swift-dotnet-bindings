@@ -539,10 +539,10 @@ namespace BindingsGeneration
                     return $"{p.Name}: {p.SwiftTypeSpec}";
                 });
 
-            // For async instance methods on non-singleton classes, add _self parameter
+            // For async instance methods, add _self parameter so the wrapper operates on
+            // the correct instance (not hardcoded .shared for singleton classes).
             // @_cdecl uses UnsafeMutableRawPointer; @_silgen_name uses OpaquePointer
-            var hasSingletonForParams = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
-            var needsSelfParam = _env.ParentDecl is TypeDecl && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static && !hasSingletonForParams;
+            var needsSelfParam = _env.ParentDecl is TypeDecl && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
             var selfParam = needsSelfParam
                 ? (usesCdecl ? new[] { "_ _self: UnsafeMutableRawPointer" } : new[] { "_self: OpaquePointer" })
                 : Array.Empty<string>();
@@ -674,16 +674,13 @@ namespace BindingsGeneration
                 ? "// selfInstance is safe - C# called Arc.Retain before invoking this method"
                 : "";
 
-            // For async instance methods:
-            // - If the parent class has a singleton pattern (static 'shared' property), use that
-            // - Otherwise, use a free function that receives _self as OpaquePointer
+            // For async instance methods, always pass self explicitly — even for singleton classes.
+            // The caller may have a non-shared instance (e.g., ImagePipeline(configuration:)).
             var isAsyncInstanceMethod = parentTypeName != null && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
-            var hasSingleton = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
 
             // Determine how to call the method:
             // - Static methods: ClassName.method()
-            // - Async instance methods on singleton classes: ClassName.shared.method() (workaround)
-            // - Async instance methods on non-singleton classes: __self.method() (convert _self pointer)
+            // - Async instance methods: __self.method() (convert _self pointer)
             // - Regular instance methods: self.method()
             string selfConversion;
             string methodCallPrefix;
@@ -691,13 +688,6 @@ namespace BindingsGeneration
             {
                 selfConversion = "";
                 methodCallPrefix = parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}." : "";
-            }
-            else if (isAsyncInstanceMethod && hasSingleton)
-            {
-                // Singleton workaround: use ClassName.shared instead of passing self
-                // This avoids the SwiftSelf binding issue with @_silgen_name and Task closures
-                selfConversion = "";
-                methodCallPrefix = parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}.shared." : "";
             }
             else if (isAsyncInstanceMethod)
             {

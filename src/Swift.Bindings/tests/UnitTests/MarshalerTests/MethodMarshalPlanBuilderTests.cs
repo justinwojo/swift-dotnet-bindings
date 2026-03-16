@@ -1300,4 +1300,120 @@ public class MethodMarshalPlanBuilderTests
     }
 
     #endregion
+
+    #region Non-Cdecl SwiftIndirectResult Cleanup Tests
+
+    [Fact]
+    public void IndirectResult_NonCdeclClassReturn_HasCleanupCode()
+    {
+        // Non-cdecl SwiftIndirectResult path: NativeMemory.Alloc must be freed.
+        // Class returns copy the pointer out — the temp buffer must be freed.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("TestModule.Widget"));
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
+        RegisterType(testModule, "TestModule.Widget", "TestModule", "Widget",
+            TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        var env2 = new MethodEnvironment(env.MethodDecl, typeDb);
+        var plan = BuildPlan(env2, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclNonFrozenStructReturn_CleanupCodeIsNull()
+    {
+        // Non-cdecl SwiftIndirectResult for non-frozen struct: NewFromPayload takes
+        // ownership of the buffer pointer — must NOT free (same as @_cdecl path).
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "getConfig",
+            MangledName = "$s10TestModule6Loader9getConfigAA6ConfigVyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            // NOT a @_cdecl wrapper — uses legacy CallConvSwift with SwiftIndirectResult
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Config"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Loader", structName: "Config", frozen: false);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Config", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclComplexEnumReturn_CleanupCodeIsNull()
+    {
+        // Non-cdecl SwiftIndirectResult for complex enum: NewFromPayload takes
+        // ownership of the buffer pointer — must NOT free.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Parser", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "parse",
+            MangledName = "$s10TestModule6Parser5parseAA6ResultOyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("TestModule.Result"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Parser");
+        RegisterType(testModule, "TestModule.Result", "TestModule", "Result",
+            TypeRecordFlags.None, TypeRecordKind.Enum);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("TestModule.Result", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Null(plan.IndirectResultMethod!.CleanupCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclBufferVariable_UsesCdeclBufNaming()
+    {
+        // Non-cdecl SwiftIndirectResult must use _cdeclBuf (declared before try block)
+        // instead of local 'payload' to ensure accessibility in finally block for cleanup.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("TestModule.Widget"));
+        var (typeDb, testModule) = CreateTypeDatabaseWithModule("Loader");
+        RegisterType(testModule, "TestModule.Widget", "TestModule", "Widget",
+            TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        var env2 = new MethodEnvironment(env.MethodDecl, typeDb);
+        var plan = BuildPlan(env2, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.Contains("_cdeclBuf", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("var payload", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    #endregion
 }

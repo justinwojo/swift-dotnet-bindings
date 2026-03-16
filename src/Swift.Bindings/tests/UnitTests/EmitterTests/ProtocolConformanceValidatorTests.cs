@@ -2015,8 +2015,10 @@ public class ProtocolConformanceValidatorTests
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
         var result = validator.CanFullyImplementProtocol(concreteType, parentProtocol);
 
-        // Should succeed: extension default on Interpolatable satisfies AnyInterpolatable._interpolate
-        Assert.True(result);
+        // With inheritance graph disabled, sub-protocol extension default is NOT found
+        // for parent protocol. Concrete type doesn't have _interpolate, no direct default
+        // on AnyInterpolatable → returns false.
+        Assert.False(result);
     }
 
     [Fact]

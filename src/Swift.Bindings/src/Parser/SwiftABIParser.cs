@@ -1118,16 +1118,28 @@ namespace BindingsGeneration
                 }
             }
 
-            // Parse inherited protocols from conformances
+            // Parse inherited protocols from conformances.
+            // Protocol conformance entries use Kind == "Conformance" (not "TypeNominal"),
+            // so we must accept both kinds. Without this, InheritedProtocols would always
+            // be empty for protocols, breaking InheritsCodable, IsClassBoundProtocol,
+            // InheritsCaseIterable, and InheritsProtocolWithAssociatedTypes checks.
+            // Marker protocols (Sendable, Escapable, Copyable, SendableMetatype) are
+            // filtered out — they have no C# representation and would generate ISendable etc.
             var inheritedProtocols = new List<NamedTypeSpec>();
             foreach (var conformance in node.Conformances)
             {
-                if (conformance.Kind == kNominal)
+                if (conformance.Kind == kNominal || conformance.Kind == "Conformance")
                 {
+                    if (string.IsNullOrEmpty(conformance.MangledName))
+                        continue;
                     var reduction = demangler.Run(conformance.MangledName);
                     if (reduction is TypeSpecReduction typeSpecReduction &&
                         typeSpecReduction.TypeSpec is NamedTypeSpec namedTypeSpec)
                     {
+                        // Skip compiler-internal marker protocols that have no C# binding
+                        var simpleName = namedTypeSpec.NameWithoutModule;
+                        if (simpleName is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                            continue;
                         inheritedProtocols.Add(namedTypeSpec);
                     }
                 }

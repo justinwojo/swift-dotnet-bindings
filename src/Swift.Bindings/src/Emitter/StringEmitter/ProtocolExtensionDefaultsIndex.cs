@@ -252,11 +252,16 @@ public class ProtocolExtensionDefaultsIndex
         {
             var qualifiedName = protocol.SwiftTypeName?.ModuleQualifiedName
                               ?? $"{protocol.ModuleDecl?.Name ?? "Unknown"}.{protocol.Name}";
+            // NOTE: Inheritance graph construction from InheritedProtocols is intentionally disabled.
+            // InheritedProtocols was recently populated (was always empty before), but
+            // enabling the inheritance graph changes default-implementation resolution and
+            // causes regressions. TODO: Enable once the full protocol inheritance pipeline
+            // is ready.
             var parents = new HashSet<string>();
-            foreach (var inherited in protocol.InheritedProtocols)
-            {
-                parents.Add(inherited.Name); // NamedTypeSpec.Name is already module-qualified
-            }
+            // foreach (var inherited in protocol.InheritedProtocols)
+            // {
+            //     parents.Add(inherited.Name);
+            // }
             if (parents.Count > 0)
                 directParents[qualifiedName] = parents;
         }

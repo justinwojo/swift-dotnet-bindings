@@ -176,7 +176,9 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
-        Assert.Contains("public interface ICacheable : ISwiftHashable", csOutput);
+        // C# interface inheritance is disabled (GetInheritedInterfaceList returns empty)
+        Assert.Contains("public interface ICacheable", csOutput);
+        Assert.DoesNotContain(": ISwiftHashable", csOutput);
         Assert.Contains("long Count { get; }", csOutput);
         Assert.Contains("Task<long> FetchAsync(long key, global::System.Threading.CancellationToken cancellationToken = default);", csOutput);
         Assert.Contains("public unsafe partial class CacheableProxy : ICacheable, ISwiftObject, IDisposable", csOutput);
@@ -2079,9 +2081,9 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
         Assert.Equal(1, parentRecord.EmittedMemberCount);
 
-        // Child: 0 direct + 1 inherited with members → total > 0
+        // Child: inherited requirement counting is disabled, so stays at direct count (0)
         Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
-        Assert.True(childRecord.EmittedMemberCount > 0);
+        Assert.Equal(0, childRecord.EmittedMemberCount);
     }
 
     [Fact]
@@ -2204,13 +2206,13 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(grandparentProtocol.SwiftTypeName, out var gpRecord));
         Assert.Equal(1, gpRecord.EmittedMemberCount);
 
-        // Parent: 0 direct + 1 inherited (Grandparent has members) → > 0
+        // Parent: inherited requirement counting is disabled, stays at direct count (0)
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
-        Assert.True(parentRecord.EmittedMemberCount > 0);
+        Assert.Equal(0, parentRecord.EmittedMemberCount);
 
-        // Child: 0 direct + 1 inherited (Parent now has members after fixup) → > 0
+        // Child: inherited requirement counting is disabled, stays at direct count (0)
         Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
-        Assert.True(childRecord.EmittedMemberCount > 0);
+        Assert.Equal(0, childRecord.EmittedMemberCount);
     }
 
     [Fact]
@@ -2326,9 +2328,9 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
         Assert.Equal(1, parentRecord.EmittedMemberCount);
 
-        // Nested child: 0 direct + 1 inherited (Identifiable has members) → > 0
+        // Nested child: inherited requirement counting is disabled, stays at direct count (0)
         Assert.True(typeDatabase.TryGetTypeRecord(nestedProtocol.SwiftTypeName, out var childRecord));
-        Assert.True(childRecord.EmittedMemberCount > 0);
+        Assert.Equal(0, childRecord.EmittedMemberCount);
     }
 
     [Fact]
@@ -2685,9 +2687,11 @@ public class ProtocolHandlerOutputTests
 
         var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
 
+        // C# interface inheritance is disabled, so no inherited interface.
+        // The closure property () -> Void is supported, so the interface still has members
+        // and SB0004 does NOT apply.
+        Assert.DoesNotContain(": IBaseProtocol", csOutput);
         Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
-        // Should still have the inherited interface
-        Assert.Contains(": IBaseProtocol", csOutput);
     }
 
     [Fact]

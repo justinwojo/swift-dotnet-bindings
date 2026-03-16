@@ -398,7 +398,9 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        // Frozen (Data): use NativeRemappedFrozen type
+                        // Frozen (Data): use NativeRemappedFrozen type.
+                        // For @_cdecl wrappers, C# passes the Swift.Data struct (16 bytes) via CallConvCdecl
+                        // in two GP registers, matching the two-Int-word @_cdecl parameter in the Swift wrapper.
                         AddParameter(new MarshalledType.NativeRemappedFrozen(swiftWrapperType!), csName);
                     }
                     continue;
@@ -597,29 +599,24 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Async instance methods on non-singleton classes pass self as explicit IntPtr parameter.
+            // Async instance methods pass self as explicit IntPtr parameter.
             // We use a module-level free function (not extension method) to avoid SwiftSelf binding issues.
-            // Singleton classes use the ClassName.shared workaround and don't need _self.
+            // Always pass self — even for singleton classes — so the wrapper operates on the
+            // correct instance (callers may use non-shared instances).
             if (_env.MethodDecl.IsAsync && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
-                var hasSingleton = (_env.ParentDecl as TypeDecl)?.HasSingletonPattern ?? false;
-                if (!hasSingleton)
-                {
-                    // For non-singleton async methods, pass self as explicit IntPtr
-                    // Use different parameter names to distinguish at call site:
-                    // - _selfClassObjC: ObjC-rooted class (uses Handle directly, no buffer dereference)
-                    // - _selfClass: class instance (needs dereferencing - payload contains pointer to class)
-                    // - _self: struct instance (no dereference - payload IS the data)
-                    string selfName;
-                    if (_env.ParentDecl is ClassDecl asyncClassParent && asyncClassParent.IsObjCRooted)
-                        selfName = "_selfClassObjC";
-                    else if (_env.ParentDecl is ClassDecl)
-                        selfName = "_selfClass";
-                    else
-                        selfName = "_self";
-                    AddParameter("IntPtr", selfName);
-                }
-                // For singleton classes, don't add any self parameter - we use .shared in Swift
+                // Use different parameter names to distinguish at call site:
+                // - _selfClassObjC: ObjC-rooted class (uses Handle directly, no buffer dereference)
+                // - _selfClass: class instance (needs dereferencing - payload contains pointer to class)
+                // - _self: struct instance (no dereference - payload IS the data)
+                string selfName;
+                if (_env.ParentDecl is ClassDecl asyncClassParent && asyncClassParent.IsObjCRooted)
+                    selfName = "_selfClassObjC";
+                else if (_env.ParentDecl is ClassDecl)
+                    selfName = "_selfClass";
+                else
+                    selfName = "_self";
+                AddParameter("IntPtr", selfName);
                 return;
             }
 

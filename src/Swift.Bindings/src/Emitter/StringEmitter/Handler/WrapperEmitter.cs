@@ -452,9 +452,10 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits NativeMemory.Free for @_cdecl indirect result buffers allocated via NativeMemory.Alloc.
-        /// Non-cdecl paths use stack-based SwiftIndirectResult and don't need cleanup.
+        /// Emits NativeMemory.Free for indirect result buffers allocated via NativeMemory.Alloc.
+        /// Covers both @_cdecl paths (resultPtr) and non-cdecl SwiftIndirectResult paths.
         /// Constructor paths use _payload SafeHandle (not raw payload pointer) and don't need cleanup.
+        /// Non-frozen structs and complex enums transfer ownership to SafeHandle (CleanupCode = null).
         /// </summary>
         private void EmitCdeclIndirectResultCleanup(CSharpWriter csWriter)
         {
@@ -470,17 +471,14 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Declares the _cdeclBuf variable before the try block so it's accessible in finally for cleanup.
-        /// Emitted when @_cdecl wrappers use NativeMemory.Alloc (not stack-based SwiftIndirectResult).
-        /// Also needed when ownership transfers to SafeHandle (no cleanup code, but _cdeclBuf is still
-        /// used in the allocation code and must be declared in the enclosing scope).
+        /// Emitted for both @_cdecl wrappers and non-cdecl SwiftIndirectResult paths that use
+        /// NativeMemory.Alloc. The variable must be in the enclosing scope so the finally block
+        /// can free it. Also needed when ownership transfers to SafeHandle (no cleanup code, but
+        /// _cdeclBuf is still used in the allocation code and must be declared in the enclosing scope).
         /// Uses _cdeclBuf (not payload) to avoid CS0136 collisions with method parameters named "payload".
         /// </summary>
         private void EmitCdeclPayloadDeclaration(CSharpWriter csWriter)
         {
-            // Only emit for @_cdecl paths. Non-cdecl paths use SwiftIndirectResult (stack-based)
-            // and declare their own 'payload' variable inside the try block.
-            if (!_env.MethodDecl.UsesCdeclWrapper) return;
-
             if (_syncPlan?.IndirectResultMethod?.CleanupCode != null ||
                 _syncPlan?.IndirectResultMethod?.AllocationCode != null)
             {

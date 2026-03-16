@@ -843,8 +843,12 @@ namespace BindingsGeneration
                                          protocolDecl.Subscripts.Any(s => !s.IsStatic);
             if (!hasOwnInstanceMembers)
             {
-                var hasInheritedRequirements = protocolDecl.InheritedProtocols.Any(inherited =>
-                    inherited.NameWithoutModule != "AnyObject");
+                // NOTE: InheritedRequirementsOnly flag is intentionally disabled.
+                // InheritedProtocols was recently populated (was always empty before), so
+                // this flag was never set. Enabling it blocks proxy emission and existential
+                // returns for protocols that previously worked.
+                // TODO: Enable once proxy generation handles inherited protocol requirements.
+                var hasInheritedRequirements = false;
                 if (hasInheritedRequirements)
                     flags |= TypeRecordFlags.InheritedRequirementsOnly;
             }

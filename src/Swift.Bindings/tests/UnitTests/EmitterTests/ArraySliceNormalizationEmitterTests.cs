@@ -807,6 +807,51 @@ public class ArraySliceNormalizationEmitterTests
         Assert.Empty(swiftOutput);
     }
 
+    [Fact]
+    public void TryEmitNormalized_CdeclWithStringReturn_ResultPtrBeforeArgs()
+    {
+        // Bug 1 fix: resultPtr must be FIRST parameter per CdeclSignatureContract,
+        // not appended after arguments. String return triggers needsResultPtr=true.
+        // AsyncLibraryName must be set to enable @_cdecl mode (Guard 4 in WrapperValidation).
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "SwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Transformer", moduleDecl, typeDatabase);
+
+        var arraySliceUInt8 = new NamedTypeSpec("Swift.ArraySlice", new NamedTypeSpec("Swift.UInt8"));
+        var returnType = new NamedTypeSpec("Swift.String");
+
+        var method = new MethodDecl
+        {
+            Name = "describe",
+            MangledName = "$s10TestModule11TransformerC8describeSSSays5UInt8VGKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument("data", arraySliceUInt8, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.NotEmpty(swiftOutput);
+        // resultPtr must appear BEFORE the data parameter in the @_cdecl signature
+        var resultPtrIdx = swiftOutput.IndexOf("resultPtr: UnsafeMutableRawPointer");
+        var dataIdx = swiftOutput.IndexOf("data:");
+        Assert.True(resultPtrIdx >= 0, "resultPtr not found in wrapper output");
+        Assert.True(dataIdx >= 0, "data param not found in wrapper output");
+        Assert.True(resultPtrIdx < dataIdx,
+            $"resultPtr (pos {resultPtrIdx}) must appear before data param (pos {dataIdx}) per CdeclSignatureContract");
+    }
+
     #endregion
 
     #region Helper Methods

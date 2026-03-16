@@ -3290,6 +3290,40 @@ public class EnumHandlerOutputTests
         Assert.Contains("statusCodeUnacceptable(value0)", swiftOutput);
     }
 
+    [Fact]
+    public void Emit_XcframeworkEnum_MetadataFallback_EmitsTryCatchWithDylibFallback()
+    {
+        // Regression test: when wrapper DLL is unavailable (e.g., Stripe sub-modules
+        // where wrapper compilation fails), GetTypeMetadata() must fall back to the
+        // dylib's CallConvSwift metadata accessor instead of throwing TypeInitializationException.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("CardScanSheetResult", moduleDecl, isFrozen: false);
+
+        var completedCase = CreateCase("completed");
+        completedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(completedCase);
+        enumDecl.Cases.Add(CreateCase("cancelled"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must have try/catch fallback pattern
+        Assert.Contains("try", csOutput);
+        Assert.Contains("return PInvoke_getMetadata();", csOutput);
+        Assert.Contains("catch (System.DllNotFoundException)", csOutput);
+        Assert.Contains("catch (System.EntryPointNotFoundException)", csOutput);
+        Assert.Contains("return PInvoke_getMetadata_fallback();", csOutput);
+
+        // Primary P/Invoke targets wrapper DLL with Cdecl calling convention
+        Assert.Contains("LibraryImport(\"TestModuleSwiftBindings\"", csOutput);
+        Assert.Contains("PInvoke_getMetadata", csOutput);
+
+        // Fallback P/Invoke targets the original dylib
+        Assert.Contains("PInvoke_getMetadata_fallback", csOutput);
+        Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\"", csOutput);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol()
     {
         var typeDatabase = CreateTypeDatabaseWithString();

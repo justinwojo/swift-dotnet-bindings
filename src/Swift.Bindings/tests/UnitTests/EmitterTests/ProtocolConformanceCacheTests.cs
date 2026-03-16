@@ -80,17 +80,32 @@ public class ProtocolConformanceCacheTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_NoImplementableMembers_RecordsSkipDecision()
+    public void EmitProtocolConformance_StaticOnlyMembers_SkipsConformance()
     {
         var (emitter, ctx) = CreateEmitterWithContext();
-        // Protocol with only static methods — no instance members
+        // Protocol with only static methods — skipped because static method
+        // requirements can't be satisfied by EveryProtocol proxy
         var protocolDecl = CreateProtocolWithOnlyStaticMembers("StaticOnlyProto");
 
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
         Assert.False(ctx.WasConformanceEmitted("StaticOnlyProto"));
-        Assert.Equal("NoImplementableMembers", ctx.ConformanceDecisions["StaticOnlyProto"].SkipReason);
+        Assert.Equal("StaticMethodRequirements", ctx.ConformanceDecisions["StaticOnlyProto"].SkipReason);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NoMembersNoInheritance_RecordsSkipDecision()
+    {
+        var (emitter, ctx) = CreateEmitterWithContext();
+        // Protocol with no members and no non-trivial inheritance — skipped
+        var protocolDecl = CreateEmptyMarkerProtocol("MarkerProto");
+
+        var writer = CreateSwiftWriter();
+        emitter.EmitProtocolConformance(writer, protocolDecl);
+
+        Assert.False(ctx.WasConformanceEmitted("MarkerProto"));
+        Assert.Equal("NoImplementableMembers", ctx.ConformanceDecisions["MarkerProto"].SkipReason);
     }
 
     [Fact]
@@ -306,6 +321,27 @@ public class ProtocolConformanceCacheTests
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public
+        };
+    }
+
+    private static ProtocolDecl CreateEmptyMarkerProtocol(string name)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = null,
+            ModuleDecl = null
         };
     }
 

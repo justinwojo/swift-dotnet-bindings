@@ -253,7 +253,7 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_SkipsStaticAndConstructorMethods()
+    public void EmitProtocolConformance_SkipsProtocolWithConstructorRequirements()
     {
         var protocolDecl = CreateSimpleProtocol("MixedProtocol");
         protocolDecl.Methods.Add(CreateMethodDecl("instanceMethod"));
@@ -262,9 +262,8 @@ public class EveryProtocolEmitterTests
 
         var output = EmitFullConformance(protocolDecl);
 
-        Assert.Contains("public func instanceMethod()", output);
-        Assert.DoesNotContain("public func utility", output);
-        Assert.DoesNotContain("public func init(", output);
+        // Entire conformance skipped because protocol has constructor requirements
+        Assert.Empty(output);
     }
 
     [Fact]
@@ -1145,6 +1144,215 @@ public class EveryProtocolEmitterTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
+    }
+
+    #endregion
+
+    #region Codable Stub Tests
+
+    [Fact]
+    public void EmitCodableStubs_ProtocolInheritsDecodable_EmitsDecodableStub()
+    {
+        var protocol = CreateProtocolWithInheritance("MyDecodableProto", "Swift.Decodable");
+
+        var output = EmitCodableStubs(new[] { protocol }, new[] { protocol });
+
+        Assert.Contains("extension EveryProtocol: Decodable", output);
+        Assert.Contains("init(from decoder: Decoder)", output);
+    }
+
+    [Fact]
+    public void EmitCodableStubs_ProtocolInheritsEncodable_EmitsEncodableStub()
+    {
+        var protocol = CreateProtocolWithInheritance("MyEncodableProto", "Swift.Encodable");
+
+        var output = EmitCodableStubs(new[] { protocol }, new[] { protocol });
+
+        Assert.Contains("extension EveryProtocol: Encodable", output);
+        Assert.Contains("encode(to encoder: Encoder)", output);
+    }
+
+    [Fact]
+    public void EmitCodableStubs_ProtocolInheritsCodable_EmitsBothStubs()
+    {
+        var protocol = CreateProtocolWithInheritance("MyCodableProto", "Swift.Codable");
+
+        var output = EmitCodableStubs(new[] { protocol }, new[] { protocol });
+
+        Assert.Contains("extension EveryProtocol: Decodable", output);
+        Assert.Contains("extension EveryProtocol: Encodable", output);
+    }
+
+    [Fact]
+    public void EmitCodableStubs_ProtocolInheritsError_EmitsErrorStub()
+    {
+        var protocol = CreateProtocolWithInheritance("MyErrorProto", "Swift.Error");
+
+        var output = EmitCodableStubs(new[] { protocol }, new[] { protocol });
+
+        Assert.Contains("extension EveryProtocol: Swift.Error", output);
+    }
+
+    [Fact]
+    public void EmitCodableStubs_NoInheritance_EmitsNothing()
+    {
+        var protocol = CreateProtocolWithInheritance("PlainProto");
+
+        var output = EmitCodableStubs(new[] { protocol }, new[] { protocol });
+
+        Assert.DoesNotContain("Decodable", output);
+        Assert.DoesNotContain("Encodable", output);
+        Assert.DoesNotContain("Error", output);
+    }
+
+    [Fact]
+    public void EmitCodableStubs_TransitiveDecodable_EmitsDecodableStub()
+    {
+        // ChildProto inherits ParentProto which inherits Decodable
+        var parentProto = CreateProtocolWithInheritance("ParentProto", "Swift.Decodable");
+        var childProto = CreateProtocolWithInheritance("ChildProto", "TestModule.ParentProto");
+
+        var allProtocols = new[] { parentProto, childProto };
+        var output = EmitCodableStubs(new[] { childProto }, allProtocols);
+
+        Assert.Contains("extension EveryProtocol: Decodable", output);
+    }
+
+    #endregion
+
+    #region Static/Composition Protocol Conformance Tests
+
+    [Fact]
+    public void EmitProtocolConformance_StaticOnlyProtocol_EmitsStubConformance()
+    {
+        var protocol = CreateStaticOnlyProtocol("SafeEnumDecodable");
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.SafeEnumDecodable", output);
+        Assert.Contains("fatalError", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_CompositionProtocol_EmitsEmptyConformance()
+    {
+        // Composition protocol: inherits from non-trivial protocols but has no own members
+        var protocol = CreateCompositionProtocol("SafeEnumCodable",
+            "TestModule.SafeEnumDecodable", "Swift.Encodable");
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.SafeEnumCodable", output);
+    }
+
+    #endregion
+
+    #region Codable/Composition Helper Methods
+
+    private static ProtocolDecl CreateProtocolWithInheritance(string name, params string[] inheritedNames)
+    {
+        var inherited = inheritedNames.Select(n => new NamedTypeSpec(n)).ToList();
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>
+            {
+                new PropertyDecl
+                {
+                    Name = "value",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasStorage = false,
+                    IsStatic = false,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = inherited,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ProtocolDecl CreateStaticOnlyProtocol(string name)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>
+            {
+                new PropertyDecl
+                {
+                    Name = "unparsable",
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    HasStorage = false,
+                    IsStatic = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ProtocolDecl CreateCompositionProtocol(string name, params string[] inheritedNames)
+    {
+        var inherited = inheritedNames.Select(n => new NamedTypeSpec(n)).ToList();
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = inherited,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private string EmitCodableStubs(IReadOnlyList<ProtocolDecl> suitableProtocols,
+        IReadOnlyList<ProtocolDecl> allProtocols)
+    {
+        var output = new System.IO.StringWriter();
+        var writer = new SwiftWriter(output);
+        _emitter.EmitCodableStubsIfNeeded(writer, suitableProtocols, allProtocols, _typeDatabase);
+        return output.ToString();
+    }
+
+    private string EmitConformance(ProtocolDecl protocol)
+    {
+        var output = new System.IO.StringWriter();
+        var writer = new SwiftWriter(output);
+        _emitter.EmitProtocolConformance(writer, protocol);
+        return output.ToString();
     }
 
     #endregion

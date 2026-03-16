@@ -733,10 +733,9 @@ public class ComplexProjectionTests
         Assert.Contains("SwiftClosureData", plan.SetupStatements.OfType<MarshalStatement.Line>().Last().Code);
         Assert.Equal("handlerClosure", plan.PInvokeExpression);
 
-        // Should have finally cleanup
-        Assert.NotEmpty(plan.CleanupStatements);
-        var finallyBlock = Assert.IsType<MarshalStatement.Block>(plan.CleanupStatements[0]);
-        Assert.Equal("finally", finallyBlock.Header);
+        // Escaping closures should NOT have cleanup in the calling method's finally block.
+        // The GCHandle is freed inside the callback trampoline instead.
+        Assert.Empty(plan.CleanupStatements);
     }
 
     [Fact]
@@ -804,10 +803,14 @@ public class ComplexProjectionTests
 
         var callbacks = proj.CallbackDeclarations;
         var cb = callbacks[0];
-        var bodyCode = string.Join("\n", cb.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
-        Assert.Contains("GetDelegateFromContext", bodyCode);
+        // Top-level body has: Line (GetDelegate), Block (try), Block (finally)
+        var topLevelCode = string.Join("\n", cb.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
+        Assert.Contains("GetDelegateFromContext", topLevelCode);
+        // Invoke statements are inside the try block
+        var tryBlock = cb.Body.OfType<MarshalStatement.Block>().First(b => b.Header == "try");
+        var tryCode = string.Join("\n", tryBlock.Body.OfType<MarshalStatement.Line>().Select(l => l.Code));
         // Args should be reverse-converted (P/Invoke → delegate types)
-        Assert.Contains("ToString()", bodyCode);
+        Assert.Contains("ToString()", tryCode);
     }
 
     [Fact]

@@ -104,7 +104,27 @@ namespace BindingsGeneration
                     var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
                     MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
 
-                    _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
+                    // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
+                    // when the wrapper wasn't compiled for this module.
+                    // This handles multi-module frameworks where some modules' wrappers
+                    // fail to compile (e.g., Stripe sub-modules).
+                    _writer.WriteLines("""
+                        static TypeMetadata ISwiftObject.GetTypeMetadata()
+                        {
+                            try
+                            {
+                                return PInvoke_getMetadata();
+                            }
+                            catch (System.DllNotFoundException)
+                            {
+                                return PInvoke_getMetadata_fallback();
+                            }
+                            catch (System.EntryPointNotFoundException)
+                            {
+                                return PInvoke_getMetadata_fallback();
+                            }
+                        }
+                        """);
                     _writer.WriteLine();
 
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
@@ -116,6 +136,19 @@ namespace BindingsGeneration
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
                         CallingConvention = PInvokeCallingConvention.Cdecl
+                    }))
+                        _writer.WriteLine(line);
+                    _writer.WriteLine();
+
+                    // Fallback P/Invoke targeting the dylib's metadata accessor directly
+                    foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+                    {
+                        LibraryPath = libPath,
+                        EntryPoint = _enumDecl.MetadataAccessor,
+                        MethodName = "PInvoke_getMetadata_fallback",
+                        ReturnType = "TypeMetadata",
+                        ParametersString = "",
+                        Visibility = PInvokeVisibility.Internal
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();

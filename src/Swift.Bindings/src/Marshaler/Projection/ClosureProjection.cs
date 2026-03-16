@@ -59,6 +59,9 @@ public class ClosureProjection : ITypeProjection
     {
         if (_isEscaping)
         {
+            // No CleanupStatements for escaping closures — the GCHandle is freed
+            // inside the callback trampoline after the delegate is invoked, because
+            // escaping callbacks fire asynchronously after the calling method returns.
             return new MarshalPlan
             {
                 SetupStatements = new List<MarshalStatement>
@@ -66,14 +69,7 @@ public class ClosureProjection : ITypeProjection
                     new MarshalStatement.Line($"var {paramName}Handle = GCHandle.Alloc({paramName});"),
                     new MarshalStatement.Line($"var {paramName}Closure = new SwiftClosureData((IntPtr)s_{_callbackName}, GCHandle.ToIntPtr({paramName}Handle));")
                 },
-                PInvokeExpression = $"{paramName}Closure",
-                CleanupStatements = new List<MarshalStatement>
-                {
-                    new MarshalStatement.Block("finally", new List<MarshalStatement>
-                    {
-                        new MarshalStatement.Line($"if ({paramName}Handle.IsAllocated) {paramName}Handle.Free();")
-                    })
-                }
+                PInvokeExpression = $"{paramName}Closure"
             };
         }
 
@@ -200,6 +196,8 @@ public class ClosureProjection : ITypeProjection
                 invokeArgs.Add(conv ?? $"arg{i}");
             }
 
+            // Build the invoke statements, wrapped in try/finally to free the GCHandle
+            var invokeStatements = new List<MarshalStatement>();
             var invokeArgList = string.Join(", ", invokeArgs);
             if (_returnProjection != null)
             {
@@ -212,18 +210,25 @@ public class ClosureProjection : ITypeProjection
                     retConv = $"({_returnProjection.PInvokeType})delResult";
                 if (retConv != null)
                 {
-                    body.Add(new MarshalStatement.Line($"var delResult = del({invokeArgList});"));
-                    body.Add(new MarshalStatement.Line($"return {retConv};"));
+                    invokeStatements.Add(new MarshalStatement.Line($"var delResult = del({invokeArgList});"));
+                    invokeStatements.Add(new MarshalStatement.Line($"return {retConv};"));
                 }
                 else
                 {
-                    body.Add(new MarshalStatement.Line($"return del({invokeArgList});"));
+                    invokeStatements.Add(new MarshalStatement.Line($"return del({invokeArgList});"));
                 }
             }
             else
             {
-                body.Add(new MarshalStatement.Line($"del({invokeArgList});"));
+                invokeStatements.Add(new MarshalStatement.Line($"del({invokeArgList});"));
             }
+
+            // Wrap invoke in try/finally to free GCHandle after callback fires
+            body.Add(new MarshalStatement.Block("try", invokeStatements));
+            body.Add(new MarshalStatement.Block("finally", new List<MarshalStatement>
+            {
+                new MarshalStatement.Line("GCHandle.FromIntPtr(context).Free();")
+            }));
 
             // Static field for function pointer — last type arg is always the return type
             var pInvokeTypes = _argProjections.Select(p => p.PInvokeType).Append("IntPtr");

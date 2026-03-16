@@ -716,6 +716,85 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("'$(_SwiftBindingUpToDate)' != 'true'", targetBody);
         }
 
+        // ── Bug fix regression tests (SDK 0.2.0) ──
+
+        [Fact]
+        public void Targets_GetSwiftFrameworkSearchPaths_WrapperPathIsAbsolute()
+        {
+            // Bug 1: GetSwiftFrameworkSearchPaths returned relative wrapper xcframework paths.
+            // When project B queries project A via MSBuild task, relative paths resolve
+            // against the consumer (B), not the producer (A). Fix: prefix with $(MSBuildProjectDirectory)/.
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"GetSwiftFrameworkSearchPaths\"", StringComparison.Ordinal));
+            var endOfTarget = target.IndexOf("</Target>", StringComparison.Ordinal);
+            var targetBody = target.Substring(0, endOfTarget);
+            Assert.Contains("$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework", targetBody);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapperExec_HasContinueOnError()
+        {
+            // Bug 2: _CompileSwiftWrapper Exec had no ContinueOnError, so wrapper compilation
+            // failure killed the entire build before _ValidateSwiftWrapperCompilation could run.
+            // Fix: add ContinueOnError="WarnAndContinue" so downstream validation handles the result.
+            var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
+            var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
+            var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
+
+            // Find the Exec element within the target
+            var execStart = targetBody.IndexOf("<Exec", StringComparison.Ordinal);
+            Assert.True(execStart >= 0, "_CompileSwiftWrapper should contain an Exec task");
+            var execEnd = targetBody.IndexOf("/>", execStart, StringComparison.Ordinal);
+            var execElement = targetBody.Substring(execStart, execEnd - execStart + 2);
+            Assert.Contains("ContinueOnError=\"WarnAndContinue\"", execElement);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapper_FiltersObjCProjectReferences()
+        {
+            // Bug 3: ObjC ProjectReferences (e.g. BlinkID.ObjC.iOS.csproj) don't have
+            // GetSwiftFrameworkSearchPaths target, causing MSB4057 errors.
+            // Fix: filter into _SwiftBindingProjectReference excluding .ObjC. items.
+            var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
+            var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
+            var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
+
+            // Must define _SwiftBindingProjectReference that filters out .ObjC.
+            Assert.Contains("_SwiftBindingProjectReference", targetBody);
+            Assert.Contains(".ObjC.", targetBody);
+            // MSBuild task must use filtered list, not raw @(ProjectReference)
+            var msbuildTask = targetBody.Substring(targetBody.IndexOf("<MSBuild", StringComparison.Ordinal));
+            msbuildTask = msbuildTask.Substring(0, msbuildTask.IndexOf("/>", StringComparison.Ordinal) + 2);
+            Assert.Contains("@(_SwiftBindingProjectReference)", msbuildTask);
+            Assert.DoesNotContain("@(ProjectReference)", msbuildTask);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapper_PrefersResolvedDepsOverExplicit()
+        {
+            // Bug 4: Both SwiftFrameworkDependency and _ResolvedDepXCFramework were
+            // unconditionally appended, causing duplicate module errors for Stripe.
+            // Fix: prefer _ResolvedDepXCFramework; only use SwiftFrameworkDependency
+            // when no ProjectReference deps resolved.
+            var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
+            var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
+            var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
+
+            // _ResolvedDepXCFramework line should come BEFORE SwiftFrameworkDependency line
+            var resolvedIdx = targetBody.IndexOf("@(_ResolvedDepXCFramework->' --framework-dependency", StringComparison.Ordinal);
+            var explicitIdx = targetBody.IndexOf("@(SwiftFrameworkDependency->' --framework-dependency", StringComparison.Ordinal);
+            Assert.True(resolvedIdx >= 0, "Should have _ResolvedDepXCFramework framework-dependency line");
+            Assert.True(explicitIdx >= 0, "Should have SwiftFrameworkDependency framework-dependency line");
+            Assert.True(resolvedIdx < explicitIdx, "_ResolvedDepXCFramework must come before SwiftFrameworkDependency");
+
+            // SwiftFrameworkDependency line must be gated on _ResolvedDepXCFramework being empty
+            // Extract the PropertyGroup line containing SwiftFrameworkDependency --framework-dependency
+            var explicitLine = targetBody.Substring(
+                targetBody.LastIndexOf("<_SwiftWrapperCmd", explicitIdx, StringComparison.Ordinal));
+            explicitLine = explicitLine.Substring(0, explicitLine.IndexOf("</_SwiftWrapperCmd>", StringComparison.Ordinal));
+            Assert.Contains("'@(_ResolvedDepXCFramework)' == ''", explicitLine);
+        }
+
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;

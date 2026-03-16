@@ -68,37 +68,48 @@ public static partial class ClosureEmitter
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
-        // Generate callback body
+        // Generate callback body — indent depends on whether we wrap in try/finally
+        var indent = closureTypeSpec.IsEscaping ? "                " : "            ";
+
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
                 var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                var swiftResult = del({{invokeArgsString}});
+            """);
 
-                if (swiftResult.IsFailure)
-                {
-                    // Set the error out parameter
-                    *errorOut = swiftResult.Failure;
+        if (closureTypeSpec.IsEscaping)
+        {
+            csWriter.WriteLine("            try");
+            csWriter.WriteLine("            {");
+        }
+
+        csWriter.WriteLines($$"""
+            {{indent}}var swiftResult = del({{invokeArgsString}});
+
+            {{indent}}if (swiftResult.IsFailure)
+            {{indent}}{
+            {{indent}}    // Set the error out parameter
+            {{indent}}    *errorOut = swiftResult.Failure;
             """);
 
         if (hasReturn)
         {
             if (returnIsBool)
             {
-                csWriter.WriteLine("            return 0; // Return default value on error");
+                csWriter.WriteLine($"{indent}    return 0; // Return default value on error");
             }
             else
             {
-                csWriter.WriteLine("            return default; // Return default value on error");
+                csWriter.WriteLine($"{indent}    return default; // Return default value on error");
             }
         }
 
         csWriter.WriteLines($$"""
-                }
+            {{indent}}}
 
-                // Success case - no error
-                *errorOut = default;
+            {{indent}}// Success case - no error
+            {{indent}}*errorOut = default;
             """);
 
         if (hasReturn)
@@ -109,10 +120,26 @@ public static partial class ClosureEmitter
                 "swiftResult.Success",
                 closureHandler,
                 returnType);
-            csWriter.WriteLine($"        {successReturn}");
+            csWriter.WriteLine($"{indent}{successReturn}");
         }
 
-        csWriter.WriteLine("    }");
+        if (closureTypeSpec.IsEscaping)
+        {
+            // Escaping closures: free the GCHandle inside the callback
+            csWriter.WriteLines($$"""
+                        }
+                        finally
+                        {
+                            GCHandle.FromIntPtr({{contextExtraction}}).Free();
+                        }
+                    }
+                """);
+        }
+        else
+        {
+            // Non-escaping closures: calling method's finally block handles cleanup
+            csWriter.WriteLine("        }");
+        }
     }
 
     /// <summary>

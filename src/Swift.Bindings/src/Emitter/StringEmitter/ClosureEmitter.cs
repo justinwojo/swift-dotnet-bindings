@@ -81,14 +81,39 @@ public static partial class ClosureEmitter
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
-        csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-            private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
-            {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                {{returnStatement}}
-            }
-            """);
+        if (closureTypeSpec.IsEscaping)
+        {
+            // Escaping closures: free the GCHandle inside the callback (not the calling method's
+            // finally block), because the callback fires asynchronously after the method returns.
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    try
+                    {
+                        {{returnStatement}}
+                    }
+                    finally
+                    {
+                        GCHandle.FromIntPtr({{contextExtraction}}).Free();
+                    }
+                }
+                """);
+        }
+        else
+        {
+            // Non-escaping closures: callback fires synchronously during the P/Invoke call.
+            // The calling method's finally block handles GCHandle cleanup.
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    {{returnStatement}}
+                }
+                """);
+        }
     }
 
     /// <summary>

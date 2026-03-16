@@ -562,10 +562,10 @@ namespace BindingsGeneration.Tests
             var dir = CreateTempDir();
             try
             {
-                // Write a Swift file that will be entirely stripped
+                // Write a Swift file that will be entirely stripped (SBW_ func with EveryProtocol())
                 File.WriteAllText(Path.Combine(dir, "Swift.Module.swift"), """
-                    class EveryProtocol {
-                        var x: Int = 0
+                    public func SBW_broken() {
+                        let proxy = EveryProtocol()
                     }
                     """);
 

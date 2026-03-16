@@ -71,8 +71,9 @@ namespace BindingsGeneration.Tests
     public class PostProcessorEveryProtocolTests
     {
         [Fact]
-        public void Process_ExtensionEveryProtocol_Stripped()
+        public void Process_ExtensionEveryProtocol_PreservedWhenValid()
         {
+            // Valid EveryProtocol extensions are now preserved (not unconditionally stripped)
             var input = """
                 // before
                 extension EveryProtocol: SomeProtocol {
@@ -82,6 +83,26 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("// before", result.CleanedContent);
+            Assert.Contains("// after", result.CleanedContent);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_ExtensionEveryProtocol_StrippedWhenReferencesInternalType()
+        {
+            // EveryProtocol extensions referencing internal types ARE stripped
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                // before
+                extension EveryProtocol: SomeProtocol {
+                    var prop: InternalType { fatalError() }
+                }
+                // after
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
             Assert.Equal(1, result.StrippedBlockCount);
             Assert.Contains("// before", result.CleanedContent);
             Assert.Contains("// after", result.CleanedContent);
@@ -89,8 +110,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Process_ClassEveryProtocol_Stripped()
+        public void Process_ClassEveryProtocol_Preserved()
         {
+            // EveryProtocol class definition is now preserved (valid code)
             var input = """
                 class EveryProtocol {
                     var x: Int = 0
@@ -98,8 +120,24 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(1, result.StrippedBlockCount);
-            Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_CodableStubExtension_PreservedEvenWithInternalTypes()
+        {
+            // Codable/Error stubs are always preserved, even when "Encodable" is an internal type
+            var internalTypes = new HashSet<string> { "Encodable" };
+            var input = """
+                extension EveryProtocol: Encodable {
+                    public func encode(to encoder: Encoder) throws {}
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
         }
     }
 
@@ -506,8 +544,10 @@ namespace BindingsGeneration.Tests
 
                 """;
             var result = SwiftWrapperPostProcessor.Process(input);
-            Assert.Equal(3, result.StrippedBlockCount);
-            Assert.DoesNotContain("EveryProtocol", result.CleanedContent);
+            // Only SBW_bad2 is stripped (uses EveryProtocol() in non-system context).
+            // class EveryProtocol and extension EveryProtocol: P1 are preserved.
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("EveryProtocol", result.CleanedContent);
             Assert.Contains("bad1", result.CleanedContent);
             Assert.DoesNotContain("SBW_bad2", result.CleanedContent);
         }

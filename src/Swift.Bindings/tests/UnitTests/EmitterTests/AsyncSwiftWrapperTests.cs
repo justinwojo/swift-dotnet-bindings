@@ -410,6 +410,175 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Async Singleton Self Parameter Tests
+
+    [Fact]
+    public void AsyncWrapper_SingletonClass_UsesSelfNotShared()
+    {
+        // Singleton classes (with static 'shared' property) must still pass self
+        // explicitly so callers using non-shared instances get correct behavior.
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        // The helper uses a singleton class (Pipeline with 'shared' property).
+        // The Swift wrapper must use __self (from _self parameter), not .shared
+        Assert.Contains("__self.", swiftOutput);
+        Assert.DoesNotContain(".shared.", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_SingletonClass_SwiftWrapperHasSelfParam()
+    {
+        // Verify the Swift wrapper receives _self parameter.
+        // The helper generates @_silgen_name wrappers, which use OpaquePointer for self.
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        Assert.Contains("_self: OpaquePointer", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_SingletonClass_CSharpPInvokeHasSelfParam()
+    {
+        // Verify the C# P/Invoke signature includes the _selfClass parameter
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        Assert.Contains("_selfClass", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_SingletonClass_SwiftReconstructsSelfFromPointer()
+    {
+        // Verify the Swift wrapper reconstructs the class instance from the opaque pointer.
+        // The helper generates @_silgen_name wrappers which use unsafeBitCast for classes.
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        // @_silgen_name uses unsafeBitCast to convert OpaquePointer to class instance
+        Assert.Contains("unsafeBitCast(_self, to: TestModule.Pipeline.self)", swiftOutput);
+    }
+
+    #endregion
+
+    #region AsyncStream Library Target Tests
+
+    [Fact]
+    public void AsyncStreamPInvoke_UsesWrapperLibrary_WhenAsyncLibraryNameIsSet()
+    {
+        // AsyncStream P/Invokes must target the wrapper library, not the original module library.
+        // The @_cdecl wrapper functions live in the wrapper xcframework.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/path/to/TestModule.framework/TestModule");
+        var swiftIntRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        };
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), swiftIntRecord);
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(module);
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "DataStream",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataStream"),
+            MangledName = "$s10TestModule10DataStreamCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(classDecl);
+
+        var asyncStreamType = new NamedTypeSpec("_Concurrency.AsyncStream",
+            new TypeSpec[] { new NamedTypeSpec("Swift.Int") });
+        var property = new PropertyDecl
+        {
+            Name = "events",
+            SwiftTypeSpec = asyncStreamType,
+            IsStatic = false,
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Accessors = new List<AccessorDecl>(),
+            HasStorage = false,
+        };
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        var asyncStreamHandler = new AsyncStreamHandler(typeDatabase);
+        var swiftWrapperName = asyncStreamHandler.GetSwiftWrapperFunctionName(property);
+
+        // This is the code path we're testing — must use AsyncLibraryName, not module path
+        var libraryPath = typeDatabase.AsyncLibraryName
+            ?? typeDatabase.GetLibraryPath("TestModule");
+
+        AsyncStreamEmitter.EmitPInvokeDeclaration(csWriter, swiftWrapperName, libraryPath, false);
+
+        var result = csOutput.ToString();
+        Assert.Contains("TestModuleSwiftBindings", result);
+        Assert.DoesNotContain("/path/to/TestModule.framework/TestModule", result);
+    }
+
+    [Fact]
+    public void AsyncStreamPInvoke_FallsBackToModuleLibrary_WhenNoWrapperLibrary()
+    {
+        // When AsyncLibraryName is not set (manual mode, no wrapper), the P/Invoke
+        // should use the module library path.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "TestModule");
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(module);
+        // AsyncLibraryName is NOT set
+
+        var libraryPath = typeDatabase.AsyncLibraryName
+            ?? typeDatabase.GetLibraryPath("TestModule");
+
+        Assert.Equal("TestModule", libraryPath);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>

@@ -745,4 +745,158 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region Session 4 — GCHandle lifetime: Free in callback, not in calling method's finally block
+
+    [Fact]
+    public void EmitEscapingClosureCallback_SwiftMode_FreesGCHandleInCallback()
+    {
+        // Escaping closures should free the GCHandle inside the callback trampoline,
+        // not in the calling method's finally block (which fires before the callback).
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: false);
+
+        var result = output.ToString();
+        // Callback should free the GCHandle via try/finally
+        Assert.Contains("GCHandle.FromIntPtr(", result);
+        Assert.Contains(".Free()", result);
+        Assert.Contains("finally", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_CdeclMode_FreesGCHandleInCallback()
+    {
+        // Cdecl variant should also free the GCHandle in the callback.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: true);
+
+        var result = output.ToString();
+        // Cdecl callback should also free the GCHandle
+        Assert.Contains("GCHandle.FromIntPtr(contextPtr).Free()", result);
+        Assert.Contains("finally", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_VoidReturn_FreesGCHandleInCallback()
+    {
+        // Void-returning escaping closures should also free the GCHandle in the callback.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("GCHandle.FromIntPtr(", result);
+        Assert.Contains(".Free()", result);
+        Assert.Contains("try", result);
+        Assert.Contains("finally", result);
+    }
+
+    [Fact]
+    public void EmitThrowingClosureCallback_FreesGCHandleInCallback()
+    {
+        // Throwing escaping closures should also free the GCHandle in the callback.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) throws -> Int  (escaping + throwing)
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitThrowingClosureCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("GCHandle.FromIntPtr(", result);
+        Assert.Contains(".Free()", result);
+        Assert.Contains("finally", result);
+    }
+
+    [Fact]
+    public void ClosureProjection_EscapingParameterPlan_NoCleanupStatements()
+    {
+        // Escaping closures should NOT have cleanup statements in the marshal plan.
+        // The GCHandle is freed in the callback, not the calling method's finally block.
+        var argProjections = new List<ITypeProjection> { new BlittableProjection("nint") };
+        var returnProjection = new BlittableProjection("nint");
+        var projection = new ClosureProjection(
+            argProjections, returnProjection,
+            isEscaping: true, throws: false, isAsync: false,
+            callbackName: "callback_doWork_completion");
+
+        var plan = projection.GetParameterPlan("completion");
+
+        // Setup should still have GCHandle.Alloc + SwiftClosureData
+        Assert.Equal(2, plan.SetupStatements.Count);
+        Assert.Contains("GCHandle.Alloc", ((MarshalStatement.Line)plan.SetupStatements[0]).Code);
+        Assert.Contains("SwiftClosureData", ((MarshalStatement.Line)plan.SetupStatements[1]).Code);
+
+        // Cleanup should be EMPTY for escaping closures
+        Assert.Empty(plan.CleanupStatements);
+    }
+
+    [Fact]
+    public void ClosureProjection_EscapingCallbackDeclaration_FreesGCHandle()
+    {
+        // The callback declaration for escaping closures should include GCHandle.Free()
+        var argProjections = new List<ITypeProjection> { new BlittableProjection("nint") };
+        var returnProjection = new BlittableProjection("nint");
+        var projection = new ClosureProjection(
+            argProjections, returnProjection,
+            isEscaping: true, throws: false, isAsync: false,
+            callbackName: "callback_doWork_completion");
+
+        var declarations = projection.CallbackDeclarations;
+        Assert.Single(declarations);
+
+        var body = declarations[0].Body;
+        // Should contain try and finally blocks with GCHandle.Free
+        var blockHeaders = body.OfType<MarshalStatement.Block>().Select(b => b.Header).ToList();
+        Assert.Contains("try", blockHeaders);
+        Assert.Contains("finally", blockHeaders);
+
+        var finallyBlock = body.OfType<MarshalStatement.Block>().First(b => b.Header == "finally");
+        var freeStatement = finallyBlock.Body.OfType<MarshalStatement.Line>().First();
+        Assert.Contains("GCHandle.FromIntPtr(context).Free()", freeStatement.Code);
+    }
+
+    #endregion
 }

@@ -2412,5 +2412,148 @@ public class MethodWrapperEmitterTests
         Assert.DoesNotContain("(TestModule.BigStruct).self", output);
     }
 
+    /// <summary>
+    /// Verifies that @_cdecl method wrappers emit two-Int-word parameters for Foundation.Data,
+    /// not bare Foundation.Data which gets ObjC-bridged to NSData* at the ABI level.
+    /// Regression test for Nuke DataCache.storeData SIGSEGV on NativeAOT device.
+    /// </summary>
+    [Fact]
+    public void EmitSwiftMethodWrapper_FoundationDataParam_UsesTwoIntWords()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("DataCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("DataCache", moduleDecl);
+
+        // Method with Foundation.Data parameter
+        var method = new MethodDecl
+        {
+            Name = "storeData",
+            MangledName = "SBW_TestModule_DataCache_storeData_abc12345",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Foundation.Data"),
+                    Name = "data",
+                    PrivateName = "data",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+
+        // Data parameter must be received as two Int words (matching String pattern),
+        // not Foundation.Data (which triggers ObjC bridging to NSData*)
+        Assert.Contains("_dW0_data: Int", output);
+        Assert.Contains("_dW1_data: Int", output);
+        // Must reconstruct via unsafeBitCast to Foundation.Data.self
+        Assert.Contains("unsafeBitCast", output);
+        Assert.Contains("Foundation.Data.self", output);
+        // Must NOT have bare "Foundation.Data" as a @_cdecl parameter type
+        Assert.DoesNotContain("_ data: Data,", output);
+        Assert.DoesNotContain("_ data: Foundation.Data,", output);
+    }
+
+    /// <summary>
+    /// Verifies that @_cdecl method wrappers emit two-Int-word parameters for Foundation.Data
+    /// on static methods (like LottieAnimation.from(data:)).
+    /// Regression test for Lottie LottieAnimation.from(byte[]) SIGSEGV.
+    /// </summary>
+    [Fact]
+    public void EmitSwiftMethodWrapper_StaticFoundationDataParam_UsesTwoIntWords()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Animation");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Animation", moduleDecl);
+
+        // Static method with Foundation.Data parameter
+        var method = new MethodDecl
+        {
+            Name = "from",
+            MangledName = "SBW_TestModule_Animation_from_abc12345",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Animation"),
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Foundation.Data"),
+                    Name = "data",
+                    PrivateName = "data",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+
+        // Data parameter must be received as two Int words
+        Assert.Contains("_dW0_data: Int", output);
+        Assert.Contains("_dW1_data: Int", output);
+        Assert.Contains("unsafeBitCast", output);
+        Assert.Contains("Foundation.Data.self", output);
+    }
+
     #endregion
 }
