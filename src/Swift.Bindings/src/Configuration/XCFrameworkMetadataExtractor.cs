@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -309,6 +310,54 @@ namespace BindingsGeneration
 
             File.WriteAllText(propsPath, content);
             logger.LogInformation("Wrote binding metadata props to {Path}", propsPath);
+        }
+
+        /// <summary>
+        /// Updates an existing binding-metadata.props file in-place to reflect wrapper compilation status.
+        /// Used by --compile-wrapper-only mode which runs after initial generation has already emitted the props file.
+        /// </summary>
+        /// <param name="outputDirectory">Directory containing binding-metadata.props.</param>
+        /// <param name="hasWrapper">Whether a wrapper xcframework was successfully compiled.</param>
+        /// <param name="wrapperModuleName">The wrapper module name (e.g., "NukeSwiftBindings").</param>
+        /// <param name="sliceCount">Number of architecture slices in the wrapper xcframework.</param>
+        /// <param name="logger">Logger instance.</param>
+        public static void UpdateMetadataPropsWrapperStatus(
+            string outputDirectory,
+            bool hasWrapper,
+            string wrapperModuleName,
+            int sliceCount,
+            ILogger logger)
+        {
+            var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
+            if (!File.Exists(propsPath))
+            {
+                logger.LogWarning("Cannot update wrapper status: binding-metadata.props not found at {Path}", propsPath);
+                return;
+            }
+
+            var doc = XDocument.Load(propsPath);
+            var propertyGroup = doc.Root?.Element("PropertyGroup");
+            if (propertyGroup == null)
+            {
+                logger.LogWarning("Cannot update wrapper status: no PropertyGroup in binding-metadata.props");
+                return;
+            }
+
+            SetOrAddElement(propertyGroup, "_SwiftBindingHasWrapperXCFramework", hasWrapper.ToString());
+            SetOrAddElement(propertyGroup, "_SwiftBindingWrapperSliceCount", sliceCount.ToString());
+
+            doc.Save(propsPath);
+            logger.LogInformation("Updated wrapper status in binding-metadata.props: hasWrapper={HasWrapper}, sliceCount={SliceCount}",
+                hasWrapper, sliceCount);
+        }
+
+        private static void SetOrAddElement(XElement parent, string name, string value)
+        {
+            var element = parent.Element(name);
+            if (element != null)
+                element.Value = value;
+            else
+                parent.Add(new XElement(name, value));
         }
 
         /// <summary>

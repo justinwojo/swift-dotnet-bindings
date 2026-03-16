@@ -235,7 +235,10 @@ namespace BindingsGeneration.Tests
                 "_ResolveSwiftNativeReferences",
                 "_ValidateSwiftDependencyMetadata",
                 "_ValidateSwiftBindingPackSlices",
-                "_ConfigureSwiftBindingPack"
+                "_ConfigureSwiftBindingPack",
+                "GetSwiftFrameworkSearchPaths",
+                "_CompileSwiftWrapper",
+                "_UpdateSwiftWrapperMetadata",
             };
 
             foreach (var target in expectedTargets)
@@ -412,7 +415,7 @@ namespace BindingsGeneration.Tests
                 TargetsContent.IndexOf("Name=\"_ResolveSwiftNativeReferences\"", StringComparison.Ordinal));
             var endOfTag = nativeRefTarget.IndexOf('>', StringComparison.Ordinal);
             var targetTag = nativeRefTarget.Substring(0, endOfTag);
-            Assert.Contains("DependsOnTargets=\"_DiscoverSwiftFrameworks\"", targetTag);
+            Assert.Contains("_DiscoverSwiftFrameworks", targetTag);
             Assert.DoesNotContain("@(SwiftFramework)", targetTag);
         }
 
@@ -618,6 +621,99 @@ namespace BindingsGeneration.Tests
             var endOfTag = generateTarget.IndexOf('>', StringComparison.Ordinal);
             var targetTag = generateTarget.Substring(0, endOfTag);
             Assert.Contains("BeforeTargets=\"ResolveProjectReferences\"", targetTag);
+        }
+
+        // ── Two-pass build (wrapper compilation deferred to after ResolveProjectReferences) ──
+
+        [Fact]
+        public void Targets_GeneratorPassesSkipWrapperCompilation()
+        {
+            Assert.Contains("--skip-wrapper-compilation", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapperRunsAfterResolveProjectReferences()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("AfterTargets=\"ResolveProjectReferences\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapperUsesCompileWrapperOnlyFlag()
+        {
+            Assert.Contains("--compile-wrapper-only", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CompileSwiftWrapperCollectsDependencyPaths()
+        {
+            Assert.Contains("Targets=\"GetSwiftFrameworkSearchPaths\"", TargetsContent);
+            Assert.Contains("_ResolvedDepXCFramework", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_GetSwiftFrameworkSearchPaths_ReturnsPaths()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"GetSwiftFrameworkSearchPaths\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("Returns=\"@(_SwiftBindingFrameworkSearchPath)\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_UpdateSwiftWrapperMetadataRunsAfterCompile()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_UpdateSwiftWrapperMetadata\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("AfterTargets=\"_CompileSwiftWrapper\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_ValidateWrapperRunsAfterMetadataUpdate()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ValidateSwiftWrapperCompilation\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("AfterTargets=\"_UpdateSwiftWrapperMetadata\"", targetTag);
+        }
+
+        [Fact]
+        public void Targets_NativeReferenceDependsOnWrapperMetadataUpdate()
+        {
+            var target = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_ResolveSwiftNativeReferences\"", StringComparison.Ordinal));
+            var endOfTag = target.IndexOf('>', StringComparison.Ordinal);
+            var targetTag = target.Substring(0, endOfTag);
+            Assert.Contains("_UpdateSwiftWrapperMetadata", targetTag);
+        }
+
+        [Fact]
+        public void Targets_WrapperSkipOnlyWhenUpToDateAndNoProjectReferences()
+        {
+            // _SwiftWrapperSkip should require BOTH conditions:
+            // fingerprint up-to-date AND no ProjectReferences
+            Assert.Contains("_SwiftWrapperSkip", TargetsContent);
+            Assert.Contains("'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CompileWrapperUsesWrapperSkipNotUpToDate()
+        {
+            // _CompileSwiftWrapper tasks should gate on _SwiftWrapperSkip, not _SwiftBindingUpToDate directly
+            // Find the _CompileSwiftWrapper target and check its Exec condition
+            var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
+            var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
+            var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
+            Assert.Contains("_SwiftWrapperSkip", targetBody);
+            // Should NOT directly use _SwiftBindingUpToDate in task conditions
+            Assert.DoesNotContain("'$(_SwiftBindingUpToDate)' != 'true'", targetBody);
         }
 
         private static string FindRepoRoot()

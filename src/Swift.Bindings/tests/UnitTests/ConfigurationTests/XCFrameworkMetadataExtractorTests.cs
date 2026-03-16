@@ -407,4 +407,119 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region E. UpdateMetadataPropsWrapperStatus Tests
+
+    public class MetadataPropsUpdateTests : IDisposable
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+        private readonly string _tempDir;
+
+        public MetadataPropsUpdateTests()
+        {
+            _tempDir = Path.Combine(Path.GetTempPath(), $"metadata-update-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_tempDir);
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_tempDir, true); } catch { }
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_UpdatesExistingFalseToTrue()
+        {
+            WriteInitialProps(hasWrapper: false, sliceCount: 0);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 2, _logger);
+
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(_tempDir, "binding-metadata.props"));
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal("True", pg.Element("_SwiftBindingHasWrapperXCFramework")?.Value);
+            Assert.Equal("2", pg.Element("_SwiftBindingWrapperSliceCount")?.Value);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_UpdatesExistingTrueToFalse()
+        {
+            WriteInitialProps(hasWrapper: true, sliceCount: 1);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: false, "TestSwiftBindings", 0, _logger);
+
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(_tempDir, "binding-metadata.props"));
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal("False", pg.Element("_SwiftBindingHasWrapperXCFramework")?.Value);
+            Assert.Equal("0", pg.Element("_SwiftBindingWrapperSliceCount")?.Value);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_PreservesOtherProperties()
+        {
+            WriteInitialProps(hasWrapper: false, sliceCount: 0);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 1, _logger);
+
+            var doc = System.Xml.Linq.XDocument.Load(Path.Combine(_tempDir, "binding-metadata.props"));
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal("1.2.3", pg.Element("_SwiftBindingPackageVersion")?.Value);
+            Assert.Equal("TestModule", pg.Element("_SwiftBindingModuleName")?.Value);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_MissingFile_DoesNotThrow()
+        {
+            var emptyDir = Path.Combine(_tempDir, "empty");
+            Directory.CreateDirectory(emptyDir);
+
+            // Should log a warning but not throw
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                emptyDir, hasWrapper: true, "TestSwiftBindings", 1, _logger);
+        }
+
+        [Fact]
+        public void UpdateWrapperStatus_AddsElementsIfMissing()
+        {
+            // Write a minimal props file without wrapper properties
+            var propsPath = Path.Combine(_tempDir, "binding-metadata.props");
+            File.WriteAllText(propsPath, """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingModuleName>Test</_SwiftBindingModuleName>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                _tempDir, hasWrapper: true, "TestSwiftBindings", 2, _logger);
+
+            var doc = System.Xml.Linq.XDocument.Load(propsPath);
+            var pg = doc.Root!.Element("PropertyGroup")!;
+            Assert.Equal("True", pg.Element("_SwiftBindingHasWrapperXCFramework")?.Value);
+            Assert.Equal("2", pg.Element("_SwiftBindingWrapperSliceCount")?.Value);
+        }
+
+        private void WriteInitialProps(bool hasWrapper, int sliceCount)
+        {
+            var propsPath = Path.Combine(_tempDir, "binding-metadata.props");
+            File.WriteAllText(propsPath, $"""
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.2.3</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>16.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>{hasWrapper}</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>{sliceCount}</_SwiftBindingWrapperSliceCount>
+                  </PropertyGroup>
+                </Project>
+                """);
+        }
+    }
+
+    #endregion
 }

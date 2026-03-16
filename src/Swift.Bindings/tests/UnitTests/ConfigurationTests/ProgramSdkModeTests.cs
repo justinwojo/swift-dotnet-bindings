@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.CommandLine;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -246,6 +247,208 @@ namespace BindingsGeneration.Tests
             {
                 Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
+        }
+    }
+
+    /// <summary>
+    /// Tests for --skip-wrapper-compilation and --compile-wrapper-only CLI flags.
+    /// </summary>
+    [Collection("ConsoleCapture")]
+    public class TwoPassBuildCliTests
+    {
+        [Fact]
+        public void Help_IncludesSkipWrapperCompilationOption()
+        {
+            var output = CaptureHelp();
+            Assert.Contains("--skip-wrapper-compilation", output);
+        }
+
+        [Fact]
+        public void Help_IncludesCompileWrapperOnlyOption()
+        {
+            var output = CaptureHelp();
+            Assert.Contains("--compile-wrapper-only", output);
+        }
+
+        [Fact]
+        public void MutuallyExclusiveFlags_ReturnsNonZeroExitCode()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"twopass_mutex_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[]
+                    {
+                        "--skip-wrapper-compilation",
+                        "--compile-wrapper-only",
+                        "--xcframework", "/nonexistent.xcframework",
+                        "-o", dir
+                    });
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CompileWrapperOnly_WithoutXcframework_ReturnsNonZeroExitCode()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"twopass_noxcfw_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[]
+                    {
+                        "--compile-wrapper-only",
+                        "-o", dir
+                    });
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CaptureHelp()
+        {
+            var writer = new StringWriter();
+            Console.SetOut(writer);
+            try
+            {
+                BindingsGenerator.Main(new[] { "-h" });
+                return writer.ToString();
+            }
+            finally
+            {
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Tests for SaveWrapperContext / LoadWrapperContext round-trip persistence.
+    /// </summary>
+    public class WrapperContextPersistenceTests : IDisposable
+    {
+        private static readonly ILogger _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        private readonly string _tempDir;
+
+        public WrapperContextPersistenceTests()
+        {
+            _tempDir = Path.Combine(Path.GetTempPath(), $"wrapper-ctx-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_tempDir);
+        }
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_tempDir, true); } catch { }
+        }
+
+        [Fact]
+        public void RoundTrip_PreservesInternalTypeNames()
+        {
+            var internalTypes = new HashSet<string> { "InternalFoo", "Caches", "Module.InternalBar" };
+            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, null, null, _logger);
+
+            var (loaded, _, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.NotNull(loaded);
+            Assert.Equal(internalTypes, loaded);
+        }
+
+        [Fact]
+        public void RoundTrip_PreservesModuleNameForCollision()
+        {
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, "MyModule", null, _logger);
+
+            var (_, moduleNameForCollision, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal("MyModule", moduleNameForCollision);
+        }
+
+        [Fact]
+        public void RoundTrip_PreservesNestedTypesInCollidingClass()
+        {
+            var nested = new HashSet<string> { "NestedA", "NestedB" };
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, "Mod", nested, _logger);
+
+            var (_, _, loadedNested) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.NotNull(loadedNested);
+            Assert.Equal(nested, loadedNested);
+        }
+
+        [Fact]
+        public void RoundTrip_AllFieldsTogether()
+        {
+            var internalTypes = new HashSet<string> { "TypeA" };
+            var nested = new HashSet<string> { "NestedX" };
+            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, "Collision", nested, _logger);
+
+            var (loadedInternal, loadedCollision, loadedNested) =
+                BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal(internalTypes, loadedInternal);
+            Assert.Equal("Collision", loadedCollision);
+            Assert.Equal(nested, loadedNested);
+        }
+
+        [Fact]
+        public void Load_MissingFile_ReturnsNulls()
+        {
+            var emptyDir = Path.Combine(_tempDir, "empty");
+            Directory.CreateDirectory(emptyDir);
+
+            var (internalTypes, collision, nested) =
+                BindingsGenerator.LoadWrapperContext(emptyDir, _logger);
+
+            Assert.Null(internalTypes);
+            Assert.Null(collision);
+            Assert.Null(nested);
+        }
+
+        [Fact]
+        public void Load_CorruptedFile_ReturnsNulls()
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "wrapper-context.json"), "not valid json{{{");
+
+            var (internalTypes, collision, nested) =
+                BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Null(internalTypes);
+            Assert.Null(collision);
+            Assert.Null(nested);
+        }
+
+        [Fact]
+        public void RoundTrip_NullInputs_ProducesEmptyCollections()
+        {
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, null, null, _logger);
+
+            var (loadedInternal, loadedCollision, loadedNested) =
+                BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            // null sets serialize as empty arrays; empty arrays deserialize as empty HashSets
+            Assert.NotNull(loadedInternal);
+            Assert.Empty(loadedInternal);
+            Assert.Null(loadedCollision);
+            Assert.NotNull(loadedNested);
+            Assert.Empty(loadedNested);
         }
     }
 

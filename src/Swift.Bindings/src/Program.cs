@@ -97,6 +97,16 @@ namespace BindingsGeneration
                 aliases: new[] { "--objc" },
                 description: "Force ObjC binding pipeline (auto-detected if not specified).",
                 getDefaultValue: () => false);
+            Option<bool> skipWrapperCompilationOption = new(
+                aliases: new[] { "--skip-wrapper-compilation" },
+                description: "Skip Swift wrapper compilation. Generates C# bindings and Swift wrapper source but does not compile the wrapper. " +
+                             "Used by the SDK to defer wrapper compilation until after dependencies are built.",
+                getDefaultValue: () => false);
+            Option<bool> compileWrapperOnlyOption = new(
+                aliases: new[] { "--compile-wrapper-only" },
+                description: "Compile-wrapper-only mode: skips all parsing and C# generation, compiles existing .swift wrapper files " +
+                             "from the output directory, and updates binding-metadata.props. Requires --xcframework and -o.",
+                getDefaultValue: () => false);
             Option<int> verboseOption = new(
                 aliases: new[] { "-v", "--verbose" },
                 description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -126,6 +136,8 @@ namespace BindingsGeneration
                 moduleDatabaseOption,
                 noAutoDetectOption,
                 objcOption,
+                skipWrapperCompilationOption,
+                compileWrapperOnlyOption,
                 configOption,
                 verboseOption,
                 helpOption,
@@ -154,6 +166,8 @@ namespace BindingsGeneration
                 var moduleDatabases = parseResult.GetValueForOption(moduleDatabaseOption);
                 var noAutoDetect = parseResult.GetValueForOption(noAutoDetectOption);
                 var objcForced = parseResult.GetValueForOption(objcOption);
+                var skipWrapperCompilation = parseResult.GetValueForOption(skipWrapperCompilationOption);
+                var compileWrapperOnly = parseResult.GetValueForOption(compileWrapperOnlyOption);
                 var configPath = parseResult.GetValueForOption(configOption);
                 var verbose = parseResult.GetValueForOption(verboseOption);
                 var help = parseResult.GetValueForOption(helpOption);
@@ -182,6 +196,8 @@ namespace BindingsGeneration
                     Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");
                     Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
                     Console.WriteLine("  --objc               Optional. Force ObjC binding pipeline (auto-detected if not specified).");
+                    Console.WriteLine("  --skip-wrapper-compilation  Optional. Skip wrapper compilation (SDK defers to _CompileSwiftWrapper target).");
+                    Console.WriteLine("  --compile-wrapper-only      Optional. Compile existing .swift wrapper files only (no parsing/generation).");
                     Console.WriteLine($"  --config             Optional. Path to config file. Default: {DefaultConfigFileName}");
                     Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
                     return;
@@ -214,6 +230,29 @@ namespace BindingsGeneration
                 {
                     logger.LogError("Error: Output directory (-o) is required.");
                     context.ExitCode = 1;
+                    return;
+                }
+
+                // Validate mutual exclusivity: --skip-wrapper-compilation vs --compile-wrapper-only
+                if (skipWrapperCompilation && compileWrapperOnly)
+                {
+                    logger.LogError("Error: --skip-wrapper-compilation and --compile-wrapper-only are mutually exclusive.");
+                    context.ExitCode = 1;
+                    return;
+                }
+
+                // Handle --compile-wrapper-only: fast path that skips all parsing/generation
+                if (compileWrapperOnly)
+                {
+                    if (string.IsNullOrWhiteSpace(xcframeworkPath))
+                    {
+                        logger.LogError("Error: --compile-wrapper-only requires --xcframework.");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    context.ExitCode = RunCompileWrapperOnly(
+                        xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
+                        wrapperArchitectures, frameworkDependencies, logger, platformInfo);
                     return;
                 }
 
@@ -335,11 +374,13 @@ namespace BindingsGeneration
                     }
 
                     // Gate wrapper compilation:
+                    // - --skip-wrapper-compilation: always skip (SDK defers to _CompileSwiftWrapper target)
                     // - simulator/all: needs a simulator slice (always present as primary when --platform-target simulator)
                     // - device: can compile with just a device slice
                     // - If the primary resolution is device-only and architectures is 'simulator', skip
                     var wrapperArchEarly = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
-                    shouldCompileWrapper = ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
+                    shouldCompileWrapper = !skipWrapperCompilation &&
+                        ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
                     if (!shouldCompileWrapper)
                     {
                         logger.LogInformation(
@@ -347,12 +388,15 @@ namespace BindingsGeneration
                             "Pass --async-library manually for device-only builds without wrapper compilation.");
                     }
 
-                    // Auto-set --async-library whenever wrapper will be compiled
-                    if (shouldCompileWrapper && string.IsNullOrWhiteSpace(asyncLibrary))
+                    // Auto-set --async-library whenever wrapper will be compiled (now or deferred).
+                    // When --skip-wrapper-compilation is used, the wrapper is compiled later by
+                    // _CompileSwiftWrapper, but C# generation still needs the module name for DllImport.
+                    var wouldCompileWrapper = ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
+                    if (wouldCompileWrapper && string.IsNullOrWhiteSpace(asyncLibrary))
                     {
                         var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
                         asyncLibrary = wrapperModuleName;
-                        asyncLibraryAutoWired = true;
+                        asyncLibraryAutoWired = !skipWrapperCompilation; // Only true if actually compiling now
                         logger.LogInformation("Auto-setting --async-library to '{Module}'.", wrapperModuleName);
                     }
                 }
@@ -487,6 +531,14 @@ namespace BindingsGeneration
                 {
                     context.ExitCode = 1;
                     return;
+                }
+
+                // Persist wrapper compilation context for --compile-wrapper-only mode.
+                // These values are computed during generation and needed by the deferred
+                // wrapper compilation pass (SDK two-pass build).
+                if (hasXcframework)
+                {
+                    SaveWrapperContext(outputDirectory, internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, logger);
                 }
 
                 // Validate --wrapper-architectures
@@ -1093,6 +1145,172 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Compile-wrapper-only mode: resolves the xcframework, compiles existing .swift wrapper files,
+        /// and updates binding-metadata.props. Skips all parsing and C# generation.
+        /// </summary>
+        internal static int RunCompileWrapperOnly(
+            string xcframeworkPath, string outputDirectory,
+            string? platformStr, string? platformTargetStr,
+            string? wrapperArchitectures, string[]? frameworkDependencies,
+            ILogger logger, PlatformInfo platformInfo)
+        {
+            var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+            if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
+            {
+                logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
+                return 1;
+            }
+
+            var platformTarget = XCFrameworkPlatformTarget.Simulator;
+            switch (platformTargetStr?.ToLowerInvariant())
+            {
+                case "simulator":
+                case null:
+                    platformTarget = XCFrameworkPlatformTarget.Simulator;
+                    break;
+                case "device":
+                    platformTarget = XCFrameworkPlatformTarget.Device;
+                    break;
+                default:
+                    logger.LogError("Error: Invalid --platform-target '{Value}'.", platformTargetStr);
+                    return 1;
+            }
+
+            // Resolve xcframework to get module name and search paths
+            XCFrameworkResolution resolution;
+            try
+            {
+                resolution = XCFrameworkResolver.Resolve(
+                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Error resolving xcframework: {Message}", ex.Message);
+                return 1;
+            }
+
+            var moduleName = resolution.ModuleName;
+
+            // Resolve framework dependency search paths
+            List<FrameworkDependencyInfo>? resolvedDeps = null;
+            if (frameworkDependencies != null && frameworkDependencies.Length > 0)
+            {
+                resolvedDeps = ResolveFrameworkDependencies(
+                    frameworkDependencies, resolution, xcframeworkPath,
+                    wrapperArchNormalized, platformTarget, logger, platformInfo: platformInfo);
+                if (resolvedDeps == null)
+                    return 1;
+            }
+
+            var simDepPaths = resolvedDeps?
+                .Where(d => d.SimulatorFrameworkSearchPath != null)
+                .Select(d => d.SimulatorFrameworkSearchPath!)
+                .ToList();
+            var deviceDepPaths = resolvedDeps?
+                .Where(d => d.DeviceFrameworkSearchPath != null)
+                .Select(d => d.DeviceFrameworkSearchPath!)
+                .ToList();
+
+            // Load wrapper compilation context saved by the generation pass
+            var (internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass) =
+                LoadWrapperContext(outputDirectory, logger);
+
+            // Compile the wrapper using existing .swift files in the output directory
+            SwiftWrapperCompilationResult? compilationResult = null;
+            Exception? compilationException = null;
+
+            try
+            {
+                if (wrapperArchNormalized == "all")
+                {
+                    var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
+                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo);
+
+                    compilationResult = SwiftWrapperCompiler.CompileAll(
+                        outputDirectory, moduleName,
+                        simResolution, deviceResolution, logger,
+                        internalTypeNames: internalTypeNames,
+                        simAdditionalSearchPaths: simDepPaths,
+                        deviceAdditionalSearchPaths: deviceDepPaths,
+                        platformInfo: platformInfo,
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                }
+                else if (wrapperArchNormalized == "device")
+                {
+                    XCFrameworkResolution deviceResolution;
+                    try
+                    {
+                        deviceResolution = XCFrameworkResolver.Resolve(
+                            xcframeworkPath, outputDirectory,
+                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError("Cannot compile device wrapper: {Message}", ex.Message);
+                        return 1;
+                    }
+
+                    compilationResult = SwiftWrapperCompiler.CompileSlice(
+                        outputDirectory, moduleName,
+                        deviceResolution.FrameworkSearchPath,
+                        deviceResolution.DylibPath,
+                        "device", "iphoneos", logger,
+                        internalTypeNames: internalTypeNames,
+                        additionalFrameworkSearchPaths: deviceDepPaths,
+                        platformInfo: platformInfo,
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                        swiftInterfacePath: deviceResolution.SwiftInterfacePath);
+                }
+                else
+                {
+                    compilationResult = SwiftWrapperCompiler.Compile(
+                        outputDirectory, moduleName,
+                        resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                        internalTypeNames: internalTypeNames,
+                        additionalFrameworkSearchPaths: simDepPaths,
+                        platformInfo: platformInfo,
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                compilationException = ex;
+            }
+
+            var rawOutcome = SwiftWrapperCompiler.EvaluateResult(
+                compilationResult, false, compilationException);
+            // In compile-wrapper-only mode, always use SDK-mode outcome handling
+            // (downgrade fatal to warning) since this target runs within SDK builds
+            var (outcomeExitCode, diagnosticCode, outcomeMessage) =
+                HandleWrapperCompilationOutcome(rawOutcome, sdkMode: true, compilationException, compilationResult);
+
+            if (outcomeExitCode != 0)
+            {
+                logger.LogError("{Message}", outcomeMessage);
+            }
+            else if (diagnosticCode == "SWIFTBIND050" || rawOutcome == WrapperCompilationOutcome.Warning)
+            {
+                logger.LogWarning("{Message}", outcomeMessage);
+            }
+
+            // Update binding-metadata.props with wrapper compilation result
+            var hasWrapperXcfw = compilationResult?.XCFrameworkPath != null
+                && Directory.Exists(compilationResult.XCFrameworkPath);
+            var wrapperModuleName = $"{moduleName}SwiftBindings";
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                outputDirectory, hasWrapperXcfw, wrapperModuleName,
+                compilationResult?.SliceCount ?? 0, logger);
+
+            return outcomeExitCode;
+        }
+
+        /// <summary>
         /// Determines whether wrapper compilation should proceed based on the resolved
         /// slice type and the requested wrapper architecture scope.
         /// </summary>
@@ -1108,6 +1326,66 @@ namespace BindingsGeneration
             return isSimulatorSlice
                 || wrapperArchitectures == "device"
                 || wrapperArchitectures == "all";
+        }
+
+        private const string WrapperContextFileName = "wrapper-context.json";
+
+        /// <summary>
+        /// Persists wrapper compilation context (computed during generation) to a JSON file
+        /// so that --compile-wrapper-only can read it back for the deferred compilation pass.
+        /// </summary>
+        internal static void SaveWrapperContext(
+            string outputDirectory,
+            HashSet<string>? internalTypeNames,
+            string? moduleNameForCollision,
+            HashSet<string>? nestedTypesInCollidingClass,
+            ILogger logger)
+        {
+            var contextPath = Path.Combine(outputDirectory, WrapperContextFileName);
+            var context = new JObject
+            {
+                ["internalTypeNames"] = internalTypeNames != null
+                    ? new JArray(internalTypeNames.OrderBy(n => n).ToArray())
+                    : new JArray(),
+                ["moduleNameForCollision"] = moduleNameForCollision,
+                ["nestedTypesInCollidingClass"] = nestedTypesInCollidingClass != null
+                    ? new JArray(nestedTypesInCollidingClass.OrderBy(n => n).ToArray())
+                    : new JArray(),
+            };
+            File.WriteAllText(contextPath, context.ToString(Newtonsoft.Json.Formatting.Indented));
+            logger.LogInformation("Saved wrapper context to {Path}", contextPath);
+        }
+
+        /// <summary>
+        /// Loads wrapper compilation context saved by a prior generation pass.
+        /// Returns null values if the context file doesn't exist (backward compatible).
+        /// </summary>
+        internal static (HashSet<string>? internalTypeNames, string? moduleNameForCollision, HashSet<string>? nestedTypesInCollidingClass)
+            LoadWrapperContext(string outputDirectory, ILogger logger)
+        {
+            var contextPath = Path.Combine(outputDirectory, WrapperContextFileName);
+            if (!File.Exists(contextPath))
+            {
+                logger.LogInformation("No wrapper context file at {Path} — using defaults.", contextPath);
+                return (null, null, null);
+            }
+
+            try
+            {
+                var json = JObject.Parse(File.ReadAllText(contextPath));
+                var internalTypeNames = json["internalTypeNames"]?.Values<string>()
+                    .Where(n => n != null).Select(n => n!).ToHashSet();
+                var moduleNameForCollision = json["moduleNameForCollision"]?.Value<string>();
+                var nestedTypes = json["nestedTypesInCollidingClass"]?.Values<string>()
+                    .Where(n => n != null).Select(n => n!).ToHashSet();
+                logger.LogInformation("Loaded wrapper context from {Path}", contextPath);
+                return (internalTypeNames, moduleNameForCollision, nestedTypes);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Failed to load wrapper context: {Message}", ex.Message);
+                return (null, null, null);
+            }
         }
 
         /// <summary>

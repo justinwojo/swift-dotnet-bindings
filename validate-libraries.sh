@@ -345,9 +345,9 @@ if ! $QUICK; then
     echo ""
 fi
 
-# --- Phase 3: Compile Gate ---
+# --- Phase 3: Generate, Compile Wrappers, and Compile C# ---
 
-echo -e "${BOLD}--- Compile Gate ---${NC}"
+echo -e "${BOLD}--- Binding Pipeline ---${NC}"
 
 if $QUICK; then
     if [[ -f "$BASELINE_FILE" ]]; then
@@ -363,18 +363,37 @@ if $QUICK; then
     fi
 fi
 
-# --- Per-target processing function (runs in parallel) ---
+# --- Build framework-to-library-name mapping for dependency resolution ---
+# Maps framework names to their parent library directory names (for xcframework paths)
+FW_TO_LIB=$(python3 -c "
+import json
+libs = json.load(open('$MANIFEST'))['libraries']
+for lib in libs:
+    for prod in lib['products']:
+        print(f\"{prod['framework']}|{lib['name']}\")
+" 2>/dev/null)
 
-process_target() {
+# Build framework-to-dependencies mapping
+FW_DEPS=$(python3 -c "
+import json
+libs = json.load(open('$MANIFEST'))['libraries']
+for lib in libs:
+    for prod in lib['products']:
+        deps = prod.get('dependencies', [])
+        if deps:
+            print(f\"{prod['framework']}|{','.join(deps)}\")
+" 2>/dev/null)
+
+# --- Phase 3a: Generate All Bindings (parallel) ---
+
+generate_target() {
     local entry="$1"
     IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
     local outdir="$OUTPUT_BASE/$name"
-    local output_file="$RESULTS_DIR/$name.output"
+    local output_file="$RESULTS_DIR/$name.gen_output"
     local GEN_VERBOSE=""
     platform="${platform:-ios}"
 
-    # Generate
-    local SWIFT_ERRORS=""
     if ! $QUICK; then
         rm -rf "$outdir"
         mkdir -p "$outdir"
@@ -382,7 +401,7 @@ process_target() {
         local GEN_OUTPUT GEN_EXIT
         local GEN_VERBOSITY=0
         $VERBOSE && GEN_VERBOSITY=1
-        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --xcframework "$xcfw_path" -o "$outdir" --platform "$platform" -v $GEN_VERBOSITY 2>&1)
+        GEN_OUTPUT=$(dotnet "$GENERATOR_DLL" --skip-wrapper-compilation --xcframework "$xcfw_path" -o "$outdir" --platform "$platform" -v $GEN_VERBOSITY 2>&1)
         GEN_EXIT=$?
         if [[ $GEN_EXIT -eq 0 ]] && ls "$outdir"/*.cs 2>/dev/null | grep -qv '\.Wrappers\.cs\|\.SwiftUIBridge\.cs'; then
             set_result "$name" gen "ok"
@@ -393,24 +412,10 @@ process_target() {
             fi
         fi
         set_result "$name" seconds $(( SECONDS - GEN_START ))
-
-        # Check Swift wrapper compilation
-        local SWIFT_STATUS
-        SWIFT_STATUS=$(check_swift_wrapper "$outdir")
-        set_result "$name" swift_compile "$SWIFT_STATUS"
-
-        # Capture Swift error lines from generator output when verbose
-        if $VERBOSE && [[ "$SWIFT_STATUS" == "fail" ]]; then
-            SWIFT_ERRORS=$(echo "$GEN_OUTPUT" | grep -E '\.swift:[0-9]+:[0-9]+: error:' | head -5)
-        fi
     else
         if [[ -d "$outdir" ]]; then
             set_result "$name" gen "cached"
             set_result "$name" seconds 0
-            # Check Swift wrapper status from cached output
-            local SWIFT_STATUS
-            SWIFT_STATUS=$(check_swift_wrapper "$outdir")
-            set_result "$name" swift_compile "$SWIFT_STATUS"
         else
             set_result "$name" gen "missing"
             set_result "$name" compile "skip"
@@ -422,40 +427,134 @@ process_target() {
         fi
     fi
 
-    # Count lines (before potential dep_only skip)
+    # Count generated lines
     local CS_FILE LINES
     CS_FILE=$(ls "$outdir"/*.cs 2>/dev/null | grep -v '\.Wrappers\.cs' | grep -v '\.SwiftUIBridge\.cs' | head -1)
     LINES=0
     [[ -n "$CS_FILE" ]] && LINES=$(wc -l < "$CS_FILE" | tr -d ' ')
     set_result "$name" lines "$LINES"
 
-    # Skip standalone compile for libraries with dependencies — compiled in dep gate
-    if [[ "$has_deps" == "1" ]]; then
-        local GEN_SECS
-        GEN_SECS=$(get_result "$name" seconds 0)
-        set_result "$name" compile "dep_only"
-        set_result "$name" errors 0
-        local swift_marker=""
-        local sw_status
-        sw_status=$(get_result "$name" swift_compile "unknown")
-        case "$sw_status" in
-            ok) swift_marker=" ${GREEN}[swift:ok]${NC}" ;;
-            fail) swift_marker=" ${RED}[swift:fail]${NC}" ;;
-            no_wrapper) swift_marker="" ;;
-        esac
+    local GEN_SECS
+    GEN_SECS=$(get_result "$name" seconds 0)
+
+    # Format generation result
+    {
+        if [[ -n "$GEN_VERBOSE" ]]; then
+            echo "$GEN_VERBOSE" | while IFS= read -r line; do
+                echo -e "    ${DIM}$line${NC}"
+            done
+        fi
+        local gen_status
+        gen_status=$(get_result "$name" gen "unknown")
+        if [[ "$gen_status" == "ok" || "$gen_status" == "cached" ]]; then
+            echo -e "  ${GREEN}$name: generated${NC} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+        else
+            echo -e "  ${RED}$name: gen failed${NC} ${DIM}(${GEN_SECS}s)${NC}"
+        fi
+    } > "$output_file"
+}
+
+# --- Phase 3b: Compile Swift Wrappers (parallel) ---
+
+compile_wrapper() {
+    local entry="$1"
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
+    local outdir="$OUTPUT_BASE/$name"
+    local output_file="$RESULTS_DIR/$name.swift_output"
+    platform="${platform:-ios}"
+
+    # Skip if generation failed or missing
+    local gen_status
+    gen_status=$(get_result "$name" gen "unknown")
+    if [[ "$gen_status" != "ok" && "$gen_status" != "cached" ]]; then
+        set_result "$name" swift_compile "unknown"
+        return
+    fi
+
+    if ! $QUICK; then
+        # Build the --compile-wrapper-only command with dependency framework paths
+        local CMD_ARGS=("--compile-wrapper-only" "--xcframework" "$xcfw_path" "-o" "$outdir" "--platform" "$platform")
+        local GEN_VERBOSITY=0
+        $VERBOSE && GEN_VERBOSITY=1
+        CMD_ARGS+=("-v" "$GEN_VERBOSITY")
+
+        # Look up framework name (strip @platform suffix for mapping)
+        local fw_base="${name%%@*}"
+
+        # Add --framework-dependency flags for each dependency
+        local dep_list=""
+        while IFS='|' read -r dep_fw dep_fws; do
+            [[ "$dep_fw" == "$fw_base" ]] && dep_list="$dep_fws"
+        done <<< "$FW_DEPS"
+
+        if [[ -n "$dep_list" ]]; then
+            IFS=',' read -ra DEP_NAMES <<< "$dep_list"
+            for dep_fw_name in "${DEP_NAMES[@]}"; do
+                # Look up library name for this dependency framework
+                local dep_lib_name=""
+                while IFS='|' read -r map_fw map_lib; do
+                    [[ "$map_fw" == "$dep_fw_name" ]] && dep_lib_name="$map_lib"
+                done <<< "$FW_TO_LIB"
+                if [[ -n "$dep_lib_name" ]]; then
+                    local dep_xcfw="$LIBRARIES_DIR/$dep_lib_name/$dep_fw_name.xcframework"
+                    if [[ -d "$dep_xcfw" ]]; then
+                        CMD_ARGS+=("--framework-dependency" "$dep_xcfw")
+                    fi
+                fi
+            done
+        fi
+
+        local WRAPPER_OUTPUT WRAPPER_EXIT
+        WRAPPER_OUTPUT=$(dotnet "$GENERATOR_DLL" "${CMD_ARGS[@]}" 2>&1)
+        WRAPPER_EXIT=$?
+
+        # Check swift wrapper status
+        local SWIFT_STATUS
+        SWIFT_STATUS=$(check_swift_wrapper "$outdir")
+        set_result "$name" swift_compile "$SWIFT_STATUS"
+
+        # Capture Swift error lines when verbose + fail
+        local SWIFT_ERRORS=""
+        if $VERBOSE && [[ "$SWIFT_STATUS" == "fail" ]]; then
+            SWIFT_ERRORS=$(echo "$WRAPPER_OUTPUT" | grep -E '\.swift:[0-9]+:[0-9]+: error:' | head -5)
+        fi
+
+        # Format swift wrapper result
         {
-            if [[ -n "$GEN_VERBOSE" ]]; then
-                echo "$GEN_VERBOSE" | while IFS= read -r line; do
-                    echo -e "    ${DIM}$line${NC}"
-                done
-            fi
             if [[ -n "$SWIFT_ERRORS" ]]; then
                 echo "$SWIFT_ERRORS" | while IFS= read -r line; do
                     echo -e "    ${RED}$line${NC}"
                 done
             fi
-            echo -e "  ${CYAN}$name: deferred to dep gate${NC}${swift_marker} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
+            case "$SWIFT_STATUS" in
+                ok) echo -e "  ${GREEN}$name: [swift:ok]${NC}" ;;
+                fail) echo -e "  ${RED}$name: [swift:fail]${NC}" ;;
+                no_wrapper) echo -e "  ${DIM}$name: [no wrapper]${NC}" ;;
+            esac
         } > "$output_file"
+    else
+        # --quick mode: check cached wrapper status
+        local SWIFT_STATUS
+        SWIFT_STATUS=$(check_swift_wrapper "$outdir")
+        set_result "$name" swift_compile "$SWIFT_STATUS"
+    fi
+}
+
+# --- Phase 3c: C# Compile (parallel for non-dep, cascading for dep) ---
+
+compile_target() {
+    local entry="$1"
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
+    local outdir="$OUTPUT_BASE/$name"
+    local output_file="$RESULTS_DIR/$name.compile_output"
+    platform="${platform:-ios}"
+
+    # Skip if generation failed or missing
+    local gen_status
+    gen_status=$(get_result "$name" gen "unknown")
+    if [[ "$gen_status" != "ok" && "$gen_status" != "cached" ]]; then
+        set_result "$name" compile "skip"
+        set_result "$name" errors 0
         return
     fi
 
@@ -478,7 +577,6 @@ process_target() {
     if [[ -z "$CSPROJ_FILE" ]]; then
         set_result "$name" compile "no_csproj"
         set_result "$name" errors 0
-        set_result "$name" lines 0
         echo -e "  ${YELLOW}$name: no .csproj generated${NC}" > "$output_file"
         return
     fi
@@ -520,9 +618,10 @@ process_target() {
     fi
     set_result "$name" errors "$ERRORS"
 
-    local GEN_SECS EXPECTED_ERRORS
+    local GEN_SECS EXPECTED_ERRORS LINES
     GEN_SECS=$(get_result "$name" seconds 0)
     EXPECTED_ERRORS=$known_errors
+    LINES=$(get_result "$name" lines 0)
 
     # Swift wrapper status marker
     local swift_marker=""
@@ -534,22 +633,8 @@ process_target() {
         no_wrapper) swift_marker="" ;;
     esac
 
-    # Format result output (buffered to file for ordered display)
+    # Format compile result output (buffered to file for ordered display)
     {
-        # Show gen verbose output if available
-        if [[ -n "$GEN_VERBOSE" ]]; then
-            echo "$GEN_VERBOSE" | while IFS= read -r line; do
-                echo -e "    ${DIM}$line${NC}"
-            done
-        fi
-
-        # Show Swift compilation errors if verbose + fail
-        if [[ -n "$SWIFT_ERRORS" ]]; then
-            echo "$SWIFT_ERRORS" | while IFS= read -r line; do
-                echo -e "    ${RED}$line${NC}"
-            done
-        fi
-
         if [[ $ERRORS -eq 0 ]]; then
             set_result "$name" compile "ok"
             echo -e "  ${GREEN}$name: OK${NC}${swift_marker} ${DIM}(${LINES} lines, ${GEN_SECS}s)${NC}"
@@ -610,42 +695,51 @@ for entry in entries:
     fi
 fi
 
-# --- Parallel dispatch ---
+# --- Phase 3a: Parallel dispatch — Generate All Bindings ---
 
-echo -e "${DIM}Processing $TOTAL_TARGETS targets with $MAX_JOBS parallel workers...${NC}"
-PHASE3_START=$SECONDS
+echo -e "${DIM}Phase 3a: Generating $TOTAL_TARGETS targets with $MAX_JOBS parallel workers...${NC}"
+PHASE3A_START=$SECONDS
 
 for entry in "${TARGETS[@]}"; do
-    process_target "$entry" &
-    # Limit concurrent background jobs
+    generate_target "$entry" &
     while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
         sleep 0.1
     done
 done
 wait
 
-echo -e "${DIM}Completed in $((SECONDS - PHASE3_START))s${NC}"
+echo -e "${DIM}Phase 3a completed in $((SECONDS - PHASE3A_START))s${NC}"
 
-# --- Display results in order and compute counters ---
+# Display Phase 3a results
+for entry in "${DISPLAY_TARGETS[@]}"; do
+    IFS='|' read -r name _ <<< "$entry"
+    [[ -f "$RESULTS_DIR/$name.gen_output" ]] && cat "$RESULTS_DIR/$name.gen_output"
+done
 
-COMPILE_PASSED=0
-COMPILE_FAILED=0
-COMPILE_NO_OUTPUT=0
-COMPILE_DEFERRED=0
+# --- Phase 3b: Parallel dispatch — Compile Swift Wrappers ---
+
+echo ""
+echo -e "${DIM}Phase 3b: Compiling Swift wrappers with $MAX_JOBS parallel workers...${NC}"
+PHASE3B_START=$SECONDS
+
+for entry in "${TARGETS[@]}"; do
+    compile_wrapper "$entry" &
+    while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
+        sleep 0.1
+    done
+done
+wait
+
+echo -e "${DIM}Phase 3b completed in $((SECONDS - PHASE3B_START))s${NC}"
+
+# Display Phase 3b results and compute swift counters
 SWIFT_PASSED=0
 SWIFT_FAILED=0
 SWIFT_NO_WRAPPER=0
 
 for entry in "${DISPLAY_TARGETS[@]}"; do
     IFS='|' read -r name _ <<< "$entry"
-    [[ -f "$RESULTS_DIR/$name.output" ]] && cat "$RESULTS_DIR/$name.output"
-    comp_status=$(get_result "$name" compile "unknown")
-    case "$comp_status" in
-        ok|known_errors) COMPILE_PASSED=$((COMPILE_PASSED + 1)) ;;
-        fail|regressed|infra_fail) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
-        dep_only) COMPILE_DEFERRED=$((COMPILE_DEFERRED + 1)) ;;
-        *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
-    esac
+    [[ -f "$RESULTS_DIR/$name.swift_output" ]] && cat "$RESULTS_DIR/$name.swift_output"
     swift_status=$(get_result "$name" swift_compile "unknown")
     case "$swift_status" in
         ok) SWIFT_PASSED=$((SWIFT_PASSED + 1)) ;;
@@ -653,19 +747,6 @@ for entry in "${DISPLAY_TARGETS[@]}"; do
         no_wrapper) SWIFT_NO_WRAPPER=$((SWIFT_NO_WRAPPER + 1)) ;;
     esac
 done
-
-echo ""
-COMPILE_TESTED=$((COMPILE_PASSED + COMPILE_FAILED + COMPILE_NO_OUTPUT))
-TOTAL=$((COMPILE_TESTED + COMPILE_DEFERRED))
-DEFERRED_NOTE=""
-(( COMPILE_DEFERRED > 0 )) && DEFERRED_NOTE=" ${DIM}($COMPILE_DEFERRED deferred to dep gate)${NC}"
-if [[ $COMPILE_FAILED -eq 0 && $COMPILE_NO_OUTPUT -eq 0 ]]; then
-    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed${NC}${DEFERRED_NOTE}"
-elif [[ $COMPILE_FAILED -eq 0 ]]; then
-    echo -e "${GREEN}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}${DEFERRED_NOTE}"
-else
-    echo -e "${RED}Compile gate: $COMPILE_PASSED/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}${DEFERRED_NOTE}"
-fi
 
 # Swift wrapper compilation summary
 SWIFT_TESTED=$((SWIFT_PASSED + SWIFT_FAILED))
@@ -678,12 +759,78 @@ if [[ $SWIFT_TESTED -gt 0 ]]; then
         echo -e "${RED}Swift wrapper: $SWIFT_PASSED/$SWIFT_TESTED passed, $SWIFT_FAILED failed${NC}${SWIFT_NOWRAP_NOTE}"
     fi
 fi
-# --- Phase 3.5: Dependency Gate (Cascading) ---
+
+# --- Phase 3c: C# Compile Gate ---
+# Non-dep libraries: parallel standalone compile
+# Dep libraries: cascading rounds with assembly references
+
+echo ""
+echo -e "${BOLD}--- Compile Gate ---${NC}"
+
+# Split targets into non-dep and dep sets
+NON_DEP_TARGETS=()
+DEP_TARGET_ENTRIES=()
+for entry in "${TARGETS[@]}"; do
+    IFS='|' read -r name lib_name xcfw_path mode known_errors has_deps platform <<< "$entry"
+    if [[ "$has_deps" == "1" ]]; then
+        DEP_TARGET_ENTRIES+=("$entry")
+    else
+        NON_DEP_TARGETS+=("$entry")
+    fi
+done
+
+# Phase 3c-standalone: Compile non-dep targets in parallel
+if [[ ${#NON_DEP_TARGETS[@]} -gt 0 ]]; then
+    echo -e "${DIM}Phase 3c: Compiling ${#NON_DEP_TARGETS[@]} standalone targets with $MAX_JOBS parallel workers...${NC}"
+    PHASE3C_START=$SECONDS
+
+    for entry in "${NON_DEP_TARGETS[@]}"; do
+        compile_target "$entry" &
+        while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do
+            sleep 0.1
+        done
+    done
+    wait
+
+    echo -e "${DIM}Phase 3c standalone completed in $((SECONDS - PHASE3C_START))s${NC}"
+fi
+
+# Display standalone compile results and compute counters
+COMPILE_PASSED=0
+COMPILE_FAILED=0
+COMPILE_NO_OUTPUT=0
+
+for entry in "${DISPLAY_TARGETS[@]}"; do
+    IFS='|' read -r name _ _ _ _ has_deps _ <<< "$entry"
+    # Only show non-dep results here; dep results shown in dep gate below
+    [[ "$has_deps" == "1" ]] && continue
+    [[ -f "$RESULTS_DIR/$name.compile_output" ]] && cat "$RESULTS_DIR/$name.compile_output"
+    comp_status=$(get_result "$name" compile "unknown")
+    case "$comp_status" in
+        ok|known_errors) COMPILE_PASSED=$((COMPILE_PASSED + 1)) ;;
+        fail|regressed|infra_fail) COMPILE_FAILED=$((COMPILE_FAILED + 1)) ;;
+        *) COMPILE_NO_OUTPUT=$((COMPILE_NO_OUTPUT + 1)) ;;
+    esac
+done
+
+COMPILE_TESTED=$((COMPILE_PASSED + COMPILE_FAILED + COMPILE_NO_OUTPUT))
+if [[ $COMPILE_TESTED -gt 0 ]]; then
+    echo ""
+    if [[ $COMPILE_FAILED -eq 0 && $COMPILE_NO_OUTPUT -eq 0 ]]; then
+        echo -e "${GREEN}Compile gate (standalone): $COMPILE_PASSED/$COMPILE_TESTED passed${NC}"
+    elif [[ $COMPILE_FAILED -eq 0 ]]; then
+        echo -e "${GREEN}Compile gate (standalone): $COMPILE_PASSED/$COMPILE_TESTED passed${NC} ${DIM}($COMPILE_NO_OUTPUT no output)${NC}"
+    else
+        echo -e "${RED}Compile gate (standalone): $COMPILE_PASSED/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}"
+    fi
+fi
+
+# --- Phase 3c Dependency Gate (Cascading) ---
 
 # Resolves cross-module type references by compiling libraries with assembly references
 # to their dependencies. Computes transitive dependency closure so indirect deps are
 # included. Runs in cascading rounds: each round's successful compilations produce DLLs
-# that unlock the next round's compilations (e.g., StripeCore → StripePayments → Stripe).
+# that unlock the next round's compilations (e.g., StripeCore -> StripePayments -> Stripe).
 
 DEP_PASSED=0
 DEP_FAILED=0
@@ -834,24 +981,38 @@ DEP_EOF
             DEP_ERRORS=$(echo "$DEP_BUILD_OUTPUT" | grep "error CS" | sort -u | wc -l | tr -d ' ')
 
             dep_display_deps=$(echo "$dep_list" | tr ',' ' ')
+
+            # Swift wrapper status marker for dep gate display
+            dep_swift_marker=""
+            dep_sw_status=$(get_result "$dep_fw" swift_compile "unknown")
+            case "$dep_sw_status" in
+                ok) dep_swift_marker=" ${GREEN}[swift:ok]${NC}" ;;
+                fail) dep_swift_marker=" ${RED}[swift:fail]${NC}" ;;
+                no_wrapper) dep_swift_marker="" ;;
+            esac
+
             if [[ $DEP_BUILD_EXIT -eq 0 && $DEP_ERRORS -eq 0 ]]; then
                 DEP_PASSED=$((DEP_PASSED + 1))
                 DEP_PROGRESS=true
-                echo -e "  ${GREEN}$dep_fw + [${dep_display_deps}]: OK${NC}"
-                # Record dep gate result separately — do NOT mutate compile-gate status.
-                # Compile gate reflects standalone compilation; dep gate is a separate signal.
+                echo -e "  ${GREEN}$dep_fw + [${dep_display_deps}]: OK${NC}${dep_swift_marker}"
+                set_result "$dep_fw" compile "ok"
                 set_result "$dep_fw" dep_compile "ok"
+                set_result "$dep_fw" errors 0
                 set_result "$dep_fw" dep_errors 0
             elif [[ $DEP_BUILD_EXIT -ne 0 && $DEP_ERRORS -eq 0 ]]; then
                 INFRA_ERR=$(echo "$DEP_BUILD_OUTPUT" | grep -i "error " | grep -v "error CS" | head -1)
                 DEP_FAILED=$((DEP_FAILED + 1))
-                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: build failure${NC}"
+                set_result "$dep_fw" compile "infra_fail"
+                set_result "$dep_fw" errors 0
+                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: build failure${NC}${dep_swift_marker}"
                 if $VERBOSE && [[ -n "$INFRA_ERR" ]]; then
                     echo -e "    ${DIM}$INFRA_ERR${NC}"
                 fi
             else
                 DEP_FAILED=$((DEP_FAILED + 1))
-                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: $DEP_ERRORS errors${NC}"
+                set_result "$dep_fw" compile "fail"
+                set_result "$dep_fw" errors "$DEP_ERRORS"
+                echo -e "  ${RED}$dep_fw + [${dep_display_deps}]: $DEP_ERRORS errors${NC}${dep_swift_marker}"
                 if $VERBOSE; then
                     echo "$DEP_BUILD_OUTPUT" | grep "error CS" | head -5 | while IFS= read -r line; do
                         echo -e "    ${DIM}$line${NC}"
@@ -870,6 +1031,8 @@ DEP_EOF
         while IFS='|' read -r dep_fw dep_list; do
             [[ -z "$dep_fw" ]] && continue
             DEP_SKIPPED=$((DEP_SKIPPED + 1))
+            set_result "$dep_fw" compile "skip"
+            set_result "$dep_fw" errors 0
             dep_display_deps=$(echo "$dep_list" | tr ',' ' ')
             echo -e "  ${YELLOW}$dep_fw + [${dep_display_deps}]: skipped (dependencies not resolved)${NC}"
         done <<< "$DEP_PENDING"
@@ -1078,21 +1241,21 @@ MANUAL_TARGET_COUNT="${TIER_INFO##*|}"
 
 echo -e "${BOLD}=== Summary ===${NC}"
 
-# Overall = compile-gate passes + dep-gate passes (no double-counting)
+# Overall = standalone passes + dep-gate passes
 OVERALL_PASSED=$((COMPILE_PASSED + DEP_PASSED))
-OVERALL_FAILED=$((TOTAL - OVERALL_PASSED - COMPILE_NO_OUTPUT))
+OVERALL_FAILED=$((TOTAL_TARGETS - OVERALL_PASSED - COMPILE_NO_OUTPUT))
 if [[ $OVERALL_FAILED -le 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
-    echo -e "  Overall: ${GREEN}${OVERALL_PASSED}/$TOTAL passed${NC}"
+    echo -e "  Overall: ${GREEN}${OVERALL_PASSED}/$TOTAL_TARGETS passed${NC}"
 else
-    echo -e "  Overall: ${RED}${OVERALL_PASSED}/$TOTAL passed, $OVERALL_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
+    echo -e "  Overall: ${RED}${OVERALL_PASSED}/$TOTAL_TARGETS passed, $OVERALL_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}"
 fi
 
 if [[ ${COMPILE_FAILED:-0} -eq 0 && ${COMPILE_NO_OUTPUT:-0} -eq 0 ]]; then
-    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}${DEFERRED_NOTE}"
+    echo -e "  Compile (standalone): ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}"
 elif [[ ${COMPILE_FAILED:-0} -eq 0 ]]; then
-    echo -e "  Compile: ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}${DEFERRED_NOTE}"
+    echo -e "  Compile (standalone): ${GREEN}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed${NC}, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}"
 else
-    echo -e "  Compile: ${RED}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+, ${DIM}${COMPILE_NO_OUTPUT} no output${NC}}${DEFERRED_NOTE}"
+    echo -e "  Compile (standalone): ${RED}${COMPILE_PASSED:-0}/$COMPILE_TESTED passed, $COMPILE_FAILED failed${NC}${COMPILE_NO_OUTPUT:+ ${DIM}($COMPILE_NO_OUTPUT no output)${NC}}"
 fi
 if [[ ${DEP_TOTAL:-0} -gt 0 ]]; then
     if [[ ${DEP_TESTED:-0} -eq 0 ]]; then

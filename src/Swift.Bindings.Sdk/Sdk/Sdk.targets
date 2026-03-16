@@ -191,6 +191,8 @@
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Force ObjC pipeline for ObjC-only framework type -->
       <_SwiftGenCmd Condition="'$(SwiftFrameworkType)' == 'ObjC'">$(_SwiftGenCmd) --objc</_SwiftGenCmd>
+      <!-- Skip wrapper compilation — deferred to _CompileSwiftWrapper after ResolveProjectReferences -->
+      <_SwiftGenCmd>$(_SwiftGenCmd) --skip-wrapper-compilation</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBindingUpToDate)' != 'true'"
@@ -264,7 +266,7 @@
   <!-- Target 4a: Validate wrapper compilation result                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftWrapperCompilation"
-          AfterTargets="_ImportSwiftBindingMetadata"
+          AfterTargets="_UpdateSwiftWrapperMetadata"
           Condition="'$(_SwiftBindingWrapperModuleName)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <!-- Wrapper was expected but compilation failed: promote to error when SwiftWrapperRequired=true -->
@@ -379,6 +381,95 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4d: Protocol target for dependency xcframework search paths     -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Exposes this project's xcframework paths so that dependent projects
+       can discover them via MSBuild task during _CompileSwiftWrapper. -->
+  <Target Name="GetSwiftFrameworkSearchPaths"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata"
+          Returns="@(_SwiftBindingFrameworkSearchPath)">
+    <ItemGroup>
+      <_SwiftBindingFrameworkSearchPath Include="%(SwiftFramework.Identity)" />
+      <_SwiftBindingFrameworkSearchPath Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
+                                        Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4e: Compile Swift wrapper after dependencies are built          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Runs AFTER ResolveProjectReferences so dependency wrapper xcframeworks
+       are available on the -F search path. Uses compile-wrapper-only mode
+       which skips parsing/generation and only compiles existing .swift files. -->
+  <Target Name="_CompileSwiftWrapper"
+          AfterTargets="ResolveProjectReferences"
+          DependsOnTargets="_ImportSwiftBindingMetadata"
+          Condition="'$(_SwiftBindingWrapperModuleName)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
+
+    <!--
+      Wrapper compilation skip logic:
+      * No ProjectReferences: safe to use source fingerprint (_SwiftBindingUpToDate)
+      * Has ProjectReferences: always recompile, because dependency wrapper outputs
+        are not included in the source fingerprint and may have changed.
+        Wrapper compilation is fast (~2-5s) so this is acceptable.
+    -->
+    <PropertyGroup>
+      <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''">true</_SwiftWrapperSkip>
+    </PropertyGroup>
+
+    <!-- Collect dependency xcframework paths from ProjectReferences -->
+    <MSBuild Projects="@(ProjectReference)"
+             Targets="GetSwiftFrameworkSearchPaths"
+             BuildInParallel="false"
+             ContinueOnError="true"
+             Condition="'@(ProjectReference)' != '' AND '$(_SwiftWrapperSkip)' != 'true'">
+      <Output TaskParameter="TargetOutputs" ItemName="_ResolvedDepXCFramework" />
+    </MSBuild>
+
+    <!-- Build the compile-wrapper-only command -->
+    <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'">
+      <_SwiftWrapperCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --compile-wrapper-only</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --platform $(_SwiftBindingPlatform)</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftWrapperCmd) --platform-target $(SwiftPlatformTarget)</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftWrapperCmd>
+      <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -v $(SwiftGeneratorVerbosity)</_SwiftWrapperCmd>
+      <!-- Explicit SwiftFrameworkDependency search paths -->
+      <_SwiftWrapperCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftWrapperCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- Resolved ProjectReference dependency xcframework paths -->
+      <_SwiftWrapperCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftWrapperCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+    </PropertyGroup>
+
+    <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"
+          Command="$(_SwiftWrapperCmd)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4f: Re-read wrapper metadata after compilation                  -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- _CompileSwiftWrapper updates binding-metadata.props via
+       UpdateMetadataPropsWrapperStatus. Re-read the updated values so
+       downstream targets (_ValidateSwiftWrapperCompilation, _ResolveSwiftNativeReferences)
+       see the correct wrapper status. -->
+  <Target Name="_UpdateSwiftWrapperMetadata"
+          AfterTargets="_CompileSwiftWrapper">
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasWrapperXCFramework/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingHasWrapperXCFramework" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingWrapperSliceCount/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
+    </XmlPeek>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 5: Include generated .cs files in compilation                   -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeGeneratedSwiftBindings"
@@ -419,7 +510,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ResolveSwiftNativeReferences"
           BeforeTargets="ResolveNativeReferences"
-          DependsOnTargets="_DiscoverSwiftFrameworks">
+          DependsOnTargets="_DiscoverSwiftFrameworks;_UpdateSwiftWrapperMetadata">
 
     <ItemGroup Condition="'@(SwiftFramework)' != ''">
       <NativeReference Include="%(SwiftFramework.Identity)">
