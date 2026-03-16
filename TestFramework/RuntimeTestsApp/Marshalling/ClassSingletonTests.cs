@@ -16,7 +16,6 @@ public class ClassSingletonTests : TestBase
 
     #region Tier 2 — Scope Singletons
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeTransientAccess()
     {
         var scope = Scope.Transient;
@@ -25,7 +24,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Scope.Transient.Name = \"{scope.Name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeGraphAccess()
     {
         var scope = Scope.Graph;
@@ -34,7 +32,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Scope.Graph.Name = \"{scope.Name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeContainerAccess()
     {
         var scope = Scope.Container;
@@ -43,7 +40,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Scope.Container.Name = \"{scope.Name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeWeakAccess()
     {
         var scope = Scope.Weak;
@@ -52,7 +48,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Scope.Weak.Name = \"{scope.Name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeDistinctInstances()
     {
         var names = new HashSet<string>
@@ -66,7 +61,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info("All Scope singletons have distinct names");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeGetDescribe()
     {
         var desc = Scope.Transient.GetDescribe();
@@ -74,7 +68,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info($"Scope.Transient.GetDescribe() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestScopeSingletonIdentity()
     {
         // Accessing the same static property twice should return the same Swift object
@@ -89,7 +82,7 @@ public class ClassSingletonTests : TestBase
     #region Tier 3 — TreeNode (Mono JIT crash on class with string ctor)
 
     // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTreeNodeRootNode()
     {
         var root = new TreeNode("root", null);
@@ -100,7 +93,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTreeNodeRootLabel()
     {
         var root = new TreeNode("top", null);
@@ -109,7 +102,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: TreeNode constructor takes SwiftString + optional parent through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTreeNodeChildNode()
     {
         var root = new TreeNode("parent-node", null);
@@ -121,7 +114,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: TreeNode constructor takes SwiftString through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTreeNodeChildGetRootLabel()
     {
         var root = new TreeNode("root-label", null);
@@ -131,7 +124,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: TreeNode chain construction with SwiftString through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTreeNodeDeepChain()
     {
         var root = new TreeNode("level0", null);
@@ -148,7 +141,7 @@ public class ClassSingletonTests : TestBase
     #region Tier 3 — Dog (Mono JIT crash on class with string ctor)
 
     // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDogNameProperty()
     {
         var dog = new Dog("Rex", "Labrador");
@@ -157,7 +150,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDogSoundProperty()
     {
         var dog = new Dog("Rex", "Lab");
@@ -167,7 +160,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDogBreedProperty()
     {
         var dog = new Dog("Buddy", "Golden Retriever");
@@ -176,7 +169,7 @@ public class ClassSingletonTests : TestBase
     }
 
     // Mono JIT crash: Dog constructor takes SwiftString params through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDogGetDescribe()
     {
         var dog = new Dog("Rex", "Lab");

@@ -16,7 +16,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 1 — Blittable Enum Values
 
-    [TestTier(TestTier.Tier1)]
     public void TestCodecFormatValues()
     {
         AssertEqual(Codec.Format.Json, (Codec.Format)0, "Json is 0");
@@ -25,7 +24,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Format enum values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestCodecFormatDistinct()
     {
         AssertTrue(Codec.Format.Json != Codec.Format.Xml, "Json != Xml");
@@ -34,7 +32,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Format distinct values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSHA2VariantValues()
     {
         AssertEqual(SHA2Variant.Sha224, (SHA2Variant)0, "Sha224 is 0");
@@ -44,7 +41,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("SHA2Variant enum values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSHA2VariantRoundTrip()
     {
         AssertEqual(SHA2Variant.Sha256, (SHA2Variant)(int)SHA2Variant.Sha256, "Sha256 round-trip");
@@ -56,7 +52,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Codec.Encoding
 
-    [TestTier(TestTier.Tier2)]
     public void TestCodecEncodingFromRawValueUtf8()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -65,7 +60,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Encoding.FromRawValue(utf-8) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCodecEncodingFromRawValueAscii()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -74,7 +68,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Encoding.FromRawValue(ascii) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCodecEncodingFromRawValueLatin1()
     {
         var encoding = Codec.Encoding.FromRawValue("latin-1");
@@ -83,7 +76,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Encoding.FromRawValue(latin-1) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCodecEncodingFromRawValueInvalid()
     {
         var encoding = Codec.Encoding.FromRawValue("bogus");
@@ -91,7 +83,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Encoding.FromRawValue(bogus) = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCodecEncodingRawValueRoundTrip()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -106,7 +97,7 @@ public class NestedEnumTests : TestBase
     #region Tier 3 — Codec Construction and Properties (Mono JIT crash on class with nested enum)
 
     // Mono JIT crash: Codec class construction with non-blittable Encoding param through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCodecConstructionJson()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -117,7 +108,7 @@ public class NestedEnumTests : TestBase
     }
 
     // Mono JIT crash: Codec class construction with non-blittable Encoding param through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCodecConstructionXml()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -128,7 +119,7 @@ public class NestedEnumTests : TestBase
     }
 
     // Mono JIT crash: Codec class construction + property access through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCodecEncodingValueProperty()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -140,7 +131,7 @@ public class NestedEnumTests : TestBase
     }
 
     // Mono JIT crash: Codec class construction + GetDescribe method through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCodecGetDescribe()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -155,7 +146,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Codec.CompressionLevel
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelNone()
     {
         var level = Codec.CompressionLevel.None;
@@ -163,7 +153,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.CompressionLevel.None passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelFast()
     {
         var level = Codec.CompressionLevel.Fast;
@@ -171,7 +160,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.CompressionLevel.Fast passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelBest()
     {
         var level = Codec.CompressionLevel.Best;
@@ -179,7 +167,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.CompressionLevel.Best passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelCustom()
     {
         var level = Codec.CompressionLevel.Custom(7);
@@ -189,7 +176,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info($"Codec.CompressionLevel.Custom(7) value = {value}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelTryGetCustomOnNonCustom()
     {
         var level = Codec.CompressionLevel.None;
@@ -197,7 +183,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("TryGetCustom on None correctly returns false");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompressionLevelAllCasesDistinct()
     {
         var none = Codec.CompressionLevel.None;
@@ -218,7 +203,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — HashAlgorithm
 
-    [TestTier(TestTier.Tier2)]
     public void TestHashAlgorithmMd5()
     {
         var algo = HashAlgorithm.Md5;
@@ -226,7 +210,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Md5 passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHashAlgorithmSha1()
     {
         var algo = HashAlgorithm.Sha1;
@@ -235,7 +218,7 @@ public class NestedEnumTests : TestBase
     }
 
     // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [TestTier(TestTier.Tier3)]
+    [Skip("Cannot marshal nested enum associated value")]
     public void TestHashAlgorithmSha2()
     {
         var algo = HashAlgorithm.Sha2(SHA2Variant.Sha256);
@@ -246,7 +229,7 @@ public class NestedEnumTests : TestBase
     }
 
     // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [TestTier(TestTier.Tier3)]
+    [Skip("Cannot marshal nested enum associated value")]
     public void TestHashAlgorithmSha2AllVariants()
     {
         var variants = new[] { SHA2Variant.Sha224, SHA2Variant.Sha256, SHA2Variant.Sha384, SHA2Variant.Sha512 };
@@ -260,7 +243,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Sha2 all variants passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHashAlgorithmCustom()
     {
         var algo = HashAlgorithm.Custom(42);
@@ -270,7 +252,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info($"HashAlgorithm.Custom(42) value = {value}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHashAlgorithmTryGetOnWrongCase()
     {
         var md5 = HashAlgorithm.Md5;
@@ -284,7 +265,7 @@ public class NestedEnumTests : TestBase
     #region Tier 2 — Free Functions
 
     // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [TestTier(TestTier.Tier3)]
+    [Skip("Cannot marshal nested enum associated value")]
     public void TestCreateHashAlgorithm()
     {
         var algo = TestLibFunctions.CreateHashAlgorithm(SHA2Variant.Sha512);
@@ -294,7 +275,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("CreateHashAlgorithm(Sha512) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDescribeAlgorithmMd5()
     {
         var algo = HashAlgorithm.Md5;
@@ -303,7 +283,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info($"DescribeAlgorithm(Md5) = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDescribeAlgorithmSha2()
     {
         var algo = HashAlgorithm.Sha2(SHA2Variant.Sha256);
@@ -312,7 +291,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info($"DescribeAlgorithm(Sha2(Sha256)) = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDescribeAlgorithmCustom()
     {
         var algo = HashAlgorithm.Custom(99);

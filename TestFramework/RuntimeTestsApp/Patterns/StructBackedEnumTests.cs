@@ -17,7 +17,6 @@ public class StructBackedEnumTests : TestBase
 
     #region Tier 2 — Static Instances and RawValue
 
-    [TestTier(TestTier.Tier2)]
     public void TestGetRawValue()
     {
         var verb = HttpVerb.Get;
@@ -26,7 +25,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info($"HttpVerb.Get.RawValue = \"{raw}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPostRawValue()
     {
         var verb = HttpVerb.Post;
@@ -35,7 +33,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info($"HttpVerb.Post.RawValue = \"{raw}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPutRawValue()
     {
         var verb = HttpVerb.Put;
@@ -44,7 +41,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info($"HttpVerb.Put.RawValue = \"{raw}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDeleteRawValue()
     {
         var verb = HttpVerb.Delete;
@@ -53,7 +49,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info($"HttpVerb.Delete.RawValue = \"{raw}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPatchRawValue()
     {
         var verb = HttpVerb.Patch;
@@ -66,7 +61,6 @@ public class StructBackedEnumTests : TestBase
 
     #region Tier 2 — Equality Operators
 
-    [TestTier(TestTier.Tier2)]
     public void TestEqualitySameInstance()
     {
         var a = HttpVerb.Get;
@@ -76,7 +70,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info("HttpVerb equality (same instance) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestInequalityDifferentInstances()
     {
         var get = HttpVerb.Get;
@@ -86,7 +79,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info("HttpVerb inequality (different instances) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAllStaticInstancesDistinct()
     {
         var verbs = new[] { HttpVerb.Get, HttpVerb.Post, HttpVerb.Put, HttpVerb.Delete, HttpVerb.Patch };
@@ -105,7 +97,6 @@ public class StructBackedEnumTests : TestBase
 
     #region Tier 2 — Custom Construction
 
-    [TestTier(TestTier.Tier2)]
     public void TestCustomConstruction()
     {
         var verb = new HttpVerb("OPTIONS");
@@ -114,7 +105,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info($"Custom HttpVerb: RawValue = \"{raw}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCustomEqualityWithStatic()
     {
         var custom = new HttpVerb("GET");
@@ -123,7 +113,6 @@ public class StructBackedEnumTests : TestBase
         TestLogger.Info("Custom construction equality with static instance passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCustomInequalityWithStatic()
     {
         var custom = new HttpVerb("HEAD");

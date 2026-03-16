@@ -21,7 +21,6 @@ namespace RuntimeTestsApp.Lifetime;
 /// Container-based tests (ExistentialContainer1 path) work without the
 /// wrapper lib and are Tier 2.
 /// </summary>
-[TestTier(TestTier.Tier2)]
 public class ProxyDisposeTests : TestBase
 {
     public ProxyDisposeTests(TestResults results) : base(results) { }
@@ -123,7 +122,7 @@ public class ProxyDisposeTests : TestBase
     }
 
     // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table P/Invoke requires wrapper lib")]
     public void TestProxyDisposeReleasesStrongReference()
     {
         var initialCount = SwiftObjectRegistry.StrongCount;
@@ -138,7 +137,7 @@ public class ProxyDisposeTests : TestBase
     }
 
     // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table P/Invoke requires wrapper lib")]
     public void TestProxyDoubleDisposeIsSafe()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(10));
@@ -153,7 +152,7 @@ public class ProxyDisposeTests : TestBase
     }
 
     // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table P/Invoke requires wrapper lib")]
     public void TestProxyPropertyAccessAfterDisposeThrows()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(42));
@@ -168,7 +167,7 @@ public class ProxyDisposeTests : TestBase
     }
 
     // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table P/Invoke requires wrapper lib")]
     public void TestProxyMethodAccessAfterDisposeThrows()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(42));

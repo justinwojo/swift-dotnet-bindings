@@ -13,7 +13,7 @@ namespace RuntimeTestsApp.Concurrency;
 /// All tests are Tier 3 (nightly).
 /// </summary>
 // Nightly-only: stress tests for concurrent access, rapid alloc/dealloc, GC pressure
-[TestTier(TestTier.Tier3)]
+[Slow]
 public class StressTests : TestBase
 {
     public StressTests(TestResults results) : base(results) { }

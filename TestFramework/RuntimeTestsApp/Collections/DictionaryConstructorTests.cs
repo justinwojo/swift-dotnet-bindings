@@ -16,7 +16,6 @@ public class DictionaryConstructorTests : TestBase
 
     #region Tier 2 — Dictionary Constructor + Operations
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapConstruction()
     {
         var headers = new Dictionary<string, string>
@@ -30,7 +29,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info("HeaderMap constructed from IDictionary<string, string>");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapGetCount()
     {
         var headers = new Dictionary<string, string>
@@ -45,7 +43,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info($"HeaderMap.GetCount() = {map.GetCount()}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapGetExistingKey()
     {
         var headers = new Dictionary<string, string>
@@ -60,7 +57,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info($"HeaderMap.Get(\"Content-Type\") = \"{value}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapGetMissingKey()
     {
         var headers = new Dictionary<string, string>
@@ -74,7 +70,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info("HeaderMap.Get(\"X-Missing\") = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapSetAndGet()
     {
         var headers = new Dictionary<string, string>
@@ -92,7 +87,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info($"HeaderMap.Set + Get round-trip: \"{value}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHeaderMapEmptyDictionary()
     {
         var headers = new Dictionary<string, string>();

@@ -4,40 +4,36 @@
 
 # Runtime Tests Runner for TestFramework
 # Builds the test library, regenerates bindings, builds the test app, and runs tests.
-# Supports iOS Simulator (default) and macOS native.
+# Supports iOS Simulator (default), physical device (NativeAOT), and macOS native.
 #
 # Usage:
-#   ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen]
+#   ./run-runtime-tests.sh [--platform simulator|device|macos] [--skip-regen]
 #                          [--timeout SECONDS] [--class ClassName]
 #
 # Options:
-#   --platform PLATFORM  Target platform: ios (default), macos
-#   --tier N             Run tests up to tier N (default: 1)
+#   --platform PLATFORM  Target platform: simulator (default), device, macos
 #   --skip-regen         Skip binding regeneration (use existing bindings)
 #   --timeout N          Timeout in seconds (default: 90)
 #   --class NAME         Run only the named test class (exact match, case-insensitive)
+#   --flake-detect       Run each test 3x and fail on inconsistent results
 
 set -e
 
 cd "$(dirname "$0")"
 
 # Default options
-PLATFORM="ios"
-TIER=1
+PLATFORM="simulator"
 SKIP_REGEN=false
 TIMEOUT=90
 CLASS_FILTER=""
 DEVICE_UDID=""
+FLAKE_DETECT=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --platform)
             PLATFORM="$2"
-            shift 2
-            ;;
-        --tier)
-            TIER="$2"
             shift 2
             ;;
         --skip-regen)
@@ -56,9 +52,13 @@ while [[ $# -gt 0 ]]; do
             DEVICE_UDID="$2"
             shift 2
             ;;
+        --flake-detect)
+            FLAKE_DETECT=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./run-runtime-tests.sh [--platform ios|macos] [--tier 1|2|3] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--device-udid UDID]"
+            echo "Usage: ./run-runtime-tests.sh [--platform simulator|device|macos] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--flake-detect]"
             exit 1
             ;;
     esac
@@ -66,9 +66,9 @@ done
 
 # Validate platform
 case "$PLATFORM" in
-    ios|macos) ;;
+    simulator|device|macos) ;;
     *)
-        echo "Error: Unknown platform '$PLATFORM'. Must be ios or macos."
+        echo "Error: Unknown platform '$PLATFORM'. Must be simulator, device, or macos."
         exit 1
         ;;
 esac
@@ -78,10 +78,10 @@ echo " TestFramework Runtime Tests"
 echo "========================================="
 echo ""
 echo "Platform: $PLATFORM"
-echo "Tier: $TIER"
 echo "Skip regeneration: $SKIP_REGEN"
 echo "Timeout: ${TIMEOUT}s"
 [ -n "$CLASS_FILTER" ] && echo "Class filter: $CLASS_FILTER"
+[ "$FLAKE_DETECT" = true ] && echo "Flake detection: enabled"
 echo ""
 
 # -------------------------------------------------------------------
@@ -174,11 +174,11 @@ if [ "$PLATFORM" = "macos" ]; then
     # Step 3: Run natively on macOS
     echo "--- Step 3: Run on macOS ---"
 
-    # Build launch arguments
-    LAUNCH_ARGS="--tier $TIER"
-    if [ "$TIER" -ge 3 ]; then
+    # Build launch arguments — macOS is always "simulator" mode (Mono JIT)
+    LAUNCH_ARGS="--platform simulator"
+    if [ "$FLAKE_DETECT" = true ]; then
         LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
-        echo "Flake detection enabled (Tier 3): each test runs 3x"
+        echo "Flake detection enabled: each test runs 3x"
     fi
     if [ -n "$CLASS_FILTER" ]; then
         LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
@@ -238,7 +238,198 @@ if [ "$PLATFORM" = "macos" ]; then
 fi
 
 # -------------------------------------------------------------------
-# iOS path: existing behavior (unchanged)
+# Device path: build for ios-arm64 with NativeAOT, deploy to physical iPhone
+# -------------------------------------------------------------------
+if [ "$PLATFORM" = "device" ]; then
+    echo "--- Device mode (NativeAOT on physical iPhone) ---"
+    echo ""
+
+    # Step 0: Find connected device
+    echo "--- Step 0: Find connected device ---"
+    if [ -z "$DEVICE_UDID" ]; then
+        DEVICE_UDID=$(xcrun devicectl list devices 2>/dev/null | grep -i "iphone\|ipad" | head -1 | awk '{print $NF}' || true)
+        if [ -z "$DEVICE_UDID" ]; then
+            DEVICE_UDID=$(xcrun xctrace list devices 2>/dev/null | grep -v "Simulator" | grep "(.*)" | head -1 | sed 's/.*(\(.*\))/\1/' || true)
+        fi
+    fi
+    if [ -z "$DEVICE_UDID" ]; then
+        echo "ERROR: No connected iOS device found."
+        echo "Connect your iPhone and try again, or use --device-udid UDID."
+        exit 1
+    fi
+    echo "Device: $DEVICE_UDID"
+    echo ""
+
+    # Step 1: Build xcframework with device slice and regenerate bindings
+    if [ "$SKIP_REGEN" = false ]; then
+        echo "--- Step 1: Build xcframework (with device slice) and generate bindings ---"
+        ./build-xcframework.sh --include-device
+        echo ""
+
+        echo "--- Step 1.1: Generate bindings ---"
+        ./regenerate-bindings.sh 2>&1 | tail -10
+        echo ""
+    else
+        echo "--- Step 1: Skipped (--skip-regen) ---"
+        if [ ! -f "output/SwiftBindingsTestLib.cs" ]; then
+            echo "ERROR: Bindings not found. Run without --skip-regen first."
+            exit 1
+        fi
+        if [ ! -d ".build/SwiftBindingsTestLib.xcframework/ios-arm64" ]; then
+            echo "ERROR: Device slice missing from SwiftBindingsTestLib.xcframework."
+            echo "Run without --skip-regen first."
+            exit 1
+        fi
+        echo ""
+    fi
+
+    # Step 1.5: Build async Swift wrappers with device slice
+    ASYNC_SWIFT=$(find output -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
+    if [ -n "$ASYNC_SWIFT" ]; then
+        echo "--- Step 1.5: Build async Swift wrappers (with device slice) ---"
+        ./build-wrapper-device.sh 2>&1 | tail -5
+        echo ""
+    fi
+
+    # Step 1.6: Build SwiftUI bridge (if generated)
+    BRIDGE_SWIFT="output/SwiftBindingsTestLib.SwiftUIBridge.swift"
+    if [ -f "$BRIDGE_SWIFT" ]; then
+        echo "--- Step 1.6: Build SwiftUI bridge ---"
+        ./build-bridge.sh
+        echo ""
+    fi
+
+    echo "Safety attributes use DiagnosticId — no sed downgrade needed."
+    echo ""
+
+    # Step 2: Publish RuntimeTestsApp.Device (NativeAOT + code signing)
+    echo "--- Step 2: Publish RuntimeTestsApp.Device (NativeAOT, ios-arm64) ---"
+    echo "This may take several minutes (ILCompiler + code signing)..."
+    mkdir -p logs
+    cd RuntimeTestsApp.Device
+
+    if [ "$SKIP_REGEN" = false ]; then
+        rm -rf bin obj
+    fi
+
+    set -o pipefail
+    if dotnet publish -c Release 2>&1 | tee ../logs/device-publish.log | tail -20; then
+        echo ""
+        echo "Publish succeeded."
+    else
+        echo ""
+        echo "ERROR: Publish failed. See logs/device-publish.log"
+        tail -40 ../logs/device-publish.log
+        exit 1
+    fi
+    cd ..
+    echo ""
+
+    # Step 3: Locate .app bundle
+    echo "--- Step 3: Locate app bundle ---"
+    APP_PATH=$(find RuntimeTestsApp.Device/bin -name "RuntimeTestsApp.Device.app" -type d 2>/dev/null | head -1)
+    if [ -z "$APP_PATH" ]; then
+        echo "ERROR: App bundle not found."
+        exit 1
+    fi
+    echo "App bundle: $APP_PATH"
+    APP_SIZE=$(du -sh "$APP_PATH" 2>/dev/null | cut -f1)
+    echo "App size: $APP_SIZE"
+    echo ""
+
+    BUNDLE_ID="com.swiftbindings.runtimetestsapp"
+
+    # Step 4: Install on device
+    echo "--- Step 4: Install on device ---"
+    xcrun devicectl device install app --device "$DEVICE_UDID" "$APP_PATH" 2>&1
+    echo ""
+
+    # Step 5: Run tests
+    echo "--- Step 5: Run tests on device ---"
+
+    # Build launch arguments — device mode runs [MonoJitCrash] tests
+    LAUNCH_ARGS="--platform device"
+    if [ "$FLAKE_DETECT" = true ]; then
+        LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
+        echo "Flake detection enabled: each test runs 3x"
+    fi
+    if [ -n "$CLASS_FILTER" ]; then
+        LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
+    fi
+
+    echo "Launching app on device (timeout: ${TIMEOUT}s)..."
+    OUTPUT_FILE=$(mktemp)
+    trap 'rm -f "$OUTPUT_FILE"' EXIT
+
+    xcrun devicectl device process launch \
+        --device "$DEVICE_UDID" \
+        --console \
+        "$BUNDLE_ID" \
+        $LAUNCH_ARGS \
+        > "$OUTPUT_FILE" 2>&1 &
+    PID=$!
+
+    ELAPSED=0
+    RESULT=""
+    while [ $ELAPSED -lt $TIMEOUT ]; do
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+
+        if ! kill -0 $PID 2>/dev/null; then
+            if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+                RESULT="success"
+            elif grep -q "TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+                RESULT="failure"
+            else
+                RESULT="launch_failure"
+            fi
+            break
+        fi
+
+        if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
+            RESULT="success"
+            break
+        fi
+        if grep -q "TEST FAILURE" "$OUTPUT_FILE" 2>/dev/null; then
+            RESULT="failure"
+            break
+        fi
+    done
+
+    kill $PID 2>/dev/null || true
+    wait $PID 2>/dev/null || true
+    xcrun devicectl device process terminate --device "$DEVICE_UDID" "$BUNDLE_ID" 2>/dev/null || true
+
+    # Save output log
+    mkdir -p logs
+    cp "$OUTPUT_FILE" logs/device-results.log 2>/dev/null || true
+
+    echo ""
+    echo "=== APP OUTPUT ==="
+    cat "$OUTPUT_FILE"
+
+    echo ""
+    echo "========================================="
+    if [ "$RESULT" = "success" ]; then
+        echo " RUNTIME TESTS PASSED (device/NativeAOT)"
+        echo "========================================="
+        echo "Results saved to logs/device-results.log"
+        exit 0
+    elif [ "$RESULT" = "failure" ]; then
+        echo " RUNTIME TESTS FAILED (device/NativeAOT)"
+        echo "========================================="
+        echo "Results saved to logs/device-results.log"
+        exit 1
+    else
+        echo " RUNTIME TESTS ${RESULT:-TIMEOUT} (device/NativeAOT)"
+        echo "========================================="
+        echo "Results saved to logs/device-results.log"
+        exit 1
+    fi
+fi
+
+# -------------------------------------------------------------------
+# iOS Simulator path (default)
 # -------------------------------------------------------------------
 
 # Step 1: Build xcframework and regenerate bindings (unless skipped)
@@ -340,7 +531,7 @@ if [ -f "$WRAPPER_SLICE" ]; then
     cp "$WRAPPER_SLICE" "$APP_FRAMEWORKS/SwiftBindings.framework/"
     echo "Injected SwiftBindings wrapper dylib into app bundle."
 else
-    echo "Note: SwiftBindings wrapper dylib not found — Tier 3 wrapper-dependent tests will fail."
+    echo "Note: SwiftBindings wrapper dylib not found — [Skip] wrapper-dependent tests will be skipped."
 fi
 echo ""
 
@@ -412,11 +603,11 @@ BEFORE_CRASH_COUNT=$(ls -1 "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | w
 echo "Installing app..."
 xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
 
-# Build launch arguments
-LAUNCH_ARGS="--tier $TIER"
-if [ "$TIER" -ge 3 ]; then
+# Build launch arguments — simulator mode skips [MonoJitCrash] tests
+LAUNCH_ARGS="--platform simulator"
+if [ "$FLAKE_DETECT" = true ]; then
     LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
-    echo "Flake detection enabled (Tier 3): each test runs 3x"
+    echo "Flake detection enabled: each test runs 3x"
 fi
 if [ -n "$CLASS_FILTER" ]; then
     LAUNCH_ARGS="$LAUNCH_ARGS --class $CLASS_FILTER"
@@ -435,7 +626,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep 1
     ELAPSED=$((ELAPSED + 1))
 
-    # P2 fix: detect early launch failure (process exited without producing test output)
+    # Detect early launch failure (process exited without producing test output)
     if ! kill -0 $PID 2>/dev/null; then
         # Launch process exited — check if we got a result marker
         if grep -q "TEST SUCCESS" "$OUTPUT_FILE" 2>/dev/null; then
@@ -513,27 +704,11 @@ elif [ "$RESULT" = "crash" ]; then
         grep '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" | sed 's/.*\[FAIL\] /  /'
         exit 1
     fi
-    # Tier 1+2: crashes are regressions (all crash-prone tests moved to Tier 3).
-    # Tier 3: tolerate known Mono JIT crashes since Tier 3 includes crash-prone tests.
-    IS_MONO_JIT_CRASH=false
-    if grep -q "jit-info\.c:918" "$OUTPUT_FILE" 2>/dev/null; then
-        IS_MONO_JIT_CRASH=true
-    elif [ -n "$LATEST_CRASH" ] && grep -q "jit-info\|mono_jit\|ReleaseHandle" "$LATEST_CRASH" 2>/dev/null; then
-        IS_MONO_JIT_CRASH=true
-    fi
-    if [ "$IS_MONO_JIT_CRASH" = true ]; then
-        if [ "$TIER" -ge 3 ]; then
-            echo ""
-            echo "WARNING: Known Mono JIT assertion (jit-info.c:918) during Tier 3 run."
-            echo "This is a pre-existing Mono runtime bug, not a regression."
-            exit 0
-        else
-            echo ""
-            echo "ERROR: Mono JIT crash in Tier $TIER run ($PASS_COUNT tests passed before crash)."
-            echo "All crash-prone tests should be Tier 3. This crash is a regression."
-            exit 1
-        fi
-    fi
+    # On simulator, all [MonoJitCrash] tests are skipped, so any crash is a regression.
+    echo ""
+    echo "ERROR: Unexpected crash on simulator ($PASS_COUNT tests passed before crash)."
+    echo "All Mono JIT crash-prone tests are skipped via [MonoJitCrash]."
+    echo "This crash is a regression — investigate the crash log."
     exit 1
 elif [ "$RESULT" = "failure" ]; then
     echo " RUNTIME TESTS FAILED"
@@ -552,8 +727,7 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
     if grep -q "jit-info\.c:918" "$OUTPUT_FILE" 2>/dev/null; then
         IS_MONO_JIT_CRASH=true
     fi
-    # Check simulator device log for crash evidence (GHA simctl --console
-    # often doesn't capture crash output for simulator apps)
+    # Check simulator device log for crash evidence
     DEVICE_LOG=$(xcrun simctl spawn "$DEVICE_UDID" log show --last 3m \
         --predicate 'process == "RuntimeTestsApp" OR (process == "ReportCrash" AND eventMessage CONTAINS "RuntimeTestsApp")' \
         --style compact 2>/dev/null || true)
@@ -565,17 +739,10 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
     fi
     if [ "$IS_MONO_JIT_CRASH" = true ]; then
         PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
-        if [ "$TIER" -ge 3 ]; then
-            echo ""
-            echo "WARNING: Mono JIT crash during Tier 3 run ($PASS_COUNT tests passed before crash)."
-            echo "This is a pre-existing Mono runtime bug, not a regression."
-            exit 0
-        else
-            echo ""
-            echo "ERROR: Mono JIT crash in Tier $TIER run ($PASS_COUNT tests passed before crash)."
-            echo "All crash-prone tests should be Tier 3. This crash is a regression."
-            exit 1
-        fi
+        echo ""
+        echo "ERROR: Mono JIT crash on simulator ($PASS_COUNT tests passed before crash)."
+        echo "All Mono JIT crash-prone tests should be marked [MonoJitCrash]. This is a regression."
+        exit 1
     fi
     # Show device log for debugging if we still don't know what happened
     if [ -n "$DEVICE_LOG" ]; then

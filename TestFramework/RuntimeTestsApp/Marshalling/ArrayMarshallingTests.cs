@@ -17,7 +17,6 @@ public class ArrayMarshallingTests : TestBase
 
     #region Tier 1 — Smoke Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestArrayParameterCount()
     {
         var count = TestLibFunctions.ArrayCount(new[] { 10, 20, 30 });
@@ -25,7 +24,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info($"ArrayCount([10,20,30]) = {count}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestArrayReturn()
     {
         var result = TestLibFunctions.CreateIntArray(3, 42);
@@ -33,7 +31,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info($"CreateIntArray(3, 42) returned {result.Count} elements");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestEmptyArray()
     {
         AssertTrue(TestLibFunctions.IsEmptyArray(Array.Empty<int>()), "Empty array is empty");
@@ -45,7 +42,6 @@ public class ArrayMarshallingTests : TestBase
 
     #region Tier 2 — Functional Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestSumArray()
     {
         var sum = TestLibFunctions.SumArray(new[] { 1, 2, 3, 4, 5 });
@@ -53,7 +49,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info($"SumArray([1,2,3,4,5]) = {sum}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestReverseIntArray()
     {
         var reversed = TestLibFunctions.ReverseIntArray(new[] { 1, 2, 3 });
@@ -64,7 +59,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("ReverseIntArray passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFilterPositive()
     {
         var filtered = TestLibFunctions.FilterPositive(new[] { -2, -1, 0, 1, 2, 3 });
@@ -75,7 +69,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("FilterPositive passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateStringArray()
     {
         var result = TestLibFunctions.CreateStringArray("hello", "world");
@@ -85,7 +78,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("CreateStringArray passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestArrayOfClasses()
     {
         var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
@@ -97,7 +89,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("DescribeAnimals passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateIntArrayValues()
     {
         var result = TestLibFunctions.CreateIntArray(4, 7);
@@ -109,7 +100,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("CreateIntArray values verified");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestSingleElementArray()
     {
         AssertEqual(1, TestLibFunctions.ArrayCount(new[] { 99 }), "Single element count");
@@ -118,7 +108,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("Single element array tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFilterPositiveAllNegative()
     {
         var filtered = TestLibFunctions.FilterPositive(new[] { -3, -2, -1 });

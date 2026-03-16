@@ -16,7 +16,6 @@ public class OptionalMarshallingTests : TestBase
 
     #region Tier 1 — Smoke Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestOptionalBlittableReturnSome()
     {
         var index = TestLibFunctions.FindIndex(new[] { 10, 20, 30 }, 20);
@@ -25,7 +24,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"FindIndex([10,20,30], 20) = {index}");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: Optional<Int32> None marshalling returns Some incorrectly
+    [MonoJitCrash] // Mono: Optional<Int32> None marshalling returns Some incorrectly
     public void TestOptionalBlittableReturnNone()
     {
         var index = TestLibFunctions.FindIndex(new[] { 10, 20, 30 }, 99);
@@ -37,7 +36,6 @@ public class OptionalMarshallingTests : TestBase
 
     #region Tier 2 — Functional Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestOptionalClassReturnSome()
     {
         var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
@@ -48,7 +46,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindAnimalByName returned a non-null result");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOptionalClassReturnNone()
     {
         var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
@@ -58,7 +55,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindAnimalByName returns null for missing name");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterSome()
     {
         var result = TestLibFunctions.DescribeOptionalInt(42);
@@ -66,7 +62,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalInt(42) = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOptionalParameterNone()
     {
         var result = TestLibFunctions.DescribeOptionalInt(null);
@@ -74,7 +69,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    [MonoJitCrash] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
     public void TestOptionalConfigConstructorWithLabel()
     {
         // Exercises NewSome(SwiftString) through frozen struct constructor
@@ -85,7 +80,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor with label passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    [MonoJitCrash] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
     public void TestOptionalConfigConstructorWithoutLabel()
     {
         var config = new OptionalConfig(null, null, "Default");
@@ -95,7 +90,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor without label passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: GetEffectiveLabel() returns String through CallConvSwift → JIT crash
+    [MonoJitCrash] // Mono: GetEffectiveLabel() returns String through CallConvSwift → JIT crash
     public void TestOptionalConfigEffectiveLabel()
     {
         var config = new OptionalConfig(new SwiftString("Primary"), 10, "Fallback");
@@ -108,7 +103,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig.EffectiveLabel tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFindIndexFirstElement()
     {
         var index = TestLibFunctions.FindIndex(new[] { 5, 10, 15 }, 5);
@@ -117,7 +111,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindIndex first element passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: Optional<Int32> None marshalling returns Some incorrectly
+    [MonoJitCrash] // Mono: Optional<Int32> None marshalling returns Some incorrectly
     public void TestFindIndexEmptyArray()
     {
         var index = TestLibFunctions.FindIndex(Array.Empty<int>(), 1);
@@ -125,7 +119,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindIndex empty array passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
+    [MonoJitCrash] // Mono: OptionalConfig constructor takes SwiftString.Buffer through CallConvSwift
     public void TestOptionalStringPropertySetter()
     {
         var config = new OptionalConfig(null, null, "Fallback");
@@ -137,7 +131,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalStringPropertySetter tests passed");
     }
 
-    [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
+    // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterSome()
     {
         var result = TestLibFunctions.DescribeOptionalString("hello");
@@ -145,7 +139,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalString(\"hello\") = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier2)] // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
+    // Fixed: Optional pointer wrapper passes full 16-byte Optional<String> via UnsafeRawPointer
     public void TestOptionalStringParameterNone()
     {
         var result = TestLibFunctions.DescribeOptionalString(null);

@@ -1,0 +1,9 @@
+<linker>
+  <assembly fullname="RuntimeTestsApp.Device">
+    <type fullname="RuntimeTestsApp.Infrastructure.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Application" preserve="all" />
+    <type fullname="RuntimeTestsApp.AppDelegate" preserve="all" />
+    <type fullname="RuntimeTestsApp.MainViewController" preserve="all" />
+    <type fullname="RuntimeTestsApp.Marshalling.*" preserve="all" />
+  </assembly>
+</linker>

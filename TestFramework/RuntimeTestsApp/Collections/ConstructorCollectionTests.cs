@@ -17,7 +17,6 @@ public class ConstructorCollectionTests : TestBase
 
     #region Tier 1 — DataBuffer Blittable Properties
 
-    [TestTier(TestTier.Tier1)]
     public void TestDataBufferGetCount()
     {
         var arr = new SwiftArray<int>();
@@ -29,7 +28,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"DataBuffer.GetCount() = {buffer.GetCount()}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDataBufferSum()
     {
         var arr = new SwiftArray<int>();
@@ -43,7 +41,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"DataBuffer.Sum() = {buffer.Sum()}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDataBufferEmptyArray()
     {
         var arr = new SwiftArray<int>();
@@ -53,7 +50,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info("DataBuffer empty array passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDataBufferSingleElement()
     {
         var arr = new SwiftArray<int>();
@@ -68,7 +64,6 @@ public class ConstructorCollectionTests : TestBase
 
     #region Tier 2 — DataBuffer Optional, PathResolver, LabeledBuffer
 
-    [TestTier(TestTier.Tier2)]
     public void TestDataBufferGetFirstWithElements()
     {
         var arr = new SwiftArray<int>();
@@ -81,7 +76,7 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"DataBuffer.GetFirst() = {first}");
     }
 
-    [TestTier(TestTier.Tier3)] // Optional<Int32> marshalling on empty array — known limitation
+    [Skip("Optional<Int32> marshalling on empty array")] // Optional<Int32> marshalling on empty array — known limitation
     public void TestDataBufferGetFirstEmpty()
     {
         var arr = new SwiftArray<int>();
@@ -91,7 +86,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info("DataBuffer.GetFirst() on empty = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPathResolverFullPath()
     {
         var resolver = new PathResolver(new[] { "usr", "local", "bin" });
@@ -100,7 +94,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"PathResolver.GetFullPath() = \"{fullPath}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPathResolverGetDepth()
     {
         var resolver = new PathResolver(new[] { "usr", "local", "bin" });
@@ -108,7 +101,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"PathResolver.GetDepth() = {resolver.GetDepth()}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPathResolverSingleComponent()
     {
         var resolver = new PathResolver(new[] { "root" });
@@ -117,7 +109,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"PathResolver single component: \"{resolver.GetFullPath()}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLabeledBufferDescribe()
     {
         var arr = new SwiftArray<int>();
@@ -131,7 +122,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"LabeledBuffer.GetDescribe() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLabeledBufferEmptyData()
     {
         var arr = new SwiftArray<int>();

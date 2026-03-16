@@ -16,7 +16,6 @@ public class BuilderPatternTests : TestBase
 
     #region Tier 1 — Construction + Default Blittable Properties
 
-    [TestTier(TestTier.Tier1)]
     public void TestRequestBuilderDefaultTimeout()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -24,7 +23,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"RequestBuilder default Timeout = {builder.Timeout}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestRequestBuilderDefaultRetryCount()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -36,7 +34,6 @@ public class BuilderPatternTests : TestBase
 
     #region Tier 2 — Chaining + String Properties
 
-    [TestTier(TestTier.Tier2)]
     public void TestRequestBuilderUrlProperty()
     {
         var builder = new RequestBuilder("https://example.com/api");
@@ -44,7 +41,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"RequestBuilder.Url = \"{builder.Url}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestRequestBuilderUrlSetter()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -53,7 +49,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"RequestBuilder.Url after set = \"{builder.Url}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestRequestBuilderMethodProperty()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -63,7 +58,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"RequestBuilder default Method = \"{defaultMethod}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestRequestBuilderMethodSetter()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -72,7 +66,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"RequestBuilder.Method after set = \"{builder.Method}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestWithMethodChaining()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -82,7 +75,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"WithMethod(\"PUT\").Method = \"{result.Method}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestWithTimeoutChaining()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -92,7 +84,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"WithTimeout(60).Timeout = {result.Timeout}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestWithRetryCountChaining()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -102,7 +93,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info($"WithRetryCount(3).RetryCount = {result.RetryCount}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFluentChaining()
     {
         var builder = new RequestBuilder("https://api.example.com")
@@ -116,7 +106,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info("Fluent chaining: Method/Timeout/RetryCount all set correctly");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestWithMethodReturnsSameInstance()
     {
         var builder = new RequestBuilder("https://example.com");
@@ -127,7 +116,6 @@ public class BuilderPatternTests : TestBase
         TestLogger.Info("WithMethod returns same builder instance");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestGetDescribe()
     {
         var builder = new RequestBuilder("https://example.com")

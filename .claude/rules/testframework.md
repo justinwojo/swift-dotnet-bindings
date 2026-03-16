@@ -38,9 +38,14 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 
 ## Runtime Test Patterns
 - Tests in `RuntimeTestsApp/` — iOS simulator app, discovery-based runner
-- Tests extend `TestBase`, use `[TestTier(TestTier.TierN)]`, auto-discovered via reflection
+- Tests extend `TestBase`, auto-discovered via reflection. Test attributes:
+  - **Default** (no attribute) — runs on both simulator and device
+  - **`[MonoJitCrash]`** — skipped on simulator (Mono JIT crash), runs on device (NativeAOT)
+  - **`[Skip("reason")]`** — always skipped (generator bugs, missing entry points)
+  - **`[Slow]`** — stress tests, always runs
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
 - `--class NAME` runs only the named test class (exact match, case-insensitive)
+- `--platform simulator|device` selects execution mode (default: simulator)
 - iOS args: use `NSProcessInfo.ProcessInfo.Arguments` (not `Main(string[] args)`)
 - Main-queue: use `NSRunLoop.Current.RunUntil(NSDate)` instead of `Thread.Sleep()`
 - RuntimeTestsApp needs `IncludeSwiftBindingsRuntimeNative=false` in csproj
@@ -48,20 +53,21 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - Enum raw values come from Swift source (e.g. LogLevel: `"[DEBUG]"`, not `"debug"`)
 - `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = SwiftBindingsTestLib.EventHandler`
 
-## Active Mono/Runtime Limitations (affects tier assignment)
-- See CLAUDE.md "Known Runtime Issues" for Mono JIT assertion details. Closure + SwiftString tests deferred to Tier 3.
-- Runtime crash detection: test runner tolerates `jit-info.c:918` AND `RUNTIME TESTS CRASHED` (both Mono bugs); fails on other non-zero exits
-- Optional array on frozen struct → "Not enough bits" layout mismatch
-- SafeHandle arg through CallConvSwift → non-blittable error
-- Class inheritance+protocol → entry points not exported from dylib
+## Active Mono/Runtime Limitations (affects test classification)
+- See CLAUDE.md "Known Runtime Issues" for Mono JIT assertion details. Tests hitting these are marked `[MonoJitCrash]`.
+- On simulator, [MonoJitCrash] tests are skipped; any crash is treated as a regression.
+- On device (NativeAOT), [MonoJitCrash] tests run and should pass.
+- Optional array on frozen struct → "Not enough bits" layout mismatch → `[Skip]`
+- SafeHandle arg through CallConvSwift → non-blittable error → `[MonoJitCrash]`
+- Class inheritance+protocol → entry points not exported from dylib → `[Skip]`
 - GenericPair.swapped() → CS8500 (pointer to managed generic, guarded) — active C# compiler limitation
-- TaskPriority (String raw value enum) → `FromRawValue("high")` routes through wrapper lib, not available at runtime → Tier 3. TaskStatus (Int32 raw value) works fine
+- TaskPriority (String raw value enum) → `[Skip]`. TaskStatus (Int32 raw value) works fine
 - Integration tests have pre-existing nint generic errors (unrelated noise, ignore)
 
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:
 1. Read generated C# bindings for the types — identify non-blittable params, missing entry points
-2. Pre-assign tiers: Tier 1 (blittable), Tier 2 (SwiftString success), Tier 3 (SwiftString+error, missing symbols)
+2. Pre-assign attributes: default (blittable), `[MonoJitCrash]` (CallConvSwift/non-blittable), `[Skip]` (missing entry points)
 3. Copy `using` directives from existing test file
 4. Fix ALL failures at once — analyze full failure list first
 5. Never run slow test scripts multiple times — capture once, grep saved output

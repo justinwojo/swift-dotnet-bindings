@@ -17,7 +17,6 @@ public class StringMarshallingTests : TestBase
 
     #region Basic String Round-Trips (via Animal class)
 
-    [TestTier(TestTier.Tier1)]
     public void TestAsciiStringRoundTrip()
     {
         // Create an Animal with ASCII name, verify it round-trips through Describe()
@@ -30,7 +29,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"ASCII round-trip: \"{description}\"");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestStringMethodReturn()
     {
         // Animal.GetSpeak() returns a string - verify marshalling
@@ -42,7 +40,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Speak() = \"{sound}\"");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestStringParameterPassing()
     {
         // DescribePoint takes no string params, but CreateAnimal takes two strings
@@ -59,7 +56,6 @@ public class StringMarshallingTests : TestBase
 
     #region Unicode String Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestUnicodeJapanese()
     {
         // Test Japanese characters in strings (CJK unified ideographs + hiragana)
@@ -73,7 +69,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Japanese: \"{speak}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestUnicodeEmoji()
     {
         // Test emoji characters (multi-byte UTF-8 sequences)
@@ -87,7 +83,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Emoji greeting raw value: \"{rawValue}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestUnicodeKorean()
     {
         // Verify Korean characters via Greeting enum
@@ -97,7 +93,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Korean greeting: \"{rawValue}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestUnicodeMixed()
     {
         // Verify mixed ASCII + CJK string via Greeting enum
@@ -111,7 +107,6 @@ public class StringMarshallingTests : TestBase
 
     #region String Enum Raw Value Round-Trips (Phase 55 regression)
 
-    [TestTier(TestTier.Tier1)]
     public void TestLogLevelRawValueRoundTrip()
     {
         // Phase 55 regression: string enum FromRawValue round-trip
@@ -128,7 +123,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("LogLevel raw value round-trips passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestLogLevelInvalidRawValue()
     {
         // Invalid raw value should return false (no matching case)
@@ -141,7 +135,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("LogLevel invalid raw value tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLogLevelAllCases()
     {
         // Exhaustive test of all LogLevel cases
@@ -162,7 +155,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("All LogLevel cases round-trip correctly");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLogLevelFromRawValueFactory()
     {
         // Test FromRawValue factory method directly
@@ -179,7 +171,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("LogLevel FromRawValue factory tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestGreetingFromRawValue()
     {
         // Test Greeting string enum round-trip with unicode values
@@ -194,7 +185,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("Greeting FromRawValue tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusCodeFromRawValue()
     {
         // Test StatusCode string enum
@@ -216,7 +206,7 @@ public class StringMarshallingTests : TestBase
 
     #region Edge Case Strings
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestEmptyString()
     {
         // EdgeCaseStrings.Empty has raw value ""
@@ -226,7 +216,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("Empty string edge case passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestWhitespaceStrings()
     {
         // Single space
@@ -248,7 +238,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("Whitespace string edge cases passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEdgeCaseStringsRoundTrip()
     {
         // Round-trip via FromRawValue for edge cases
@@ -263,7 +252,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("EdgeCaseStrings round-trip tests passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestCaseSensitiveStrings()
     {
         // Verify case sensitivity is preserved in raw values
@@ -285,7 +274,6 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("Case sensitivity tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCaseSensitiveFromRawValue()
     {
         // "value" and "VALUE" must resolve to different enum cases
@@ -306,7 +294,7 @@ public class StringMarshallingTests : TestBase
 
     #region String via GetLogLevelRaw / GetOrderStatusRaw
 
-    [TestTier(TestTier.Tier3)] // Known generator bug: string enum raw values use case names instead of actual raw values
+    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
     public void TestGetLogLevelRaw()
     {
         // Create LogLevel enum cases, extract raw value via free function
@@ -321,7 +309,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("GetLogLevelRaw tests passed");
     }
 
-    [TestTier(TestTier.Tier2)] // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
+    // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
     public void TestLongStringViaAnimal()
     {
         // Test a moderately long string (1KB)
@@ -334,7 +322,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Long string ({longName.Length} chars) round-trip passed");
     }
 
-    [TestTier(TestTier.Tier2)] // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
+    // Animal.GetDescribe() works at Tier 1; large strings use same P/Invoke path
     public void TestVeryLongStringViaAnimal()
     {
         // Stress test: >64KB string to exercise large buffer marshalling

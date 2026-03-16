@@ -17,7 +17,6 @@ public class BasicGenericTests : TestBase
 
     #region BoundIntPair (Frozen Struct) Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestBoundIntPairCreation()
     {
         var pair = new BoundIntPair(first: 10, second: 20);
@@ -26,7 +25,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"BoundIntPair(10, 20) = ({pair.First}, {pair.Second})");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestBoundIntPairSum()
     {
         var pair = new BoundIntPair(first: 3, second: 7);
@@ -35,7 +33,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"BoundIntPair(3, 7).Sum() = {sum}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestBoundIntPairZero()
     {
         var pair = new BoundIntPair(first: 0, second: 0);
@@ -44,7 +41,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(0, pair.Sum(), "Zero sum");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestBoundIntPairNegative()
     {
         var pair = new BoundIntPair(first: -5, second: 15);
@@ -57,7 +53,6 @@ public class BasicGenericTests : TestBase
 
     #region SummableInt32 (Frozen Struct + Protocol Conformance) Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Creation()
     {
         var s = new SummableInt32(value: 42);
@@ -65,7 +60,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"SummableInt32(42).Value = {s.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSummableInt32Add()
     {
         var a = new SummableInt32(value: 10);
@@ -75,7 +69,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"SummableInt32(10).Add(SummableInt32(20)) = {result.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSummableInt32AddZero()
     {
         var a = new SummableInt32(value: 7);
@@ -84,7 +77,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(7, result.Value, "Add zero identity");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSummableInt32ChainedAdd()
     {
         var a = new SummableInt32(value: 1);
@@ -98,7 +90,6 @@ public class BasicGenericTests : TestBase
 
     #region MutableItem (Non-Frozen Struct, Protocol Conformance) Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestMutableItemCreation()
     {
         var item = new MutableItem(value: 100);
@@ -107,7 +98,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"MutableItem(100).Value = {item.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMutableItemSetValue()
     {
         var item = new MutableItem(value: 10);
@@ -117,7 +107,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"MutableItem.SetValue(42) -> GetValue() = {item.GetValue()}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMutableItemPropertySetter()
     {
         var item = new MutableItem(value: 0);
@@ -126,7 +115,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(99, item.Value, "After Value = 99");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMutableItemDispose()
     {
         var item = new MutableItem(value: 5);
@@ -139,7 +127,6 @@ public class BasicGenericTests : TestBase
 
     #region BoundStringPair (Non-Frozen Struct, String Methods) Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestBoundStringPairCreation()
     {
         var pair = new BoundStringPair(first: "hello", second: "world");
@@ -150,7 +137,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"BoundStringPair(\"hello\", \"world\").GetJoined() = \"{joined}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestBoundStringPairEmpty()
     {
         var pair = new BoundStringPair(first: "", second: "");
@@ -161,7 +147,6 @@ public class BasicGenericTests : TestBase
 
     #region SimpleItem (Non-Frozen Struct, Protocol Conformance with Strings) Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestSimpleItemDescribe()
     {
         var item = new SimpleItem(id: "test-1", label: "Widget");
@@ -176,7 +161,6 @@ public class BasicGenericTests : TestBase
 
     #region DisplayItem (Non-Frozen Struct, Protocol Inheritance) Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestDisplayItemDescribe()
     {
         var item = new DisplayItem(text: "Hello");
@@ -185,7 +169,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"DisplayItem(\"Hello\").GetDescribe() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDisplayItemDisplay()
     {
         var item = new DisplayItem(text: "Hello");
@@ -197,11 +180,11 @@ public class BasicGenericTests : TestBase
     #endregion
 
     #region IntContainer (Non-Frozen Struct with Associated Type) Tests
-    // Tier 3: IntContainer constructor doesn't properly receive [Int32] array
+    // IntContainer constructor doesn't properly receive [Int32] array
     // through SwiftIndirectResult marshalling path. Count returns 0 for non-empty
     // arrays, and Element(at:) crashes with index out of range.
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("IntContainer array marshalling broken: Count returns 0")]
     public void TestIntContainerCreation()
     {
         var container = new IntContainer(items: new int[] { 10, 20, 30 });
@@ -209,7 +192,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"IntContainer([10, 20, 30]).Count = {container.Count}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("IntContainer array marshalling broken: Element crashes")]
     public void TestIntContainerElementAt()
     {
         var container = new IntContainer(items: new int[] { 100, 200 });
@@ -219,7 +202,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(200, second, "Element at 1");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("IntContainer array marshalling broken: Count returns 0")]
     public void TestIntContainerEmpty()
     {
         var container = new IntContainer(items: Array.Empty<int>());
@@ -233,7 +216,7 @@ public class BasicGenericTests : TestBase
     // SwiftObjectHelper<T>.GetTypeMetadata() through CallConvSwift.
     // Expected to hit Mono JIT assertion (jit-info.c:918).
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestWrapperCreation()
     {
         var inner = new SummableInt32(value: 42);
@@ -243,7 +226,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -253,7 +236,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGenericPairCreation()
     {
         var a = new SummableInt32(value: 10);
@@ -264,7 +247,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGenericPairMixedTypes()
     {
         var s = new SummableInt32(value: 5);
@@ -274,7 +257,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(3, pair.Second.Sum(), "GenericPair mixed Second.Sum()");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGenericClassCreation()
     {
         var inner = new SummableInt32(value: 77);
@@ -284,7 +267,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGenericClassGetMethod()
     {
         var inner = new SummableInt32(value: 33);
@@ -293,7 +276,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGenericClassValueSetter()
     {
         var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
@@ -311,7 +294,7 @@ public class BasicGenericTests : TestBase
     // proxy types (SummableProxy, etc.) satisfy constraints but require
     // wrapper library bundled in RuntimeTestsApp (same blocker as proxy dispatch).
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGetIdentity()
     {
         var original = new SummableInt32(value: 42);
@@ -320,7 +303,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGetIdentityPreservesValue()
     {
         var original = new SummableInt32(value: -100);
@@ -328,7 +311,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);

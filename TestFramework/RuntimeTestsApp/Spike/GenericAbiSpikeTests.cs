@@ -23,7 +23,6 @@ namespace RuntimeTestsApp.Spike;
 ///
 /// Tier 1: All tests (blittable only, no Mono JIT risk via buffer pattern)
 /// </summary>
-[TestTier(TestTier.Tier1)]
 public class GenericAbiSpikeTests : TestBase
 {
     public GenericAbiSpikeTests(TestResults results) : base(results) { }

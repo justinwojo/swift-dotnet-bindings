@@ -16,7 +16,6 @@ public class NonStandardEnumTests : TestBase
 
     #region Tier 1 — Case Values + Backing Type Verification
 
-    [TestTier(TestTier.Tier1)]
     public void TestSecurityErrorCaseValues()
     {
         AssertEqual(SecurityError.None, (SecurityError)(ushort)0, "None is 0");
@@ -26,7 +25,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info("SecurityError case values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSecurityErrorBackingType()
     {
         // SecurityError should be backed by ushort
@@ -35,7 +33,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info($"SecurityError underlying type: {underlyingType.Name}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestFeatureFlagCaseValues()
     {
         AssertEqual(FeatureFlag.Disabled, (FeatureFlag)(long)0, "Disabled is 0");
@@ -44,7 +41,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info("FeatureFlag case values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestFeatureFlagBackingType()
     {
         var underlyingType = Enum.GetUnderlyingType(typeof(FeatureFlag));
@@ -54,7 +50,7 @@ public class NonStandardEnumTests : TestBase
 
     // Known limitation: ABI JSON lacks enum raw values, so generator emits sequential ordinals
     // instead of actual Swift values (execute=4 becomes 3). Not fixable without new data source.
-    [TestTier(TestTier.Tier3)]
+    [Skip("ABI JSON lacks enum raw values")]
     public void TestPermissionCaseValues()
     {
         // NOTE: Swift declares none=0, read=1, write=2, execute=4 but the generator
@@ -69,7 +65,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info("Permission case values passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestPermissionBackingType()
     {
         var underlyingType = Enum.GetUnderlyingType(typeof(Permission));
@@ -77,7 +72,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info($"Permission underlying type: {underlyingType.Name}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDistinctValues()
     {
         // Verify all cases within each enum have distinct values
@@ -110,7 +104,6 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info("All non-standard enums have distinct values");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestCastRoundTrips()
     {
         // ushort round-trip

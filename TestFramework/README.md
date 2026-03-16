@@ -29,8 +29,7 @@ Comprehensive test suite for the Swift Bindings generator. Tests are organized i
 | Changed parser/marshaler/emitter code | Yes | Yes (after Layer 1 passes) |
 | Added new Swift test files | Yes | If runtime tests exist for the feature |
 | Changed runtime C# test code only | No | Yes (with `--skip-regen`) |
-| Pre-merge validation | Yes | Yes (`--tier 2`) |
-| Nightly/release validation | Yes | Yes (`--tier 3`) |
+| Pre-merge validation | Yes | Yes |
 
 ## Running the Tests
 
@@ -51,20 +50,23 @@ cd TestFramework
 ```bash
 cd TestFramework
 
-# Run Tier 1 smoke tests (default, < 30 seconds)
+# Run on iOS Simulator (default) — skips [MonoJitCrash] and [Skip] tests
 ./run-runtime-tests.sh
 
-# Run Tier 2 merge gate tests (< 3 minutes)
-./run-runtime-tests.sh --tier 2
-
-# Run Tier 3 nightly tests with flake detection (< 15 minutes)
-./run-runtime-tests.sh --tier 3
-
 # Skip binding regeneration (use existing bindings)
-./run-runtime-tests.sh --tier 2 --skip-regen
+./run-runtime-tests.sh --skip-regen
+
+# Run on physical iPhone (NativeAOT) — runs [MonoJitCrash] tests, skips [Skip]
+./run-runtime-tests.sh --platform device
+
+# Run a single test class
+./run-runtime-tests.sh --class BlittableRoundTripTests --skip-regen
 
 # Custom timeout
 ./run-runtime-tests.sh --timeout 120
+
+# Flake detection (each test runs 3x)
+./run-runtime-tests.sh --flake-detect
 ```
 
 ### Full Validation Sequence
@@ -81,24 +83,27 @@ cd TestFramework
 ./generate-coverage-report.sh
 
 # 3. Layer 2 runtime
-./run-runtime-tests.sh --tier 2
+./run-runtime-tests.sh
 ```
 
-## Test Tiers
+## Test Classification
 
-| Tier | Purpose | Budget | Scope |
-|------|---------|--------|-------|
-| **Tier 1** | PR gate (fast smoke) | < 30 seconds | Core marshalling round-trips: blittable, string, enum, class |
-| **Tier 2** | Merge gate (standard) | < 3 minutes | Full matrix minus stress: all marshalling, lifetime, negative-path tests |
-| **Tier 3** | Nightly (full + stress) | < 15 minutes | Everything including concurrency, GC pressure, large data. Each test runs 3x for flake detection. |
+Tests are classified by attributes instead of tiers:
+
+| Attribute | Simulator | Device (NativeAOT) | Use Case |
+|-----------|-----------|---------------------|----------|
+| *(none)* | Runs | Runs | Default — all working tests |
+| `[MonoJitCrash]` | Skipped | Runs | Mono JIT crash (jit-info.c:918, non-blittable CallConvSwift) |
+| `[Skip("reason")]` | Skipped | Skipped | Generator bugs, missing entry points — broken everywhere |
+| `[Slow]` | Runs | Runs | Stress/concurrency tests (just a marker) |
 
 ## Runtime Test Architecture
 
 The `RuntimeTestsApp/` is an iOS simulator application with a discovery-based test runner:
 
 - All test classes extend `TestBase` and are auto-discovered via reflection
-- Tests are tagged with `[TestTier(TestTier.TierN)]` at method or class level
-- The `--tier N` CLI argument controls which tiers execute (runs tiers 1 through N)
+- Tests use `[MonoJitCrash]`, `[Skip("reason")]`, or `[Slow]` attributes for classification
+- The `--platform simulator|device` CLI argument controls which tests are skipped
 - Infrastructure in `RuntimeTestsApp/Infrastructure/` provides assertion helpers, GC utilities, lifetime tracking, and structured logging
 
 ### Test Categories
@@ -108,8 +113,16 @@ RuntimeTestsApp/
 ├── Marshalling/          # Type round-trip tests (blittable, string, enum, class)
 ├── Lifetime/             # Retain/release, dispose safety, access-after-dispose
 ├── Concurrency/          # Parallel operations, GC pressure, stress tests
-├── Async/                # Async method tests (stubs — deferred until async bindings land)
-├── Protocols/            # Protocol witness dispatch (stub — deferred until protocol interfaces land)
+├── Async/                # Async method tests
+├── Closures/             # Closure marshalling (escaping, @convention(c))
+├── ErrorHandling/        # Throwing methods, typed throws
+├── Generics/             # Generic type tests
+├── Operators/            # Operator overloading, struct equality
+├── Patterns/             # Builder, composition, static factory, struct-backed enum
+├── Protocols/            # Protocol witness dispatch, existential boxing
+├── Properties/           # Subscripts, static singletons
+├── Collections/          # Constructor collections, dictionary constructors
+├── SwiftUIBridge/        # SwiftUI bridge tests (gated by #if SWIFTUI_BRIDGE)
 └── Infrastructure/       # TestBase, TestResults, TestLogger, LifetimeTracker
 ```
 
@@ -142,12 +155,10 @@ See `src/docs/testframework-enhancement-plan.md` for the full contract matrix an
 
 ## Test Profiles
 
-Two execution profiles cover different validation needs. All are local (no CI yet).
-
 | Profile | Command | What Runs | Crash Tolerance |
 |---------|---------|-----------|-----------------|
-| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime `--tier 2` (all classes) | Known Mono JIT crashes tolerated (runtime bug, not generator bug) |
-| **Nightly** | Manual | `./run-runtime-tests.sh --tier 3` with flake detection (3x per test) | Full reporting |
+| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime (simulator) | Any crash is a regression |
+| **Device** | `./run-runtime-tests.sh --platform device` | All tests including `[MonoJitCrash]` on NativeAOT | `[Skip]` tests still skipped |
 
 ### PR Gate (`./run-tests.sh`)
 
@@ -157,17 +168,6 @@ The primary validation command. Runs in ~10 minutes:
 2. **Integration tests** — end-to-end binding generation tests
 3. **TestFramework Layer 1** — build xcframework, regenerate bindings, compile-check, coverage report
 4. **Baseline checks** — generator exit code, degraded count, compiled-out count, strip count
-5. **TestFramework Layer 2** — runtime tests at `--tier 2` on iOS Simulator
+5. **TestFramework Layer 2** — runtime tests on iOS Simulator (skips `[MonoJitCrash]` and `[Skip]`)
 
-Crashes during runtime tests are tolerated if they match known Mono JIT assertion failures (`jit-info.c:918`). Any other crash fails the run.
-
-### Nightly (manual)
-
-For thorough validation after significant changes:
-
-```bash
-cd TestFramework
-./run-runtime-tests.sh --tier 3 --timeout 120
-```
-
-Tier 3 runs every test 3x for flake detection and includes stress/concurrency tests. Results are reported but not gated — used to identify intermittent failures for investigation.
+On simulator, all MonoJitCrash-prone tests are skipped. Any crash is treated as a regression.

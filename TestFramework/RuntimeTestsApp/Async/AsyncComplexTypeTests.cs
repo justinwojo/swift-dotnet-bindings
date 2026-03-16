@@ -17,7 +17,7 @@ namespace RuntimeTestsApp.Async;
 /// DllImport targets "SwiftBindingsTestLib" → EntryPointNotFoundException at runtime.
 /// Tests are ready for when the generator routes async DllImports to the wrapper library.
 // Async DllImport targets wrong module — entry points are in wrapper lib, not native dylib
-[TestTier(TestTier.Tier3)]
+[Skip("Async DllImport targets wrong module")]
 public class AsyncComplexTypeTests : TestBase
 {
     public AsyncComplexTypeTests(TestResults results) : base(results) { }

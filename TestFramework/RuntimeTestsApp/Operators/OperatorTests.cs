@@ -15,7 +15,6 @@ public class OperatorTests : TestBase
 
     #region Tier 1 — Smoke Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestArithmeticAdd()
     {
         var a = new ArithmeticValue(10);
@@ -25,7 +24,6 @@ public class OperatorTests : TestBase
         TestLogger.Info($"ArithmeticValue: {a.Value} + {b.Value} = {result.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestComparisonEquals()
     {
         var a = new ComparableValue(42);
@@ -40,7 +38,6 @@ public class OperatorTests : TestBase
 
     #region Tier 2 — Arithmetic
 
-    [TestTier(TestTier.Tier2)]
     public void TestArithmeticSubtract()
     {
         var a = new ArithmeticValue(30);
@@ -50,7 +47,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Subtraction passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestArithmeticMultiply()
     {
         var a = new ArithmeticValue(6);
@@ -60,7 +56,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Multiplication passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestArithmeticDivide()
     {
         var a = new ArithmeticValue(100);
@@ -70,7 +65,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Division passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestArithmeticModulo()
     {
         var a = new ArithmeticValue(17);
@@ -84,7 +78,6 @@ public class OperatorTests : TestBase
 
     #region Tier 2 — Comparison
 
-    [TestTier(TestTier.Tier2)]
     public void TestComparisonLessThan()
     {
         var a = new ComparableValue(5);
@@ -94,7 +87,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("LessThan passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestComparisonGreaterThan()
     {
         var a = new ComparableValue(10);
@@ -108,7 +100,6 @@ public class OperatorTests : TestBase
 
     #region Tier 2 — Bitwise
 
-    [TestTier(TestTier.Tier2)]
     public void TestBitwiseAnd()
     {
         var a = new BitwiseValue(0b1100);
@@ -118,7 +109,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Bitwise AND passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestBitwiseOr()
     {
         var a = new BitwiseValue(0b1100);
@@ -128,7 +118,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Bitwise OR passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestBitwiseXor()
     {
         var a = new BitwiseValue(0b1100);
@@ -142,7 +131,7 @@ public class OperatorTests : TestBase
 
     #region Tier 2 — Unary
 
-    [TestTier(TestTier.Tier3)] // Mono: non-blittable types through CallConvSwift P/Invoke
+    [MonoJitCrash] // Mono: non-blittable types through CallConvSwift P/Invoke
     public void TestUnaryNot()
     {
         var trueVal = new UnaryValue(true, 0);
@@ -155,7 +144,7 @@ public class OperatorTests : TestBase
         TestLogger.Info("Unary NOT passed");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: non-blittable types through CallConvSwift P/Invoke
+    [MonoJitCrash] // Mono: non-blittable types through CallConvSwift P/Invoke
     public void TestUnaryBitwiseNot()
     {
         var val = new UnaryValue(false, 0x0000FF00);

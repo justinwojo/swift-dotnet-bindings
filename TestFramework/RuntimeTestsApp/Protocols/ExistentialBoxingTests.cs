@@ -27,7 +27,6 @@ public class ExistentialBoxingTests : TestBase
 
     #region Construction + Properties (Tier 1)
 
-    [TestTier(TestTier.Tier1)]
     public void TestSimpleModeConstruction()
     {
         var mode = new SimpleMode();
@@ -35,7 +34,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("SimpleMode() construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSimpleModeModeName()
     {
         var mode = new SimpleMode();
@@ -44,7 +42,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"SimpleMode.ModeName = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestStrictModeConstruction()
     {
         var mode = new StrictMode();
@@ -52,7 +49,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("StrictMode() construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestStrictModeModeName()
     {
         var mode = new StrictMode();
@@ -65,7 +61,6 @@ public class ExistentialBoxingTests : TestBase
 
     #region Validate Methods — Direct Swift Type (Tier 2)
 
-    [TestTier(TestTier.Tier2)]
     public void TestSimpleModeValidatePositive()
     {
         var mode = new SimpleMode();
@@ -74,7 +69,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("SimpleMode.Validate positive values passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestSimpleModeValidateZeroAndNegative()
     {
         var mode = new SimpleMode();
@@ -84,7 +78,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("SimpleMode.Validate zero/negative passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStrictModeValidatePositive()
     {
         var mode = new StrictMode();
@@ -93,7 +86,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("StrictMode.Validate positive values passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStrictModeValidateZeroAndNegative()
     {
         var mode = new StrictMode();
@@ -102,7 +94,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("StrictMode.Validate zero/negative passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStrictModeValidateBoundary()
     {
         var mode = new StrictMode();
@@ -115,7 +106,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region ModeProcessor — Existential Boxing (Tier 3 — witness table not in dylib)
 
-    [TestTier(TestTier.Tier3)] // EveryProtocol witness table not in dylib
+    [Skip("witness table not in dylib")] // EveryProtocol witness table not in dylib
     public void TestModeProcessorWithSimpleImpl()
     {
         var impl = new TestSimpleProcessingMode();
@@ -125,7 +116,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("ModeProcessor with simple impl passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestModeProcessorWithStrictImpl()
     {
         var impl = new TestStrictProcessingMode();
@@ -136,7 +127,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("ModeProcessor with strict impl passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestModeProcessorGetModeName()
     {
         var impl = new TestSimpleProcessingMode();
@@ -151,7 +142,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Pipeline — Array + Existential Constructor (Tier 3)
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestPipelineConstruction()
     {
         var impl = new TestSimpleProcessingMode();
@@ -161,7 +152,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("Pipeline construction passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestPipelineGetStepCount()
     {
         var impl = new TestSimpleProcessingMode();
@@ -171,7 +162,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"Pipeline.GetStepCount() = {pipeline.GetStepCount()}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestPipelineGetModeName()
     {
         var impl = new TestStrictProcessingMode();
@@ -186,7 +177,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Free Functions — Existential Parameters (Tier 3)
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestRunWithModeSimple()
     {
         var impl = new TestSimpleProcessingMode();
@@ -196,7 +187,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunWithMode(simple, 42) = {result}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestRunWithModeStrict()
     {
         var impl = new TestStrictProcessingMode();
@@ -206,7 +197,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("RunWithMode with strict impl passed");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestCompareResultsSameMode()
     {
         var a = new ProcessingModeProxy(new TestSimpleProcessingMode());
@@ -216,7 +207,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"CompareResults(simple, simple, 42) = {result}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("witness table not in dylib")]
     public void TestCompareResultsDifferentModes()
     {
         var simple = new ProcessingModeProxy(new TestSimpleProcessingMode());

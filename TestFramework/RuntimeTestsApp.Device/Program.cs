@@ -16,27 +16,12 @@ namespace RuntimeTestsApp;
 
 public class Application
 {
-    /// <summary>
-    /// Target platform: simulator (Mono JIT) or device (NativeAOT).
-    /// </summary>
-    internal static TestPlatform Platform { get; private set; } = TestPlatform.Simulator;
-
-    /// <summary>
-    /// When true, each test runs 3 times and inconsistent results (flaky tests) fail the suite.
-    /// Enabled via --flake-detect CLI arg.
-    /// </summary>
+    internal static TestPlatform Platform { get; private set; } = TestPlatform.Device;
     internal static bool FlakeDetect { get; private set; }
-
-    /// <summary>
-    /// When set, only the test class with this exact name (case-insensitive) is run.
-    /// </summary>
     internal static string? ClassFilter { get; private set; }
 
     static void Main(string[] args)
     {
-        // Parse arguments before UI launch.
-        // On iOS, Main(string[] args) may not receive simctl launch arguments.
-        // Fall back to NSProcessInfo.ProcessInfo.Arguments which always has them.
         var effectiveArgs = args.Length > 0 ? args : GetProcessInfoArgs();
         for (int i = 0; i < effectiveArgs.Length; i++)
         {
@@ -44,8 +29,8 @@ public class Application
             {
                 Platform = effectiveArgs[i + 1].ToLowerInvariant() switch
                 {
-                    "device" => TestPlatform.Device,
-                    _ => TestPlatform.Simulator
+                    "simulator" => TestPlatform.Simulator,
+                    _ => TestPlatform.Device
                 };
                 i++;
             }
@@ -60,39 +45,17 @@ public class Application
             }
         }
 
-        // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
         SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
         UIApplication.Main(args, null, typeof(AppDelegate));
     }
 
-    /// <summary>
-    /// Gets arguments from NSProcessInfo (works on iOS when simctl launch passes args).
-    /// Skips the first element (executable path).
-    /// </summary>
     static string[] GetProcessInfoArgs()
     {
         var allArgs = NSProcessInfo.ProcessInfo.Arguments;
         if (allArgs.Length <= 1)
             return Array.Empty<string>();
-        // Skip argv[0] (executable path)
         return allArgs.Skip(1).ToArray();
-    }
-
-    static IntPtr ResolveBundledFramework(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
-    {
-        if (libraryName == "SwiftBindingsTestLib" || libraryName == "SwiftBindings"
-            || libraryName == "SwiftBindingsTestLibBridge")
-        {
-            var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-            if (NativeLibrary.TryLoad(frameworkPath, out var handle))
-            {
-                TestLogger.Info($"Resolved {libraryName} -> {frameworkPath}");
-                return handle;
-            }
-            TestLogger.Warning($"Failed to resolve {libraryName} at {frameworkPath}");
-        }
-        return IntPtr.Zero;
     }
 }
 
@@ -134,63 +97,24 @@ public class MainViewController : UIViewController
         var screenBounds = UIScreen.MainScreen.Bounds;
         View!.Frame = screenBounds;
         View.BackgroundColor = UIColor.White;
-        View.ClipsToBounds = false;
 
-        EdgesForExtendedLayout = UIRectEdge.All;
-        ExtendedLayoutIncludesOpaqueBars = true;
-
-        var screenWidth = screenBounds.Width;
-        var safeTop = 60.0;
-        var contentWidth = screenWidth - 40;
-        var titleHeight = 30.0;
-        var buttonHeight = 40.0;
-        var spacing = 8.0;
-        var resultLabelHeight = 400.0;
-
-        var currentY = safeTop;
-
-        // Title
-        var label = new UILabel
-        {
-            Text = $"Runtime Tests ({Application.Platform})",
-            TextAlignment = UITextAlignment.Center,
-            Font = UIFont.BoldSystemFontOfSize(18),
-            Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, titleHeight)
-        };
-        View.AddSubview(label);
-        currentY += titleHeight + spacing;
-
-        // Run Tests button
-        var runButton = UIButton.FromType(UIButtonType.System);
-        runButton.Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, buttonHeight);
-        runButton.SetTitle("Run Tests", UIControlState.Normal);
-        runButton.BackgroundColor = UIColor.SystemBlue;
-        runButton.SetTitleColor(UIColor.White, UIControlState.Normal);
-        runButton.Layer.CornerRadius = 8;
-        runButton.TouchUpInside += RunAllTests;
-        View.AddSubview(runButton);
-        currentY += buttonHeight + spacing;
-
-        // Result label with scroll
         _scrollView = new UIScrollView
         {
-            Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, resultLabelHeight),
+            Frame = new CoreGraphics.CGRect(20, 60, screenBounds.Width - 40, screenBounds.Height - 80),
             BackgroundColor = UIColor.FromRGB(245, 245, 245),
-            Layer = { CornerRadius = 8 }
         };
 
         _resultLabel = new UILabel
         {
-            Text = "Ready to run tests...",
+            Text = "Running tests...",
             TextAlignment = UITextAlignment.Left,
             Lines = 0,
             Font = UIFont.FromName("Menlo", 9) ?? UIFont.SystemFontOfSize(9),
-            Frame = new CoreGraphics.CGRect(8, 8, contentWidth - 16, resultLabelHeight - 16)
+            Frame = new CoreGraphics.CGRect(8, 8, screenBounds.Width - 56, screenBounds.Height - 96)
         };
         _scrollView.AddSubview(_resultLabel);
         View.AddSubview(_scrollView);
 
-        // Auto-run tests on startup
         _ = RunTestsAsync();
     }
 
@@ -212,11 +136,6 @@ public class MainViewController : UIViewController
         });
     }
 
-    private async void RunAllTests(object? sender, EventArgs e)
-    {
-        await RunTestsAsync();
-    }
-
     private async Task RunTestsAsync()
     {
         var platform = Application.Platform;
@@ -234,43 +153,64 @@ public class MainViewController : UIViewController
         try
         {
             // Initialize Swift concurrency runtime
-            InitializeSwiftConcurrency();
+            try
+            {
+                SwiftBindingsTestLib.Functions.InitializeConcurrency();
+                TestLogger.Info("Swift concurrency initialized");
+            }
+            catch (Exception ex)
+            {
+                TestLogger.Warning($"Failed to initialize Swift concurrency: {ex.Message}");
+            }
 
-            // Discover all TestBase subclasses in the assembly
-            var allClasses = Assembly.GetExecutingAssembly()
-                .GetTypes()
-                .Where(t => t.IsSubclassOf(typeof(TestBase)) && !t.IsAbstract)
+            // Diagnostic: log assembly info
+            var asm = Assembly.GetExecutingAssembly();
+            TestLogger.Info($"Assembly: {asm.FullName}");
+
+            Type[] allTypes;
+            try
+            {
+                allTypes = asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException rtle)
+            {
+                TestLogger.Warning($"ReflectionTypeLoadException: {rtle.LoaderExceptions.Length} loader errors");
+                foreach (var le in rtle.LoaderExceptions.Where(e => e != null).Take(10))
+                    TestLogger.Warning($"  Loader: {le!.Message}");
+                allTypes = rtle.Types.Where(t => t != null).ToArray()!;
+            }
+
+            TestLogger.Info($"Total types in assembly: {allTypes.Length}");
+
+            var testBaseType = typeof(TestBase);
+            TestLogger.Info($"TestBase type: {testBaseType.FullName} from {testBaseType.Assembly.FullName}");
+
+            var allClasses = allTypes
+                .Where(t => t.IsSubclassOf(testBaseType) && !t.IsAbstract)
                 .ToList();
+
+            TestLogger.Info($"Discovered {allClasses.Count} test classes");
+
+            if (allClasses.Count == 0)
+            {
+                // Extra diagnostics
+                var candidates = allTypes.Where(t => t.BaseType != null && t.BaseType.Name == "TestBase").ToList();
+                TestLogger.Warning($"Types with BaseType.Name=='TestBase': {candidates.Count}");
+                foreach (var c in candidates.Take(5))
+                    TestLogger.Warning($"  {c.FullName} base={c.BaseType?.FullName} asm={c.BaseType?.Assembly.FullName}");
+            }
 
             // Apply --class filter if specified
             if (Application.ClassFilter != null)
             {
-                var filtered = allClasses
+                allClasses = allClasses
                     .Where(t => t.Name.Equals(Application.ClassFilter, StringComparison.OrdinalIgnoreCase))
                     .ToList();
-
-                if (filtered.Count == 0)
-                {
-                    TestLogger.Error($"No test class matches '{Application.ClassFilter}'");
-                    TestLogger.Error("Available classes:");
-                    foreach (var c in allClasses.OrderBy(t => t.Name))
-                        TestLogger.Error($"  - {c.Name}");
-                    Console.WriteLine("TEST FAILURE: No test class matches filter");
-                    UpdateResultLabel(TestLogger.GetFullLog());
-                    return;
-                }
-
-                allClasses = filtered;
             }
 
-            // Sort all test classes alphabetically
             var testClasses = allClasses.OrderBy(t => t.Name).ToList();
 
             var flakeDetect = Application.FlakeDetect;
-            if (flakeDetect)
-            {
-                TestLogger.Info("Flake detection ENABLED: each test runs 3x");
-            }
 
             foreach (var testClass in testClasses)
             {
@@ -283,7 +223,6 @@ public class MainViewController : UIViewController
             results.Fail("Test Suite", ex.Message);
         }
 
-        // Summary
         TestLogger.Info("");
         TestLogger.Info("=== TEST SUMMARY ===");
         TestLogger.Info(results.ToString());
@@ -299,16 +238,14 @@ public class MainViewController : UIViewController
             Console.WriteLine($"TEST FAILURE: {results.Failed} tests failed");
             TestLogger.Error("=== SOME TESTS FAILED ===");
             foreach (var failed in results.FailedTests)
-            {
                 TestLogger.Error($"  - {failed}");
-            }
         }
 
         UpdateResultLabel(TestLogger.GetFullLog());
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
-    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner")]
     private async Task RunTestClassAsync(Type testClassType, TestResults results, TestPlatform platform, bool flakeDetect = false)
     {
         TestLogger.Info("");
@@ -323,19 +260,6 @@ public class MainViewController : UIViewController
         {
             TestLogger.Exception(ex, testClassType.Name);
             results.Fail(testClassType.Name, ex.Message);
-        }
-    }
-
-    private void InitializeSwiftConcurrency()
-    {
-        try
-        {
-            SwiftBindingsTestLib.Functions.InitializeConcurrency();
-            TestLogger.Info("Swift concurrency initialized");
-        }
-        catch (Exception ex)
-        {
-            TestLogger.Warning($"Failed to initialize Swift concurrency: {ex.Message}");
         }
     }
 }

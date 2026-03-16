@@ -16,7 +16,7 @@ namespace RuntimeTestsApp.Mac;
 /// </summary>
 public class Program
 {
-    static TestTier? TierOverride;
+    static TestPlatform Platform = TestPlatform.Simulator;
     static bool FlakeDetect;
     static string? ClassFilter;
 
@@ -25,9 +25,13 @@ public class Program
         // Parse arguments directly (no NSProcessInfo needed on macOS)
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--tier" && i + 1 < args.Length && int.TryParse(args[i + 1], out var tier) && tier >= 1 && tier <= 3)
+            if (args[i] == "--platform" && i + 1 < args.Length)
             {
-                TierOverride = (TestTier)tier;
+                Platform = args[i + 1].ToLowerInvariant() switch
+                {
+                    "device" => TestPlatform.Device,
+                    _ => TestPlatform.Simulator
+                };
                 i++;
             }
             else if (args[i] == "--flake-detect")
@@ -44,18 +48,17 @@ public class Program
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
         SwiftFrameworkResolver.RegisterForAssembly(Assembly.GetExecutingAssembly());
 
-        var maxTier = TierOverride ?? TestTier.Tier1;
-        return await RunTestsAsync(maxTier);
+        return await RunTestsAsync();
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
     [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
-    static async Task<int> RunTestsAsync(TestTier maxTier)
+    static async Task<int> RunTestsAsync()
     {
         TestLogger.Clear();
 
         TestLogger.Info("=== RUNTIME TESTS (macOS) ===");
-        TestLogger.Info($"Max tier: {maxTier}");
+        TestLogger.Info($"Platform: {Platform}");
         if (ClassFilter != null)
             TestLogger.Info($"Class filter: {ClassFilter}");
         TestLogger.Info($"Started at {DateTime.Now:HH:mm:ss}");
@@ -96,8 +99,7 @@ public class Program
             // Sort all test classes alphabetically
             var testClasses = allClasses.OrderBy(t => t.Name).ToList();
 
-            // Flake detection: enabled via CLI --flake-detect, or automatically for Tier 3
-            var flakeDetect = FlakeDetect || maxTier >= TestTier.Tier3;
+            var flakeDetect = FlakeDetect;
             if (flakeDetect)
             {
                 TestLogger.Info("Flake detection ENABLED: each test runs 3x");
@@ -105,7 +107,7 @@ public class Program
 
             foreach (var testClass in testClasses)
             {
-                await RunTestClassAsync(testClass, results, maxTier, flakeDetect);
+                await RunTestClassAsync(testClass, results, Platform, flakeDetect);
             }
         }
         catch (Exception ex)
@@ -140,7 +142,7 @@ public class Program
 
     [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
     [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
-    static async Task RunTestClassAsync(Type testClassType, TestResults results, TestTier maxTier, bool flakeDetect = false)
+    static async Task RunTestClassAsync(Type testClassType, TestResults results, TestPlatform platform, bool flakeDetect = false)
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {testClassType.Name} ===");
@@ -148,7 +150,7 @@ public class Program
         try
         {
             var testClass = (TestBase)Activator.CreateInstance(testClassType, results)!;
-            await testClass.RunAllTestsAsync(maxTier, flakeDetect);
+            await testClass.RunAllTestsAsync(platform, flakeDetect);
         }
         catch (Exception ex)
         {

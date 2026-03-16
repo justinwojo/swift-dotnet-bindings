@@ -1,0 +1,100 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <RuntimeIdentifier>ios-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+
+    <!-- NativeAOT settings -->
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+
+    <!-- Code signing -->
+    <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
+    <CodesignProvision>Wildcard Dev</CodesignProvision>
+    <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+
+    <!-- Suppress warnings -->
+    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="Info.plist" />
+  </ItemGroup>
+
+  <!-- Preserve all types for reflection-based test discovery.
+       TrimmerRootDescriptor tells the IL linker to keep types.
+       IlcArg passes the same file to ILC for NativeAOT reflection metadata. -->
+  <ItemGroup>
+    <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
+    <IlcArg Include="--descriptor:$(MSBuildProjectDirectory)/TrimmerRoots.xml" />
+  </ItemGroup>
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+
+  <!-- Shared source from RuntimeTestsApp (Program.cs excluded — device has its own) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Infrastructure/*.cs" />
+    <Compile Include="../RuntimeTestsApp/GlobalUsings.cs" />
+  </ItemGroup>
+
+  <!-- Test classes (all domains) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Collections/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Properties/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Generated bindings -->
+  <ItemGroup>
+    <Compile Include="../output/SwiftBindingsTestLib.cs" />
+  </ItemGroup>
+
+  <!-- SwiftBindingsTestLib xcframework (must have ios-arm64 device slice) -->
+  <ItemGroup>
+    <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- SwiftBindings wrapper framework (only include if device slice exists).
+       Wrapper compilation currently fails due to a pre-existing generator bug in async wrapper code.
+       Async tests are [Skip("Async DllImport targets wrong module")] so this doesn't affect device testing. -->
+  <ItemGroup>
+    <NativeReference Include="../output/SwiftBindings.xcframework"
+                     Condition="Exists('../output/SwiftBindings.xcframework/ios-arm64')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- SwiftUI bridge excluded for device builds — bridge framework is simulator-only.
+       SwiftUI bridge tests are gated by #if SWIFTUI_BRIDGE so they compile out safely. -->
+</Project>

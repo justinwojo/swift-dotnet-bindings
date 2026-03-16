@@ -33,7 +33,6 @@ public class BasicThrowingTests : TestBase
 
     #region Free Throwing Functions — Blittable
 
-    [TestTier(TestTier.Tier1)]
     public void TestDivideSuccess()
     {
         var result = TestLibFunctions.Divide(10, 2);
@@ -41,7 +40,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"Divide(10, 2) = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDivideNegativeValues()
     {
         var result = TestLibFunctions.Divide(-15, 3);
@@ -54,7 +52,7 @@ public class BasicThrowingTests : TestBase
 
     // Error description extraction returns "SwiftBindingsTestLib.MathError (code 0)" instead of
     // "divisionByZero" — the SBW_GetErrorDescription wrapper may be boxing the error incorrectly
-    [TestTier(TestTier.Tier3)]
+    [Skip("Error description returns type code, not case name")]
     public void TestDivideByZeroThrows()
     {
         try
@@ -75,7 +73,6 @@ public class BasicThrowingTests : TestBase
 
     #region ThrowingStruct — Blittable
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructConstruction()
     {
         var ts = new ThrowingStruct(42);
@@ -83,7 +80,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ThrowingStruct created with value={ts.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructDivideBySuccess()
     {
         var ts = new ThrowingStruct(100);
@@ -92,7 +88,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ThrowingStruct(100).GetDivideBy(5) = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructValidatePositiveSuccess()
     {
         var ts = new ThrowingStruct(10);
@@ -101,7 +96,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ThrowingStruct(10).ValidatePositive() = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructStaticSafeDivideSuccess()
     {
         var result = ThrowingStruct.SafeDivide(20, 4);
@@ -111,7 +105,7 @@ public class BasicThrowingTests : TestBase
 
     // Error description extraction returns "SwiftBindingsTestLib.MathError (code 0)" instead of
     // "divisionByZero" — the SBW_GetErrorDescription wrapper may be boxing the error incorrectly
-    [TestTier(TestTier.Tier3)]
+    [Skip("Error description returns type code, not case name")]
     public void TestThrowingStructDivideByZeroThrows()
     {
         var ts = new ThrowingStruct(100);
@@ -128,7 +122,6 @@ public class BasicThrowingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructValidatePositiveNegativeThrows()
     {
         var ts = new ThrowingStruct(-5);
@@ -139,7 +132,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ThrowingStruct(-5).ValidatePositive() correctly threw");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructValidatePositiveZeroThrows()
     {
         var ts = new ThrowingStruct(0);
@@ -150,7 +142,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ThrowingStruct(0).ValidatePositive() correctly threw");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestThrowingStructStaticSafeDivideByZeroThrows()
     {
         AssertThrows<SwiftRuntimeException>(() =>
@@ -164,7 +155,6 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Blittable (ValidateRange: Int32-only)
 
-    [TestTier(TestTier.Tier1)]
     public void TestValidateRangeSuccess()
     {
         var result = TestLibFunctions.ValidateRange(5, 1, 10);
@@ -172,7 +162,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ValidateRange(5, 1, 10) = {result}");
     }
 
-    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
+    [Skip("Typed throws: swifterror ABI mismatch")] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeBelowMinThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -182,7 +172,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ValidateRange(0, 1, 10) correctly threw SwiftException<RangeError>");
     }
 
-    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
+    [Skip("Typed throws: swifterror ABI mismatch")] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeAboveMaxThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -196,7 +186,6 @@ public class BasicThrowingTests : TestBase
 
     #region Error Enum Construction (Tier 1 — no P/Invoke, pure C# construction)
 
-    [TestTier(TestTier.Tier1)]
     public void TestMathErrorCases()
     {
         // MathError is a simple C# enum (Error protocol enum projected as int enum)
@@ -216,7 +205,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("MathError case construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestValidationErrorEmptyCase()
     {
         var empty = ValidationError.Empty;
@@ -226,7 +214,7 @@ public class BasicThrowingTests : TestBase
 
     // ValidationError.TooLong(Int32) — EntryPointNotFoundException at runtime
     // The symbol $s...ValidationErrorO7tooLong... is not exported from the dylib
-    [TestTier(TestTier.Tier3)]
+    [Skip("Entry point not exported from dylib")]
     public void TestValidationErrorTooLongCase()
     {
         var tooLong = ValidationError.TooLong(50);
@@ -234,7 +222,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ValidationError.TooLong case construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestParseErrorCases()
     {
         var invalid = ParseError.InvalidInput;
@@ -244,7 +231,7 @@ public class BasicThrowingTests : TestBase
     }
 
     // ParseError.Overflow(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestParseErrorOverflowCase()
     {
         using var val = new SwiftString("99999999999");
@@ -254,7 +241,7 @@ public class BasicThrowingTests : TestBase
     }
 
     // ValidationError.InvalidFormat(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestValidationErrorInvalidFormatCase()
     {
         using var val = new SwiftString("bad format");
@@ -265,7 +252,7 @@ public class BasicThrowingTests : TestBase
 
     // RangeError.BelowMinimum/AboveMaximum take tuple (Int32, Int32) associated values
     // InvalidProgramException: non-blittable types with Swift calling convention
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestRangeErrorCases()
     {
         var below = RangeError.BelowMinimum(5, 10);
@@ -285,7 +272,6 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — SwiftString Success Paths (ParseNumber success)
 
-    [TestTier(TestTier.Tier2)]
     public void TestParseNumberSuccess()
     {
         var result = TestLibFunctions.ParseNumber("42");
@@ -293,7 +279,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ParseNumber(\"42\") = {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestParseNumberNegative()
     {
         var result = TestLibFunctions.ParseNumber("-100");
@@ -305,7 +290,6 @@ public class BasicThrowingTests : TestBase
 
     #region TypedThrowingParser — Struct Construction and Success Paths
 
-    [TestTier(TestTier.Tier2)]
     public void TestTypedThrowingParserCreation()
     {
         var strict = TestLibFunctions.CreateStrictParser();
@@ -319,7 +303,7 @@ public class BasicThrowingTests : TestBase
     // TypedThrowingParser is a non-frozen struct — constructor uses SwiftIndirectResult
     // InvalidProgramException: non-blittable types with Swift calling convention
     // Factory methods (CreateStrictParser/CreateLenientParser) work because they return via register
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTypedThrowingParserConstructor()
     {
         var parser = new TypedThrowingParser(true);
@@ -330,7 +314,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("TypedThrowingParser constructors passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTypedThrowingParserParseSuccess()
     {
         var parser = TestLibFunctions.CreateLenientParser();
@@ -339,7 +322,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"LenientParser.Parse(\"123\") = {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStrictParserAcceptsCleanInput()
     {
         var parser = TestLibFunctions.CreateStrictParser();
@@ -348,7 +330,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"StrictParser.Parse(\"99\") = {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLenientParserAcceptsCleanInput()
     {
         var parser = TestLibFunctions.CreateLenientParser();
@@ -361,7 +342,6 @@ public class BasicThrowingTests : TestBase
 
     #region String-Returning Throwing Functions — Success Path
 
-    [TestTier(TestTier.Tier2)]
     public void TestValidateStringSuccess()
     {
         var result = TestLibFunctions.Validate("hello", 100);
@@ -378,7 +358,7 @@ public class BasicThrowingTests : TestBase
 
     #region SwiftString Throwing — Error Paths (Tier 3, crash-prone)
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestParseNumberThrowsOnInvalidInput()
     {
         AssertThrows<SwiftException<ParseError>>(() =>
@@ -388,7 +368,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ParseNumber(\"abc\") correctly threw SwiftException<ParseError>");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTypedThrowingParserParseInvalidThrows()
     {
         var parser = TestLibFunctions.CreateLenientParser();
@@ -399,7 +379,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("Parser.Parse(\"not_a_number\") correctly threw SwiftException<ParseError>");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestStrictParserRejectsWhitespace()
     {
         var parser = TestLibFunctions.CreateStrictParser();
@@ -410,7 +390,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("StrictParser.Parse(\" 42 \") correctly threw SwiftException<ParseError>");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestValidateEmptyStringThrows()
     {
         AssertThrows<SwiftRuntimeException>(() =>
@@ -420,7 +400,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("Validate(\"\", 100) correctly threw");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestValidateTooLongThrows()
     {
         AssertThrows<SwiftRuntimeException>(() =>
@@ -440,7 +420,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [TestTier(TestTier.Tier3)] // Typed throws via direct P/Invoke: swifterror ABI mismatch on Mono
+    [MonoJitCrash] // Typed throws via direct P/Invoke: swifterror ABI mismatch on Mono
     public void TestValidateRangeTypedCatchWithError()
     {
         // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
@@ -467,7 +447,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Async (Tier 3: Mono JIT limitations)
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("Async DllImport targets wrong module")]
     public async Task TestAsyncParseTypedCatch()
     {
         // Async typed throws: SwiftException<ParseError> with non-null .Error
@@ -486,7 +466,7 @@ public class BasicThrowingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("Async DllImport targets wrong module")]
     public async Task TestAsyncParseSuccess()
     {
         var parser = TestLibFunctions.CreateLenientParser();

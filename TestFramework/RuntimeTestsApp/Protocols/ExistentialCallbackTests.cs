@@ -19,7 +19,7 @@ namespace RuntimeTestsApp.Protocols;
 /// NativeAOT (device builds) should work.
 /// </summary>
 // Mono JIT assertion (jit-info.c:918): proxy objects through CallConvSwift P/Invoke
-[TestTier(TestTier.Tier3)]
+[MonoJitCrash]
 public class ExistentialCallbackTests : TestBase
 {
     public ExistentialCallbackTests(TestResults results) : base(results) { }

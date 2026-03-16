@@ -14,7 +14,6 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 /// Tests for simple (non-async) SwiftUI bridge Views.
 /// Validates BoundEnum, BoundType, TypedClosure, optional variants, and mixed params.
 /// </summary>
-[TestTier(TestTier.Tier2)]
 public class BridgeSimpleViewTests : TestBase
 {
     public BridgeSimpleViewTests(TestResults results) : base(results) { }

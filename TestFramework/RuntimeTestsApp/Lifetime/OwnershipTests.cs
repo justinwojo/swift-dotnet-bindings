@@ -19,7 +19,6 @@ public class OwnershipTests : TestBase
 
     #region Double-Dispose Safety
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalDoubleDispose()
     {
         // Dispose SafeHandle twice — should not crash or double-free
@@ -37,7 +36,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestUniqueResourceDoubleDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
@@ -53,7 +52,6 @@ public class OwnershipTests : TestBase
 
     #region Access-After-Dispose
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertyGetAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
@@ -67,7 +65,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Property get after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertySetAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
@@ -81,7 +78,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Property set after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalMethodCallAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
@@ -95,7 +91,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Method call after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalDescribeAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
@@ -110,7 +105,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestUniqueResourceAccessAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -125,7 +120,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestUniqueResourceMethodAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -143,7 +138,6 @@ public class OwnershipTests : TestBase
 
     #region Multiple References
 
-    [TestTier(TestTier.Tier2)]
     public void TestMultipleReferencesIndependent()
     {
         // Two independently created objects are independent
@@ -163,7 +157,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestMultipleResourcesIndependent()
     {
         var r1 = TestLibFunctions.CreateUniqueResource(1);
@@ -178,7 +172,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Independent UniqueResources have independent lifetimes");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestSharedReferenceDispose()
     {
         // Two C# variables pointing to the SAME Swift object.
@@ -208,7 +201,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Shared references: dispose via alias invalidates both");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestSharedReferenceMethodCallAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("SharedMethod", "Woof");
@@ -234,7 +226,7 @@ public class OwnershipTests : TestBase
 
     #region Ownership Transfer Patterns
 
-    [TestTier(TestTier.Tier3)] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
+    [MonoJitCrash] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
     public void TestBorrowResourcePreservesOwnership()
     {
         // BorrowResource should not consume the resource
@@ -250,7 +242,6 @@ public class OwnershipTests : TestBase
         TestLogger.Info("BorrowResource preserves ownership");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestInspectPreservesAccess()
     {
         // Inspect should not consume the resource

@@ -18,7 +18,6 @@ public class ClosureTests : TestBase
     // These escaping closure tests use CallConvCdecl callbacks + Swift _cdecl wrapper
     // functions, bypassing the Mono JIT CallConvSwift crash.
 
-    [TestTier(TestTier.Tier2)]
     public void TestEscapingWithInt32()
     {
         var result = TestLibFunctions.CallWithInt32(x => x * 2);
@@ -26,7 +25,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithInt32(x => x * 2) = {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestVoidCallback()
     {
         var called = false;
@@ -35,7 +33,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallVoidCallback passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestMultiArgClosure()
     {
         var result = TestLibFunctions.CallMultiArg((a, b) => a + b);
@@ -43,7 +40,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallMultiArg((a,b) => a+b) = {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestBoolCallback()
     {
         var result = TestLibFunctions.CallBoolCallback(b => !b);
@@ -51,7 +47,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallBoolCallback passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCallMultipleTimes()
     {
         var result = TestLibFunctions.CallMultipleTimes(x => x * x, 3);
@@ -61,7 +56,7 @@ public class ClosureTests : TestBase
     }
 
     // Struct instance method with Cdecl closure wrapper + _selfFixed
-    [TestTier(TestTier.Tier2)]
+
     public void TestClosureConsumer()
     {
         var consumer = new ClosureConsumer(3);
@@ -78,7 +73,7 @@ public class ClosureTests : TestBase
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
     // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestConventionCFunction()
     {
         var result = TestLibFunctions.CallCFunction(x => x + 8);
@@ -87,7 +82,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCBinaryFunction()
     {
         var result = TestLibFunctions.CallCBinaryFunction((a, b) => a * b);
@@ -96,7 +91,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: @convention(c) callback still uses CallConvSwift (Strategy B excludes @convention(c))
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestCPredicate()
     {
         var result = TestLibFunctions.CallCPredicate(x => x > 5, 10);
@@ -108,7 +103,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -119,7 +114,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -130,7 +125,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -141,7 +136,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono: invoking returned closure uses delegate* unmanaged[Swift] — Mono JIT crash
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);
@@ -163,7 +158,7 @@ public class ClosureTests : TestBase
     // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
 
     // Mono JIT crash: SwiftString return through CallConvSwift in closure callback
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -173,7 +168,7 @@ public class ClosureTests : TestBase
     }
 
     // Mono JIT crash: SwiftString array return through CallConvSwift in closure callback
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>

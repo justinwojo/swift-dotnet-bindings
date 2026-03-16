@@ -17,7 +17,6 @@ public class NegativePathTests : TestBase
 
     #region Invalid Enum FromRawValue
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionInvalidFromRawValue()
     {
         // Direction is a simple C# enum — verify cases have expected int values
@@ -33,7 +32,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Direction valid case construction verified");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorInvalidRawValue()
     {
         // Color is a simple C# enum — verify cases have distinct int values
@@ -44,7 +42,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Color enum case tags are distinct");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusCodeInvalidRawValue()
     {
         // StatusCode string enum with invalid value
@@ -57,7 +54,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("StatusCode invalid raw values return null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestLogLevelInvalidRawValue()
     {
         // LogLevel with invalid raw value
@@ -71,7 +67,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("LogLevel invalid raw values return null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestGreetingInvalidRawValue()
     {
         var invalid = Greeting.FromRawValue("not_a_greeting");
@@ -80,7 +75,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Greeting invalid raw value returns null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestHttpMethodInvalidRawValue()
     {
         var invalid = NetworkConfig.HttpMethod.FromRawValue("INVALID_METHOD");
@@ -89,7 +83,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("HttpMethod invalid raw value returns null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestContentTypeInvalidRawValue()
     {
         var invalid = NetworkConfig.ContentType.FromRawValue("invalid/type");
@@ -102,7 +95,6 @@ public class NegativePathTests : TestBase
 
     #region Reference Equality for Non-Equatable Types
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalReferenceEquality()
     {
         var animal1 = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -119,7 +111,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Non-Equatable Animal uses reference equality");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestUniqueResourceReferenceEquality()
     {
         var r1 = new UniqueResource(1);
@@ -132,7 +123,7 @@ public class NegativePathTests : TestBase
     }
 
     // Mono JIT crash: MutableProps constructor takes SwiftString through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMutablePropsReferenceEquality()
     {
         var p1 = new MutableProps(1, "A");
@@ -148,7 +139,6 @@ public class NegativePathTests : TestBase
 
     #region Disposed Object Edge Cases
 
-    [TestTier(TestTier.Tier2)]
     public void TestDisposedAnimalSoundPropertyAfterDispose()
     {
         // Test the second property (Sound) specifically
@@ -163,7 +153,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Sound property after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDisposedAnimalSoundSetAfterDispose()
     {
         var animal = TestLibFunctions.CreateAnimal("Test", "Moo");
@@ -177,7 +166,7 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Sound set after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
+    [MonoJitCrash] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
     public void TestDisposedMutablePropsNameAfterDispose()
     {
         var props = new MutableProps(1, "Test");
@@ -191,7 +180,7 @@ public class NegativePathTests : TestBase
         TestLogger.Info("MutableProps.Name after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
+    [MonoJitCrash] // MutableProps.Dispose() → Destroy via CallConvSwift → Mono JIT crash
     public void TestDisposedMutablePropsNameSetAfterDispose()
     {
         var props = new MutableProps(1, "Test");
@@ -206,7 +195,7 @@ public class NegativePathTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation — can't test dispose behavior
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestDisposedResourceConsumeAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(10);
@@ -224,7 +213,6 @@ public class NegativePathTests : TestBase
 
     #region SwiftSafeHandle.Zero Access
 
-    [TestTier(TestTier.Tier2)]
     public void TestZeroHandlePropertyAccessThrows()
     {
         // SwiftSafeHandle<T>.Zero is the default invalid handle.
@@ -269,7 +257,6 @@ public class NegativePathTests : TestBase
 
     #region Validate Round-Trip Free Function
 
-    [TestTier(TestTier.Tier2)]
     public void TestValidateLogLevelInvalidValues()
     {
         // ValidateLogLevelRoundTrip should return false for invalid values
@@ -280,7 +267,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("ValidateLogLevelRoundTrip rejects invalid values");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestValidateLogLevelAllValid()
     {
         // All valid raw values should round-trip

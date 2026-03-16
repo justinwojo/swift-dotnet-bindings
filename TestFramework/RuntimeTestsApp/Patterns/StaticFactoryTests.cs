@@ -16,7 +16,6 @@ public class StaticFactoryTests : TestBase
 
     #region Tier 1 — Factory + Blittable Property
 
-    [TestTier(TestTier.Tier1)]
     public void TestCreateWithValidNameVersion()
     {
         var loader = ConfigLoader.Create("AppConfig");
@@ -30,7 +29,6 @@ public class StaticFactoryTests : TestBase
 
     #region Tier 2 — Factory Overloads + String Properties + Null Returns
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateWithValidNameProperty()
     {
         var loader = ConfigLoader.Create("TestConfig");
@@ -39,7 +37,6 @@ public class StaticFactoryTests : TestBase
         TestLogger.Info($"ConfigLoader.Name = \"{loader.Name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateWithEmptyNameReturnsNull()
     {
         var loader = ConfigLoader.Create("");
@@ -47,7 +44,6 @@ public class StaticFactoryTests : TestBase
         TestLogger.Info("ConfigLoader.Create(\"\") = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateWithNameAndVersion()
     {
         var loader = ConfigLoader.Create("VersionedConfig", 2);
@@ -57,7 +53,6 @@ public class StaticFactoryTests : TestBase
         TestLogger.Info($"ConfigLoader.Create(\"VersionedConfig\", 2): Name={loader.Name}, Version={loader.Version}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateWithNegativeVersionReturnsNull()
     {
         var loader = ConfigLoader.Create("Config", -1);
@@ -65,7 +60,6 @@ public class StaticFactoryTests : TestBase
         TestLogger.Info("ConfigLoader.Create(\"Config\", -1) = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCreateWithZeroVersionReturnsNull()
     {
         // Swift guard is version > 0, so 0 is invalid
@@ -74,7 +68,6 @@ public class StaticFactoryTests : TestBase
         TestLogger.Info("ConfigLoader.Create(\"Config\", 0) = null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestGetDescribe()
     {
         var loader = ConfigLoader.Create("DescribeTest");

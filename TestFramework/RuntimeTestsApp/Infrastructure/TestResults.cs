@@ -4,7 +4,7 @@
 namespace RuntimeTestsApp.Infrastructure;
 
 /// <summary>
-/// Tracks test results for summary reporting with tier support.
+/// Tracks test results for summary reporting.
 /// </summary>
 public class TestResults
 {
@@ -84,30 +84,42 @@ public class TestResults
 }
 
 /// <summary>
-/// Test tier definitions for categorizing tests by execution time budget.
+/// Target platform for test execution.
 /// </summary>
-public enum TestTier
+public enum TestPlatform
 {
-    /// <summary>PR gate tests - fast smoke tests, &lt; 30 seconds total.</summary>
-    Tier1 = 1,
+    /// <summary>iOS Simulator (Mono JIT).</summary>
+    Simulator,
 
-    /// <summary>Merge gate tests - full matrix coverage minus stress, &lt; 3 minutes total.</summary>
-    Tier2 = 2,
-
-    /// <summary>Nightly tests - everything including stress tests, &lt; 15 minutes total.</summary>
-    Tier3 = 3
+    /// <summary>Physical device (NativeAOT).</summary>
+    Device
 }
 
 /// <summary>
-/// Attribute to mark test tier.
+/// Marks tests that crash only under Mono JIT (iOS Simulator) due to
+/// jit-info.c:918 assertion, non-blittable CallConvSwift, or generic metadata.
+/// Skipped on simulator, runs on device/NativeAOT.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
-public class TestTierAttribute : Attribute
-{
-    public TestTier Tier { get; }
+public class MonoJitCrashAttribute : Attribute { }
 
-    public TestTierAttribute(TestTier tier)
+/// <summary>
+/// Marks tests that are broken everywhere (generator bugs, missing entry points).
+/// Always skipped. The reason is visible in test output.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public class SkipAttribute : Attribute
+{
+    public string Reason { get; }
+
+    public SkipAttribute(string reason)
     {
-        Tier = tier;
+        Reason = reason;
     }
 }
+
+/// <summary>
+/// Marks stress/slow tests. Always runs but can be filtered if needed.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public class SlowAttribute : Attribute { }

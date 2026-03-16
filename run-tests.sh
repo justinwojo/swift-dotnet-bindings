@@ -79,9 +79,9 @@ sys.exit(1)
             echo "Skipping runtime tests (no available iPhone simulator found)."
         else
             cd TestFramework
-            # Tier 1+2 must be fully clean: no failures, no crashes.
-            # run-runtime-tests.sh enforces this — crashes in Tier 1/2 are regressions.
-            ./run-runtime-tests.sh --tier 2 --skip-regen --timeout 90
+            # Simulator mode: runs all tests except [MonoJitCrash] and [Skip].
+            # Any failure or crash is a regression.
+            ./run-runtime-tests.sh --skip-regen --timeout 90
             cd ..
         fi
     fi

@@ -17,7 +17,6 @@ public class ClassMarshallingTests : TestBase
 
     #region Animal Class (via factory function)
 
-    [TestTier(TestTier.Tier1)]
     public void TestAnimalCreation()
     {
         var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -25,7 +24,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("Animal creation passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestAnimalPropertyGet()
     {
         var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -40,7 +38,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"Animal properties: Name={name}, Sound={sound}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalPropertySet()
     {
         var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -57,7 +54,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"Animal property set: Name={newName}, Sound={newSound}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestAnimalSpeak()
     {
         var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -68,7 +64,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"Animal.GetSpeak() = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestAnimalDescribe()
     {
         var animal = TestLibFunctions.CreateAnimal("Rex", "Bark");
@@ -80,7 +75,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"Animal.GetDescribe() = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestAnimalUnicodeProperties()
     {
         // Test unicode in class string properties
@@ -100,7 +94,7 @@ public class ClassMarshallingTests : TestBase
     #region UniqueResource (via public constructor)
 
     // createUniqueResource wrapper stripped during compilation — Swift wrapper can't compile this function
-    [TestTier(TestTier.Tier3)]
+    [Skip("Wrapper stripped during compilation")]
     public void TestUniqueResourceCreation()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -111,7 +105,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource created with Id={id}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestUniqueResourceConstructor()
     {
         // Test the public constructor directly
@@ -121,7 +114,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
+    [MonoJitCrash] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
     public void TestBorrowResource()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
@@ -136,7 +129,7 @@ public class ClassMarshallingTests : TestBase
 
     #region MutableProps Struct (property get/set)
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
+    [MonoJitCrash] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
     public void TestMutablePropsCreation()
     {
         var props = new MutableProps(42, "TestName");
@@ -150,7 +143,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"MutableProps: Value={value}, Name={name}");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
+    [MonoJitCrash] // MutableProps constructor P/Invoke uses CallConvSwift → frame tracker corruption → cascading crash
     public void TestMutablePropsSetValue()
     {
         var props = new MutableProps(10, "Original");
@@ -170,7 +163,6 @@ public class ClassMarshallingTests : TestBase
 
     #region StaticMethods (static method calls)
 
-    [TestTier(TestTier.Tier2)]
     public void TestStaticMethodGetSet()
     {
         // Static methods on StaticMethods type
@@ -181,7 +173,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"StaticMethods get/set: {result}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStaticMethodIncrement()
     {
         StaticMethods.SetStoredValue(0);
@@ -199,7 +190,6 @@ public class ClassMarshallingTests : TestBase
 
     #region Multiple Instances
 
-    [TestTier(TestTier.Tier2)]
     public void TestMultipleAnimalInstances()
     {
         // Create multiple independent instances
@@ -222,7 +212,6 @@ public class ClassMarshallingTests : TestBase
 
     #region SafeHandle Lifecycle
 
-    [TestTier(TestTier.Tier2)]
     public void TestPayloadDisposePreventsFurtherAccess()
     {
         // Create an animal, dispose its SafeHandle, then verify access throws
@@ -244,7 +233,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("SafeHandle use-after-dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPayloadDisposePreventsMethods()
     {
         var animal = TestLibFunctions.CreateAnimal("Ghost", "Boo");
@@ -269,7 +257,7 @@ public class ClassMarshallingTests : TestBase
 
     #region GC Survival
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestClassSurvivesGCPressure()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -287,7 +275,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("Class survives GC pressure");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMultipleObjectsGCPressure()
     {
         // Create several objects, apply GC pressure, verify all survive

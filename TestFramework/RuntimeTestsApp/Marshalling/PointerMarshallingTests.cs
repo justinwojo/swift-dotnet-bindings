@@ -18,7 +18,6 @@ public class PointerMarshallingTests : TestBase
 
     #region Tier 1 — Smoke Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestGetStaticBuffer()
     {
         var ptr = TestLibFunctions.GetStaticBuffer();
@@ -26,7 +25,6 @@ public class PointerMarshallingTests : TestBase
         TestLogger.Info($"GetStaticBuffer() = 0x{ptr:X}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestReadPointerValue()
     {
         var ptr = TestLibFunctions.GetStaticBuffer();
@@ -39,7 +37,6 @@ public class PointerMarshallingTests : TestBase
 
     #region Tier 2 — Functional Tests
 
-    [TestTier(TestTier.Tier2)]
     public void TestWritePointerValue()
     {
         // Allocate a mutable buffer and write to it
@@ -58,7 +55,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestIncrementPointer()
     {
         var ptr = Marshal.AllocHGlobal(sizeof(int));
@@ -76,7 +72,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFillBuffer()
     {
         var count = 4;
@@ -97,7 +92,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOpaquePointerIsValid()
     {
         var ptr = Marshal.AllocHGlobal(sizeof(int));
@@ -113,7 +107,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestRawPointerToInt32()
     {
         var ptr = Marshal.AllocHGlobal(sizeof(int));
@@ -130,7 +123,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStoreInt32()
     {
         var ptr = Marshal.AllocHGlobal(sizeof(int));
@@ -147,7 +139,6 @@ public class PointerMarshallingTests : TestBase
         }
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOptionalOpaquePointerWithNull()
     {
         var result = TestLibFunctions.OptionalOpaquePointer(null);

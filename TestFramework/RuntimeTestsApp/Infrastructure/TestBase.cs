@@ -22,14 +22,13 @@ public abstract class TestBase
     }
 
     /// <summary>
-    /// Runs all test methods in this class that match the specified tier.
+    /// Runs all test methods in this class, filtering by platform and skip attributes.
     /// When flakeDetect is true, each test runs 3 times and inconsistent results fail the suite.
     /// </summary>
-    public async Task RunAllTestsAsync(TestTier maxTier = TestTier.Tier3, bool flakeDetect = false)
+    public async Task RunAllTestsAsync(TestPlatform platform = TestPlatform.Simulator, bool flakeDetect = false)
     {
-        // Class-level tier serves as default for methods without their own attribute
-        var classTierAttr = GetType().GetCustomAttribute<TestTierAttribute>();
-        var classTier = classTierAttr?.Tier ?? TestTier.Tier1;
+        var classMonoJit = GetType().GetCustomAttribute<MonoJitCrashAttribute>() != null;
+        var classSkip = GetType().GetCustomAttribute<SkipAttribute>();
 
         var methods = GetType()
             .GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -38,13 +37,22 @@ public abstract class TestBase
 
         foreach (var method in methods)
         {
-            // Method-level tier overrides class-level tier
-            var tierAttr = method.GetCustomAttribute<TestTierAttribute>();
-            var methodTier = tierAttr?.Tier ?? classTier;
+            var testName = $"{TestClassName}.{method.Name}";
 
-            if (methodTier > maxTier)
+            // Check [Skip] — always skipped (method-level overrides class-level)
+            var methodSkip = method.GetCustomAttribute<SkipAttribute>();
+            var effectiveSkip = methodSkip ?? classSkip;
+            if (effectiveSkip != null)
             {
-                Results.Skip($"{TestClassName}.{method.Name}", $"Tier {(int)methodTier} > max tier {(int)maxTier}");
+                Results.Skip(testName, effectiveSkip.Reason);
+                continue;
+            }
+
+            // Check [MonoJitCrash] — skipped on simulator, runs on device
+            var isMonoJit = method.GetCustomAttribute<MonoJitCrashAttribute>() != null || classMonoJit;
+            if (isMonoJit && platform == TestPlatform.Simulator)
+            {
+                Results.Skip(testName, "MonoJitCrash: skipped on simulator");
                 continue;
             }
 

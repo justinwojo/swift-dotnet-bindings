@@ -17,7 +17,6 @@ public class StaticStructSingletonTests : TestBase
 
     #region Tier 1 — Blittable Property Access on Static Singletons
 
-    [TestTier(TestTier.Tier1)]
     public void TestStandardMaxLength()
     {
         var config = EncodingConfig.Standard;
@@ -25,7 +24,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Standard.MaxLength = {config.MaxLength}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestCompactMaxLength()
     {
         var config = EncodingConfig.Compact;
@@ -33,7 +31,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Compact.MaxLength = {config.MaxLength}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMinimalMaxLength()
     {
         var config = EncodingConfig.Minimal;
@@ -41,7 +38,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Minimal.MaxLength = {config.MaxLength}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestStaticSingletonsHaveDistinctMaxLength()
     {
         var standard = EncodingConfig.Standard;
@@ -59,7 +55,6 @@ public class StaticStructSingletonTests : TestBase
 
     #region Tier 2 — String Property, Instance Method, Custom Construction
 
-    [TestTier(TestTier.Tier2)]
     public void TestStandardFormatName()
     {
         var config = EncodingConfig.Standard;
@@ -68,7 +63,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Standard.FormatName = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCompactFormatName()
     {
         var config = EncodingConfig.Compact;
@@ -77,7 +71,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Compact.FormatName = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestMinimalFormatName()
     {
         var config = EncodingConfig.Minimal;
@@ -86,7 +79,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"EncodingConfig.Minimal.FormatName = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestIsWithinLimitTrue()
     {
         var config = EncodingConfig.Standard;
@@ -96,7 +88,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"IsWithinLimit({maxLen - 1}) on Standard (max={maxLen}) = true");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestIsWithinLimitFalse()
     {
         var config = EncodingConfig.Minimal;
@@ -106,7 +97,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"IsWithinLimit({maxLen + 1}) on Minimal (max={maxLen}) = false");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestIsWithinLimitBoundary()
     {
         var config = EncodingConfig.Compact;
@@ -116,7 +106,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"IsWithinLimit({maxLen}) on Compact (max={maxLen}) = true (boundary)");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCustomConstruction()
     {
         var config = new EncodingConfig("Custom", 256);
@@ -126,7 +115,6 @@ public class StaticStructSingletonTests : TestBase
         TestLogger.Info($"Custom EncodingConfig: FormatName=\"{name}\", MaxLength={config.MaxLength}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCustomConstructionIsWithinLimit()
     {
         var config = new EncodingConfig("Tiny", 10);

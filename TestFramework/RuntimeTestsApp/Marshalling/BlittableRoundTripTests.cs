@@ -16,7 +16,6 @@ public class BlittableRoundTripTests : TestBase
 
     #region FrozenPoint (Blittable Struct) Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestFrozenPointCreation()
     {
         // Test creating a frozen point at the origin
@@ -26,7 +25,6 @@ public class BlittableRoundTripTests : TestBase
         TestLogger.Info($"MakeOrigin() = ({origin.X}, {origin.Y})");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestFrozenPointRoundTrip()
     {
         // Create a point in C#, pass to Swift, get back description
@@ -40,7 +38,6 @@ public class BlittableRoundTripTests : TestBase
         TestLogger.Info($"DescribePoint((3.14, 2.71)) = \"{description}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestFrozenPointEdgeCases()
     {
         // Very small values
@@ -65,7 +62,6 @@ public class BlittableRoundTripTests : TestBase
 
     #region Simple Class Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestClassCreation()
     {
         // Test creating a simple Swift class instance
@@ -80,7 +76,6 @@ public class BlittableRoundTripTests : TestBase
 
     #region Bool Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestBoolReturn()
     {
         // ValidateLogLevelRoundTrip returns bool
@@ -97,7 +92,6 @@ public class BlittableRoundTripTests : TestBase
 
     #region Direction Enum Tests
 
-    [TestTier(TestTier.Tier1)]
     public void TestEnumUsage()
     {
         // Test direction enum (cases: North, South, East, West)

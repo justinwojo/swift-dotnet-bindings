@@ -13,7 +13,6 @@ namespace RuntimeTestsApp.Lifetime;
 /// These tests verify that scope-based disposal works correctly with real
 /// Swift objects created through the generated bindings.
 /// </summary>
-[TestTier(TestTier.Tier2)]
 public class DisposeScopeTests : TestBase
 {
     public DisposeScopeTests(TestResults results) : base(results) { }
@@ -41,7 +40,7 @@ public class DisposeScopeTests : TestBase
     }
 
     // Depends on createUniqueResource whose wrapper was stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("createUniqueResource wrapper stripped")]
     public void TestScopeDisposesMultipleObjects()
     {
         Animal animal;

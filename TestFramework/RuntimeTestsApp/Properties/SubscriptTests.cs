@@ -23,7 +23,6 @@ public class SubscriptTests : TestBase
 
     #region IndexedStore — Blittable Subscript (Tier 1)
 
-    [TestTier(TestTier.Tier1)]
     public void TestIndexedStoreConstruction()
     {
         var store = new IndexedStore(capacity: 5);
@@ -32,7 +31,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("IndexedStore(5) construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestIndexedStoreGetDefault()
     {
         var store = new IndexedStore(capacity: 3);
@@ -41,7 +39,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info($"IndexedStore[0] = {value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestIndexedStoreSetAndGet()
     {
         var store = new IndexedStore(capacity: 3);
@@ -54,7 +51,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("IndexedStore set/get round-trip passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestIndexedStoreOverwrite()
     {
         var store = new IndexedStore(capacity: 2);
@@ -69,7 +65,6 @@ public class SubscriptTests : TestBase
 
     #region KeyValueStore — String Subscript (Tier 2)
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreConstruction()
     {
         var store = new KeyValueStore();
@@ -78,7 +73,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("KeyValueStore() construction passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreSetAndGet()
     {
         var store = new KeyValueStore();
@@ -89,7 +83,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info($"KeyValueStore[\"name\"] = \"{value}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreGetMissing()
     {
         var store = new KeyValueStore();
@@ -98,7 +91,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("KeyValueStore missing key returns null");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreCount()
     {
         var store = new KeyValueStore();
@@ -112,7 +104,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info($"KeyValueStore count after 3 inserts = {store.GetCount()}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreOverwrite()
     {
         var store = new KeyValueStore();
@@ -124,7 +115,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("KeyValueStore overwrite passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreRemoveAll()
     {
         var store = new KeyValueStore();
@@ -138,7 +128,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("KeyValueStore.RemoveAll() passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreSetNilToDelete()
     {
         var store = new KeyValueStore();
@@ -150,7 +139,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info("KeyValueStore set nil to delete passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreGetAllKeys()
     {
         var store = new KeyValueStore();
@@ -169,7 +157,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info($"KeyValueStore.GetAllKeys() returned {keys.Count} keys");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreGetAllValues()
     {
         var store = new KeyValueStore();
@@ -185,7 +172,6 @@ public class SubscriptTests : TestBase
         TestLogger.Info($"KeyValueStore.GetAllValues() returned {values.Count} values");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestKeyValueStoreCrudLifecycle()
     {
         var store = new KeyValueStore();

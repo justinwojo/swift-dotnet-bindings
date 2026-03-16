@@ -16,7 +16,6 @@ public class StructEqualityTests : TestBase
 
     #region Tier 2 — Construction and Property Access
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagConstruction()
     {
         var tag = new Tag("env", "production");
@@ -27,7 +26,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info($"Tag: Key=\"{key}\", Value=\"{value}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagKeyProperty()
     {
         var tag = new Tag("version", "1.0");
@@ -35,7 +33,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag.Key property access passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagValueProperty()
     {
         var tag = new Tag("version", "1.0");
@@ -47,7 +44,6 @@ public class StructEqualityTests : TestBase
 
     #region Tier 2 — Equality Operators
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagEqualitySameValues()
     {
         var a = new Tag("env", "prod");
@@ -57,7 +53,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag equality (same key+value) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagInequalityDifferentKey()
     {
         var a = new Tag("env", "prod");
@@ -67,7 +62,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (different key) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagInequalityDifferentValue()
     {
         var a = new Tag("env", "prod");
@@ -77,7 +71,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (different value) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagInequalityBothDifferent()
     {
         var a = new Tag("env", "prod");
@@ -87,7 +80,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (both different) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagEqualsMethod()
     {
         var a = new Tag("key", "value");
@@ -96,7 +88,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag.Equals method passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTagEqualsMethodInequality()
     {
         var a = new Tag("key", "value1");

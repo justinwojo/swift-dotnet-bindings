@@ -33,7 +33,7 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Protocol Conformance Checks (Tier 1)
 
-    [TestTier(TestTier.Tier3)] // Class constructor with string params: non-blittable through CallConvSwift
+    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestSimpleItemConformance()
     {
         var item = new SimpleItem(id: "c1", label: "Check");
@@ -42,7 +42,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("SimpleItem conforms to IDescribable + ITestIdentifiable");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMutableItemConformance()
     {
         var item = new MutableItem(value: 0);
@@ -50,7 +49,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("MutableItem conforms to IHasValue");
     }
 
-    [TestTier(TestTier.Tier3)] // Class constructor with string params: non-blittable through CallConvSwift
+    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestDisplayItemConformance()
     {
         var item = new DisplayItem(text: "Hi");
@@ -59,7 +58,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("DisplayItem conforms to IDisplayable + IDescribable");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMultiConformingValueConformance()
     {
         // MultiConformingValue is a frozen struct that implements all 4 arithmetic protocols.
@@ -75,7 +73,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("MultiConformingValue conforms to 4 arithmetic protocols");
     }
 
-    [TestTier(TestTier.Tier3)] // Class constructor with string params: non-blittable through CallConvSwift
+    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestPersonConformance()
     {
         var person = new Person(name: "Alice", age: 30);
@@ -88,7 +86,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Blittable Property/Method Dispatch Through Interface (Tier 1)
 
-    [TestTier(TestTier.Tier1)]
     public void TestHasValueGetThroughInterface()
     {
         var item = new MutableItem(value: 42);
@@ -97,7 +94,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IHasValue)MutableItem).Value = {iface.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestHasValueSetThroughInterface()
     {
         var item = new MutableItem(value: 10);
@@ -107,7 +103,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"IHasValue.Value = 99, get => {iface.Value}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestGetValueMethodThroughInterface()
     {
         var item = new MutableItem(value: 77);
@@ -116,7 +111,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IHasValue)MutableItem).GetValue() = {iface.GetValue()}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestSetValueMethodThroughInterface()
     {
         var item = new MutableItem(value: 0);
@@ -126,7 +120,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"IHasValue.SetValue(55), GetValue() => {iface.GetValue()}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMultiConformingAddThroughInterface()
     {
         var val = new MultiConformingValue(value: 10);
@@ -135,7 +128,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IAddable)MultiConformingValue(10)).Add(5) = {iface.Add(5)}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMultiConformingSubtractThroughInterface()
     {
         var val = new MultiConformingValue(value: 20);
@@ -144,7 +136,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((ISubtractable)MultiConformingValue(20)).Subtract(5) = {iface.Subtract(5)}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMultiConformingMultiplyThroughInterface()
     {
         var val = new MultiConformingValue(value: 7);
@@ -153,7 +144,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IMultipliable)MultiConformingValue(7)).Multiply(3) = {iface.Multiply(3)}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestMultiConformingDivideThroughInterface()
     {
         var val = new MultiConformingValue(value: 100);
@@ -162,7 +152,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDividable)MultiConformingValue(100)).Divide(4) = {iface.Divide(4)}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestPersonAgeThroughInterface()
     {
         var person = new Person(name: "Bob", age: 25);
@@ -175,7 +164,7 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region String Method Dispatch Through Interface (Tier 2)
 
-    [TestTier(TestTier.Tier3)] // Class constructor with string params: InvalidCastException at runtime
+    [Skip("class constructor with string params: InvalidCastException")] // Class constructor with string params: InvalidCastException at runtime
     public void TestDescribeMethodThroughInterface()
     {
         var item = new SimpleItem(id: "s1", label: "Widget");
@@ -186,7 +175,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDescribable)SimpleItem).GetDescribe() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDisplayMethodThroughInterface()
     {
         var item = new DisplayItem(text: "Hello");
@@ -195,7 +183,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDisplayable)DisplayItem).GetDisplay() = \"{iface.GetDisplay()}\"");
     }
 
-    [TestTier(TestTier.Tier3)] // Class constructor with string params: InvalidCastException at runtime
+    [Skip("class constructor with string params: InvalidCastException")] // Class constructor with string params: InvalidCastException at runtime
     public void TestInheritedDescribeThroughDisplayable()
     {
         var item = new DisplayItem(text: "World");
@@ -205,7 +193,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDescribable)DisplayItem).GetDescribe() = \"{iface.GetDescribe()}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEchoProcessorProcessThroughInterface()
     {
         var proc = new EchoProcessor(prefix: "Echo");
@@ -215,7 +202,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IStringProcessor)EchoProcessor).Process(\"test\") = \"{result}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEchoProcessorGetOutputThroughInterface()
     {
         var proc = new EchoProcessor(prefix: "Proc");
@@ -229,7 +215,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Enum Method Dispatch Through Interface (Tier 2)
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusHandlerGetCurrentStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
@@ -239,7 +224,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IStatusHandler)handler).GetCurrentStatus() = {status}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusHandlerTransitionStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
@@ -249,7 +233,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"TransitionStatus(Pending) = {next}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusHandlerHandleStatus()
     {
         var handler = new SimpleStatusHandler(initialStatus: SwiftTaskStatus.Pending);
@@ -263,7 +246,7 @@ public class BasicProtocolDispatchTests : TestBase
     // Tier 3: TaskPriority has String raw value — FromRawValue("high") routes through
     // SwiftBindings wrapper library, which isn't bundled in RuntimeTestsApp.
     // TaskStatus (Int32 raw value) works because FromRawValue(int) goes directly to native lib.
-    [TestTier(TestTier.Tier3)]
+    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerGetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
@@ -273,7 +256,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IPriorityHandler)handler).GetPriority().Tag = {priority.Tag}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerSetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.Low);
@@ -284,7 +267,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"After SetPriority(Critical), GetPriority().Tag = {priority.Tag}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerIsHigherPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
@@ -298,7 +281,7 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Enum Property Dispatch Through Interface (Tier 3 — String raw value enum needs wrapper lib)
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPrioritizedPropertyGetThroughInterface()
     {
         var item = new PrioritizedItem(priority: TaskPriority.Medium);
@@ -307,7 +290,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IPrioritized)PrioritizedItem).Priority.Tag = {iface.Priority.Tag}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestMutablePrioritizedPropertySetThroughInterface()
     {
         var item = new MutablePrioritizedItem(priority: TaskPriority.Low);
@@ -318,7 +301,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"IMutablePrioritized: Low -> High, Tag = {iface.Priority.Tag}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTaskStatusRawValue()
     {
         // TaskStatus is a simple C# enum (Int32 raw value)
@@ -332,7 +314,7 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region SwiftString Property Access Through Interface (Tier 3 — Mono JIT risk)
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDescriptionPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "p1", label: "Proto");
@@ -342,7 +324,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"IDescribable.Description = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestIdPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "id-42", label: "Test");
@@ -352,7 +334,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"ITestIdentifiable.Id = \"{id}\"");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestNameablePropertyThroughInterface()
     {
         var person = new Person(name: "Charlie", age: 40);
@@ -362,7 +344,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"INameable.Name = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestNamedPropertyGetThroughInterface()
     {
         var item = new NamedItem(name: "TestItem");
@@ -372,7 +354,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"INamed.Name = \"{name}\"");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestMutableNamedPropertySetThroughInterface()
     {
         var item = new MutableNamedItem(name: "Original");

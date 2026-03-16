@@ -30,7 +30,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 cd TestFramework
 ./build-and-test.sh           # Full: xcframework + bindings + bridge
 ./generate-coverage-report.sh # Coverage matrix
-./run-runtime-tests.sh --tier 2 --timeout 90  # Runtime on iOS Sim
+./run-runtime-tests.sh --timeout 90            # Runtime on iOS Sim (default: simulator)
 
 # Runtime test iteration flags:
 #   --skip-regen     Skip binding regeneration (incremental build)

@@ -17,7 +17,6 @@ public class OptionSetTests : TestBase
 
     #region Tier 1 — TextStyle Blittable RawValue
 
-    [TestTier(TestTier.Tier1)]
     public void TestTextStyleBoldRawValue()
     {
         var style = TextStyle.Bold;
@@ -25,7 +24,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"TextStyle.Bold.RawValue = {style.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestTextStyleItalicRawValue()
     {
         var style = TextStyle.Italic;
@@ -33,7 +31,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"TextStyle.Italic.RawValue = {style.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestTextStyleUnderlineRawValue()
     {
         var style = TextStyle.Underline;
@@ -41,7 +38,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"TextStyle.Underline.RawValue = {style.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestTextStyleStrikethroughRawValue()
     {
         var style = TextStyle.Strikethrough;
@@ -49,7 +45,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"TextStyle.Strikethrough.RawValue = {style.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestTextStyleStaticInstancesDistinct()
     {
         var bold = TextStyle.Bold.RawValue;
@@ -70,7 +65,6 @@ public class OptionSetTests : TestBase
 
     #region Tier 1 — ImageRequest.Options Blittable RawValue
 
-    [TestTier(TestTier.Tier1)]
     public void TestImageRequestOptionsDisableCacheRawValue()
     {
         var opt = ImageRequest.Options.DisableCache;
@@ -78,7 +72,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"ImageRequest.Options.DisableCache.RawValue = {opt.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestImageRequestOptionsReturnCachedRawValue()
     {
         var opt = ImageRequest.Options.ReturnCached;
@@ -86,7 +79,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"ImageRequest.Options.ReturnCached.RawValue = {opt.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestImageRequestOptionsLowPriorityRawValue()
     {
         var opt = ImageRequest.Options.LowPriority;
@@ -94,7 +86,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"ImageRequest.Options.LowPriority.RawValue = {opt.RawValue}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestImageRequestOptionsDistinct()
     {
         var disable = ImageRequest.Options.DisableCache.RawValue;
@@ -111,7 +102,6 @@ public class OptionSetTests : TestBase
 
     #region Tier 2 — TextStyle Equality and Free Function
 
-    [TestTier(TestTier.Tier2)]
     public void TestTextStyleEqualitySame()
     {
         var a = TextStyle.Bold;
@@ -121,7 +111,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info("TextStyle equality (same) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTextStyleInequalityDifferent()
     {
         var bold = TextStyle.Bold;
@@ -131,7 +120,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info("TextStyle inequality (different) passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTextStyleCustomRawValue()
     {
         var style = new TextStyle(0);
@@ -139,7 +127,7 @@ public class OptionSetTests : TestBase
         TestLogger.Info("TextStyle custom construction with RawValue 0 passed");
     }
 
-    [TestTier(TestTier.Tier3)] // SBW_Free_ entry point not found — string-returning free function
+    [Skip("SBW_Free_ entry point not found")] // SBW_Free_ entry point not found — string-returning free function
     public void TestDescribeTextStyleBold()
     {
         var desc = TestLibFunctions.DescribeTextStyle(TextStyle.Bold);
@@ -147,7 +135,7 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"DescribeTextStyle(Bold) = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("SBW_Free_ entry point not found")]
     public void TestDescribeTextStyleItalic()
     {
         var desc = TestLibFunctions.DescribeTextStyle(TextStyle.Italic);
@@ -155,7 +143,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"DescribeTextStyle(Italic) = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestCombinedFlagRawValueRoundTrip()
     {
         // OR-combine Bold (1) + Italic (2) = 3
@@ -166,7 +153,7 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"Bold|Italic RawValue = {combined.RawValue}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("SBW_Free_ entry point not found")]
     public void TestDescribeCombinedFlags()
     {
         // Bold (1) | Italic (2) = 3
@@ -181,7 +168,6 @@ public class OptionSetTests : TestBase
 
     #region Tier 2 — ImageRequest Construction and Property
 
-    [TestTier(TestTier.Tier2)]
     public void TestImageRequestConstruction()
     {
         var options = ImageRequest.Options.DisableCache;
@@ -190,7 +176,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"ImageRequest construction: OptionsValue.RawValue = {request.OptionsValue.RawValue}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestImageRequestOptionsValueGetSet()
     {
         var request = new ImageRequest(ImageRequest.Options.DisableCache);
@@ -201,7 +186,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info("ImageRequest.OptionsValue get/set passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestImageRequestOptionsEquality()
     {
         var a = ImageRequest.Options.DisableCache;

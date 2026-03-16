@@ -14,7 +14,6 @@ namespace RuntimeTestsApp.SwiftUIBridge;
 /// Tests for Session 4A two-way state binding: Update* functions that
 /// dynamically change view state after creation via the ObservableObject pattern.
 /// </summary>
-[TestTier(TestTier.Tier2)]
 public class BridgeStateUpdateTests : TestBase
 {
     public BridgeStateUpdateTests(TestResults results) : base(results) { }

@@ -23,7 +23,6 @@ public class EnumExtensionTests : TestBase
 
     #region Color.Complementary — Blittable (Tier 1)
 
-    [TestTier(TestTier.Tier1)]
     public void TestColorRedComplementary()
     {
         // Swift: (rawValue + 3) % 6 → (0 + 3) % 6 = 3
@@ -32,7 +31,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Red.Complementary() = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestColorGreenComplementary()
     {
         // Swift: (rawValue + 3) % 6 → (1 + 3) % 6 = 4
@@ -41,7 +39,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Green.Complementary() = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestColorBlueComplementary()
     {
         // Swift: (rawValue + 3) % 6 → (2 + 3) % 6 = 5
@@ -50,7 +47,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Blue.Complementary() = {result}");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestColorAlphaComplementary()
     {
         // Swift: (rawValue + 3) % 6 → (3 + 3) % 6 = 0
@@ -63,7 +59,6 @@ public class EnumExtensionTests : TestBase
 
     #region Color.GetHexDescription — String Return (Tier 2)
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorRedHexDescription()
     {
         var desc = Color.Red.GetHexDescription();
@@ -71,7 +66,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Red.GetHexDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorGreenHexDescription()
     {
         var desc = Color.Green.GetHexDescription();
@@ -79,7 +73,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Green.GetHexDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorBlueHexDescription()
     {
         var desc = Color.Blue.GetHexDescription();
@@ -87,7 +80,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Blue.GetHexDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorAlphaHexDescription()
     {
         var desc = Color.Alpha.GetHexDescription();
@@ -95,7 +87,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Color.Alpha.GetHexDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorHexDescriptionsDistinct()
     {
         var red = Color.Red.GetHexDescription();
@@ -111,7 +102,6 @@ public class EnumExtensionTests : TestBase
 
     #region Direction.GetDescription — String Return (Tier 2)
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionNorthDescription()
     {
         var desc = Direction.North.GetDescription();
@@ -119,7 +109,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Direction.North.GetDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionSouthDescription()
     {
         var desc = Direction.South.GetDescription();
@@ -127,7 +116,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Direction.South.GetDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionEastDescription()
     {
         var desc = Direction.East.GetDescription();
@@ -135,7 +123,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Direction.East.GetDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionWestDescription()
     {
         var desc = Direction.West.GetDescription();
@@ -143,7 +130,6 @@ public class EnumExtensionTests : TestBase
         TestLogger.Info($"Direction.West.GetDescription() = \"{desc}\"");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionDescriptionsDistinct()
     {
         var north = Direction.North.GetDescription();

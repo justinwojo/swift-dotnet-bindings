@@ -11,7 +11,6 @@ public class ExistentialMetadataTests : TestBase
 {
     public ExistentialMetadataTests(TestResults results) : base(results) { }
 
-    [TestTier(TestTier.Tier2)]
     public void TestGetExistentialTypeMetadata_ZeroProtocols()
     {
         var metadata = TypeMetadata.GetExistentialTypeMetadata(0);
@@ -21,7 +20,6 @@ public class ExistentialMetadataTests : TestBase
         TestLogger.Info($"ExistentialTypeMetadata(0) kind={metadata.Kind}");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestTryGetTypeMetadata_ExistentialContainer0()
     {
         var success = TypeMetadata.TryGetTypeMetadata<ExistentialContainer0>(out var result);

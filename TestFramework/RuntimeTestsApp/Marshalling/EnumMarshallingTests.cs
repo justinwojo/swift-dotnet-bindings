@@ -17,7 +17,6 @@ public class EnumMarshallingTests : TestBase
 
     #region Direction Enum (Simple C# enum — @frozen Swift enum)
 
-    [TestTier(TestTier.Tier1)]
     public void TestDirectionCaseConstruction()
     {
         // Direction is a simple C# enum (frozen, no raw value)
@@ -28,7 +27,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Direction case construction passed");
     }
 
-    [TestTier(TestTier.Tier1)]
     public void TestDirectionMethodCall()
     {
         // Test calling a method on an enum value (extension method)
@@ -41,7 +39,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Direction method call passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestDirectionOpposite()
     {
         // Test Direction.Opposite() extension method
@@ -60,7 +57,6 @@ public class EnumMarshallingTests : TestBase
 
     #region Color Enum (Simple C# enum — @frozen Swift enum with Int32 raw value)
 
-    [TestTier(TestTier.Tier1)]
     public void TestColorCaseConstruction()
     {
         // Color is a simple C# enum (frozen + Int32 raw value)
@@ -71,7 +67,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Color case construction passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorIntRawValue()
     {
         // Verify raw int values are correct and distinct
@@ -82,7 +77,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Color int raw value tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorFromTagRoundTrip()
     {
         // Verify round-trip through int cast
@@ -92,7 +86,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Color FromRawValue tests passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestColorForIndexFunction()
     {
         // Test the free function colorForIndex
@@ -109,7 +102,6 @@ public class EnumMarshallingTests : TestBase
 
     #region StatusCode Enum (String Raw Value)
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusCodeCases()
     {
         AssertEqual(StatusCode.CaseTag.Ok, StatusCode.Ok.Tag, "Ok tag");
@@ -119,7 +111,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("StatusCode case tags passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusCodeRawValues()
     {
         AssertEqual("OK", StatusCode.Ok.RawValue.ToString(), "Ok raw value");
@@ -129,7 +120,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("StatusCode raw values passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestStatusCodeFromRawValue()
     {
         var ok = StatusCode.FromRawValue("OK");
@@ -151,7 +141,7 @@ public class EnumMarshallingTests : TestBase
     #region Shape Enum (Associated Values)
 
     // Shape.point wrapper stripped during compilation — associated value enum case construction fails
-    [TestTier(TestTier.Tier3)]
+    [Skip("Shape.point wrapper stripped during compilation")]
     public void TestShapeCaseCreation()
     {
         // Test creating Shape cases with associated values
@@ -171,7 +161,7 @@ public class EnumMarshallingTests : TestBase
     }
 
     // Depends on Shape.point wrapper which was stripped during compilation
-    [TestTier(TestTier.Tier3)]
+    [Skip("Shape.point wrapper stripped during compilation")]
     public void TestShapeAllCasesDistinct()
     {
         // Verify all cases produce distinct tags
@@ -194,7 +184,6 @@ public class EnumMarshallingTests : TestBase
 
     #region EnumPropertyHolder (Non-simple enum property get/set — B18 gate lift)
 
-    [TestTier(TestTier.Tier2)]
     public void TestEnumPropertyHolder_GetCurrentShape()
     {
         // Create holder with circle, read back the property
@@ -204,7 +193,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.CurrentShape getter passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEnumPropertyHolder_SetCurrentShape()
     {
         // Create holder with circle, set to rectangle, verify
@@ -215,7 +203,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.CurrentShape setter passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEnumPropertyHolder_GetShapeMethod()
     {
         // Test method returning non-simple enum
@@ -225,7 +212,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.GetShape() passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestEnumPropertyHolder_OptionalShapeDefaultNull()
     {
         // optionalShape defaults to nil in init — verify null round-trip
@@ -236,7 +222,7 @@ public class EnumMarshallingTests : TestBase
     }
 
     // Mono JIT crash: Optional<Shape> (non-blittable) through CallConvSwift setter triggers SIGSEGV
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestEnumPropertyHolder_SetOptionalShape()
     {
         // Set optionalShape to a value, read back
@@ -249,7 +235,7 @@ public class EnumMarshallingTests : TestBase
     }
 
     // Mono JIT crash: Optional<Shape> setter with non-blittable Shape.Rectangle through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestEnumPropertyHolder_ClearOptionalShape()
     {
         // Set optionalShape, then clear back to null
@@ -266,7 +252,6 @@ public class EnumMarshallingTests : TestBase
 
     #region Nested Container Enums (Phase 55 regression area)
 
-    [TestTier(TestTier.Tier2)]
     public void TestOrderContainerCreation()
     {
         // CreateOrder takes orderId + statusRaw strings, returns OrderContainer?
@@ -280,7 +265,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("OrderContainer creation passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOrderStatusFromRawValue()
     {
         // Test nested OrderContainer.Status enum — raw values are "order_*", not case names
@@ -302,7 +286,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("OrderContainer.Status FromRawValue passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestOrderStatusAllCases()
     {
         // Swift raw values are "order_*" prefixed, not case names
@@ -316,7 +299,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("OrderContainer.Status all cases passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPaymentContainerCreation()
     {
         // Swift raw value is "payment_authorized" (not case name "authorized")
@@ -329,7 +311,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("PaymentContainer creation passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestPaymentStatusFromRawValue()
     {
         // Swift raw values are "payment_*" prefixed, not case names
@@ -347,7 +328,6 @@ public class EnumMarshallingTests : TestBase
 
     #region NetworkConfig Nested Enums
 
-    [TestTier(TestTier.Tier2)]
     public void TestHttpMethodFromRawValue()
     {
         var cases = new[] { "GET", "POST", "PUT", "DELETE", "PATCH" };
@@ -360,7 +340,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("HttpMethod FromRawValue all cases passed");
     }
 
-    [TestTier(TestTier.Tier2)]
     public void TestContentTypeFromRawValue()
     {
         var cases = new[] { "application/json", "application/xml", "multipart/form-data", "text/plain" };

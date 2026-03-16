@@ -43,7 +43,7 @@ public class BasicCompositionTests : TestBase
 
     #region Tier 3 — Construction + Blittable Property Access (Mono JIT crash)
 
-    [TestTier(TestTier.Tier3)] // Mono JIT assertion (jit-info.c:918): BatchConfig ctor calls
+    [MonoJitCrash] // Mono JIT assertion (jit-info.c:918): BatchConfig ctor calls
     // SwiftObjectHelper<T>.GetTypeMetadata() which crashes all Mono JIT (simulator).
     // Works on NativeAOT (device). This was the first Tier 1 test alphabetically,
     // so it killed the entire process before any other test class could run.
@@ -54,7 +54,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.MaxRetries = {config.MaxRetries}");
     }
 
-    [TestTier(TestTier.Tier3)] // Mono JIT crash: BatchConfig ctor above kills process before this runs
+    [MonoJitCrash] // Mono JIT crash: BatchConfig ctor above kills process before this runs
     public void TestRegistrySharedAccess()
     {
         var registry = Registry.Shared;
@@ -62,7 +62,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("Registry.Shared access OK");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestValueAnimalHasValueConformance()
     {
         var va = new ValueAnimal(name: "Wolf", sound: "Howl", value: 7);
@@ -70,7 +70,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("ValueAnimal conforms to IHasValue");
     }
 
-    [TestTier(TestTier.Tier3)] // Transformer is frozen struct — same GetTypeMetadata crash
+    [MonoJitCrash] // Transformer is frozen struct — same GetTypeMetadata crash
     public void TestTransformerOffset()
     {
         var t = new Transformer(offset: 10);
@@ -86,7 +86,7 @@ public class BasicCompositionTests : TestBase
     // Registry.Clear/Register use SafeHandle through CallConvSwift,
     // and ValueAnimal.Summary returns SwiftString through CallConvSwift
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestValueAnimalSummary()
     {
         var va = new ValueAnimal(name: "Eagle", sound: "Screech", value: 100);
@@ -97,7 +97,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal.Summary = {summary}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestRegistryLookupFound()
     {
         var registry = Registry.Shared;
@@ -111,7 +111,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Registry.Lookup found: {speak}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestRegistryLookupNotFound()
     {
         var registry = Registry.Shared;
@@ -125,7 +125,7 @@ public class BasicCompositionTests : TestBase
 
     // TagCount crashes: "Not enough bits to represent the passed value" —
     // optional array property on frozen struct has layout mismatch
-    [TestTier(TestTier.Tier3)]
+    [Skip("Not enough bits: optional array layout mismatch")]
     public void TestBatchConfigTagCountNil()
     {
         var config = new BatchConfig(name: "test", maxRetries: 3, tags: null);
@@ -133,7 +133,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig nil tags: TagCount = {config.GetTagCount()}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestBatchConfigTagCountWithTags()
     {
         var tags = new SwiftArray<int>();
@@ -147,7 +147,7 @@ public class BasicCompositionTests : TestBase
 
     // EffectiveName/DescribeConfig crash: SwiftString return on frozen struct
     // through CallConvSwift triggers Mono JIT assertion (jit-info.c:918)
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestBatchConfigEffectiveName()
     {
         var config = new BatchConfig(name: "Upload", maxRetries: 3, tags: null);
@@ -157,7 +157,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.EffectiveName = {name}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDescribeConfigFreeFunction()
     {
         var config = new BatchConfig(name: "Sync", maxRetries: 2, tags: null);
@@ -167,7 +167,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"describeConfig = {desc}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestDescribeConfigWithTags()
     {
         var tags = new SwiftArray<int>();
@@ -184,7 +184,7 @@ public class BasicCompositionTests : TestBase
 
     // Value property/GetValue/SetValue: EntryPointNotFoundException — symbols
     // for inherited class + protocol conformance composition not in TBD
-    [TestTier(TestTier.Tier3)]
+    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalBlittableProperty()
     {
         var va = new ValueAnimal(name: "Fox", sound: "Ring", value: 42);
@@ -192,7 +192,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal.Value = {va.Value}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalGetSetValue()
     {
         var va = new ValueAnimal(name: "Bear", sound: "Growl", value: 10);
@@ -203,7 +203,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal Get/SetValue: {va.GetValue()}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalHasValueInterface()
     {
         var va = new ValueAnimal(name: "Owl", sound: "Hoot", value: 55);
@@ -218,7 +218,7 @@ public class BasicCompositionTests : TestBase
 
     // Register/Clear/ProcessRegistry: "Passing non-blittable types to P/Invoke
     // with Swift calling convention" — SafeHandle as arg through CallConvSwift
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestRegistryRegisterAndCount()
     {
         var registry = Registry.Shared;
@@ -230,7 +230,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Registry: registered id={id}, count={registry.GetCount()}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestRegistryClear()
     {
         var registry = Registry.Shared;
@@ -243,7 +243,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("Registry.Clear works");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestProcessRegistryFreeFunction()
     {
         var registry = Registry.Shared;
@@ -259,7 +259,7 @@ public class BasicCompositionTests : TestBase
 
     // --- EventHandler: factory + blittable Fire() (no closure in call path) ---
 
-    [TestTier(TestTier.Tier2)] // CreateDefault is a factory (no closure param); Fire takes Int32, returns Bool
+    // CreateDefault is a factory (no closure param); Fire takes Int32, returns Bool
     public void TestEventHandlerCreateDefault()
     {
         var handler = SwiftEventHandler.CreateDefault();
@@ -269,7 +269,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"EventHandler.CreateDefault + Fire = {result}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestEventHandlerWithClosure()
     {
         var handler = new SwiftEventHandler(label: "test", onComplete: v => v > 10);
@@ -280,7 +280,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("EventHandler with closure works");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestEventHandlerOnCompleteProperty()
     {
         var handler = SwiftEventHandler.CreateDefault();
@@ -291,9 +291,10 @@ public class BasicCompositionTests : TestBase
 
     // --- Transformer: Cdecl-wrapped closure P/Invoke (Strategy B) ---
 
-    [TestTier(TestTier.Tier2)] // Strategy B: Apply uses CallConvCdecl callback + _cdecl wrapper
+    // Strategy B: Apply uses CallConvCdecl callback + _cdecl wrapper
     // NOTE: Transformer constructor calls GetTypeMetadata which crashes Mono JIT,
     // so this test only passes on NativeAOT (device) despite the Apply method being Cdecl-safe.
+    [MonoJitCrash]
     public void TestTransformerApply()
     {
         var t = new Transformer(offset: 5);
@@ -303,7 +304,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

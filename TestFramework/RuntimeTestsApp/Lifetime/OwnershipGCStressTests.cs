@@ -17,7 +17,7 @@ public class OwnershipGCStressTests : TestBase
 
     #region Basic Retain/Release Balance (ForceGC)
 
-    [TestTier(TestTier.Tier3)] // ForceGC triggers Mono JIT frame tracker assertion
+    [MonoJitCrash] // ForceGC triggers Mono JIT frame tracker assertion
     public void TestAnimalCreateUseRelease()
     {
         // Create object, use it, let it go out of scope, GC — no crash
@@ -35,7 +35,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Create-use-release cycle completed without crash");
     }
 
-    [TestTier(TestTier.Tier3)] // ForceGC triggers Mono JIT frame tracker assertion
+    [MonoJitCrash] // ForceGC triggers Mono JIT frame tracker assertion
     public void TestUniqueResourceCreateUseRelease()
     {
         // UniqueResource via factory
@@ -52,7 +52,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("UniqueResource create-use-release completed");
     }
 
-    [TestTier(TestTier.Tier3)] // ForceGC triggers Mono JIT frame tracker assertion
+    [MonoJitCrash] // ForceGC triggers Mono JIT frame tracker assertion
     public void TestUniqueResourceConstructorLifecycle()
     {
         // UniqueResource via public constructor
@@ -69,7 +69,7 @@ public class OwnershipGCStressTests : TestBase
 
     #region MutableProps (CallConvSwift constructor)
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor uses CallConvSwift → frame tracker corruption
+    [MonoJitCrash] // MutableProps constructor uses CallConvSwift → frame tracker corruption
     public void TestMutablePropsLifecycle()
     {
         // MutableProps struct lifecycle
@@ -87,7 +87,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps lifecycle completed");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor uses CallConvSwift → frame tracker corruption
+    [MonoJitCrash] // MutableProps constructor uses CallConvSwift → frame tracker corruption
     public void TestMutablePropsDoubleDispose()
     {
         var props = new MutableProps(5, "DoubleDispose");
@@ -99,7 +99,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps double-dispose safe");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor uses CallConvSwift → frame tracker corruption
+    [MonoJitCrash] // MutableProps constructor uses CallConvSwift → frame tracker corruption
     public void TestMutablePropsAccessAfterDispose()
     {
         var props = new MutableProps(10, "Test");
@@ -113,7 +113,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps access after dispose correctly throws");
     }
 
-    [TestTier(TestTier.Tier3)] // MutableProps constructor uses CallConvSwift → frame tracker corruption
+    [MonoJitCrash] // MutableProps constructor uses CallConvSwift → frame tracker corruption
     public void TestMutablePropsSetAfterDispose()
     {
         var props = new MutableProps(10, "Test");
@@ -131,7 +131,7 @@ public class OwnershipGCStressTests : TestBase
 
     #region GC Stress with Ownership
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestObjectSurvivesRepeatedGC()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -147,7 +147,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Object survives 10 GC cycles");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestManyObjectsCreateAndAbandon()
     {
         // Create many objects and let them go — GC should clean up without crash
@@ -167,7 +167,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("100 objects created and abandoned without crash");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestInterleavedCreateDispose()
     {
         // Interleave creation and disposal
@@ -196,7 +196,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Interleaved create/dispose completed without corruption");
     }
 
-    [TestTier(TestTier.Tier3)]
+    [MonoJitCrash]
     public void TestGCPressureDuringPropertyAccess()
     {
         var animal = TestLibFunctions.CreateAnimal("Pressure", "Test");
