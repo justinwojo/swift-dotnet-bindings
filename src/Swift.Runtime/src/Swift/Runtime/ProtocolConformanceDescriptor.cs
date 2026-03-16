@@ -110,6 +110,8 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     /// NativeAOT-safe overload that calls the static abstract method directly via the
     /// <see cref="ISwiftObject"/> constraint, avoiding MakeGenericType which fails when
     /// the generic specialization isn't statically referenced.
+    /// This method is only called from NativeAOT code paths (GetOrThrowDirect),
+    /// never from Mono JIT. Direct dispatch is safe on NativeAOT.
     /// </summary>
     public static bool TryGetDirect<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
         where TType : ISwiftObject

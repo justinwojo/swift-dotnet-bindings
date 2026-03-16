@@ -27,13 +27,23 @@ namespace BindingsGeneration
                 TypeRecord typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
-                    var resolvedName = GetResolvedTypeName();
-                    csWriter.WriteLine($@"
+                    if (_requiresIndirectResult && _env.MethodDecl.UsesCdeclConstructorWrapper)
+                    {
+                        // @_cdecl wrapper: buffer was allocated in BuildIndirectResultSetup,
+                        // P/Invoke wrote the result to resultPtr. Just create the SafeHandle.
+                        var resolvedName = GetResolvedTypeName();
+                        csWriter.WriteLine($"_payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);");
+                    }
+                    else
+                    {
+                        var resolvedName = GetResolvedTypeName();
+                        csWriter.WriteLine($@"
                         unsafe {{
                             IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));
                             *({resolvedName}.Buffer*)bufferPtr = result;
                             _payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);
                         }}");
+                    }
                     return;
                 }
             }
@@ -60,6 +70,12 @@ namespace BindingsGeneration
             if (!_requiresIndirectResult)
             {
                 csWriter.WriteLine("this = result;");
+            }
+            else if (_env.MethodDecl.UsesCdeclConstructorWrapper && _env.ParentDecl is StructDecl frozenStruct && frozenStruct.IsFrozen)
+            {
+                // @_cdecl frozen blittable struct: result was written to _cdeclResult
+                // via resultPtr in BuildIndirectResultSetup. Assign to this.
+                csWriter.WriteLine("this = _cdeclResult;");
             }
         }
 

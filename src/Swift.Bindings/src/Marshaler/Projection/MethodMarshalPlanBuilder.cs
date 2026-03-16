@@ -318,6 +318,42 @@ internal class MethodMarshalPlanBuilder
 
             if (_env.MethodDecl.UsesCdeclConstructorWrapper)
             {
+                // Frozen struct @_cdecl constructors: the Swift wrapper writes to resultPtr
+                // but the struct is projected as a C# value type (no _payload/_payloadSize).
+                // Allocate a stack buffer and read the result back after the P/Invoke call.
+                if (_env.ParentDecl is StructDecl frozenStructDecl && frozenStructDecl.IsFrozen)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(frozenStructDecl.SwiftTypeName);
+                    if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                    {
+                        // Frozen struct with ref fields (projected as class with Buffer):
+                        // allocate heap buffer and assign to _payload after the call.
+                        return new IndirectResultSetup
+                        {
+                            IsConstructor = true,
+                            ReturnTypeName = typeName,
+                            AllocationCode = $$"""
+                                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{typeName}}.Buffer));
+                                var resultPtr = bufferPtr;
+                                """
+                        };
+                    }
+                    else
+                    {
+                        // Frozen blittable struct (projected as C# struct):
+                        // allocate stack buffer and assign to 'this' after the call.
+                        return new IndirectResultSetup
+                        {
+                            IsConstructor = true,
+                            ReturnTypeName = typeName,
+                            AllocationCode = $$"""
+                                {{typeName}} _cdeclResult;
+                                var resultPtr = (IntPtr)(&_cdeclResult);
+                                """
+                        };
+                    }
+                }
+
                 return new IndirectResultSetup
                 {
                     IsConstructor = true,

@@ -320,8 +320,10 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         var type = typeof(T);
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
-            var helper = typeof(SwiftObjectHelper<>).MakeGenericType(type);
-            var candidate = (TypeMetadata)helper.GetMethod("GetTypeMetadata")!.Invoke(null, null)!;
+            // Invoke GetTypeMetadata directly on the concrete type via reflection,
+            // bypassing SwiftObjectHelper<T> generic instantiation. Static virtual
+            // dispatch in generic contexts crashes Mono JIT (jit-info.c:918).
+            var candidate = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type);
 
             // GetTypeMetadata can return an IntPtr.Zero
             if (candidate.IsValid)

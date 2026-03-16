@@ -152,6 +152,31 @@ public class MarshallingHelpersTests
     }
 
     [Fact]
+    public void MethodRequiresIndirectResult_CdeclFrozenStructConstructor_ReturnsTrue()
+    {
+        // @_cdecl frozen struct constructors write to resultPtr, not return by value.
+        // The Swift @_cdecl wrapper takes UnsafeMutableRawPointer as the first parameter.
+        var env = CreateMethodEnv(
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isConstructor: true,
+            usesCdeclConstructorWrapper: true,
+            parentDecl: CreateFrozenStructParent());
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
+    public void MethodRequiresIndirectResult_CdeclClassConstructor_ReturnsFalse()
+    {
+        // @_cdecl class constructors return a pointer directly, not via resultPtr.
+        var env = CreateMethodEnv(
+            returnType: new NamedTypeSpec("TestModule.MyClass"),
+            isConstructor: true,
+            usesCdeclConstructorWrapper: true,
+            parentDecl: CreateClassParent());
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
+    [Fact]
     public void MethodRequiresIndirectResult_ClassConstructor_ReturnsFalse()
     {
         // Class constructors return a pointer in-register, not via indirect result
@@ -630,6 +655,7 @@ public class MarshallingHelpersTests
         bool isConstructor = false,
         bool isFailable = false,
         bool isGenericReturn = false,
+        bool usesCdeclConstructorWrapper = false,
         BaseDecl? parentDecl = null)
     {
         var moduleDecl = CreateModuleDecl();
@@ -642,6 +668,7 @@ public class MarshallingHelpersTests
             MethodType = MethodType.Instance,
             IsConstructor = isConstructor,
             IsFailable = isFailable,
+            UsesCdeclConstructorWrapper = usesCdeclConstructorWrapper,
             CSSignature = new List<ArgumentDecl>
             {
                 new ArgumentDecl

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Reflection;
+using Swift;
 using Swift.Runtime;
 using Xunit;
 
@@ -133,5 +134,85 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
     public static void FailsWhenMetadataIsNotValid()
     {
         Assert.False(TypeMetadata.TryGetTypeMetadata<AnyTypeMock>(out var md));
+    }
+
+    // Tests for reflection-based metadata lookup (Mono JIT workaround)
+
+    [Fact]
+    public static void SwiftObjectHelper_GetTypeMetadata_UsesReflection()
+    {
+        // SwiftObjectHelper<T>.GetTypeMetadata() should work via reflection path
+        // (avoids T.GetTypeMetadata() static virtual dispatch that crashes Mono JIT)
+        var metadata = SwiftObjectHelper<ThisOnlyGetsUsedHere>.GetTypeMetadata();
+        Assert.True(metadata.IsValid);
+    }
+
+    [Fact]
+    public static void SwiftObjectHelper_GetTypeMetadata_Cached()
+    {
+        // Second call should use cache
+        var metadata1 = SwiftObjectHelper<ThisOnlyGetsUsedHere>.GetTypeMetadata();
+        var metadata2 = SwiftObjectHelper<ThisOnlyGetsUsedHere>.GetTypeMetadata();
+        Assert.Equal(metadata1, metadata2);
+    }
+
+    [Fact]
+    public static void SwiftObjectHelper_NewFromPayload_UsesReflection()
+    {
+        // NewFromPayload should work via reflection path
+        var obj = SwiftObjectHelper<ThisOnlyGetsUsedHere>.NewFromPayload(IntPtr.Zero);
+        Assert.IsType<ThisOnlyGetsUsedHere>(obj);
+    }
+
+    [Fact]
+    public static void ReflectionHelper_InvokeGetTypeMetadata_FindsExplicitImpl()
+    {
+        // Should find the explicit ISwiftObject.GetTypeMetadata() implementation
+        var metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(typeof(ThisOnlyGetsUsedHere));
+        Assert.True(metadata.IsValid);
+    }
+
+    [Fact]
+    public static void ReflectionHelper_InvokeGetTypeMetadata_ReturnsZeroForNonSwiftObject()
+    {
+        // Should return Zero for types without GetTypeMetadata
+        var metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(typeof(string));
+        Assert.False(metadata.IsValid);
+    }
+
+    [Fact]
+    public static void ReflectionHelper_InvokeNewFromPayload_FindsExplicitImpl()
+    {
+        // Should find the explicit ISwiftObject.NewFromPayload() implementation
+        var obj = SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(ThisOnlyGetsUsedHere), IntPtr.Zero);
+        Assert.IsType<ThisOnlyGetsUsedHere>(obj);
+    }
+
+    [Fact]
+    public static void ReflectionHelper_InvokeNewFromPayload_ThrowsForNonSwiftObject()
+    {
+        // Should throw for types without NewFromPayload
+        Assert.Throws<InvalidOperationException>(() =>
+            SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(string), IntPtr.Zero));
+    }
+
+    [Fact]
+    public static void ReflectionHelper_InvokeGetProtocolConformanceDescriptor_FindsExplicitImpl()
+    {
+        // Should find the explicit ISwiftObject.GetProtocolConformanceDescriptor() implementation
+        // ThisOnlyGetsUsedHere returns Zero for all protocols
+        var desc = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(
+            typeof(ThisOnlyGetsUsedHere), typeof(ISwiftHashable));
+        // Zero descriptor is valid result (means no conformance found)
+        Assert.Equal(ProtocolConformanceDescriptor.Zero, desc);
+    }
+
+    [Fact]
+    public static void TryGetTypeMetadata_UsesReflectionPath()
+    {
+        // TryGetTypeMetadata should successfully resolve via the reflection-based path
+        // (bypasses SwiftObjectHelper<T> MakeGenericType which also crashes Mono)
+        Assert.True(TypeMetadata.TryGetTypeMetadata<ThisOnlyGetsUsedHere>(out var md));
+        Assert.True(md!.Value.IsValid);
     }
 }

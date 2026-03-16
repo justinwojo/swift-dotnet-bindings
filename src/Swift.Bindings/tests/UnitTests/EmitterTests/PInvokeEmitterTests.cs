@@ -865,6 +865,82 @@ public class PInvokeEmitterTests
         Assert.True(errorIdx > dataIdx, $"swiftError (index {errorIdx}) should come after data (index {dataIdx})");
     }
 
+    [Fact]
+    public void CdeclFrozenStructConstructor_HasResultPtrParam()
+    {
+        // @_cdecl frozen struct constructors must pass resultPtr as the first parameter
+        // because the Swift wrapper takes UnsafeMutableRawPointer and returns void.
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Transformer", "TestModule", "Transformer",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Transformer", moduleDecl);
+        var method = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("offset", new NamedTypeSpec("Swift.Int"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Transformer", testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Should have resultPtr as a parameter
+        Assert.Contains(sig.Parameters, p => p.Name == "resultPtr");
+        // Return type should be void (result written to buffer, not returned)
+        Assert.Equal("void", sig.ReturnType);
+    }
+
+    [Fact]
+    public void CdeclFrozenStructConstructor_ResultPtrBeforeArgs()
+    {
+        // resultPtr should come before regular constructor arguments
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Config", "TestModule", "Config",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Config", moduleDecl);
+        var method = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("value", new NamedTypeSpec("Swift.Int"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Config", testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        var resultIdx = -1;
+        var valueIdx = -1;
+        for (int i = 0; i < sig.Parameters.Count; i++)
+        {
+            if (sig.Parameters[i].Name == "resultPtr") resultIdx = i;
+            if (sig.Parameters[i].Name == "value") valueIdx = i;
+        }
+
+        Assert.True(resultIdx >= 0, "resultPtr parameter should exist");
+        Assert.True(valueIdx >= 0, "value parameter should exist");
+        Assert.True(resultIdx < valueIdx,
+            $"resultPtr (index {resultIdx}) should come before value (index {valueIdx})");
+    }
+
+    [Fact]
+    public void NonCdeclFrozenStructConstructor_NoResultPtrParam()
+    {
+        // Non-@_cdecl frozen struct constructors should NOT have an explicit resultPtr
+        // parameter — they use SwiftIndirectResult (via CallConvSwift).
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        RegisterType(testModule, "TestModule.Point", "TestModule", "Point",
+            TypeRecordFlags.Frozen, TypeRecordKind.Struct);
+
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var method = CreateMethod("init", structDecl, moduleDecl, isConstructor: true);
+        // UsesCdeclConstructorWrapper is NOT set
+
+        var typeDb = CreateBasicTypeDatabase("Point", testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Should NOT have resultPtr (Cdecl-style) — uses SwiftIndirectResult instead
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "resultPtr");
+    }
+
     #endregion
 
     #region Signature String Tests

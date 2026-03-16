@@ -196,6 +196,14 @@ namespace BindingsGeneration
             // Enum constructors fall through to type-based checks.
             if (env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen) return true;
 
+            // @_cdecl constructor wrappers for structs/enums always write to resultPtr.
+            // The Swift @_cdecl function signature takes UnsafeMutableRawPointer as the first
+            // parameter and returns void (see CdeclSignatureContract: "Struct constructors
+            // always write to result buffer"). The C# P/Invoke must match by adding an IntPtr
+            // resultPtr parameter and returning void, not returning the struct by value.
+            if (env.MethodDecl.UsesCdeclConstructorWrapper && env.ParentDecl is not ClassDecl)
+                return true;
+
             return null; // Enum constructors or frozen struct constructors — fall through
         }
 
