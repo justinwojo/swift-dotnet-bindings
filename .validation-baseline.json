@@ -1,5 +1,5 @@
 {
-  "git_sha": "21654dff",
+  "git_sha": "2259a0fe",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -269,8 +269,8 @@
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
-        "compile": "fail",
-        "errors": 2,
+        "compile": "ok",
+        "errors": 0,
         "lines": 16119,
         "dep_compile": "none",
         "swift_compile": "ok"

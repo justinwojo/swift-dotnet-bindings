@@ -973,7 +973,21 @@ internal static class ProtocolConformanceHelper
                 continue;
             if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
                 continue;
-            names.Add(NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module));
+            var ifaceName = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);
+
+            // Qualify nested protocol interfaces for module-level registration.
+            // A nested protocol has 3+ parts in its ModuleQualifiedName (Module.Parent.Protocol).
+            // The middle parts are parent type names that must prefix the C# interface name.
+            var mqn = conformance.Protocol.ModuleQualifiedName;
+            var parts = mqn.Split('.');
+            if (parts.Length >= 3)
+            {
+                // Extract parent type names (everything between module and protocol name)
+                var parentPrefix = string.Join(".", parts.Skip(1).Take(parts.Length - 2));
+                ifaceName = $"{parentPrefix}.{ifaceName}";
+            }
+
+            names.Add(ifaceName);
         }
         return names;
     }
