@@ -11,7 +11,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `SwiftBindings.Runtime`)
 - `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `validation-libraries.json` — Library validation manifest (88 targets across 46 libraries)
+- `validation-libraries.json` — Library validation manifest (90 targets across 46 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Internal design docs, status, known issues
 - Public-facing documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) (separate repo)
@@ -38,7 +38,7 @@ cd TestFramework
 
 # Real-world library validation:
 scripts/fetch-libraries.sh              # Fetch xcframeworks (first time)
-./validate-libraries.sh                 # Compile gate (all tiers, 88 targets, ~35s cached)
+./validate-libraries.sh                 # Compile gate (all tiers, 90 targets)
 ./validate-libraries.sh --tier 1        # Tier 1 only (34 targets)
 ./validate-libraries.sh --tier 2        # Tier 2 only (54 targets)
 ./validate-libraries.sh --filter Nuke   # Validate one library
@@ -123,7 +123,7 @@ scripts/fetch-libraries.sh
 
 - **Tier 1** (34 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, Realm, Stripe3DS2, etc.).
 - **Tier 2** (54 targets): Additional coverage libraries (DeviceKit, ObjectMapper, SVGView, Firebase, etc.).
-- **Default**: `./validate-libraries.sh` runs all tiers (88 targets, ~35s with cached build). Baseline updates on full unfiltered runs.
+- **Default**: `./validate-libraries.sh` runs all tiers (90 targets). Baseline updates on full unfiltered runs.
 - **Manual** (35 targets across tiers): Proprietary/ObjC libraries and Firebase. Place xcframeworks in `.libraries/<name>/`. Firebase: download from GitHub releases.
 
 ### Adding a new library
@@ -226,10 +226,10 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 ## Known Issues
 
 ### Runtime
-- **Mono JIT assertion (mini-generic-sharing.c:2759 / jit-info.c:918)**: Affects ALL Mono JIT (simulator AND device). Kills process on any `SwiftObjectHelper<T>.GetTypeMetadata()` call — meaning all Swift type access. NativeAOT (device builds) is unaffected. NativeAOT on simulator is not supported by the .NET iOS SDK. See `src/docs/sim-validation-findings.md` for full details and device test results.
+- **Mono JIT assertion (mini-generic-sharing.c:2759 / jit-info.c:918)**: Affects ALL Mono JIT (simulator AND device). Kills process on any `SwiftObjectHelper<T>.GetTypeMetadata()` call — meaning all Swift type access. NativeAOT (device builds) is unaffected. NativeAOT on simulator is not supported by the .NET iOS SDK.
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
 - DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
-- See `src/docs/known-issues-workarounds.md` for full details
+- See [wiki Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) for full consumer-facing details
 
 ### Generator (open bugs)
 - String enum raw values use case names (ABI JSON lacks raw values)
@@ -242,7 +242,7 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 
 - `src/docs/roadmap.md` — Single consolidated roadmap (remaining work to ship + post-ship improvements)
 - `src/docs/swiftui-roadmap.md` — SwiftUI bridge sessions (4 remaining)
-- `src/docs/known-issues-workarounds.md` — Runtime workarounds and revert plan
+- `src/docs/Completed/nativeaot-stability-sessions.md` — NativeAOT device validation (373 pass, 14/15 success)
 - `src/docs/Completed/dx-msbuild-sdk-design.md` — MSBuild SDK design (Steps 1-5, all complete)
 - `src/docs/Future/future-roadmap.md` — Prioritized future vision items
 - `src/docs/Completed/` — All archived roadmaps, reviews, session notes

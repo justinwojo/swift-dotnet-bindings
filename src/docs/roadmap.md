@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: March 10, 2026
+**Updated**: March 16, 2026
 
 ---
 
@@ -8,16 +8,27 @@
 
 | Item | Impact | Effort | Notes |
 |------|--------|--------|-------|
-| C# keyword escaping in enum case labels (S1) | Alamofire `RequestModifier`, any enum with `in:`/`for:`/`operator:` labels | Small | Generator produces `__@in` (invalid) instead of `@__in`. Fix in `StripVerbatimPrefix` or compound variable construction. **Test fixture staged**: `TestFramework/.../EdgeCases/FilterScope.swift.disabled` — rename to `.swift` to enable after fix. |
-| ObjC static method wrapper generation | ObjC class static methods (e.g. Stripe `STPImageLibrary.brandImage(for:)`) | Medium | P/Invoke targets mangled Swift symbols that don't exist in wrapper xcframework. Need `@_cdecl` trampolines for static methods on `IsObjCRooted` classes. Infrastructure exists for constructors/closures/optional pointers. |
 | Optional<Primitive/Enum> in closures | Various closure-accepting APIs | Medium | Different ABI from pointer-based Optional |
 | Complex enums in closures | Various | Medium | Structural emitter change |
 | AnyError -> Exception error handling | Ergonomics | Medium | `SwiftException : Exception` wrapping `AnyError` |
 | Cross-module protocol conformances | Polymorphic use through cross-module interfaces | Medium | Thread conformance declarations across module boundaries |
 | Architectural generic closures (~45 methods) | RxSwift subscribe/flatMap, Alamofire interceptors | Large | Deferred from foundation roadmap P3.5 |
+| Protocol extension associated type context (GRDB) | GRDB wrapper compilation (666 errors contained) | Large | Protocol extension wrappers use bare associated type names (`Element`, `Base`) outside their protocol context. Needs full generic constraint context carried from protocol definition into wrapper signatures. Containment gate prevents emission today. See `Completed/swift-wrapper-errors.md` EC-17. |
 | String enum raw values | GRDB ResultCode, CryptoSwift error codes | Blocked | No data source in compiled xcframeworks |
 | `ConfigurationValue` property name collision | Nuke readability | Small | Alternative disambiguation strategy |
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque pass-through handles |
+| Stripe validation config fixes | StripeCryptoOnramp, StripeIssuing | Small | StripeCryptoOnramp: add `StripeCameraCore` transitive dep to manifest. StripeIssuing: add `Stripe3DS2` as `--framework-dependency`. Config-only, no code changes. |
+
+## NativeAOT Device Stability — Remaining Items
+
+Target met (373 pass, 0 fail, 0 exit-crashes across 15 libraries). These items would increase per-library test coverage within already-passing libraries. See `Completed/nativeaot-stability-sessions.md` for full context.
+
+| Item | Affects | Effort | Notes |
+|------|---------|--------|-------|
+| Foundation.Data projection (`DataProjection`) | Starscream, any library with `Data` params | Medium | Same pattern as `DateProjection`: pass `UnsafeRawPointer + nint` at @_cdecl boundary, reconstruct `Data(bytes:count:)` inside wrapper. Blocks `WebSocketEvent.Binary(byte[])` and `WebSocketEvent.Ping(Data?)`. |
+| Struct singleton second-access crash | Alamofire `URLEncoding.Default` | Unknown | SIGBUS on second access. Copy via `initializeMemory` + destroy via `deinitialize` may corrupt ARC reference counts on repeated calls. Needs investigation. |
+| Enum case dispose crash (cumulative) | Starscream `WebSocketEvent.ViabilityChanged` | Unknown | SIGSEGV after ~3 enum cases created and destroyed. May be related to struct singleton issue or GC-finalized enum heap corruption. |
+| CallConvSwift `URL.init(string:)` wrapper | Starscream WebSocket construction | Small | `MarshalDirectiveException` on NativeAOT. Needs @_cdecl wrapper using `UnsafePointer<UInt8> + nint` (same pattern as existing string params). |
 
 ## SwiftUI Bridge (4 remaining sessions)
 
@@ -32,21 +43,15 @@ Active roadmap: `swiftui-roadmap.md`
 
 Sessions 1A-3 + 4A + 4C already cover the vast majority of real-world SwiftUI views.
 
-## Ownership Automation — Complete
-
-Design doc: `Completed/ownership-automation-design.md`. All 3 sessions shipped.
-
-- **Session 1** (commit `3551784b`): SwiftDisposeScope + SB1001 DisposeScope recognition
-- **Session 2** (commit `ba0afd9d`): SwiftClassHandle ARC bridge — class disposal optional (GC handles it)
-- **Session 3**: ISwiftStruct marker, SB1001 severity split (Warning for structs, Info for classes), struct finalizer hardening on NativeAOT, wiki rewrite
-
 ## Runtime
 
 See `swift-runtime-improvements.md` for details.
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| Bulk retain/release helpers | Low-medium | Perf win for large collections |
+| Bulk retain/release helpers | Low-medium | Perf win for large collections. Deferred — do when relevant. |
+
+SuppressGCTransition on ARC P/Invokes: complete (commit `865430cb`).
 
 ## Future Vision
 
@@ -58,7 +63,6 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 | **SPM package support** (source -> xcframework -> bind) | Large | `Future/sdk-future-work.md` |
 | **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
 | **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
-| ~~Emitter architecture redesign~~ | ~~Very large~~ | Reconsidered — handlers already well-factored after Phases 1+3. See `architecture-refactoring-plan.md` |
 
 ---
 
@@ -90,3 +94,12 @@ NativeAOT resolves most Mono JIT issues. Device builds are unaffected. See `know
 | Ownership semantics (`consume`/`borrow`) | Swift 6 feature with unclear ABI impact |
 | Composing SwiftUI view trees from C# | Result builders are a compiler feature |
 | Structs projected as C# value types | Only safe for frozen+blittable subset; marginal benefit |
+
+## Recently Completed
+
+| Item | Completed | Notes |
+|------|-----------|-------|
+| C# keyword escaping in enum case labels | `51efaeec` (Mar 14) | FilterScope.swift fixture enabled |
+| ObjC static method wrapper generation | `eb303ab4` (Mar 11) | Universal @_cdecl wrappers for static + instance methods |
+| NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries success. See `Completed/nativeaot-stability-sessions.md` |
+| Ownership automation (3 sessions) | Feb | `Completed/ownership-automation-design.md` |

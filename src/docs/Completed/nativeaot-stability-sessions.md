@@ -84,10 +84,27 @@ Two fixes that together resolved CryptoSwift (1 fail → 0) and the 3 exit-crash
 
 ## Remaining Work
 
-### Priority 1 (only remaining): XMLCoder internal types (17 fails) — known limitation
+### Priority 1 (only remaining): XMLCoder internal types (17 fails) — proven hard limitation
 
-**Status**: @_cdecl wrapper symbols can't compile because they reference `internal` protocol types (Box protocol) not visible outside the XMLCoder module. The 13 passing tests use APIs that don't touch internal types.
-**Not fixable** without upstream library changes or falling back to CallConvSwift (which causes NativeAOT marshalling crashes). Same class of issue as SkeletonView and Mixpanel.
+**Status**: @_cdecl wrapper symbols can't compile because they reference `internal` protocol types (Box, SimpleBox, SharedBox, etc.) not visible outside the XMLCoder module. The 13 passing tests use APIs that don't touch internal types. The post-processor strips 216 wrapper blocks that reference these types.
+
+**Proven not fixable** from the wrapper side. Three independent approaches were investigated and all fail:
+
+1. **`@_silgen_name` trampoline bypass** — Emit raw `@_silgen_name` declarations for the mangled Swift symbols using only lowered carrier types (`UnsafeRawPointer`, `UInt8`, etc.), avoiding naming internal types in wrapper source. **Fails** due to ARM64 `swiftcc` calling convention mismatches:
+   - Instance getters/methods: actual callee uses `swiftself` (x20 register) for self, but `@_silgen_name` declarations produce `@convention(thin)` calls that put self in x0. Macros test confirmed: getter returns `false` for `true`, garbage for `42`.
+   - Constructors: actual callee uses `sret` (x8 register) for indirect return buffer, but `@_silgen_name` puts the pointer in x0. Causes SIGSEGV.
+   - All resilient types are `@in_guaranteed` (indirect pointer), but `@_silgen_name` declarations with value types (e.g., `UInt8` for BoolBox) pass by value. Independent mismatch from the register issue.
+   - Method extensions on surrogate types (UnsafeRawPointer, large structs) tested — still don't produce `swiftself`/`sret` attributes in caller IR.
+
+2. **`private.swiftinterface` shadow import** — XMLCoder's `private.swiftinterface` is identical to the public interface (291 lines each, 0 Box-type declarations). Internal types are only exposed if marked `@usableFromInline` or `@_spi(...)`. XMLCoder's Box types have neither annotation. No binary `.swiftmodule` is distributed either (expected for `BUILD_LIBRARY_FOR_DISTRIBUTION=YES`).
+
+3. **CallConvSwift** — Would bypass wrappers entirely but causes NativeAOT marshalling crashes. Excluded by design.
+
+**Resolution paths** (all require external changes):
+- Upstream: XMLCoder marks Box types as `@usableFromInline` or `public`
+- Compile helper code as part of XMLCoder itself (not applicable for third-party xcframeworks)
+
+**Note**: SkeletonView and Mixpanel have the same internal-type stripping but both pass validation with 0 errors — the stripped wrappers are for members that don't affect their public API coverage.
 
 ### Priority 3: NativeAOT limitations uncovered during exit-crash investigation
 

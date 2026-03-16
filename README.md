@@ -51,7 +51,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **550+ commits and ~280K net new lines of code (4.7x the original codebase)**. That breaks down to ~95K lines of production code (generator, runtime, SDK) backed by ~182K lines of tests across 6,500+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
+Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **625+ commits and ~290K net new lines of code (7x the original codebase)**. That breaks down to ~119K lines of production code (generator, runtime, SDK) backed by ~223K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (90 framework targets — 56 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
 
 ---
 
@@ -67,10 +67,10 @@ The generator handles the full breadth of Swift's type system:
 - **Async methods** via Swift wrapper generation with C# `Task<T>` / `await` support, `CancellationToken` threading, and actor isolation (`@MainActor`)
 - **Closures** (`@convention(c)`, `@escaping`) with automatic delegate marshalling, including closures with bound generic arguments and error propagation
 - **Tuples**, **operators**, **subscripts**, **inout parameters**, **failable initializers**
-- **Existential containers** (`any Protocol`) as parameters and return values, including in collections (`Dictionary<K, any Protocol>`)
+- **Existential containers** (`any Protocol`) as parameters and return values, with concrete-type boxing via `IExistentialBoxable`
 - **Type projections** — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Set<T>` → `IReadOnlySet<T>`, `Dictionary<K,V>` → `IReadOnlyDictionary<K,V>`, `Data` → `byte[]`, `Optional<T>` → `T?`
 - **Convenience overloads** — `nint`/`nuint` parameters get `int`/`uint` overloads, methods with default parameters get reduced-arity overloads
-- **SwiftUI Views** — automatic `UIHostingController` bridge with `@State`/`@Binding` projection, theming support, and async factory patterns
+- **SwiftUI Views** — automatic `UIHostingController` bridge with two-way state updates, view modifier chains, and async factory patterns
 - **XML doc comments** — Swift documentation automatically extracted and converted to C# IntelliSense docs
 
 See the [full type conversion table](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Supported-Features#type-conversions) and [complete feature reference](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Supported-Features).
@@ -92,7 +92,7 @@ Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, SDW
 
 ### Real-World Validation
 
-Validated against **46 libraries (88 framework targets — 53 Swift, 34 Objective-C, 1 mixed)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+Validated against **46 libraries (90 framework targets — 56 Swift, 34 Objective-C)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -103,7 +103,7 @@ Validated against **46 libraries (88 framework targets — 53 Swift, 34 Objectiv
 | **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
 | **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
 
-Select libraries (Nuke, BlinkID, Lottie, CryptoSwift) have been functionally validated in test apps running on iOS Simulator. The generator also validates Nuke across macOS and tvOS targets.
+Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. The generator also validates Nuke across macOS and tvOS targets.
 
 ### Examples
 
@@ -145,7 +145,7 @@ All generated C# — no proxy libraries, no bridging headers, no manual wrapper 
 
 SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
 
-Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports `@State`/`@Binding` property projection, theme configuration (colors, fonts, sizes), and multi-level async view hierarchies with cycle detection.
+Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports two-way state updates via `Update{Param}()` methods, view modifier chains, and multi-level async view hierarchies with cycle detection.
 
 For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
 
@@ -162,18 +162,18 @@ For customization options (bridge hints, constructor selection, import overrides
 dotnet new install SwiftBindings.Templates
 
 # 2. Create a binding project (default: iOS; use --platform for others)
-dotnet new swift-binding -n MyLibrary.Bindings
-# dotnet new swift-binding -n MyLibrary.Bindings --platform macos
+dotnet new swift-binding -n MyLibrary.Swift.iOS
+# dotnet new swift-binding -n MyLibrary.Swift.macOS --platform macos
 
 # 3. Copy your xcframework into the project directory
-cp -r /path/to/MyLibrary.xcframework MyLibrary.Bindings/
+cp -r /path/to/MyLibrary.xcframework MyLibrary.Swift.iOS/
 
 # 4. Build — generates bindings and compiles the project
-cd MyLibrary.Bindings && dotnet build
+cd MyLibrary.Swift.iOS && dotnet build
 
 # 5. Pack into a NuGet package, then consume in any .NET Apple platform app
 dotnet pack
-dotnet add package MyLibrary.Bindings
+dotnet add package MyLibrary.Swift.iOS
 ```
 
 For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started).
@@ -216,9 +216,9 @@ git clone https://github.com/justinwojo/spm-to-xcframework.git
 ./spm-to-xcframework/spm-to-xcframework https://github.com/kean/Nuke --version 12.0.0
 
 # Then generate bindings as usual
-dotnet new swift-binding -n Nuke.Bindings
-cp -r Nuke.xcframework Nuke.Bindings/
-cd Nuke.Bindings && dotnet build
+dotnet new swift-binding -n Nuke.Swift.iOS
+cp -r Nuke.xcframework Nuke.Swift.iOS/
+cd Nuke.Swift.iOS && dotnet build
 ```
 
 ---
@@ -249,7 +249,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (88 framework targets — 53 Swift, 34 ObjC, 1 mixed) and tested with **6,400+ unit tests**, **700+ integration tests**, and **240+ end-to-end runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (90 framework targets — 56 Swift, 34 ObjC) and tested with **6,000+ unit tests**, **700+ integration tests**, and **346 runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
 
 ---
 
