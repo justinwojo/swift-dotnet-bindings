@@ -157,7 +157,7 @@ public class EnumMarshallingTests : TestBase
         var circle = Shape.Circle(5.0);
         AssertEqual(Shape.CaseTag.Circle, circle.Tag, "Circle tag");
 
-        var rect = Shape.Rectangle((width: 10.0, height: 20.0));
+        var rect = Shape.Rectangle(10.0, 20.0);
         AssertEqual(Shape.CaseTag.Rectangle, rect.Tag, "Rectangle tag");
 
         var point = Shape.Point(new FrozenPoint { X = 1.0, Y = 2.0 });
@@ -174,7 +174,7 @@ public class EnumMarshallingTests : TestBase
     {
         // Verify all cases produce distinct tags
         var circle = Shape.Circle(1.0);
-        var rect = Shape.Rectangle((2.0, 3.0));
+        var rect = Shape.Rectangle(2.0, 3.0);
         var point = Shape.Point(new FrozenPoint { X = 0, Y = 0 });
         var empty = Shape.Empty;
 
@@ -207,7 +207,7 @@ public class EnumMarshallingTests : TestBase
     {
         // Create holder with circle, set to rectangle, verify
         var holder = new EnumPropertyHolder(Shape.Circle(5.0));
-        holder.CurrentShape = Shape.Rectangle((width: 3.0, height: 4.0));
+        holder.CurrentShape = Shape.Rectangle(3.0, 4.0);
         var shape = holder.CurrentShape;
         AssertEqual(Shape.CaseTag.Rectangle, shape.Tag, "CurrentShape updated to Rectangle");
         TestLogger.Info("EnumPropertyHolder.CurrentShape setter passed");
@@ -250,7 +250,7 @@ public class EnumMarshallingTests : TestBase
     {
         // Set optionalShape, then clear back to null
         var holder = new EnumPropertyHolder(Shape.Empty);
-        holder.OptionalShape = Shape.Rectangle((width: 5.0, height: 10.0));
+        holder.OptionalShape = Shape.Rectangle(5.0, 10.0);
         AssertNotNull(holder.OptionalShape, "OptionalShape is set");
 
         holder.OptionalShape = null;

@@ -1,0 +1,249 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using RuntimeTestsApp.Infrastructure;
+using SwiftBindingsTestLib;
+using SwiftBindingsTestLib.SwiftInterop;
+using Swift;
+
+namespace RuntimeTestsApp.Protocols;
+
+/// <summary>
+/// Existential boxing tests — verifies concrete types conforming to a protocol
+/// can be passed as existential parameters (any Protocol) to Swift functions
+/// and class constructors.
+///
+/// SimpleMode/StrictMode are Swift structs tested directly for construction +
+/// method calls. ModeProcessor, Pipeline, and free functions test existential
+/// boxing through C# implementations of IProcessingMode.
+///
+/// Tier structure:
+/// - Tier 1: Swift type construction + blittable methods
+/// - Tier 2: Validate methods, ModeProcessor with existential, Pipeline, free functions
+/// </summary>
+public class ExistentialBoxingTests : TestBase
+{
+    public ExistentialBoxingTests(TestResults results) : base(results) { }
+
+    #region Construction + Properties (Tier 1)
+
+    [TestTier(TestTier.Tier1)]
+    public void TestSimpleModeConstruction()
+    {
+        var mode = new SimpleMode();
+        AssertNotNull(mode, "SimpleMode constructed");
+        TestLogger.Info("SimpleMode() construction passed");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestSimpleModeModeName()
+    {
+        var mode = new SimpleMode();
+        var name = mode.ModeName;
+        AssertEqual("simple", name, "SimpleMode.ModeName");
+        TestLogger.Info($"SimpleMode.ModeName = \"{name}\"");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestStrictModeConstruction()
+    {
+        var mode = new StrictMode();
+        AssertNotNull(mode, "StrictMode constructed");
+        TestLogger.Info("StrictMode() construction passed");
+    }
+
+    [TestTier(TestTier.Tier1)]
+    public void TestStrictModeModeName()
+    {
+        var mode = new StrictMode();
+        var name = mode.ModeName;
+        AssertEqual("strict", name, "StrictMode.ModeName");
+        TestLogger.Info($"StrictMode.ModeName = \"{name}\"");
+    }
+
+    #endregion
+
+    #region Validate Methods — Direct Swift Type (Tier 2)
+
+    [TestTier(TestTier.Tier2)]
+    public void TestSimpleModeValidatePositive()
+    {
+        var mode = new SimpleMode();
+        AssertTrue(mode.Validate(1), "SimpleMode.Validate(1) should be true");
+        AssertTrue(mode.Validate(100), "SimpleMode.Validate(100) should be true");
+        TestLogger.Info("SimpleMode.Validate positive values passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestSimpleModeValidateZeroAndNegative()
+    {
+        var mode = new SimpleMode();
+        // SimpleMode: input >= 0, so 0 is true and -1 is false
+        AssertTrue(mode.Validate(0), "SimpleMode.Validate(0) should be true (>= 0)");
+        AssertFalse(mode.Validate(-1), "SimpleMode.Validate(-1) should be false (< 0)");
+        TestLogger.Info("SimpleMode.Validate zero/negative passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestStrictModeValidatePositive()
+    {
+        var mode = new StrictMode();
+        AssertTrue(mode.Validate(1), "StrictMode.Validate(1) should be true");
+        AssertTrue(mode.Validate(50), "StrictMode.Validate(50) should be true");
+        TestLogger.Info("StrictMode.Validate positive values passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestStrictModeValidateZeroAndNegative()
+    {
+        var mode = new StrictMode();
+        AssertFalse(mode.Validate(0), "StrictMode.Validate(0) should be false");
+        AssertFalse(mode.Validate(-1), "StrictMode.Validate(-1) should be false");
+        TestLogger.Info("StrictMode.Validate zero/negative passed");
+    }
+
+    [TestTier(TestTier.Tier2)]
+    public void TestStrictModeValidateBoundary()
+    {
+        var mode = new StrictMode();
+        AssertTrue(mode.Validate(999), "StrictMode.Validate(999) should be true");
+        AssertFalse(mode.Validate(1000), "StrictMode.Validate(1000) should be false");
+        TestLogger.Info("StrictMode boundary validation passed");
+    }
+
+    #endregion
+
+    #region ModeProcessor — Existential Boxing (Tier 3 — witness table not in dylib)
+
+    [TestTier(TestTier.Tier3)] // EveryProtocol witness table not in dylib
+    public void TestModeProcessorWithSimpleImpl()
+    {
+        var impl = new TestSimpleProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var processor = new ModeProcessor(proxy);
+        AssertTrue(processor.Process(42), "ModeProcessor.Process(42) with simple impl");
+        TestLogger.Info("ModeProcessor with simple impl passed");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestModeProcessorWithStrictImpl()
+    {
+        var impl = new TestStrictProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var processor = new ModeProcessor(proxy);
+        AssertTrue(processor.Process(1), "ModeProcessor.Process(1) with strict impl");
+        AssertFalse(processor.Process(-1), "ModeProcessor.Process(-1) with strict impl");
+        TestLogger.Info("ModeProcessor with strict impl passed");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestModeProcessorGetModeName()
+    {
+        var impl = new TestSimpleProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var processor = new ModeProcessor(proxy);
+        var name = processor.GetModeName();
+        AssertEqual("simple", name, "ModeProcessor.GetModeName() with simple impl");
+        TestLogger.Info($"ModeProcessor.GetModeName() = \"{name}\"");
+    }
+
+    #endregion
+
+    #region Pipeline — Array + Existential Constructor (Tier 3)
+
+    [TestTier(TestTier.Tier3)]
+    public void TestPipelineConstruction()
+    {
+        var impl = new TestSimpleProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var pipeline = new Pipeline(new[] { 1, 2, 3 }, proxy);
+        AssertNotNull(pipeline, "Pipeline constructed");
+        TestLogger.Info("Pipeline construction passed");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestPipelineGetStepCount()
+    {
+        var impl = new TestSimpleProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var pipeline = new Pipeline(new[] { 10, 20, 30, 40 }, proxy);
+        AssertEqual(4, pipeline.GetStepCount(), "Pipeline.GetStepCount()");
+        TestLogger.Info($"Pipeline.GetStepCount() = {pipeline.GetStepCount()}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestPipelineGetModeName()
+    {
+        var impl = new TestStrictProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var pipeline = new Pipeline(new[] { 1, 2 }, proxy);
+        var name = pipeline.GetModeName();
+        AssertEqual("strict", name, "Pipeline.GetModeName() with strict impl");
+        TestLogger.Info($"Pipeline.GetModeName() = \"{name}\"");
+    }
+
+    #endregion
+
+    #region Free Functions — Existential Parameters (Tier 3)
+
+    [TestTier(TestTier.Tier3)]
+    public void TestRunWithModeSimple()
+    {
+        var impl = new TestSimpleProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        var result = TestLibFunctions.RunWithMode(proxy, 42);
+        AssertTrue(result, "RunWithMode(simple, 42)");
+        TestLogger.Info($"RunWithMode(simple, 42) = {result}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestRunWithModeStrict()
+    {
+        var impl = new TestStrictProcessingMode();
+        var proxy = new ProcessingModeProxy(impl);
+        AssertTrue(TestLibFunctions.RunWithMode(proxy, 10), "RunWithMode(strict, 10)");
+        AssertFalse(TestLibFunctions.RunWithMode(proxy, -5), "RunWithMode(strict, -5)");
+        TestLogger.Info("RunWithMode with strict impl passed");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestCompareResultsSameMode()
+    {
+        var a = new ProcessingModeProxy(new TestSimpleProcessingMode());
+        var b = new ProcessingModeProxy(new TestSimpleProcessingMode());
+        var result = TestLibFunctions.CompareResults(a, b, 42);
+        AssertTrue(result, "CompareResults(simple, simple, 42) should agree");
+        TestLogger.Info($"CompareResults(simple, simple, 42) = {result}");
+    }
+
+    [TestTier(TestTier.Tier3)]
+    public void TestCompareResultsDifferentModes()
+    {
+        var simple = new ProcessingModeProxy(new TestSimpleProcessingMode());
+        var strict = new ProcessingModeProxy(new TestStrictProcessingMode());
+        // Simple.Validate(0) = true, Strict.Validate(0) = false → disagree
+        var result = TestLibFunctions.CompareResults(simple, strict, 0);
+        AssertFalse(result, "CompareResults(simple, strict, 0) should disagree");
+        TestLogger.Info($"CompareResults(simple, strict, 0) = {result}");
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// C# implementation of IProcessingMode — simple mode (accepts non-negative).
+/// </summary>
+internal class TestSimpleProcessingMode : IProcessingMode
+{
+    public string ModeName => "simple";
+    public bool Validate(int input) => input >= 0;
+}
+
+/// <summary>
+/// C# implementation of IProcessingMode — strict mode (accepts 0 < x < 1000).
+/// </summary>
+internal class TestStrictProcessingMode : IProcessingMode
+{
+    public string ModeName => "strict";
+    public bool Validate(int input) => input > 0 && input < 1000;
+}

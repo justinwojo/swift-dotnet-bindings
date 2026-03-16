@@ -154,3 +154,32 @@ public func isHorizontal(_ direction: Direction) -> Bool {
 public func colorForIndex(_ index: Int32) -> Color {
     return Color(rawValue: index) ?? .red
 }
+
+// MARK: - Enum Extension Methods (KeychainAccess/DeviceKit pattern)
+
+/// Extension-defined methods on Color enum.
+/// Tests extension method emission (different path from inline methods like Direction.opposite()).
+extension Color {
+    public func complementary() -> Int32 { (self.rawValue + 3) % 6 }
+
+    public func getHexDescription() -> String {
+        switch self {
+        case .red: return "#FF0000"
+        case .green: return "#00FF00"
+        case .blue: return "#0000FF"
+        case .alpha: return "#000000FF"
+        }
+    }
+}
+
+/// Extension-defined method on Direction enum (separate from inline opposite()).
+extension Direction {
+    public func getDescription() -> String {
+        switch self {
+        case .north: return "North"
+        case .south: return "South"
+        case .east: return "East"
+        case .west: return "West"
+        }
+    }
+}

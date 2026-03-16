@@ -109,6 +109,49 @@ public func createAnimal(name: String, sound: String) -> Animal {
     return Animal(name: name, sound: sound)
 }
 
+// MARK: - Optional Class Constructor (Swinject Container pattern)
+
+/// Class with optional parent reference.
+/// Real-world pattern: Swinject Container(parent: nil).
+public class TreeNode {
+    public let label: String
+    public let parent: TreeNode?
+
+    public init(label: String, parent: TreeNode?) {
+        self.label = label
+        self.parent = parent
+    }
+
+    public func depth() -> Int32 {
+        if let p = parent { return p.depth() + 1 }
+        return 0
+    }
+
+    public func rootLabel() -> String {
+        if let p = parent { return p.rootLabel() }
+        return label
+    }
+}
+
+// MARK: - Multiple Class Singletons (Swinject ObjectScope pattern)
+
+/// Class with multiple static let singleton instances.
+/// Real-world pattern: Swinject ObjectScope.Transient, .Graph, .Container, .Weak.
+public class Scope {
+    public let name: String
+
+    private init(name: String) {
+        self.name = name
+    }
+
+    public static let transient = Scope(name: "transient")
+    public static let graph = Scope(name: "graph")
+    public static let container = Scope(name: "container")
+    public static let weak = Scope(name: "weak")
+
+    public func describe() -> String { "Scope: \(name)" }
+}
+
 // MARK: - Weak and Unowned References
 // NOTE: Temporarily disabled. Generator bug with tuples containing class types
 // (tries to access Owner.Buffer which doesn't exist for pure reference types).

@@ -1,475 +1,796 @@
-# TestFramework Enhancement Plan
+# TestFramework Enhancement Plan: Real-World Library Patterns
 
-**Status**: Phase A Complete, Phase B Complete, Phase C Complete, Phase D Complete
-**Date**: February 2026
-**Context**: Phases 55-61 fixed bugs that TestFramework didn't catch
+> **Goal**: 95%+ coverage of all interop patterns found in third-party bindings, so the TestFramework can catch regressions without relying on real library bindings.
+>
+> **Sources**: 21 libraries across sim-validation (16) and swift-dotnet-packages (5), plus 11 NativeAOT stability fix commits.
 
----
+## Current TestFramework Coverage
 
-## Problem Statement
+The TestFramework already covers these core patterns well:
+- Simple/frozen enums (int-backed, string-backed, associated values, multi-associated-values)
+- Nested string enums in **structs** (NetworkConfig.HttpMethod, OrderContainer.Status)
+- Enum FromRawValue factory, enum computed properties
+- Classes (base, inheritance, final), structs (frozen, non-frozen)
+- Protocols (basic, composition, non-blittable, witness dispatch, existential callbacks)
+- Generics (types, functions, constraints, associated types, existentials)
+- Arrays as free-function params and returns
+- Optionals (Int32?, Animal?, String?, struct with optional props)
+- Tuples, closures (escaping, returns), async methods, error handling/throws
+- Static properties (let, var, computed), operators (arithmetic, comparison on frozen structs)
+- Inout params, real-world compositions (BatchConfig, Registry.Shared, EventHandler, Transformer)
 
-TestFramework validates **code generation** but doesn't exercise **runtime behavior**. This gap allowed 6 of 7 recent phases (55, 58, 59, 60, 61) to fix bugs that slipped through testing.
+## Gap Analysis: 25 Missing Patterns
 
-| What TestFramework Does | What It Doesn't Do |
-|------------------------|-------------------|
-| ✅ Verifies Swift types parse correctly | ❌ Call generated C# methods |
-| ✅ Confirms bindings emit without errors | ❌ Validate marshalling round-trips |
-| ✅ Tracks coverage statistics | ❌ Test callback/async patterns |
-| ✅ Detects skip reasons | ❌ Exercise witness dispatch |
-
----
-
-## Two-Layer Test Model
-
-Adopt explicit separation to make failures actionable:
-
-### Layer 1: Generator/Coverage Tests (Existing)
-
-- **Purpose**: Verify Swift → C# binding generation
-- **Location**: `TestFramework/` with `build-and-test.sh`, `generate-coverage-report.sh`
-- **Failure means**: Generator bug (parser, marshaler, emitter)
-- **Output**: `binding-report.json`, `coverage-matrix.json`
-
-### Layer 2: Runtime ABI/Marshalling Tests (New)
-
-- **Purpose**: Verify generated bindings work at runtime
-- **Location**: `TestFramework/RuntimeTests/` (new C# test project)
-- **Failure means**: Interop bug (marshalling, memory, ABI mismatch)
-- **Output**: Standard test results (pass/fail with assertions)
-
-This separation answers: "Did we generate the right code?" vs "Does the code actually work?"
+### Legend
+- **Status**: Missing (no coverage), Disabled (`.swift.disabled`), Partial (some coverage), Enhance (exists but needs expansion)
+- **Evidence**: Which libraries demonstrated the need
+- **Fix ref**: Which commit/fix this pattern would have caught
 
 ---
 
-## Contract Matrix
+### GROUP A: Foundation Types (3 patterns)
 
-Systematic coverage across dimensions. Each cell shows two-layer status: **G** (Generator/Layer 1) and **R** (Runtime/Layer 2).
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| A1 | Foundation.Date params/returns/properties | Disabled | RxSwift HistoricalScheduler, KeychainAccess Optional\<Date\>, BlinkID | DateProjection (5ee25de7) |
+| A2 | Foundation.URL params/returns | Disabled | Starscream, Nuke pipelines | Large Optional fix + ObjC bridging |
+| A3 | Foundation.Data params | Disabled | Starscream WebSocketEvent.Binary | Needs DataProjection (known limitation) |
 
-### Return Types
+**A1: Foundation.Date** — ENABLE + ENHANCE
 
-|                     | Blittable | String  | Array   | Class   | Enum    | Optional | Existential |
-|---------------------|:---------:|:-------:|:-------:|:-------:|:-------:|:--------:|:-----------:|
-| Sync return         |   G✓ R✓   |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓   |    G✓ R?    |
-| Async return        |   G✓ R?   |  G✓ R◐  |  G✓ R◐  |  G✓ R◐  |  G✓ R◐  |  G? R?   |    G? R?    |
-| Generic\<T\> return |   G✓ R?   |  G✓ R?  |  G✓ R?  |  G? R?  |  G? R?  |  G? R?   |      -      |
+Existing `Date.swift.disabled` covers: Date param, Date return, two Date params, Date arithmetic, struct with Date property. Add:
+```swift
+// Optional<Date> (KeychainAccess pattern)
+public func optionalDate(epochSeconds: Double?) -> Date? {
+    guard let seconds = epochSeconds else { return nil }
+    return Date(timeIntervalSince1970: seconds)
+}
 
-### Parameter Types
+// Struct with optional Date properties
+public struct EventConfig {
+    public var label: String
+    public var startDate: Date?
+    public var endDate: Date?
+    public init(label: String, startDate: Date?, endDate: Date?) { ... }
+}
 
-|                     | Blittable | String  | Array   | Class   | Enum    | Optional | Existential |
-|---------------------|:---------:|:-------:|:-------:|:-------:|:-------:|:--------:|:-----------:|
-| Sync param          |   G✓ R✓   |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓  |  G✓ R✓   |    G✓ R?    |
-| Generic\<T\> param  |   G✓ R?   |  G✓ R?  |  G✓ R?  |  G? R?  |  G? R?  |  G? R?   |      -      |
-
-### Protocol Witness Dispatch
-
-|                     | Blittable | String  | Array   | Class   | Enum    |
-|---------------------|:---------:|:-------:|:-------:|:-------:|:-------:|
-| Property getter     |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G✓ R◐  |
-| Property setter     |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
-| Method param        |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
-| Method return       |   G✓ R?   |  G✓ R◐  |  G? R?  |  G? R?  |  G? R?  |
-
-### Closures
-
-|                     | Blittable | String  | Array   | Class   | Enum    |
-|---------------------|:---------:|:-------:|:-------:|:-------:|:-------:|
-| Closure param       |   G✓ R✓   |  G✓ R?  |  G? R?  |  G? R?  |  G? R?  |
-| Closure return      |   G✓ R✓   |  G✓ R?  |  G? R?  |  G? R?  |  G? R?  |
-| @escaping callback  |   G✓ R✓   |  G? R?  |  G? R?  |  G? R?  |  G? R?  |
-
-**Legend**:
-- **G** = Generator (Layer 1): ✓ covered, ? unknown/gap
-- **R** = Runtime (Layer 2): ✓ tested, ◐ needs test (Phase 55-61 bug), ? not tested
-- `-` = Not applicable / intentionally unsupported
-
-**Goal**: All applicable `G✓` cells should reach `G✓ R✓` status. Cells marked `-` are intentionally unsupported.
-
----
-
-## Gaps Identified from Phases 55-61
-
-| Phase | Issue Fixed | Matrix Cell | Test Needed |
-|-------|-------------|-------------|-------------|
-| 55 | String enum `FromRawValue()` | Enum × Sync | Nested String enums with factory round-trip |
-| 58 | Async String return | String × Async | UTF-8 marshalling validation |
-| 59 | Async Array\<String\> return | Array × Async | Buffer serialization round-trip |
-| 60 | Async complex type return | Class/Enum × Async | OpaquePointer marshalling |
-| 61 | `IntPtr<T>` generic emission | Generic × Pointer | `Container<UnsafePointer<T>>` patterns |
-| 56 | Protocol conformance validation | Protocol × Various | Witness dispatch with non-blittable types |
-
----
-
-## Ownership/Lifetime Tests
-
-Common blind spot in interop. Add from day one.
-
-### Retain/Release Balance
-
-```csharp
-[Test] void SwiftObject_Dispose_ReleasesOnce();
-[Test] void SwiftObject_DoubleDispose_NoDoubleFree();
-[Test] void SwiftObject_GCCollect_EventuallyReleases();
-[Test] void SwiftObject_AccessAfterDispose_Throws();
+// Date as enum associated value (RxSwift pattern)
+public enum SchedulerEvent {
+    case scheduled(at: Date)
+    case cancelled
+}
 ```
 
-### Callback Lifetime
+**A2: Foundation.URL** — ENABLE when URL projection implemented. Keep disabled.
 
-```csharp
-[Test] void EscapingClosure_SurvivesGCPressure();
-[Test] void EscapingClosure_CalledAfterCreatorDisposed();
-[Test] void ConventionC_Callback_ValidDuringCall();
+**A3: Foundation.Data** — DEFERRED. Needs DataProjection. Keep disabled.
+
+---
+
+### GROUP B: Protocol/Existential Patterns (2 patterns)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| B1 | Concrete type passed as protocol existential param | Missing | CryptoSwift `AES(key, ECB, Padding)` where ECB is concrete struct passed as `any BlockMode` | IExistentialBoxable (8c74b688) |
+| B2 | Constructor combining collection + existential + enum params | Missing | CryptoSwift `AES(byte[], ECB, Padding)` | IExistentialBoxable + DangerousGetHandle |
+
+**B1: Concrete Type as Protocol Existential** — NEW `Protocols/ExistentialBoxing.swift`
+```swift
+public protocol ProcessingMode {
+    var modeName: String { get }
+    func validate(input: Int32) -> Bool
+}
+
+public struct SimpleMode: ProcessingMode {
+    public var modeName: String { "simple" }
+    public init() {}
+    public func validate(input: Int32) -> Bool { input >= 0 }
+}
+
+public struct StrictMode: ProcessingMode {
+    public var modeName: String { "strict" }
+    public init() {}
+    public func validate(input: Int32) -> Bool { input > 0 && input < 1000 }
+}
+
+/// Class taking protocol existential param — the CryptoSwift AES(key, ECB) pattern
+public class Processor {
+    private let mode: any ProcessingMode
+    public init(mode: any ProcessingMode) { self.mode = mode }
+    public func process(value: Int32) -> Bool { mode.validate(input: value) }
+    public func getModeName() -> String { mode.modeName }
+}
+
+/// Free function with existential param
+public func runWithMode(_ mode: any ProcessingMode, value: Int32) -> Bool {
+    return mode.validate(input: value)
+}
+
+/// Two existential params
+public func compareResults(_ a: any ProcessingMode, _ b: any ProcessingMode, value: Int32) -> Bool {
+    return a.validate(input: value) == b.validate(input: value)
+}
 ```
 
-### Async Lifetime
+**B2: Multi-param constructor with existential** — extend B1:
+```swift
+/// Constructor combining collection + protocol existential + enum (CryptoSwift AES pattern)
+public class Pipeline {
+    private let steps: [Int32]
+    private let mode: any ProcessingMode
 
-```csharp
-[Test] void AsyncResult_ValidAfterTaskCompletes();
-[Test] void AsyncCallback_NoUseAfterFree();
-[Test] void AsyncString_ValidAfterBufferFreed();
-```
+    public init(steps: [Int32], mode: any ProcessingMode) {
+        self.steps = steps
+        self.mode = mode
+    }
 
-### Negative-Path Tests
-
-Explicitly test error conditions and invalid states:
-
-```csharp
-// Invalid handles
-[Test] void InvalidHandle_MethodCall_Throws();
-[Test] void NullHandle_MethodCall_Throws();
-
-// Disposed object access
-[Test] void DisposedObject_PropertyAccess_Throws();
-[Test] void DisposedObject_MethodCall_Throws();
-
-// Async cancellation/timeout
-[Test] void AsyncMethod_Timeout_HandledGracefully();
-[Test] void AsyncMethod_CancellationToken_Respected();
-
-// Callback exceptions
-[Test] void Callback_ThrowsException_PropagatesOrHandled();
-[Test] void EscapingClosure_ThrowsException_NoCorruption();
-
-// Invalid enum/raw values
-[Test] void EnumFromRawValue_InvalidValue_ReturnsNil();
-[Test] void StringEnum_EmptyString_HandledCorrectly();
-```
-
-### Concurrency and Stress Tests
-
-Flush race conditions and use-after-free issues:
-
-```csharp
-// Parallel calls
-[Test] void ParallelMethodCalls_NoDataCorruption();
-[Test] void ParallelPropertyAccess_ThreadSafe();
-
-// Repeated async completion
-[Test] void RepeatedAsyncCalls_NoResourceLeak();
-[Test] void AsyncCompletionRace_NoDeadlock();
-
-// GC pressure
-[Test] void GCPressureLoop_CallbacksSurvive();
-[Test] void GCPressureLoop_NoUseAfterFree();
-[Test] void RapidAllocDealloc_NoMemoryCorruption();
+    public func stepCount() -> Int32 { Int32(steps.count) }
+    public func getModeName() -> String { mode.modeName }
+}
 ```
 
 ---
 
-## New Swift Test Files Needed
+### GROUP C: Subscripts (1 pattern)
 
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| C1 | Subscript (string key → optional string, int key → int) | Missing | KeychainAccess `kc["key"] = "value"` | @_cdecl string param fix (103e8fed) |
+
+**C1: Subscripts** — NEW `Properties/Subscripts.swift`
+```swift
+/// String-keyed subscript (KeychainAccess pattern)
+public class KeyValueStore {
+    private var storage: [String: String] = [:]
+    public init() {}
+
+    public subscript(key: String) -> String? {
+        get { storage[key] }
+        set { storage[key] = newValue }
+    }
+
+    public func count() -> Int32 { Int32(storage.count) }
+    public func removeAll() { storage.removeAll() }
+}
+
+/// Int-keyed subscript (blittable comparison)
+public class IndexedStore {
+    private var items: [Int32]
+
+    public init(capacity: Int32) {
+        items = Array(repeating: 0, count: Int(capacity))
+    }
+
+    public subscript(index: Int32) -> Int32 {
+        get { items[Int(index)] }
+        set { items[Int(index)] = newValue }
+    }
+
+    public func count() -> Int32 { Int32(items.count) }
+}
+```
+
+---
+
+### GROUP D: Static Properties & Singletons (3 patterns)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| D1 | Static struct singleton (`static let` returning Self) | Missing | Alamofire `URLEncoding.Default`, Kingfisher `DefaultImageProcessor.Default`, BlinkID `RequestTimeout.Default` | Struct copy/destroy crash |
+| D2 | Multiple static class singletons on same type | Missing | Swinject `ObjectScope.Transient`, `.Graph`, `.Container`, `.Weak` | Static property emission |
+| D3 | Struct-backed "enum" (struct with static let props + rawValue) | Missing | Alamofire `HTTPMethod.Get/.Post/.Put`, BonMot `Emphasis.Italic/.Bold` | Static struct property getters |
+
+**D1: Static Struct Singleton** — NEW `Properties/StaticStructSingleton.swift`
+```swift
+public struct EncodingConfig {
+    public var formatName: String
+    public var maxLength: Int32
+
+    public init(formatName: String, maxLength: Int32) {
+        self.formatName = formatName
+        self.maxLength = maxLength
+    }
+
+    public static let standard = EncodingConfig(formatName: "standard", maxLength: 1024)
+    public static let compact = EncodingConfig(formatName: "compact", maxLength: 256)
+    public static let minimal = EncodingConfig(formatName: "minimal", maxLength: 64)
+
+    public func isWithinLimit(_ length: Int32) -> Bool { length <= maxLength }
+}
+```
+
+**D2: Multiple Class Singletons** — NEW (extend `Types/Classes.swift` or `Patterns/`)
+```swift
+public class Scope {
+    public let name: String
+    private init(name: String) { self.name = name }
+
+    public static let transient = Scope(name: "transient")
+    public static let graph = Scope(name: "graph")
+    public static let container = Scope(name: "container")
+    public static let weak = Scope(name: "weak")
+
+    public func describe() -> String { "Scope: \(name)" }
+}
+```
+
+**D3: Struct-Backed Enum** — NEW `Patterns/StructBackedEnum.swift`
+```swift
+public struct HttpVerb: Equatable {
+    public var rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+
+    public static let get = HttpVerb(rawValue: "GET")
+    public static let post = HttpVerb(rawValue: "POST")
+    public static let put = HttpVerb(rawValue: "PUT")
+    public static let delete = HttpVerb(rawValue: "DELETE")
+    public static let patch = HttpVerb(rawValue: "PATCH")
+}
+```
+
+---
+
+### GROUP E: Enum Patterns (6 patterns)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| E1 | Nested enums inside **class** (vs struct) | Missing | CryptoSwift `AES.Variant`, `SHA2.Variant`; Alamofire `URLEncoding.Destination` | Enum scoping |
+| E2 | Enum with enum-typed associated value | Missing | CryptoSwift `HMAC.Variant.Sha2(SHA2.Variant.Sha256)` | Nested enum case marshalling |
+| E3 | Enum extension methods (not defined inline) | Partial | KeychainAccess `ItemClass.GetDescription()`, DeviceKit `Device.CPU.GetDescription()` | Enum method dispatch |
+| E4 | Large enum (100+ cases) | Missing | DeviceKit `Device` (100+ case enum with DestructiveInjectEnumTag) | Enum scalability |
+| E5 | OptionSet struct | Missing | BonMot `Emphasis`, `XMLParsingOptions`; Nuke `ImageRequest.Options` | OptionSet emission |
+| E6 | Non-Int32 backed enums (UInt16, Int64) | Missing | Starscream `SecurityErrorCode: UInt16`, BonMot `Ligatures: Int64` | Backing type handling |
+
+**E1: Nested Enums in Class** — NEW `Types/NestedEnums.swift`
+```swift
+public class Codec {
+    public enum Format: Int32 {
+        case json = 0
+        case xml = 1
+        case binary = 2
+    }
+
+    public enum Encoding: String {
+        case utf8 = "utf-8"
+        case ascii = "ascii"
+        case latin1 = "latin-1"
+    }
+
+    /// Nested enum with associated values
+    public enum CompressionLevel {
+        case none
+        case fast
+        case best
+        case custom(level: Int32)
+    }
+
+    public var format: Format
+    public var encoding: Encoding
+
+    public init(format: Format, encoding: Encoding) {
+        self.format = format
+        self.encoding = encoding
+    }
+
+    public func describe() -> String { "\(format) / \(encoding.rawValue)" }
+}
+```
+
+**E2: Enum with Enum-Typed Associated Value** — in `Types/NestedEnums.swift`
+```swift
+public enum SHA2Variant: Int32 {
+    case sha224 = 0
+    case sha256 = 1
+    case sha384 = 2
+    case sha512 = 3
+}
+
+public enum HashAlgorithm {
+    case md5
+    case sha1
+    case sha2(variant: SHA2Variant)
+    case custom(rounds: Int32)
+}
+
+public func createHashAlgorithm(sha2Variant: SHA2Variant) -> HashAlgorithm { .sha2(variant: sha2Variant) }
+public func describeAlgorithm(_ algo: HashAlgorithm) -> String {
+    switch algo {
+    case .md5: return "MD5"
+    case .sha1: return "SHA1"
+    case .sha2(let v): return "SHA2-\(v.rawValue)"
+    case .custom(let r): return "Custom-\(r)"
+    }
+}
+```
+
+**E3: Enum Extension Methods** — EXTEND `Types/Enums.swift` (Direction already has `opposite()` inline; add `getDescription()` as **extension**):
+```swift
+extension Color {
+    public func complementary() -> Int32 { (self.rawValue + 3) % 6 }
+    public func getHexDescription() -> String {
+        switch self {
+        case .red: return "#FF0000"
+        case .green: return "#00FF00"
+        case .blue: return "#0000FF"
+        case .alpha: return "#000000FF"
+        }
+    }
+}
+```
+Note: `Direction.opposite()` is already defined **inline** in the enum body, not as an extension. We need to also test an extension-defined method since that's a different emission path (extension vs member). Add a `getDescription()` extension on Direction.
+
+**E4: Large Enum** — NEW `Types/LargeEnum.swift`
+```swift
+/// Large enum (50+ cases) testing DestructiveInjectEnumTag scalability (DeviceKit Device pattern)
+public enum DeviceModel {
+    // 50 no-payload cases
+    case phone1, phone2, phone3, phone4, phone5
+    case phone6, phone7, phone8, phone9, phone10
+    case tablet1, tablet2, tablet3, tablet4, tablet5
+    case tablet6, tablet7, tablet8, tablet9, tablet10
+    case watch1, watch2, watch3, watch4, watch5
+    case laptop1, laptop2, laptop3, laptop4, laptop5
+    case desktop1, desktop2, desktop3, desktop4, desktop5
+    case tv1, tv2, tv3, tv4, tv5
+    case speaker1, speaker2, speaker3, speaker4, speaker5
+    case accessory1, accessory2, accessory3, accessory4, accessory5
+    // Payload cases
+    case unknown(identifier: String)
+    case custom(name: String, year: Int32)
+}
+
+public func deviceDescription(_ model: DeviceModel) -> String {
+    switch model {
+    case .phone1: return "Phone 1"
+    case .unknown(let id): return "Unknown: \(id)"
+    case .custom(let name, let year): return "\(name) (\(year))"
+    default: return "Device"
+    }
+}
+```
+
+**E5: OptionSet** — NEW `Types/OptionSets.swift`
+```swift
+/// OptionSet struct (BonMot Emphasis, Nuke ImageRequest.Options pattern)
+public struct TextStyle: OptionSet {
+    public let rawValue: Int32
+    public init(rawValue: Int32) { self.rawValue = rawValue }
+
+    public static let bold = TextStyle(rawValue: 1 << 0)
+    public static let italic = TextStyle(rawValue: 1 << 1)
+    public static let underline = TextStyle(rawValue: 1 << 2)
+    public static let strikethrough = TextStyle(rawValue: 1 << 3)
+}
+
+/// OptionSet on a class (Nuke ImageRequest.Options pattern — nested OptionSet)
+public class ImageRequest {
+    public struct Options: OptionSet {
+        public let rawValue: Int32
+        public init(rawValue: Int32) { self.rawValue = rawValue }
+
+        public static let disableCache = Options(rawValue: 1 << 0)
+        public static let returnCached = Options(rawValue: 1 << 1)
+        public static let lowPriority = Options(rawValue: 1 << 2)
+    }
+
+    public var options: Options
+    public init(options: Options) { self.options = options }
+}
+
+public func describeTextStyle(_ style: TextStyle) -> String {
+    var parts: [String] = []
+    if style.contains(.bold) { parts.append("bold") }
+    if style.contains(.italic) { parts.append("italic") }
+    if style.contains(.underline) { parts.append("underline") }
+    if style.contains(.strikethrough) { parts.append("strikethrough") }
+    return parts.joined(separator: ", ")
+}
+```
+
+**E6: Non-Int32 Enums** — NEW `Types/NonStandardEnums.swift`
+```swift
+/// UInt16-backed enum (Starscream SecurityErrorCode pattern)
+public enum SecurityError: UInt16 {
+    case none = 0
+    case badCertificate = 1
+    case pinningFailed = 2
+    case invalidChain = 3
+}
+
+/// Int64-backed enum (BonMot Ligatures pattern)
+public enum FeatureFlag: Int64 {
+    case disabled = 0
+    case enabled = 1
+    case experimental = 2
+}
+
+/// UInt32-backed enum
+public enum Permission: UInt32 {
+    case none = 0
+    case read = 1
+    case write = 2
+    case execute = 4
+}
+```
+
+---
+
+### GROUP F: Constructor Patterns (4 patterns)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| F1 | Constructor with array/collection param | Missing | CryptoSwift `HMAC(byte[])`, Lottie `AnimationKeypath(List<string>)` | DangerousGetHandle (103e8fed) |
+| F2 | Constructor with Dictionary param | Missing | Alamofire `HTTPHeaders(IDictionary)`, Lottie `DictionaryTextProvider(dict)` | Dictionary passing |
+| F3 | Constructor with optional class param | Missing | Swinject `Container(parent: nil)` | Optional class constructor |
+| F4 | Constructor with CGSize/CGRect struct param | Missing | Kingfisher `ResizingImageProcessor(CGSize, ContentMode)`, Lottie `LottieAnimationView(CGRect)` | Frozen struct params |
+
+**F1: Constructor with Collection** — NEW `Collections/ConstructorCollections.swift`
+```swift
+public class DataBuffer {
+    private let data: [Int32]
+    public init(data: [Int32]) { self.data = data }
+    public func count() -> Int32 { Int32(data.count) }
+    public func sum() -> Int32 { Int32(data.reduce(0, +)) }
+    public func first() -> Int32? { data.first.map { Int32($0) } }
+}
+
+/// Constructor with string array param (Lottie AnimationKeypath pattern)
+public class PathResolver {
+    private let components: [String]
+    public init(components: [String]) { self.components = components }
+    public func fullPath() -> String { components.joined(separator: ".") }
+    public func depth() -> Int32 { Int32(components.count) }
+}
+
+/// Constructor with array + other params
+public class LabeledBuffer {
+    private let label: String
+    private let data: [Int32]
+    public init(label: String, data: [Int32]) {
+        self.label = label
+        self.data = data
+    }
+    public func describe() -> String { "\(label): \(data.count) items" }
+}
+```
+
+**F2: Constructor with Dictionary** — NEW `Collections/DictionaryConstructor.swift`
+```swift
+/// Constructor taking Dictionary param (Alamofire HTTPHeaders pattern)
+public class HeaderMap {
+    private var headers: [String: String]
+    public init(headers: [String: String]) { self.headers = headers }
+    public func count() -> Int32 { Int32(headers.count) }
+    public func get(_ key: String) -> String? { headers[key] }
+    public func set(_ key: String, _ value: String) { headers[key] = value }
+}
+```
+
+**F3: Constructor with Optional Class Param** — NEW (extend `Types/Classes.swift`)
+```swift
+/// Class with optional parent (Swinject Container pattern)
+public class TreeNode {
+    public let label: String
+    public let parent: TreeNode?
+    public init(label: String, parent: TreeNode?) {
+        self.label = label
+        self.parent = parent
+    }
+    public func depth() -> Int32 {
+        if let p = parent { return p.depth() + 1 }
+        return 0
+    }
+    public func rootLabel() -> String {
+        if let p = parent { return p.rootLabel() }
+        return label
+    }
+}
+```
+
+**F4: Constructor with CGSize param** — If CGSize is already available via frozen structs, this is covered by FrozenPoint. The specific pattern is a constructor taking a **Foundation/CoreGraphics frozen struct**. The existing `FrozenPoint` covers the struct-param-in-constructor ABI pattern. **No separate action needed** — covered by existing frozen struct params.
+
+---
+
+### GROUP G: Method/Property Patterns (5 patterns)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| G1 | Builder pattern (methods returning Self) | Missing | KeychainAccess `.withAccessibility().withLabel()` | Chained class method returns |
+| G2 | Static factory method returning optional Self | Missing | Lottie `LottieAnimation.Filepath() -> LottieAnimation?`, ObjectMapper `DateTransform.Unit.FromRawValue(999) -> nil` | Optional factory |
+| G3 | Instance property returning another class | Partial | Nuke `KingfisherManager.Cache -> ImageCache`, Swinject `Assembler.Resolver` | Class-returning properties |
+| G4 | Method returning collection | Partial | KeychainAccess `GetAllKeys() -> [String]`, PhoneNumberKit `GetAllCountries()` | Collection return from method |
+| G5 | Method with completion closure param | Partial | Lottie `view.Play(completion: (Bool) -> Void)` | Closure param on instance method |
+
+**G1: Builder Pattern** — NEW `Patterns/BuilderPattern.swift`
+```swift
+public class RequestBuilder {
+    public var url: String
+    public var method: String
+    public var timeout: Int32
+    public var retryCount: Int32
+
+    public init(url: String) {
+        self.url = url
+        self.method = "GET"
+        self.timeout = 30
+        self.retryCount = 0
+    }
+
+    public func withMethod(_ method: String) -> RequestBuilder {
+        self.method = method
+        return self
+    }
+
+    public func withTimeout(_ timeout: Int32) -> RequestBuilder {
+        self.timeout = timeout
+        return self
+    }
+
+    public func withRetryCount(_ count: Int32) -> RequestBuilder {
+        self.retryCount = count
+        return self
+    }
+
+    public func describe() -> String { "\(method) \(url) timeout=\(timeout) retries=\(retryCount)" }
+}
+```
+
+**G2: Static Factory Returning Optional** — NEW `Patterns/StaticFactory.swift`
+```swift
+/// Class with static factory methods returning optional (Lottie LottieAnimation.Filepath pattern)
+public class ConfigLoader {
+    public let name: String
+    public let version: Int32
+
+    private init(name: String, version: Int32) {
+        self.name = name
+        self.version = version
+    }
+
+    /// Factory returns nil for empty name (failable pattern)
+    public static func create(name: String) -> ConfigLoader? {
+        guard !name.isEmpty else { return nil }
+        return ConfigLoader(name: name, version: 1)
+    }
+
+    /// Factory returns nil for invalid version
+    public static func create(name: String, version: Int32) -> ConfigLoader? {
+        guard version > 0 else { return nil }
+        return ConfigLoader(name: name, version: version)
+    }
+
+    public func describe() -> String { "\(name) v\(version)" }
+}
+```
+
+**G3: Property Returning Another Class** — EXTEND `Patterns/RealWorldCompositions.swift`
+```swift
+/// Class with properties returning other class instances (Nuke KingfisherManager pattern)
+public class ServiceContainer {
+    public let cache: Registry   // reuse existing Registry
+    public let name: String
+
+    public init(name: String) {
+        self.name = name
+        self.cache = Registry.shared
+    }
+}
+```
+
+**G4: Method Returning Collection** — EXTEND existing types
+```swift
+// Add to KeyValueStore (Pattern C1):
+public func allKeys() -> [String] { Array(storage.keys) }
+public func allValues() -> [String] { Array(storage.values) }
+```
+Also already partially covered by `describeAnimals()` and `createStringArray()`. The gap is specifically an **instance method** returning a collection (vs free function). The KeyValueStore additions cover this.
+
+**G5: Method with Completion Closure** — Already covered by `ClosureConsumer.applyToValue()` and the various `callWith*` free functions. The Lottie pattern is specifically a **void method with optional completion closure**, which is a variation. Add to the builder or a new class:
+```swift
+// Add to RequestBuilder or new type:
+public func execute(completion: ((Bool) -> Void)?) {
+    completion?(true)
+}
+```
+
+---
+
+### GROUP H: Equality & Operators (1 pattern)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| H1 | Non-frozen struct equality (Equatable via @_cdecl wrapper) | Partial | Alamofire HTTPHeader ==, KeychainAccess AuthenticationPolicy ==, SnapKit ConstraintPriority == | @_cdecl equality wrappers (dc06e216) |
+
+**H1: Non-Frozen Struct Equality** — EXTEND `Operators/Comparison.swift`
+```swift
+/// Non-frozen struct with Equatable (Alamofire HTTPHeader pattern — @_cdecl equality wrapper)
+public struct Tag: Equatable {
+    public var key: String
+    public var value: String
+    public init(key: String, value: String) { self.key = key; self.value = value }
+}
+```
+The existing `ComparableValue` and `ApproximatelyEqual` are both **frozen**. The gap is testing equality on **non-frozen** structs, which takes the @_cdecl wrapper path instead of the CallConvSwift path.
+
+---
+
+### GROUP I: Failable Initializers (1 pattern)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| I1 | Failable initializer (init?) | Disabled | ObjectMapper `DateTransform.Unit.FromRawValue(999) -> nil`, XMLCoder `BoolBox.TryCreate` | Failable init emission |
+
+**I1**: Files exist in `Initializers.disabled/Failable.swift`. The TestFramework has `SafeDiv`, `NonEmptyString`, `RangedInt` — all with `init?`. Enable if the generator supports failable initializers. **Check generator status before enabling.**
+
+---
+
+### GROUP J: Inheritance Patterns (1 pattern)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| J1 | Subclass accessing base class properties via @_cdecl | Partial | SwiftyBeaver `ConsoleDestination` accessing `BaseDestination.Format`, `.Asynchronously` | Inherited property emission |
+
+**J1**: The TestFramework has `Dog : Animal` with method override, but doesn't test **property access** on the subclass that's defined on the base class. The Alamofire/SwiftyBeaver pattern is: construct subclass → access property defined on base class.
+
+```swift
+// Dog already inherits from Animal. Add property access tests in C# runtime tests:
+// var dog = new Dog("Rex", "Lab");
+// var name = dog.Name;  // inherited from Animal
+// var sound = dog.Sound; // inherited from Animal
+```
+This is primarily a **C# runtime test** addition, not a Swift source change.
+
+---
+
+### GROUP K: Cache/CRUD Pattern (1 pattern)
+
+| # | Pattern | Status | Evidence | Fix Ref |
+|---|---------|--------|----------|---------|
+| K1 | Full CRUD lifecycle (store → contains → retrieve → remove → verify removed) | Missing | Nuke DataCache, Kingfisher ImageCache, KeychainAccess Keychain, Lottie DefaultAnimationCache | State transition testing |
+
+**K1**: This is covered by the `KeyValueStore` (Pattern C1) + `allKeys()` method (Pattern G4). The full lifecycle is:
+1. `store["key"] = "value"` (create)
+2. `store["key"]` returns `"value"` (read)
+3. `store["key"] = "updated"` (update)
+4. `store["key"] = nil` (delete)
+5. `store["key"]` returns `nil` (verify)
+6. `store.count()` returns 0
+
+This is a **C# runtime test** pattern using the types from C1, not a new Swift type.
+
+---
+
+## Coverage Matrix: Real-World Library → TestFramework
+
+| Library | Key Patterns | TestFramework Coverage (current → after) |
+|---------|-------------|------------------------------------------|
+| **Alamofire** | Static struct singleton, struct-backed enum (HTTPMethod), non-frozen struct equality, builder pattern, nested enums in struct, dictionary constructor, class singleton chain | 30% → 95% |
+| **CryptoSwift** | Concrete type as existential param, enum-in-enum associated value, constructor with byte[], nested enum in class, protocol existential constructor | 10% → 90% |
+| **KeychainAccess** | String subscript, builder pattern, enum extension methods, Optional\<Date\>, struct equality, CRUD lifecycle | 10% → 95% |
+| **RxSwift** | DateTimeOffset (Date projection), class singleton, static bool setter, frozen enum with Tag | 50% → 90% |
+| **DeviceKit** | Large enum (100+ cases), static collection property, enum extension method, optional string properties, enum payload extraction | 30% → 85% |
+| **PhoneNumberKit** | Constructor with class+string, method returning collection, struct property chain, UInt64 properties | 60% → 90% |
+| **Starscream** | UInt16 enum, struct with enum+string+int constructor, optional Data (deferred), WSError multi-type constructor | 40% → 80% |
+| **Swinject** | Multiple class singletons, constructor with optional class, protocol existential return (known limitation) | 30% → 85% |
+| **ObjectMapper** | Failable initializer (FromRawValue invalid), nested enum constructor, class inheritance chain | 50% → 80% |
+| **SwiftyBeaver** | Subclass base-class property access, namespace collision, combined static methods workflow | 60% → 90% |
+| **BonMot** | OptionSet, Int64-backed enum, struct equality, static struct properties | 20% → 90% |
+| **SnapKit** | Struct with float properties, struct method returning same type, ObjC-bridged class | 50% → 85% |
+| **Kingfisher** | Class singleton, CGSize param, enum with double payload, cache lifecycle, enum extension method | 50% → 90% |
+| **Nuke** | Async method, optional double property, OptionSet, class property returning class, static factory optional | 40% → 85% |
+| **Lottie** | Static factory returning optional, constructor with CGRect/CGSize, method with completion closure, collection property | 40% → 85% |
+| **Stripe** | Multi-module, doubly-nested enum, @_spi suppression | 30% → 70% (multi-module untestable in single lib) |
+| **BlinkID/UX** | Frozen enum RawValue access, cross-framework dependency, static property returning Self | 50% → 85% |
+| **XMLCoder** | Optional double/string getters, struct TryCreate (failable), nested enums in class | 40% → 85% |
+| **Reachability** | Enum multi-param payload, namespace collision, TryGet extraction | 60% → 90% |
+
+**Estimated overall: 40% → 88% (without deferred items), 88% → 95%+ (after URL/Data projections + failable inits)**
+
+---
+
+## Implementation Plan
+
+### Phase 1: Critical Fixes Without Test Coverage (validates already-shipped fixes)
+| Pattern | New Swift File | Priority |
+|---------|---------------|----------|
+| A1: Foundation.Date | Enable `Foundation/Date.swift` + add Optional\<Date\> | **P0** — DateProjection shipped with zero test coverage |
+| B1+B2: Existential boxing | `Protocols/ExistentialBoxing.swift` | **P0** — IExistentialBoxable shipped with zero test coverage |
+| C1: Subscripts | `Properties/Subscripts.swift` | **P0** — @_cdecl string fix shipped, zero subscript tests |
+| E3: Enum extension methods | Extend `Types/Enums.swift` | **P0** — trivial, common pattern |
+
+### Phase 2: High-Value New Patterns
+| Pattern | New Swift File | Priority |
+|---------|---------------|----------|
+| D1: Static struct singleton | `Properties/StaticStructSingleton.swift` | P1 |
+| D3: Struct-backed enum | `Patterns/StructBackedEnum.swift` | P1 |
+| E1+E2: Nested enums + enum-in-enum | `Types/NestedEnums.swift` | P1 |
+| F1: Constructor with collection | `Collections/ConstructorCollections.swift` | P1 |
+| H1: Non-frozen struct equality | Extend `Operators/Comparison.swift` | P1 |
+| E5: OptionSet | `Types/OptionSets.swift` | P1 |
+
+### Phase 3: Coverage Depth
+| Pattern | New Swift File | Priority |
+|---------|---------------|----------|
+| E4: Large enum | `Types/LargeEnum.swift` | P2 |
+| E6: Non-Int32 enums | `Types/NonStandardEnums.swift` | P2 |
+| D2: Multiple class singletons | Extend patterns | P2 |
+| F2: Dictionary constructor | `Collections/DictionaryConstructor.swift` | P2 |
+| F3: Optional class constructor | Extend `Types/Classes.swift` | P2 |
+| G1: Builder pattern | `Patterns/BuilderPattern.swift` | P2 |
+| G2: Static factory optional | `Patterns/StaticFactory.swift` | P2 |
+| J1: Subclass base-class props | C# tests only | P2 |
+
+### Deferred
+| Pattern | Reason |
+|---------|--------|
+| A2: Foundation.URL | Needs URL projection |
+| A3: Foundation.Data | Needs DataProjection |
+| I1: Failable initializer | Check generator support first |
+
+---
+
+## File Layout Summary
+
+### New Swift files (12)
 ```
 TestFramework/Sources/SwiftBindingsTestLib/
-├── Enums/
-│   └── StringEnumRawValues.swift      # Nested String enums, collision testing
-├── Async/
-│   └── AsyncComplexTypes.swift        # Async returning enum/struct/class
-├── Generics/
-│   └── PointerGenerics.swift          # Container<UnsafePointer<T>> patterns
-├── Protocols/
-│   └── NonBlittableProtocols.swift    # String/enum properties via witness
-└── Lifetime/
-    └── OwnershipTests.swift           # Explicit retain/release scenarios
+  Foundation/Date.swift                    ← RENAME from .disabled + extend
+  Protocols/ExistentialBoxing.swift         ← NEW
+  Properties/Subscripts.swift              ← NEW
+  Properties/StaticStructSingleton.swift   ← NEW
+  Types/NestedEnums.swift                  ← NEW
+  Types/LargeEnum.swift                    ← NEW
+  Types/OptionSets.swift                   ← NEW
+  Types/NonStandardEnums.swift             ← NEW
+  Collections/ConstructorCollections.swift ← NEW
+  Collections/DictionaryConstructor.swift  ← NEW
+  Patterns/BuilderPattern.swift            ← NEW
+  Patterns/StructBackedEnum.swift          ← NEW
+  Patterns/StaticFactory.swift             ← NEW
 ```
 
----
-
-## New C# Runtime Test Project
-
+### Extended Swift files (3)
 ```
-TestFramework/
-├── RuntimeTestsApp/                    # iOS simulator app (like LottieTestApp pattern)
-│   ├── RuntimeTestsApp.csproj          # References generated bindings + xcframework
-│   ├── Program.cs                      # App entry, discovery-based test runner
-│   ├── Infrastructure/
-│   │   ├── TestBase.cs                 # Common setup, GC/timeout/assertion helpers
-│   │   ├── TestResults.cs              # Result tracking, tier enum, TestTierAttribute
-│   │   ├── TestLogger.cs               # Console/UI logging
-│   │   └── LifetimeTracker.cs          # Ref count assertions
-│   ├── Marshalling/
-│   │   ├── BlittableRoundTripTests.cs  ✓
-│   │   ├── StringMarshallingTests.cs   ✓
-│   │   ├── EnumMarshallingTests.cs     ✓
-│   │   ├── ClassMarshallingTests.cs    ✓
-│   │   ├── ArrayMarshallingTests.cs    ✓ (11 tests)
-│   │   ├── OptionalMarshallingTests.cs ✓ (8 tests)
-│   │   ├── TupleMarshallingTests.cs    ✓ (9 tests)
-│   │   └── PointerMarshallingTests.cs  ✓ (9 tests)
-│   ├── Lifetime/
-│   │   ├── OwnershipTests.cs           ✓ (28 tests)
-│   │   └── NegativePathTests.cs        ✓ (21 tests)
-│   ├── Concurrency/
-│   │   └── StressTests.cs             ✓ (12 tests)
-│   ├── Async/
-│   │   ├── AsyncStringTests.cs         (stub, deferred)
-│   │   └── AsyncComplexTypeTests.cs    (stub, deferred)
-│   ├── Protocols/
-│   │   └── WitnessDispatchTests.cs     (stub, deferred — no protocol interfaces in bindings)
-│   ├── Operators/
-│   │   └── OperatorTests.cs            ✓ (13 tests)
-│   ├── Closures/
-│   │   └── ClosureTests.cs             ✓ (14 tests)
-│   └── Generics/                       (planned)
-└── run-runtime-tests.sh                # Build + run Layer 2 tests (--tier, --skip-regen, --timeout)
+  Types/Enums.swift                        ← ADD Color extension methods
+  Types/Classes.swift                      ← ADD TreeNode (optional class constructor)
+  Operators/Comparison.swift               ← ADD non-frozen Tag struct
 ```
 
----
-
-## Test Design Principles
-
-### Deterministic and Self-Contained
-
-- Fixed test data, no wall-clock assumptions
-- Explicit timeout policy for async (e.g., 5 second max)
-- No dependency on external frameworks/assets
-- Each test independently runnable
-
-### Flake Prevention Policy
-
-Tests involving timing, GC, or concurrency are inherently flake-prone. Mitigations:
-
-| Risk | Mitigation |
-|------|------------|
-| GC timing | Use `GC.Collect()` + `GC.WaitForPendingFinalizers()` explicitly, don't rely on implicit collection |
-| Async timeout | Fixed 5-second timeout per async operation; test fails deterministically on timeout |
-| Thread races | Use `ManualResetEvent` / `TaskCompletionSource` for synchronization, not `Thread.Sleep` |
-| Callback ordering | Assert on completion, not on timing; use counters not timestamps |
-
-**Flake detection**: Tier 3 runs each test 3 times. Any test that passes inconsistently (1-2 of 3) fails the entire suite and must be fixed or quarantined.
-
-### Round-Trip Validation
-
-```csharp
-// Pattern: C# → Swift → C# with value preservation
-var input = "test string with unicode: 日本語";
-var result = SwiftStringWorker.Echo(input);
-Assert.AreEqual(input, result);
+### New C# runtime test files (~14)
+```
+TestFramework/RuntimeTestsApp/
+  Marshalling/DateMarshallingTests.cs
+  Marshalling/NestedEnumTests.cs
+  Marshalling/LargeEnumTests.cs
+  Marshalling/OptionSetTests.cs
+  Marshalling/NonStandardEnumTests.cs
+  Protocols/ExistentialBoxingTests.cs
+  Properties/SubscriptTests.cs
+  Properties/StaticStructSingletonTests.cs
+  Collections/ConstructorCollectionTests.cs
+  Collections/DictionaryConstructorTests.cs
+  Patterns/BuilderPatternTests.cs
+  Patterns/StructBackedEnumTests.cs
+  Patterns/StaticFactoryTests.cs
+  Operators/StructEqualityTests.cs
 ```
 
-### Edge Cases Per Type
-
-| Type | Edge Cases to Test |
-|------|-------------------|
-| String | Empty, null, unicode, very long (>64KB), embedded nulls |
-| Array | Empty, single element, large (>1000), nested arrays |
-| Enum | All cases, associated values, raw value round-trip |
-| Optional | Some, None, nested optionals |
-| Class | Null handle, disposed handle, concurrent access |
+### Estimated Size
+- **Swift source**: ~500 lines new, ~60 lines extensions, 1 rename
+- **C# tests**: ~1200-1500 lines across 14 test files
+- **Total**: ~1800 lines of new code
 
 ---
 
-## Implementation Phases
+## Patterns NOT Worth Adding (and why)
 
-### Phase A: Swift Test Patterns ✓
-
-- [x] Add `StringEnumRawValues.swift` with nested enums (includes name collision test)
-- [x] Add `AsyncComplexTypes.swift` with enum/struct/class returns
-- [x] Add `PointerGenerics.swift` with `Container<UnsafePointer<T>>`
-- [x] Add `NonBlittableProtocols.swift` with String/enum witness (includes existential overloads)
-- [x] Add `OwnershipTests.swift` with explicit lifetime scenarios
-- [x] Regenerate bindings, verify Layer 1 passes (93/93 must-pass, 0 degraded)
-
-### Phase B: C# Runtime Test Project (In Progress)
-
-**Scope**: Runtime tests cover cells where `G✓` (generator coverage confirmed). Cells marked `G?` require Layer 1 investigation first. Cells marked `-` are intentionally excluded.
-
-- [x] Create `RuntimeTestsApp.csproj` (iOS simulator app pattern, like LottieTestApp)
-- [x] Add test infrastructure (TestBase, TestLogger, TestResults, LifetimeTracker)
-- [x] Add discovery-based test runner (auto-discovers all `TestBase` subclasses via reflection)
-- [x] Wire `--tier` CLI argument from `run-runtime-tests.sh` through to app execution
-- [x] Support class-level `[TestTier]` attribute as fallback when method-level is absent
-- [x] Implement `BlittableRoundTripTests` (Tier 1 smoke tests for Int32, Bool, Double, Float)
-- [x] Create `run-runtime-tests.sh` script with tier selection
-- [x] Implement `StringMarshallingTests` (20 tests: ASCII/unicode/emoji round-trips, string enum raw values, edge cases, >64KB stress)
-- [x] Implement `EnumMarshallingTests` (17 tests: Direction, Color, StatusCode, Shape associated values, nested container enums, NetworkConfig)
-- [x] Implement `ClassMarshallingTests` (15 tests: Animal, UniqueResource, MutableProps, StaticMethods, SafeHandle use-after-dispose, GC pressure)
-- [x] Create async test stubs (AsyncStringTests, AsyncComplexTypeTests) — DEFERRED: async Swift sources in `.disabled/`, no async methods in bindings
-- [x] Fix test expectation for multiple generic type parameter constraints
-  - The generator code was already correct (`GenericTypeEmitter.GetWhereClause` at line 102)
-  - The unit test asserted wrong expected value: `"where T0 : X, T1 : X"` → `"where T0 : X where T1 : X"`
-- [x] Implement protocol witness dispatch tests — DEFERRED: no protocol interfaces in generated bindings; stub created with requirements documented
-- [x] Implement lifetime/ownership tests (28 tests: retain/release balance, double-dispose safety, access-after-dispose for property get/set/method, shared-reference invalidation, independent references, GC stress)
-- [x] Implement negative-path tests (21 tests: invalid enum FromRawValue, equality throws for non-Equatable types, disposed object edge cases, zero/invalid handle access, validate round-trip functions)
-- [x] Implement concurrency/stress tests (12 tests: parallel method calls, parallel property reads, parallel object creation, rapid alloc/dealloc, GC pressure during active calls, mixed operations)
-
-### Phase C: Integration
-
-- [x] Create `run-runtime-tests.sh` script with tier selection (`--tier 1|2|3`)
-  - **Must regenerate bindings first** (or fail if `--skip-regen` passed and bindings older than Swift sources)
-  - Script flow: `build-and-test.sh` → compile RuntimeTestsApp → run selected tier
-  - Tier argument passed through to app via `--tier N` CLI arg (app reads on startup)
-- [x] Assign tests to tiers with `[TestTier(TestTier.TierN)]` attributes (method- and class-level)
-- [x] Discovery-based test execution (new `TestBase` subclasses auto-discovered, no manual wiring)
-- [x] Document Layer 1 vs Layer 2 in TestFramework README
-- [x] Document toolchain requirements (Xcode, Swift, .NET versions)
-- [x] Add flake detection: Tier 3 runs each test 3x, any inconsistency fails the suite
-- [x] Add to `remaining-work.md` verification steps
-- [ ] Consider golden API snapshot tooling (deferred)
-
-### Phase D: Real-World Pattern Coverage ✓
-
-Closed the gap between TestFramework and real-world binding patterns (BlinkID/Nuke/Lottie).
-
-**Layer 1 (Swift Sources + Coverage):**
-- [x] Re-enable Operators/ (4 files: Arithmetic, Bitwise, Comparison, Unary)
-- [x] Re-enable Tuples/ (3 files: BasicTuples, Named, TupleReturns)
-- [x] Re-enable Closures/ (3 files: ConventionC, Escaping, ClosureReturns; Autoclosures excluded)
-- [x] Re-enable UnsafeTypes/ (3 files: Pointers, RawPointers, OpaquePointer; Span + PointerGenerics excluded)
-- [x] Fix `getStaticBuffer()` pointer lifetime bug (dangling pointer from `withUnsafeBufferPointer`)
-- [x] Add `Collections/ArrayOperations.swift` (array param/return/round-trip/class-element)
-- [x] Add `Optionals/OptionalTypes.swift` (optional blittable/class return, optional param, struct with optional fields)
-- [x] Update `build-xcframework.sh` to match Package.swift exclusions
-- [x] Update `generate-coverage-report.sh` with FEATURE_MAP and FEATURE_DECLARATIONS for new features
-- [x] Fix `UnsafePointer<T>` → use `UnsafeMutablePointer<T>` (immutable pointer maps to AnyType — generator bug)
-- [x] Remove `makeNamedMixed()` (named tuples with String cause CS0029)
-- [x] Remove throwing closure functions (thunk return type mismatch)
-- [x] Fix RuntimeTestsApp.csproj: `IncludeSwiftBindingsRuntimeNative=false` (InstallNameTool workaround)
-- [x] Verify: 99 must-pass features, 44 passing, 0 degraded, 0 regressions
-
-**Layer 2 (Runtime Tests):**
-- [x] `ArrayMarshallingTests.cs` (11 tests): create, count, sum, reverse, filter, empty, class arrays
-- [x] `OptionalMarshallingTests.cs` (8 tests): Some/None blittable, Some/None class, optional param, struct optional fields
-- [x] `TupleMarshallingTests.cs` (9 tests): 2-tuple, 3-tuple, 7-tuple, named tuples, mixed types, divmod, struct methods
-- [x] `PointerMarshallingTests.cs` (9 tests): read/write, IntPtr param/return, opaque/raw pointer, fill buffer
-- [x] `OperatorTests.cs` (13 tests): arithmetic (+,-,*,/,%), comparison (==,!=,<,>), bitwise (&,|,^), unary (!,~)
-- [x] `ClosureTests.cs` (14 tests): @convention(c), @escaping, closure returns, struct closure methods, void/bool/multi-arg callbacks
-- [x] RuntimeTestsApp compiles and produces iOS simulator app bundle
-
-**Known generator limitations found (tracked as known-unsupported):**
-- `UnsafePointer<T>` (immutable) maps to `AnyType` instead of `IntPtr`
-- Named tuples with `String` elements: `(SwiftString.Buffer, ...)` cannot convert to `(SwiftString, ...)`
-- Throwing closure thunks: `SwiftString` return emitted as `void*`
-- `PointerContainer<IntPtr>` violates `ISwiftObject` generic constraint (CS0315)
-
-**Coverage delta:**
-- Must-pass features: 93 → 99 (+6 new features, +4 moved to known-unsupported)
-- Layer 1 passing: 44/99 (operators, tuples, closures, pointers, arrays, optionals)
-- Layer 2 runtime tests: +64 new tests across 6 test files
-- Contract matrix: Array sync R? → R✓, Optional sync R? → R✓, Closure R? → R✓
-
----
-
-## Test Tiers
-
-Define tiers to balance signal quality with execution time:
-
-### Tier 1: PR Gate (Fast Smoke)
-
-- **Runtime budget**: < 30 seconds
-- **Scope**: Core marshalling round-trips, one test per type category
-- **Purpose**: Fast feedback on every change, catches obvious regressions
-- **Runs**: Every PR, every commit
-
-Tests included:
-- Blittable sync round-trip
-- String sync round-trip
-- Async String return
-- One protocol witness dispatch
-- Basic retain/release balance
-
-### Tier 2: Merge Gate (Standard)
-
-- **Runtime budget**: < 3 minutes
-- **Scope**: Full matrix coverage minus stress tests
-- **Purpose**: Comprehensive validation before merge
-- **Runs**: Before merge to main
-
-Tests included:
-- All Tier 1 tests
-- Full async type matrix (String, Array, Class, Enum)
-- All protocol witness dispatch variants
-- Negative-path tests
-- Closure tests
-
-### Tier 3: Nightly (Full Matrix + Stress)
-
-- **Runtime budget**: < 15 minutes
-- **Scope**: Everything including concurrency and stress tests
-- **Purpose**: Catch subtle race conditions and resource leaks
-- **Runs**: Nightly, or manually before releases
-
-Tests included:
-- All Tier 2 tests
-- Concurrency/parallel tests
-- GC pressure loops
-- Large data edge cases (>64KB strings, >1000 element arrays)
-- Repeated async completion stress
-
----
-
-## Success Criteria
-
-### Coverage Targets
-
-1. **Matrix coverage**: Every `G✓` cell reaches `G✓ R✓` status (Layer 2 test exists and passes)
-2. **Gap investigation**: All `G?` cells investigated; either promoted to `G✓` or documented as unsupported
-3. **Phase 55-61 repro**: All 6 bugs have dedicated regression tests that would have caught them
-4. **Negative-path coverage**: At least 10 negative-path tests covering invalid states
-
-### Quality Targets
-
-5. **Zero flaky tests**: 0 flaky tests across 10 consecutive Tier 3 runs (3x repetition per test)
-6. **Actionable failures**: Each test failure clearly indicates generator bug vs interop bug
-7. **Ownership safety**: Retain/release balance verified for all object-returning paths
-
-### Performance Targets
-
-8. **Tier 1 budget**: < 30 seconds for PR gate tests
-9. **Tier 2 budget**: < 3 minutes for merge gate tests
-10. **Tier 3 budget**: < 15 minutes initial target for full nightly run (including 3x repetition); revisit as stress tests grow
-
-### Reproducibility Targets
-
-11. **Self-contained**: No external dependencies, runs on any macOS with .NET 10
-12. **Deterministic**: Fixed test data, explicit timeouts, no wall-clock assumptions
-13. **Fresh bindings**: `run-runtime-tests.sh` always regenerates bindings before testing (prevents stale binding false confidence)
-
----
-
-## Toolchain Requirements
-
-Pin versions for full reproducibility:
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| .NET SDK | 10.0.x | Specified in `global.json` |
-| Xcode | 16.0+ | Swift 6.0 toolchain |
-| macOS | 14.0+ (Sonoma) | Required for .NET 10 iOS workload |
-| iOS Simulator | 17.0+ | Test target runtime |
-
-The `global.json` at repo root pins .NET SDK. Swift/Xcode version should be documented in TestFramework README with minimum requirements.
-
----
-
-## Future Considerations (Deferred)
-
-### Golden API Snapshots
-
-Snapshot generated C# public API surface to catch signature drift. Useful but potentially noisy during active development. Consider gating on releases.
-
-### CI Integration
-
-Document expectation that runtime tests run as required gate on macOS. Actual CI setup depends on project infrastructure.
-
-### NativeAOT Variant
-
-Once NativeAOT validation complete (remaining-work.md #6), consider adding NativeAOT-specific runtime test lane.
+| Pattern | Why Skip |
+|---------|----------|
+| Namespace collision (class name = module name) | C# codegen issue, not ABI pattern; would require `global::` qualifiers that the generator already handles |
+| Multi-module vendor (Stripe 9 modules) | Can't test inter-module deps in single test library; the generator handles this at the xcframework level |
+| @_spi suppression | Generator-level filter, not an ABI pattern |
+| NSObject subclass singleton | ObjC interop, not Swift ABI |
+| ArraySlice bridge | Generator emits extension methods to adapt Array→ArraySlice; not a user-facing pattern |
+| Doubly-nested enum | Same ABI as singly-nested; just scoping depth |
+| Async with CancellationToken | .NET async infrastructure, not Swift ABI |
+| Resource bundle crash (BlinkIDUX) | App packaging issue, not binding pattern |

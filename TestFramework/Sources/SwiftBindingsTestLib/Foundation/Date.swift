@@ -49,3 +49,34 @@ public struct TimestampedEvent {
         return -timestamp.timeIntervalSinceNow
     }
 }
+
+// MARK: - Optional Date (KeychainAccess pattern)
+
+/// Returns an optional Date from an optional epoch seconds value.
+public func optionalDate(epochSeconds: Double?) -> Date? {
+    guard let seconds = epochSeconds else { return nil }
+    return Date(timeIntervalSince1970: seconds)
+}
+
+// MARK: - Struct with Optional Date Properties
+
+/// A config struct with optional Date properties (KeychainAccess/RxSwift pattern).
+public struct EventConfig {
+    public var label: String
+    public var startDate: Date?
+    public var endDate: Date?
+
+    public init(label: String, startDate: Date?, endDate: Date?) {
+        self.label = label
+        self.startDate = startDate
+        self.endDate = endDate
+    }
+}
+
+// MARK: - Date as Enum Associated Value (RxSwift pattern)
+
+/// Enum with Date-typed associated value.
+public enum SchedulerEvent {
+    case scheduled(at: Date)
+    case cancelled
+}

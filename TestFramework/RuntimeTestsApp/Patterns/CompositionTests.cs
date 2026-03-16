@@ -41,9 +41,12 @@ public class BasicCompositionTests : TestBase
 {
     public BasicCompositionTests(TestResults results) : base(results) { }
 
-    #region Tier 1 — Construction + Blittable Property Access
+    #region Tier 3 — Construction + Blittable Property Access (Mono JIT crash)
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)] // Mono JIT assertion (jit-info.c:918): BatchConfig ctor calls
+    // SwiftObjectHelper<T>.GetTypeMetadata() which crashes all Mono JIT (simulator).
+    // Works on NativeAOT (device). This was the first Tier 1 test alphabetically,
+    // so it killed the entire process before any other test class could run.
     public void TestBatchConfigMaxRetries()
     {
         var config = new BatchConfig(name: "test", maxRetries: 5, tags: null);
@@ -51,7 +54,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.MaxRetries = {config.MaxRetries}");
     }
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)] // Mono JIT crash: BatchConfig ctor above kills process before this runs
     public void TestRegistrySharedAccess()
     {
         var registry = Registry.Shared;
@@ -59,7 +62,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("Registry.Shared access OK");
     }
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)]
     public void TestValueAnimalHasValueConformance()
     {
         var va = new ValueAnimal(name: "Wolf", sound: "Howl", value: 7);
@@ -67,7 +70,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("ValueAnimal conforms to IHasValue");
     }
 
-    [TestTier(TestTier.Tier1)]
+    [TestTier(TestTier.Tier3)] // Transformer is frozen struct — same GetTypeMetadata crash
     public void TestTransformerOffset()
     {
         var t = new Transformer(offset: 10);
@@ -289,6 +292,8 @@ public class BasicCompositionTests : TestBase
     // --- Transformer: Cdecl-wrapped closure P/Invoke (Strategy B) ---
 
     [TestTier(TestTier.Tier2)] // Strategy B: Apply uses CallConvCdecl callback + _cdecl wrapper
+    // NOTE: Transformer constructor calls GetTypeMetadata which crashes Mono JIT,
+    // so this test only passes on NativeAOT (device) despite the Apply method being Cdecl-safe.
     public void TestTransformerApply()
     {
         var t = new Transformer(offset: 5);

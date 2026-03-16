@@ -264,10 +264,10 @@ public class BasicThrowingTests : TestBase
     [TestTier(TestTier.Tier3)]
     public void TestRangeErrorCases()
     {
-        var below = RangeError.BelowMinimum((5, 10));
+        var below = RangeError.BelowMinimum(5, 10);
         AssertEqual(RangeError.CaseTag.BelowMinimum, below.Tag, "BelowMinimum tag");
 
-        var above = RangeError.AboveMaximum((15, 10));
+        var above = RangeError.AboveMaximum(15, 10);
         AssertEqual(RangeError.CaseTag.AboveMaximum, above.Tag, "AboveMaximum tag");
 
         TestLogger.Info("RangeError case construction passed");
