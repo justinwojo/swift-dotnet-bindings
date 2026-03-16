@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -84,6 +85,8 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     /// <returns>
     /// <c>true</c> if the <see cref="ProtocolConformanceDescriptor"/> was found; otherwise, <c>false</c>.
     /// </returns>
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "MakeGenericType only used on Mono JIT where dynamic code is supported; NativeAOT uses reflection helper")]
     public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
         where TProtocol : class
     {
@@ -91,8 +94,28 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
 
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
-            var helperType = typeof(ProtocolConformanceDescriptorHelper<,>).MakeGenericType(typeof(TType), typeof(TProtocol));
-            var candidate = (ProtocolConformanceDescriptor)helperType.GetMethod("GetProtocolConformanceDescriptor")!.Invoke(null, null)!;
+            ProtocolConformanceDescriptor candidate;
+            if (!RuntimeFeature.IsDynamicCodeSupported)
+            {
+                // NativeAOT: try factory cache first (populated by ProtocolConformanceDescriptorHelper)
+                var cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
+                if (cached.HasValue)
+                {
+                    candidate = cached.Value;
+                }
+                else
+                {
+                    // Fallback: reflection (works for types preserved via TrimmerRoots)
+                    candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
+                }
+            }
+            else
+            {
+                // Mono JIT: use MakeGenericType + ProtocolConformanceDescriptorHelper
+                // which internally uses reflection to avoid Mono JIT assertion
+                var helperType = typeof(ProtocolConformanceDescriptorHelper<,>).MakeGenericType(typeof(TType), typeof(TProtocol));
+                candidate = (ProtocolConformanceDescriptor)helperType.GetMethod("GetProtocolConformanceDescriptor")!.Invoke(null, null)!;
+            }
 
             // GetProtocolConformanceDescriptor can return an IntPtr.Zero
             if (candidate.IsValid)

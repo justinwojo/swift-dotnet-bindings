@@ -215,4 +215,82 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         Assert.True(TypeMetadata.TryGetTypeMetadata<ThisOnlyGetsUsedHere>(out var md));
         Assert.True(md!.Value.IsValid);
     }
+
+    // Tests for NativeAOT dual-dispatch pattern
+
+    [Fact]
+    public static void SwiftObjectHelper_GetTypeMetadata_WorksOnCurrentRuntime()
+    {
+        // Verifies the dual-dispatch pattern works regardless of runtime:
+        // - NativeAOT: T.GetTypeMetadata() direct dispatch
+        // - Mono JIT: reflection-based dispatch
+        var metadata = SwiftObjectHelper<ThisOnlyGetsUsedHere>.GetTypeMetadata();
+        Assert.True(metadata.IsValid);
+    }
+
+    [Fact]
+    public static void SwiftObjectHelper_NewFromPayload_WorksOnCurrentRuntime()
+    {
+        // Verifies NewFromPayload dual-dispatch works regardless of runtime
+        var obj = SwiftObjectHelper<ThisOnlyGetsUsedHere>.NewFromPayload(IntPtr.Zero);
+        Assert.NotNull(obj);
+        Assert.IsType<ThisOnlyGetsUsedHere>(obj);
+    }
+
+    [Fact]
+    public static void RuntimeFeature_IsDynamicCodeSupported_DetectsRuntime()
+    {
+        // On desktop CoreCLR, IsDynamicCodeSupported is true (like Mono JIT).
+        // On NativeAOT, it's false. This test documents the behavior.
+        // The dual-dispatch pattern in SwiftObjectHelper uses this to choose
+        // between direct dispatch (NativeAOT) and reflection (Mono JIT).
+        bool isDynamic = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported;
+
+        // On desktop test runner, this should be true (CoreCLR supports dynamic code)
+        Assert.True(isDynamic);
+    }
+
+    // Tests for NewFromPayloadDispatcher factory bridge
+
+    [Fact]
+    public static void NewFromPayloadDispatcher_RegisterAndRetrieve()
+    {
+        // Simulate the constrained→unconstrained bridge:
+        // 1. Register a factory from constrained context (as SwiftObjectHelper<T> does on NativeAOT)
+        // 2. Retrieve via unconstrained TryCreate (as MarshalFromSwift<T> does)
+        Swift.Runtime.InteropServices.NewFromPayloadDispatcher.Register(
+            typeof(ThisOnlyGetsUsedHere),
+            handle => (object)new ThisOnlyGetsUsedHere());
+
+        var result = Swift.Runtime.InteropServices.NewFromPayloadDispatcher.TryCreate(
+            typeof(ThisOnlyGetsUsedHere), IntPtr.Zero);
+
+        Assert.NotNull(result);
+        Assert.IsType<ThisOnlyGetsUsedHere>(result);
+    }
+
+    [Fact]
+    public static void NewFromPayloadDispatcher_UnregisteredTypeReturnsNull()
+    {
+        // Unregistered types return null — caller falls back to reflection
+        var result = Swift.Runtime.InteropServices.NewFromPayloadDispatcher.TryCreate(
+            typeof(TypeMetadataTests), IntPtr.Zero);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public static void ConformanceDispatcher_RegisterAndRetrieve()
+    {
+        // Simulate conformance factory bridge
+        Swift.Runtime.InteropServices.ConformanceDispatcher.Register(
+            typeof(ThisOnlyGetsUsedHere), typeof(ISwiftHashable),
+            () => ProtocolConformanceDescriptor.Zero);
+
+        var result = Swift.Runtime.InteropServices.ConformanceDispatcher.TryGet(
+            typeof(ThisOnlyGetsUsedHere), typeof(ISwiftHashable));
+
+        Assert.NotNull(result);
+        Assert.Equal(ProtocolConformanceDescriptor.Zero, result!.Value);
+    }
 }

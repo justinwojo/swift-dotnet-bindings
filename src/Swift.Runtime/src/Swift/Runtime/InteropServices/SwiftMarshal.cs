@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -10,6 +11,66 @@ using System.Runtime.InteropServices;
 namespace Swift.Runtime.InteropServices;
 
 #nullable enable
+
+/// <summary>
+/// Registry of NewFromPayload factory delegates, populated from constrained code paths
+/// (SwiftObjectHelper&lt;T&gt;, MarshalFromSwiftObject&lt;T&gt;) and consumed from unconstrained
+/// code paths (MarshalFromSwift&lt;T&gt;). This eliminates the need for reflection on NativeAOT
+/// when the type has been previously accessed through any constrained API.
+/// </summary>
+internal static class NewFromPayloadDispatcher
+{
+    private static readonly ConcurrentDictionary<Type, Func<IntPtr, object>> _factories = new();
+
+    /// <summary>
+    /// Registers a factory delegate for a type. Called from constrained code paths on NativeAOT.
+    /// Safe to call multiple times — subsequent calls are no-ops.
+    /// </summary>
+    internal static void Register(Type type, Func<IntPtr, object> factory)
+    {
+        _factories.TryAdd(type, factory);
+    }
+
+    /// <summary>
+    /// Attempts to create an object using a previously registered factory.
+    /// Returns null if no factory is registered for the given type.
+    /// </summary>
+    internal static object? TryCreate(Type type, IntPtr handle)
+    {
+        if (_factories.TryGetValue(type, out var factory))
+            return factory(handle);
+        return null;
+    }
+}
+
+/// <summary>
+/// Registry of GetProtocolConformanceDescriptor factory delegates, populated from constrained
+/// code paths (ProtocolConformanceDescriptorHelper) and consumed from unconstrained code paths
+/// (ProtocolConformanceDescriptor.TryGet). Keyed by (Type, ProtocolType) pairs.
+/// </summary>
+internal static class ConformanceDispatcher
+{
+    private static readonly ConcurrentDictionary<(Type, Type), Func<ProtocolConformanceDescriptor>> _factories = new();
+
+    /// <summary>
+    /// Registers a conformance factory. Called from constrained code paths on NativeAOT.
+    /// </summary>
+    internal static void Register(Type type, Type protocolType, Func<ProtocolConformanceDescriptor> factory)
+    {
+        _factories.TryAdd((type, protocolType), factory);
+    }
+
+    /// <summary>
+    /// Attempts to get a conformance descriptor using a previously registered factory.
+    /// Returns null if no factory is registered.
+    /// </summary>
+    internal static ProtocolConformanceDescriptor? TryGet(Type type, Type protocolType)
+    {
+        if (_factories.TryGetValue((type, protocolType), out var factory))
+            return factory();
+        return null;
+    }
+}
 
 /// <summary>
 /// Represents a class for marshaling data to and from Swift
@@ -179,6 +240,35 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Marshals an ISwiftObject value from a Swift source.
+    /// NativeAOT-safe: uses direct static virtual dispatch instead of reflection.
+    /// Generated bindings should prefer this overload when T is known to implement ISwiftObject.
+    /// </summary>
+    /// <typeparam name="T">The ISwiftObject type</typeparam>
+    /// <param name="swiftSource">Memory to read from</param>
+    /// <returns>The C# object created by marshaling</returns>
+    public static T MarshalFromSwiftObject<T>(IntPtr swiftSource) where T : ISwiftObject
+    {
+        if (!RuntimeFeature.IsDynamicCodeSupported)
+        {
+            // Register factory so unconstrained callers (MarshalFromSwift<T>) can use it later.
+            NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
+            return (T)DirectNewFromPayload<T>(swiftSource);
+        }
+        return (T)SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), swiftSource);
+    }
+
+    /// <summary>
+    /// Direct static virtual dispatch for NewFromPayload — NativeAOT only.
+    /// Separate method so Mono JIT never compiles this.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ISwiftObject DirectNewFromPayload<T>(IntPtr swiftSource) where T : ISwiftObject
+    {
+        return T.NewFromPayload(swiftSource);
+    }
+
+    /// <summary>
     /// Marshals a value from a Swift source.
     /// </summary>
     /// <typeparam name="T">The type of the expected value</typeparam>
@@ -192,8 +282,16 @@ public static class SwiftMarshal
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
         {
-            var helper = typeof(SwiftObjectHelper<>).MakeGenericType(typeof(T));
-            return (T)helper.GetMethod("NewFromPayload")!.Invoke(null, new object[] { swiftSource })!;
+            // Try factory cache first (populated by constrained code paths on NativeAOT).
+            // This avoids reflection entirely for types that have been accessed through
+            // SwiftObjectHelper<T> or MarshalFromSwiftObject<T>.
+            var cached = NewFromPayloadDispatcher.TryCreate(typeof(T), swiftSource);
+            if (cached != null)
+                return (T)cached;
+
+            // Fallback: reflection. Works on Mono JIT always; works on NativeAOT only
+            // for types preserved via TrimmerRoots.xml (Swift.Runtime types).
+            return (T)SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), swiftSource);
         }
         var type = typeof(T);
         if (type.IsPrimitive)
@@ -614,9 +712,13 @@ public static class SwiftMarshal
         }
         else if (typeof(ISwiftObject).IsAssignableFrom(elementType))
         {
-            // For ISwiftObject types, use NewFromPayload through reflection
-            var helperType = typeof(SwiftObjectHelper<>).MakeGenericType(elementType);
-            return helperType.GetMethod("NewFromPayload")!.Invoke(null, new object[] { source });
+            // Try factory cache first (NativeAOT-safe, no reflection).
+            var cached = NewFromPayloadDispatcher.TryCreate(elementType, source);
+            if (cached != null)
+                return cached;
+
+            // Fallback: reflection (works on Mono; NativeAOT only for preserved types).
+            return SwiftObjectReflectionHelper.InvokeNewFromPayload(elementType, source);
         }
         else
         {

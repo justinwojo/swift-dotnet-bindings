@@ -323,6 +323,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             // Invoke GetTypeMetadata directly on the concrete type via reflection,
             // bypassing SwiftObjectHelper<T> generic instantiation. Static virtual
             // dispatch in generic contexts crashes Mono JIT (jit-info.c:918).
+            // On NativeAOT, reflection works because methods are preserved via
+            // DynamicallyAccessedMembers annotations on InvokeGetTypeMetadata.
             var candidate = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type);
 
             // GetTypeMetadata can return an IntPtr.Zero

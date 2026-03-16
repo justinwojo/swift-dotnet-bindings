@@ -21,5 +21,33 @@
     <type fullname="RuntimeTestsApp.Collections.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Properties.*" preserve="all" />
     <type fullname="RuntimeTestsApp.SwiftUIBridge.*" preserve="all" />
+
+    <!-- NOTE: SwiftBindingsTestLib types cannot have preserve="methods" here because
+         generated P/Invoke methods with CallConvSwift cause ILC Bus error.
+         Generated types' NewFromPayload factories are registered at runtime via
+         NewFromPayloadDispatcher when accessed through constrained code paths. -->
+  </assembly>
+
+  <!-- Preserve Swift.Runtime ISwiftObject type methods for NativeAOT reflection fallback.
+       Use preserve="methods" (not "all") to avoid ILC Bus error from CallConvSwift P/Invoke members.
+       Primary path uses NewFromPayloadDispatcher (no reflection), but reflection is the fallback
+       for types not yet accessed through a constrained code path. -->
+  <assembly fullname="Swift.Runtime">
+    <!-- Core collection/wrapper types used in test suite -->
+    <type fullname="Swift.SwiftString" preserve="methods" />
+    <type fullname="Swift.SwiftArray`1" preserve="methods" />
+    <type fullname="Swift.SwiftOptional`1" preserve="methods" />
+    <type fullname="Swift.SwiftResult`2" preserve="methods" />
+    <type fullname="Swift.SwiftDictionary`2" preserve="methods" />
+    <type fullname="Swift.SwiftSet`1" preserve="methods" />
+    <type fullname="Swift.Data" preserve="methods" />
+    <type fullname="Swift.AnyHashable" preserve="methods" />
+    <!-- NOTE: Foundation/UIKit/AppKit stub types (URL, UIImage, DispatchQueue, etc.) intentionally
+         excluded — preserve="methods" on them crashes ILC due to CallConvSwift P/Invoke members.
+         These types use the NewFromPayloadDispatcher factory cache (no reflection needed) when
+         accessed through constrained code paths. -->
+    <!-- Existential containers -->
+    <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />
   </assembly>
 </linker>
