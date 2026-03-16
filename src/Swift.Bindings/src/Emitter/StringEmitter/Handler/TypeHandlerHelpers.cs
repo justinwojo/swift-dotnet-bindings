@@ -46,6 +46,7 @@ namespace BindingsGeneration
             WriteMarshalToSwiftNonFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
             WriteBoxAsExistential1(emitBoxable);
+            RecordTypeIfNonGeneric();
         }
 
         /// <summary>
@@ -60,6 +61,7 @@ namespace BindingsGeneration
             WriteMarshalToSwiftFrozenStruct();
             WriteGetProtocolConformanceDescriptor(pinvokeHelperContext);
             WriteBoxAsExistential1(emitBoxable);
+            RecordTypeIfNonGeneric();
             if (!isProjectedAsClass)
             {
                 // Frozen value-type structs have no managed resources to dispose
@@ -274,6 +276,24 @@ namespace BindingsGeneration
 
             _writer.WriteLines(text);
             _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Records this type for NativeAOT factory registration if it's non-generic.
+        /// Generic types rely on constrained code paths for registration.
+        /// Also records protocol conformance pairs for NativeAOT pre-registration.
+        /// </summary>
+        private void RecordTypeIfNonGeneric()
+        {
+            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            {
+                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                    _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+                {
+                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
+                }
+            }
         }
 
         /// <summary>
@@ -924,6 +944,32 @@ internal static class ProtocolConformanceHelper
             }
 
         return string.Join(",\n", entries);
+    }
+
+    /// <summary>
+    /// Returns the list of C# protocol interface names for a type's conformances,
+    /// using the same filtering as GenerateProtocolConformanceDictionaryEntries.
+    /// Used by NativeAOT factory registration to pre-register conformance factories.
+    /// </summary>
+    public static List<string> GetConformanceProtocolNames(
+        IEnumerable<TypeConformance> conformances,
+        string moduleName,
+        string typeName,
+        ITypeDatabase typeDatabase)
+    {
+        var names = new List<string>();
+        foreach (var conformance in conformances)
+        {
+            if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                continue;
+            if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                continue;
+            if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
+                continue;
+            names.Add(NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module));
+        }
+        return names;
     }
 
     internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)

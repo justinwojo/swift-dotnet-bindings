@@ -47,6 +47,24 @@ namespace BindingsGeneration
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
             WriteBoxAsExistential1(_hasBoxable);
+            RecordTypeIfNonGeneric();
+        }
+
+        /// <summary>
+        /// Records this type for NativeAOT factory registration if it's non-generic.
+        /// Also records protocol conformance pairs for NativeAOT pre-registration.
+        /// </summary>
+        private void RecordTypeIfNonGeneric()
+        {
+            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            {
+                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                    _enumDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+                {
+                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
+                }
+            }
         }
 
         /// <summary>

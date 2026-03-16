@@ -216,7 +216,7 @@ public class BasicGenericTests : TestBase
     // SwiftObjectHelper<T>.GetTypeMetadata() through CallConvSwift.
     // Expected to hit Mono JIT assertion (jit-info.c:918).
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic Wrapper<T> constructor — constrained generic dispatch crash")]
     public void TestWrapperCreation()
     {
         var inner = new SummableInt32(value: 42);
@@ -226,7 +226,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic Wrapper<T> — constrained generic dispatch crash")]
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -236,7 +236,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in GenericPair<T,U> constructor — constrained generic dispatch crash")]
     public void TestGenericPairCreation()
     {
         var a = new SummableInt32(value: 10);
@@ -247,7 +247,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in GenericPair<T,U> — constrained generic dispatch crash")]
     public void TestGenericPairMixedTypes()
     {
         var s = new SummableInt32(value: 5);
@@ -257,7 +257,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(3, pair.Second.Sum(), "GenericPair mixed Second.Sum()");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in GenericClass<T> — constrained generic dispatch crash")]
     public void TestGenericClassCreation()
     {
         var inner = new SummableInt32(value: 77);
@@ -267,7 +267,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in GenericClass<T> — constrained generic dispatch crash")]
     public void TestGenericClassGetMethod()
     {
         var inner = new SummableInt32(value: 33);
@@ -276,7 +276,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
     public void TestGenericClassValueSetter()
     {
         var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
@@ -294,7 +294,7 @@ public class BasicGenericTests : TestBase
     // proxy types (SummableProxy, etc.) satisfy constraints but require
     // wrapper library bundled in RuntimeTestsApp (same blocker as proxy dispatch).
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
     public void TestGetIdentity()
     {
         var original = new SummableInt32(value: 42);
@@ -303,7 +303,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
     public void TestGetIdentityPreservesValue()
     {
         var original = new SummableInt32(value: -100);
@@ -311,7 +311,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);

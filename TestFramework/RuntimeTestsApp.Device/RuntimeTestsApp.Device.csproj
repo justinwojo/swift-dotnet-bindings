@@ -85,6 +85,16 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- SwiftBindingsRuntime framework (SBW_SwiftString_* wrappers, concurrency hooks).
+       Built from src/Swift.Runtime/swift/SwiftBindingsRuntime.swift, packaged as xcframework
+       so iOS can load it via @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime. -->
+  <ItemGroup>
+    <NativeReference Include="../.build/SwiftBindingsRuntime.xcframework"
+                     Condition="Exists('../.build/SwiftBindingsRuntime.xcframework/ios-arm64')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
   <!-- SwiftBindings wrapper framework (only include if device slice exists).
        Wrapper compilation currently fails due to a pre-existing generator bug in async wrapper code.
        Async tests are [Skip("Async DllImport targets wrong module")] so this doesn't affect device testing. -->

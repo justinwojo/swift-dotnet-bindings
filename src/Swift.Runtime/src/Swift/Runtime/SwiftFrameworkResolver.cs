@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -13,6 +14,19 @@ namespace Swift.Runtime;
 /// </summary>
 public static class SwiftFrameworkResolver
 {
+    /// <summary>
+    /// Auto-registers the framework resolver for the Swift.Runtime assembly itself.
+    /// This ensures DllImport("SwiftBindingsRuntime") in SwiftString, TypeMetadata, etc.
+    /// resolves to @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime on iOS device.
+    /// </summary>
+#pragma warning disable CA2255 // ModuleInitializer is intentional — library needs self-registration
+    [ModuleInitializer]
+#pragma warning restore CA2255
+    internal static void InitializeRuntime()
+    {
+        RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
+    }
+
     /// <summary>
     /// Registers the standard Swift framework resolver for an assembly.
     /// Safe to call multiple times — subsequent calls are silently ignored.

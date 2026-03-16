@@ -78,6 +78,30 @@ internal static class ConformanceDispatcher
 public static class SwiftMarshal
 {
     /// <summary>
+    /// Pre-registers a NewFromPayload factory for a type so NativeAOT can create instances
+    /// without reflection. Called by generated [ModuleInitializer] code at assembly load time.
+    /// </summary>
+    /// <typeparam name="T">The ISwiftObject type to register.</typeparam>
+    public static void RegisterSwiftObjectFactory<T>() where T : ISwiftObject
+    {
+        NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
+    }
+
+    /// <summary>
+    /// Pre-registers a protocol conformance factory for a (type, protocol) pair so NativeAOT
+    /// can resolve conformances without reflection. Called by generated [ModuleInitializer] code.
+    /// </summary>
+    /// <typeparam name="TType">The ISwiftObject type.</typeparam>
+    /// <typeparam name="TProtocol">The protocol interface type.</typeparam>
+    public static void RegisterConformanceFactory<TType, TProtocol>()
+        where TType : ISwiftObject
+        where TProtocol : class
+    {
+        ConformanceDispatcher.Register(typeof(TType), typeof(TProtocol),
+            () => TType.GetProtocolConformanceDescriptor<TProtocol>());
+    }
+
+    /// <summary>
     /// Marshals a value to a Swift destination
     /// </summary>
     /// <typeparam name="T">The type of the value being marshaled</typeparam>

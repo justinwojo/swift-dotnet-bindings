@@ -350,7 +350,10 @@ namespace BindingsGeneration
             SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, enumDecl, env.TypeDatabase, conductor, childContext, _logger);
 
             // Emit nested types and methods using base handler
+            var emissionCtx = context.GetEmissionContext();
+            emissionCtx?.PushTypeNesting(typeNameWithGenerics);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, env.TypeDatabase, childContext);
+            emissionCtx?.PopTypeNesting();
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor).ToList(), conductor, env.TypeDatabase, childContext, propertyNames);
 
             csWriter.Indent--;
@@ -427,7 +430,10 @@ namespace BindingsGeneration
             // and instance subscripts are invalid in a static class. Nothing to emit.
 
             // Emit nested types and static methods
+            var emissionCtx2 = context.GetEmissionContext();
+            emissionCtx2?.PushTypeNesting(typeNameWithGenerics);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase, childContext);
+            emissionCtx2?.PopTypeNesting();
             var propertyNames = new HashSet<string>(enumDecl.Properties.Where(p => p.IsStatic).Select(p =>
                 NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));

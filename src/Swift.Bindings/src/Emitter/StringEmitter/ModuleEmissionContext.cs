@@ -190,6 +190,68 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks a generic closure bridge error P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Add(typeKey);
 
+    // ==================== NativeAOT Factory Registration ====================
+
+    private readonly List<string> _emittedSwiftObjectTypes = new();
+
+    private readonly Stack<string> _typeNestingStack = new();
+
+    /// <summary>
+    /// C# type names of non-generic ISwiftObject types emitted during this module.
+    /// Nested types are fully qualified (e.g., "Codec.Encoding").
+    /// Used by ModuleHandler to emit [ModuleInitializer] factory registration for NativeAOT.
+    /// </summary>
+    public IReadOnlyList<string> EmittedSwiftObjectTypes => _emittedSwiftObjectTypes;
+
+    /// <summary>Pushes a parent type name onto the nesting stack.</summary>
+    public void PushTypeNesting(string parentTypeName) => _typeNestingStack.Push(parentTypeName);
+
+    /// <summary>Pops a parent type name from the nesting stack.</summary>
+    public void PopTypeNesting() => _typeNestingStack.Pop();
+
+    /// <summary>
+    /// Records a non-generic ISwiftObject type for NativeAOT factory registration.
+    /// Uses the nesting stack to build qualified names for nested types.
+    /// </summary>
+    public void RecordSwiftObjectType(string csharpTypeName)
+    {
+        var qualifiedName = GetQualifiedTypeName(csharpTypeName);
+        _emittedSwiftObjectTypes.Add(qualifiedName);
+    }
+
+    private readonly List<(string TypeName, string ProtocolInterface)> _emittedConformances = new();
+
+    /// <summary>
+    /// (TypeName, ProtocolInterface) pairs for NativeAOT conformance pre-registration.
+    /// </summary>
+    public IReadOnlyList<(string TypeName, string ProtocolInterface)> EmittedConformances => _emittedConformances;
+
+    /// <summary>
+    /// Records a conformance pair for NativeAOT pre-registration.
+    /// Qualifies type references inside generic protocol interfaces (e.g., IEquatable&lt;Encoding&gt;
+    /// becomes IEquatable&lt;Codec.Encoding&gt; when Encoding is nested inside Codec).
+    /// </summary>
+    public void RecordConformance(string csharpTypeName, string protocolInterfaceName)
+    {
+        var qualifiedName = GetQualifiedTypeName(csharpTypeName);
+        var qualifiedProtocol = protocolInterfaceName;
+        if (_typeNestingStack.Count > 0 && qualifiedProtocol.Contains($"<{csharpTypeName}>"))
+        {
+            qualifiedProtocol = qualifiedProtocol.Replace($"<{csharpTypeName}>", $"<{qualifiedName}>");
+        }
+        _emittedConformances.Add((qualifiedName, qualifiedProtocol));
+    }
+
+    private string GetQualifiedTypeName(string csharpTypeName)
+    {
+        if (_typeNestingStack.Count > 0)
+        {
+            var prefix = string.Join(".", _typeNestingStack.Reverse());
+            return $"{prefix}.{csharpTypeName}";
+        }
+        return csharpTypeName;
+    }
+
     // ==================== Protocol Proxy Sub-Namespace ====================
 
     private readonly List<string> _deferredProxyClasses = new();

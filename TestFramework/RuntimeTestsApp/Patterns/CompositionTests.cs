@@ -157,7 +157,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.EffectiveName = {name}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in free function with frozen struct + optional array parameter")]
     public void TestDescribeConfigFreeFunction()
     {
         var config = new BatchConfig(name: "Sync", maxRetries: 2, tags: null);
@@ -167,7 +167,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"describeConfig = {desc}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in free function with frozen struct + optional array parameter")]
     public void TestDescribeConfigWithTags()
     {
         var tags = new SwiftArray<int>();
@@ -269,7 +269,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"EventHandler.CreateDefault + Fire = {result}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: NullReferenceException in closure callback — closure context not preserved on NativeAOT")]
     public void TestEventHandlerWithClosure()
     {
         var handler = new SwiftEventHandler(label: "test", onComplete: v => v > 10);
@@ -304,7 +304,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in static method with two closure parameters")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

@@ -308,7 +308,12 @@ namespace BindingsGeneration
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, classDecl, env.TypeDatabase, conductor, childContext, _logger);
 
+                // Push type name (with generics) for nested type factory registration (NativeAOT).
+                // C# requires Outer<T>.Nested, not Outer.Nested, for nested types under generic outers.
+                var emissionCtx = context.GetEmissionContext();
+                emissionCtx?.PushTypeNesting(typeNameWithGenerics);
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Types, conductor, env.TypeDatabase, childContext);
+                emissionCtx?.PopTypeNesting();
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
 
                 csWriter.Indent--;
@@ -469,6 +474,7 @@ namespace BindingsGeneration
             WriteMarshalToSwift();
             WriteGetProtocolConformanceDescriptor();
             WriteBoxAsExistential1(_hasBoxable);
+            RecordTypeIfNonGeneric();
         }
 
         /// <summary>
@@ -704,6 +710,24 @@ namespace BindingsGeneration
                     """;
                     _writer.WriteLines(protectedCtor);
                     _writer.WriteLine();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Records this type for NativeAOT factory registration if it's non-generic.
+        /// Generic types rely on constrained code paths for registration.
+        /// Also records protocol conformance pairs for NativeAOT pre-registration.
+        /// </summary>
+        private void RecordTypeIfNonGeneric()
+        {
+            if (_emissionCtx != null && !_typeNameWithGenerics.Contains('<'))
+            {
+                _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics);
+                foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
+                    _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+                {
+                    _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName);
                 }
             }
         }

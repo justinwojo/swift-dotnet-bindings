@@ -235,7 +235,10 @@ namespace BindingsGeneration
             }
 
             // Emit nested types using base handler
+            var emissionCtx = context.GetEmissionContext();
+            emissionCtx?.PushTypeNesting(enumDecl.Name);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase, context);
+            emissionCtx?.PopTypeNesting();
         }
 
         /// <summary>

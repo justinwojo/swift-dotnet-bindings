@@ -319,7 +319,10 @@ namespace BindingsGeneration
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 
+                var emissionCtx = context.GetEmissionContext();
+                emissionCtx?.PushTypeNesting(typeNameWithGenerics);
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Types, conductor, env.TypeDatabase, childContext);
+                emissionCtx?.PopTypeNesting();
                 base.HandleBaseDecl(csWriter, swiftWriter, structDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
 
                 csWriter.Indent--;

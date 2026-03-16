@@ -240,8 +240,8 @@ namespace BindingsGeneration
                 }
             }
 
-            // Emit DllImport framework resolver with [ModuleInitializer]
-            EmitFrameworkResolver(csWriter, moduleDecl.Name);
+            // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
+            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext());
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -258,11 +258,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits a static class with a [ModuleInitializer] that registers a NativeLibrary.SetDllImportResolver
-        /// to resolve DllImport names as @rpath/{name}.framework/{name} for iOS framework loading.
+        /// Emits a static class with [ModuleInitializer] that:
+        /// 1. Registers a NativeLibrary.SetDllImportResolver for iOS framework loading
+        /// 2. Pre-registers NewFromPayload factories for NativeAOT (avoids reflection trimming)
         /// </summary>
-        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName)
+        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx)
         {
+            var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
+
             csWriter.WriteLine();
             csWriter.WriteLine("#pragma warning disable CA2255 // ModuleInitializer is intentional in generated binding code");
             csWriter.WriteLines($$"""
@@ -275,6 +278,33 @@ namespace BindingsGeneration
                     }
                 }
                 """);
+
+            // Emit NativeAOT factory initializer if there are non-generic ISwiftObject types or conformances
+            var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
+            if (factoryTypes.Count > 0 || conformances.Count > 0)
+            {
+                csWriter.WriteLines($$"""
+
+                    internal static class __SwiftNativeAOTFactories_{{moduleName}}
+                    {
+                        [ModuleInitializer]
+                        internal static void Initialize()
+                        {
+                    """);
+                foreach (var typeName in factoryTypes)
+                {
+                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>();");
+                }
+                foreach (var (typeName, protocolName) in conformances)
+                {
+                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
+                }
+                csWriter.WriteLines($$"""
+                        }
+                    }
+                    """);
+            }
+
             csWriter.WriteLine("#pragma warning restore CA2255");
         }
 
