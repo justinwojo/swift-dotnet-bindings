@@ -624,7 +624,7 @@ public static class ExistentialContainerFactory
         var container = new ExistentialContainer1();
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         container.ObjectMetadata = metadata;
-        container[0] = ProtocolWitnessTable.GetOrThrow<T, TProtocol>().Handle;
+        container[0] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol>().Handle;
         MarshalPayload(value, metadata, ref container);
         return container;
     }
@@ -647,8 +647,8 @@ public static class ExistentialContainerFactory
         var container = new ExistentialContainer2();
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         container.ObjectMetadata = metadata;
-        container[0] = ProtocolWitnessTable.GetOrThrow<T, TProtocol1>().Handle;
-        container[1] = ProtocolWitnessTable.GetOrThrow<T, TProtocol2>().Handle;
+        container[0] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol1>().Handle;
+        container[1] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol2>().Handle;
         MarshalPayload(value, metadata, ref container);
         return container;
     }
@@ -665,9 +665,9 @@ public static class ExistentialContainerFactory
         var container = new ExistentialContainer3();
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         container.ObjectMetadata = metadata;
-        container[0] = ProtocolWitnessTable.GetOrThrow<T, TProtocol1>().Handle;
-        container[1] = ProtocolWitnessTable.GetOrThrow<T, TProtocol2>().Handle;
-        container[2] = ProtocolWitnessTable.GetOrThrow<T, TProtocol3>().Handle;
+        container[0] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol1>().Handle;
+        container[1] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol2>().Handle;
+        container[2] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol3>().Handle;
         MarshalPayload(value, metadata, ref container);
         return container;
     }
@@ -685,10 +685,10 @@ public static class ExistentialContainerFactory
         var container = new ExistentialContainer4();
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         container.ObjectMetadata = metadata;
-        container[0] = ProtocolWitnessTable.GetOrThrow<T, TProtocol1>().Handle;
-        container[1] = ProtocolWitnessTable.GetOrThrow<T, TProtocol2>().Handle;
-        container[2] = ProtocolWitnessTable.GetOrThrow<T, TProtocol3>().Handle;
-        container[3] = ProtocolWitnessTable.GetOrThrow<T, TProtocol4>().Handle;
+        container[0] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol1>().Handle;
+        container[1] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol2>().Handle;
+        container[2] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol3>().Handle;
+        container[3] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol4>().Handle;
         MarshalPayload(value, metadata, ref container);
         return container;
     }

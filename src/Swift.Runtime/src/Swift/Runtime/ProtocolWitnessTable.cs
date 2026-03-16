@@ -133,6 +133,28 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     }
 
     /// <summary>
+    /// NativeAOT-safe overload that avoids MakeGenericType reflection.
+    /// Uses <see cref="ProtocolConformanceDescriptor.TryGetDirect{TType, TProtocol}"/> which calls
+    /// the static abstract method directly via the <see cref="ISwiftObject"/> constraint.
+    /// </summary>
+    public static ProtocolWitnessTable GetOrThrowDirect<TType, TProtocol>()
+        where TType : ISwiftObject
+        where TProtocol : class
+    {
+        if (!TypeMetadata.TryGetTypeMetadata<TType>(out var metadata))
+        {
+            throw new SwiftRuntimeException($"Unable to get type metadata for {typeof(TType)}");
+        }
+
+        if (!ProtocolConformanceDescriptor.TryGetDirect<TType, TProtocol>(out var conformanceDescriptor))
+        {
+            throw new SwiftRuntimeException($"Unable to get protocol conformance descriptor for {typeof(TType)} and {typeof(TProtocol)}");
+        }
+
+        return GetProtocolWitnessTable(conformanceDescriptor.Value, metadata.Value);
+    }
+
+    /// <summary>
     /// Gets the protocol witness table for a given type and protocol.
     /// </summary>
     /// <param name="conformanceDescriptor">The protocol conformance descriptor.</param>

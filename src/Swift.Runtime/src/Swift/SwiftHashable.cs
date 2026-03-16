@@ -32,12 +32,13 @@ namespace Swift.Runtime
         /// <param name="value">The object to hash</param>
         /// <returns>A 32-bit hash code derived from Swift's hash value</returns>
         public static unsafe int GetHashCode<T>(T value)
+            where T : ISwiftObject
         {
             if (value == null)
                 throw new ArgumentNullException(nameof(value));
 
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-            var hashablePwt = ProtocolWitnessTable.GetOrThrow<T, ISwiftHashable>();
+            var hashablePwt = ProtocolWitnessTable.GetOrThrowDirect<T, ISwiftHashable>();
 
             Span<byte> span = stackalloc byte[(int)metadata.Size];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));

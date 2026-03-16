@@ -107,6 +107,26 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     }
 
     /// <summary>
+    /// NativeAOT-safe overload that calls the static abstract method directly via the
+    /// <see cref="ISwiftObject"/> constraint, avoiding MakeGenericType which fails when
+    /// the generic specialization isn't statically referenced.
+    /// </summary>
+    public static bool TryGetDirect<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
+        where TType : ISwiftObject
+        where TProtocol : class
+    {
+        var candidate = TType.GetProtocolConformanceDescriptor<TProtocol>();
+        if (candidate.IsValid)
+        {
+            result = candidate;
+            return true;
+        }
+
+        result = null;
+        return false;
+    }
+
+    /// <summary>
     /// Loads a <see cref="ProtocolConformanceDescriptor"/> from a symbol in the specified library.
     /// </summary>
     /// <param name="libraryName">The name of the library to load.</param>
@@ -125,8 +145,15 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
         {
             if (!NativeLibrary.TryLoad(libraryName, typeof(ProtocolConformanceDescriptor).Assembly, null, out libraryHandle))
             {
-
-                throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
+                // Fallback: try @rpath framework path. On iOS device, the DllImport resolver
+                // that maps library names to framework paths is registered on the binding
+                // assembly, not Swift.Runtime. NativeLibrary.TryLoad with the bare name
+                // won't find it, but the @rpath framework path will.
+                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
+                if (!NativeLibrary.TryLoad(frameworkPath, out libraryHandle))
+                {
+                    throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
+                }
             }
 
             if (NativeLibrary.TryGetExport(libraryHandle, symbolName, out var handle))

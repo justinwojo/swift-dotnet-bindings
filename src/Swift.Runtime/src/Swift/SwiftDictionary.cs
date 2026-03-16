@@ -46,6 +46,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
+        // NOTE: Uses reflection-based GetOrThrow (not GetOrThrowDirect) because TKey
+        // lacks ISwiftObject constraint — SwiftDictionary<IntPtr, EC0> is used in generated code.
+        // On NativeAOT, this MakeGenericType call may fail if the specialization isn't compiled.
+        // TODO: Add global conformance registry to eliminate MakeGenericType for all callers.
         var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftDictionary<TKey, TValue>), _ =>
             SwiftDictionaryPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, KeyTypeMetadata, ValueTypeMetadata, witnessTable));

@@ -31,6 +31,7 @@ namespace Swift.Runtime
         /// <param name="rhs">Right-hand side object</param>
         /// <returns>True if the objects are equal according to Swift's equality</returns>
         public static unsafe bool Equals<T>(T lhs, T rhs)
+            where T : ISwiftObject
         {
             if (lhs == null)
                 throw new ArgumentNullException(nameof(lhs));
@@ -38,7 +39,7 @@ namespace Swift.Runtime
                 throw new ArgumentNullException(nameof(rhs));
 
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-            var equatablePwt = ProtocolWitnessTable.GetOrThrow<T, IEquatable<T>>();
+            var equatablePwt = ProtocolWitnessTable.GetOrThrowDirect<T, IEquatable<T>>();
 
             Span<byte> lhsSpan = stackalloc byte[(int)metadata.Size];
             IntPtr lhsPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(lhsSpan));

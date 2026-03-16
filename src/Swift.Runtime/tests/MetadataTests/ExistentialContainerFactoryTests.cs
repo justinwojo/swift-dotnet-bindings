@@ -92,6 +92,23 @@ public class ExistentialContainerFactoryTests
     }
 
     [Fact]
+    public void Create_UsesDirectPathWithoutReflection()
+    {
+        // Create now uses GetOrThrowDirect (no MakeGenericType) internally.
+        // This test verifies the full path works end-to-end.
+        var value = new SwiftIntMock(42);
+        var container = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value);
+
+        Assert.True(container.ObjectMetadata.IsValid);
+        Assert.Equal(1, container.Count);
+        Assert.NotEqual(IntPtr.Zero, container[0]);
+
+        // Verify result matches what GetOrThrowDirect returns
+        var expectedWitness = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+        Assert.Equal(expectedWitness.Handle, container[0]);
+    }
+
+    [Fact]
     public void MaxInlinePayloadSize_IsCorrect()
     {
         // On 64-bit systems, 3 * 8 = 24 bytes

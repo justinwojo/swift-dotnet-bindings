@@ -63,4 +63,31 @@ public class ProtocolWitnessTableTests : IClassFixture<ProtocolWitnessTableTests
         Exception exception = Assert.Throws<System.Reflection.TargetInvocationException>(() => ProtocolWitnessTable.GetOrThrow<AnyTypeMock, ISwiftHashable>());
         Assert.IsType<InvalidOperationException>(exception.InnerException);
     }
+
+    [Fact]
+    public static void GetOrThrowDirect_RetrievesWitnessTableWithoutReflection()
+    {
+        // GetOrThrowDirect uses ISwiftObject constraint to avoid MakeGenericType (NativeAOT-safe).
+        var witnessTable = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+        Assert.True(witnessTable.IsValid);
+    }
+
+    [Fact]
+    public static void GetOrThrowDirect_MatchesGetOrThrowResult()
+    {
+        // Both paths should return the same witness table handle.
+        var reflectionResult = ProtocolWitnessTable.GetOrThrow<SwiftIntMock, ISwiftHashable>();
+        var directResult = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+
+        Assert.Equal(reflectionResult.Handle, directResult.Handle);
+    }
+
+    [Fact]
+    public static void GetOrThrowDirect_ThrowsForInvalidConformance()
+    {
+        // AnyTypeMock returns invalid metadata and conformance descriptors.
+        // GetOrThrowDirect should throw (metadata check fails first).
+        Assert.ThrowsAny<Exception>(() =>
+            ProtocolWitnessTable.GetOrThrowDirect<AnyTypeMock, ISwiftHashable>());
+    }
 }

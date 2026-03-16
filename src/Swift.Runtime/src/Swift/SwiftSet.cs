@@ -68,6 +68,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
+        // NOTE: Uses reflection-based GetOrThrow (not GetOrThrowDirect) because Element
+        // lacks ISwiftObject constraint — SwiftSet<IntPtr> is used in generated code.
+        // On NativeAOT, this MakeGenericType call may fail if the specialization isn't compiled.
+        // TODO: Add global conformance registry to eliminate MakeGenericType for all callers.
         var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftSet<Element>), _ => SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata, witnessTable));
     }

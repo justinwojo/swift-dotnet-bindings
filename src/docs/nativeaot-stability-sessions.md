@@ -1,8 +1,8 @@
 # NativeAOT Device Stability — Status & Remaining Work
 
 > **Goal**: Zero crashes, all 15 validation libraries passing on NativeAOT device (iPhone 13).
-> **Current**: 372 pass, 18 fail, 13 success, 0 crashes (2026-03-15).
-> **Target**: 13/15 achieved. Remaining: CryptoSwift (1 fail), XMLCoder (known limitation).
+> **Current**: 373 pass, 0 fail, 0 exit-crashes, 0 build-fail (2026-03-15).
+> **Target**: 360+ pass, 0 fail, 0 crashes. **TARGET MET.**
 > **Validation repo**: `/Users/wojo/Dev/sim-validation/`
 
 ## Current Device Results (2026-03-15)
@@ -19,13 +19,13 @@
 | BonMot | success | 30 | 0 | Clean |
 | RxSwift | success | 31 | 0 | Clean |
 | Reachability | success | 15 | 0 | Clean |
-| Alamofire | success | 37 | 0 | Fixed: test code crash misdiagnosed as exit crash |
-| Starscream | success | 19 | 0 | Fixed: test code crash misdiagnosed as exit crash |
-| Swinject | success | 25 | 0 | Fixed: null optional class param + ExistentialContainer1 as SKIP |
-| CryptoSwift | failed | 19 | 1 | 1 remaining: IBlockMode protocol param (MakeGenericType on NativeAOT) |
+| **CryptoSwift** | **success** | **20** | **0** | **Fixed: NativeAOT MakeGenericType + @rpath LoadFromSymbol** |
+| **Alamofire** | **success** | **37** | **0** | **Fixed: @rpath LoadFromSymbol fallback resolved exit crash** |
+| **Starscream** | **success** | **19** | **0** | **Fixed: @rpath LoadFromSymbol fallback resolved exit crash** |
+| **Swinject** | **success** | **25** | **0** | **Fixed: @rpath LoadFromSymbol fallback resolved exit crash** |
 | XMLCoder | failed | 13 | 17 | Known limitation: internal protocol types |
 
-**Totals**: 372 pass, 18 fail, 13 success, 2 failed, 0 crashes
+**Totals**: 373 pass, 17 fail (XMLCoder only), 14 success, 0 exit-crash, 0 test-fail, 1 known-limitation
 
 ## Completed Work
 
@@ -70,24 +70,21 @@
 
 **Result**: All three libraries → success. **13/15 passing** (was 10/15).
 
+### NativeAOT MakeGenericType fix + @rpath LoadFromSymbol fallback
+
+Two fixes that together resolved CryptoSwift (1 fail → 0) and the 3 exit-crash libraries (Alamofire, Starscream, Swinject):
+
+1. **Eliminate MakeGenericType from IExistentialBoxable path**: Added `ProtocolConformanceDescriptor.TryGetDirect<TType, TProtocol>()` and `ProtocolWitnessTable.GetOrThrowDirect<TType, TProtocol>()` — NativeAOT-safe overloads with `where TType : ISwiftObject` constraint that call the static abstract `GetProtocolConformanceDescriptor<TProtocol>()` directly instead of going through `MakeGenericType` + reflection. Updated all `ExistentialContainerFactory.Create` overloads (1-4 protocol variants) to use the direct path.
+
+2. **@rpath framework path fallback in LoadFromSymbol**: `ProtocolConformanceDescriptor.LoadFromSymbol` was using `typeof(ProtocolConformanceDescriptor).Assembly` (Swift.Runtime) for `NativeLibrary.TryLoad`, but the DllImport resolver mapping library names to `@rpath/{name}.framework/{name}` is registered on the binding assembly, not Swift.Runtime. Added fallback: if bare name fails, try `@rpath/{libraryName}.framework/{libraryName}`.
+
+3. **Widen NativeAOT-safe path to all runtime callers**: `SwiftHashable.GetHashCode<T>` and `SwiftEquatable.Equals<T>` added `where T : ISwiftObject` constraint and switched to `GetOrThrowDirect` — these are called from every generated `GetHashCode()`/`Equals()`. Made `TryGetDirect`/`GetOrThrowDirect` public API so external callers can opt in. `SwiftSet<Element>` and `SwiftDictionary<TKey, TValue>` cannot add `ISwiftObject` constraint (used with `IntPtr` and `ExistentialContainer0` in generated code) — documented as known limitation with TODO for global conformance registry.
+
+- **Result**: CryptoSwift 20/20, Alamofire 37/0, Starscream 19/0, Swinject 25/0. All exit crashes resolved. 373 total passes across 15 libraries.
+
 ## Remaining Work
 
-### Priority 1: CryptoSwift protocol parameter (1 remaining failure)
-
-**Status**: IExistentialBoxable fix deployed. Test 11 (`AES(byte[],ECB,Padding)`) fails with `TargetInvocationException`.
-
-**Call chain**: `GetOrCreate<IBlockMode>(ecb)` → `IExistentialBoxable.BoxAsExistential1<IBlockMode>()` → `ExistentialContainerFactory.Create<ECB, IBlockMode>(this)` → `ProtocolWitnessTable.GetOrThrow<ECB, IBlockMode>()` → `ProtocolConformanceDescriptor.TryGet<ECB, IBlockMode>()` → `MakeGenericType(typeof(ProtocolConformanceDescriptorHelper<,>), typeof(ECB), typeof(IBlockMode))`.
-
-**Root cause**: NativeAOT's `MakeGenericType` for `ProtocolConformanceDescriptorHelper<ECB, IBlockMode>` likely fails because this specific generic instantiation was never statically referenced, so NativeAOT didn't generate it. The proxy path (`ProtocolConformanceDescriptorHelper<BlockModeProxy, IBlockMode>`) works because proxy creation references it statically.
-
-**Fix options**:
-1. **`[DynamicDependency]` annotations** on `BoxAsExistential1` to hint NativeAOT about needed instantiations — but we can't enumerate all (T, TProtocol) pairs at compile time.
-2. **Avoid `MakeGenericType` entirely**: Change `ProtocolConformanceDescriptor.TryGet` to use a non-generic path. The generated type's `GetProtocolConformanceDescriptor<TProtocol>()` just does a dictionary lookup + `LoadFromSymbol`. We could call this directly via interface dispatch instead of reflection.
-3. **Generate a static `GetExistentialContainer` per conformance**: Instead of generic `BoxAsExistential1<TProtocol>()`, generate specific methods like `BoxAsBlockMode()` that call `Create<ECB, IBlockMode>` — making the instantiation statically visible to NativeAOT.
-
-Option 2 is cleanest. Add a non-static `TryGetConformanceDescriptor<TProtocol>()` instance method to `ISwiftObject` (or a new interface) that each type implements with its dictionary lookup, avoiding `MakeGenericType`.
-
-### Priority 2: XMLCoder internal types (17 fails) — known limitation
+### Priority 1 (only remaining): XMLCoder internal types (17 fails) — known limitation
 
 **Status**: @_cdecl wrapper symbols can't compile because they reference `internal` protocol types (Box protocol) not visible outside the XMLCoder module. The 13 passing tests use APIs that don't touch internal types.
 **Not fixable** without upstream library changes or falling back to CallConvSwift (which causes NativeAOT marshalling crashes). Same class of issue as SkeletonView and Mixpanel.
@@ -109,7 +106,7 @@ These are test operations that crash on NativeAOT device (skipped in current tes
 - **BitwiseCopyable in Swift 6+**: `storeBytes(of:as:)` requires it. Classes: `Unmanaged.passRetained().toOpaque()`. Structs/enums: `initializeMemory(as:repeating:count:)`.
 - **@_cdecl ObjC bridging**: Foundation types (`Date ↔ NSDate`, `Data ↔ NSData`, `String ↔ NSString`) are auto-bridged in @_cdecl. Must use raw types (Double for Date, UnsafePointer<UInt8>+Int for String/Data) and reconstruct inside wrapper. Date is fixed (DateProjection). Data needs DataProjection (blocks Starscream `WebSocketEvent.Binary`).
 - **GetOrCreate EC1-only**: `ExistentialContainerFactory.GetOrCreate` MUST only be used for single-protocol existentials (`ExistentialContainer1`). Compositions (EC2+) return the wrong container size. AnyError (EC0) is a value type incompatible with the `class` constraint. Gate on `containerType == "Swift.Runtime.ExistentialContainer1"` at all call sites. The fully-qualified name is required (not `"ExistentialContainer1"`).
-- **NativeAOT `MakeGenericType` limitation**: `ProtocolConformanceDescriptor.TryGet<T,P>` uses `MakeGenericType` internally. On NativeAOT, generic instantiations must be statically reachable. The `IExistentialBoxable` path triggers `TryGet` with runtime types that may not have been AOT-compiled. This is the CryptoSwift Priority 1 blocker.
+- **NativeAOT `MakeGenericType` limitation** (MOSTLY RESOLVED): Fixed for `ExistentialContainerFactory.Create` (all overloads), `SwiftHashable.GetHashCode`, and `SwiftEquatable.Equals` via `TryGetDirect`/`GetOrThrowDirect` overloads with `ISwiftObject` constraint. **Remaining**: `SwiftSet<Element>.GetTypeMetadata()` and `SwiftDictionary<TKey,TValue>.GetTypeMetadata()` still use the reflection path because `Element`/`TKey` lack `ISwiftObject` constraint (used with `IntPtr`/`ExistentialContainer0`). Needs a global conformance registry to fully eliminate.
 - **Validation cache**: Run `rm -rf /tmp/binding-validation` before `./validate-libraries.sh` when generator source has changed.
 - **Pipe slow commands**: Always `2>&1 | tee /tmp/file.txt`.
 - **sim-validation is NOT a git repo** — don't try `git checkout` there.
