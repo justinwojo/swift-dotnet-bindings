@@ -291,6 +291,16 @@ namespace BindingsGeneration
             // Safety-net patterns (b)-(f) removed — now prevented at emission time.
             // See architecture-refactoring-plan.md Session 2 log.
 
+            // (g) .load(as: @escaping — closure types in .load(as:) metatype context.
+            // @escaping is a storage qualifier not valid in metatype position, and .self
+            // binds to the return type instead of the full function type. Prevented at
+            // emission time by CanConvertToCdecl rejecting closure params.
+            if (body.Contains(".load(as: @escaping") || body.Contains(".load(as: @Sendable"))
+            {
+                onSafetyNetWarning?.Invoke($"Line ~{start}: .load(as: @escaping) closure in metatype context (should be prevented by CanConvertToCdecl)");
+                return true;
+            }
+
             return false;
         }
 

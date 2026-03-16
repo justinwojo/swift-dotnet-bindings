@@ -1168,9 +1168,68 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    // Region I (Safety-Net Warning Callback Tests) deleted — safety-net patterns (b)-(f)
-    // were removed from SwiftWrapperPostProcessor. These patterns are now prevented at
-    // emission time and no longer need post-processing.
+    #region I. Safety-Net: Closure Metatype Stripping
+
+    public class PostProcessorClosureMetatypeTests
+    {
+        [Fact]
+        public void Process_LoadAsEscapingClosure_StripsFunction()
+        {
+            // .load(as: @escaping ...) is invalid Swift — @escaping is a storage qualifier
+            // not valid in metatype position, and .self binds to the return type.
+            // The post-processor strips the entire function block as a safety net.
+            // Uses single-line signature format to match FindBlockEnd expectations.
+            var input = """
+                // before
+                @_cdecl("SBW_callWithOptionalStringReturn_optbuf")
+                public func PInvoke_callWithOptionalStringReturn(_ handler: UnsafeRawPointer, _ _resultBuf: UnsafeMutableRawPointer) {
+                    let handlerVal = handler.load(as: @escaping (Swift.Int32) -> Swift.Optional<Swift.String>.self)
+                    let _result = callWithOptionalStringReturn(handlerVal)
+                }
+                // after
+                """;
+
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("load(as: @escaping", result.CleanedContent);
+            Assert.Contains("// before", result.CleanedContent);
+            Assert.Contains("// after", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_LoadAsSendableClosure_StripsFunction()
+        {
+            // @Sendable is also a storage qualifier invalid in metatype position
+            var input = "// before\n" +
+                "@_cdecl(\"SBW_test\")\n" +
+                "public func PInvoke_test(_ handler: UnsafeRawPointer) {\n" +
+                "    let handlerVal = handler.load(as: @Sendable () -> Void.self)\n" +
+                "}\n" +
+                "// after\n";
+
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("load(as: @Sendable", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_LoadAsNormalType_Preserved()
+        {
+            // Normal .load(as: SomeType.self) patterns must NOT be stripped
+            var input = """
+                @_cdecl("SBW_test")
+                public func PInvoke_test(_ ptr: UnsafeRawPointer) -> Int32 {
+                    return ptr.load(as: Int32.self)
+                }
+                """;
+
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("load(as: Int32.self)", result.CleanedContent);
+        }
+    }
+
+    #endregion
 
     #region H. Module/Type Name Collision
 

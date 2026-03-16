@@ -2247,13 +2247,12 @@ public func _sbw_method_5AD2C09E(_ callbackFuncPtr: UnsafeMutableRawPointer?, _ 
     }
     return callMultipleTimes(_adapted_callback, times: times)
 }
-@_cdecl("SBW_SwiftBindingsTestLib_Free_callWithOptionalStringReturn_8C3FB6E5_optbuf")
-public func PInvoke_callWithOptionalStringReturn_913DECF0(
-    _ handler: UnsafeRawPointer,
+@_silgen_name("$s20SwiftBindingsTestLib28callWithOptionalStringReturnySSSgACs5Int32VcF_optbuf")
+public func PInvoke_callWithOptionalStringReturn_8C3FB6E5(
+    _ handler: @escaping (Int32) -> Optional<String>,
     _ _resultBuf: UnsafeMutableRawPointer
 ) {
-    let handlerVal = handler.load(as: @escaping (Swift.Int32) -> Swift.Optional<Swift.String>.self)
-    let _result = SwiftBindingsTestLib.callWithOptionalStringReturn(handlerVal)
+    let _result = SwiftBindingsTestLib.callWithOptionalStringReturn(handler)
     withUnsafePointer(to: _result) { _srcPtr in
         _resultBuf.copyMemory(from: UnsafeRawPointer(_srcPtr),
             byteCount: MemoryLayout<Optional<String>>.size)
@@ -2824,8 +2823,8 @@ public func SBW_SwiftBindingsTestLib_Codec_Encoding_CaseByIndex(_ index: Int) ->
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.Codec.Encoding.rawValue.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_Encoding_rawValue")
-public func _sbw_get_rawValue_8D25FC51(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_Codec_Encoding_rawValue")
+public func _sbw_get_rawValue_AA049608(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.Codec.Encoding.self).pointee
     let result = obj.rawValue
     let utf8 = Array(result.utf8)
@@ -3017,8 +3016,8 @@ public func _sbw_getMetadata_1FD81CA6() -> UnsafeMutableRawPointer {
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.ImageRequest.Options.rawValue.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_Options_rawValue")
-public func _sbw_get_rawValue_1B74A7C0(_ self_: UnsafeRawPointer) -> Int32 {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_ImageRequest_Options_rawValue")
+public func _sbw_get_rawValue_E93E19DB(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.ImageRequest.Options.self).pointee
     return obj.rawValue
 }
@@ -4101,16 +4100,16 @@ public func _sbw_getMetadata_EB6E10D4() -> UnsafeMutableRawPointer {
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.NestedOuter.Inner.value.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_Inner_value")
-public func _sbw_get_value_FB4B1C02(_ self_: UnsafeRawPointer) -> Int32 {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_NestedOuter_Inner_value")
+public func _sbw_get_value_182E6C47(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.NestedOuter.Inner.self).pointee
     return obj.value
 }
 
 // Property setter @_cdecl wrapper for SwiftBindingsTestLib.NestedOuter.Inner.value.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Set_SwiftBindingsTestLib_Inner_value")
-public func _sbw_set_value_36351A0E(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
+@_cdecl("SBW_Set_SwiftBindingsTestLib_NestedOuter_Inner_value")
+public func _sbw_set_value_D5BA5EC3(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.NestedOuter.Inner.self).pointee.value = newValue
 }
 
@@ -7202,8 +7201,8 @@ public func SBW_SwiftBindingsTestLib_NetworkConfig_HttpMethod_CaseByIndex(_ inde
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.NetworkConfig.HttpMethod.rawValue.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_HttpMethod_rawValue")
-public func _sbw_get_rawValue_7F7F370D(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_NetworkConfig_HttpMethod_rawValue")
+public func _sbw_get_rawValue_F369FFAE(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkConfig.HttpMethod.self).pointee
     let result = obj.rawValue
     let utf8 = Array(result.utf8)
@@ -7264,8 +7263,8 @@ public func SBW_SwiftBindingsTestLib_NetworkConfig_ContentType_CaseByIndex(_ ind
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.NetworkConfig.ContentType.rawValue.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_ContentType_rawValue")
-public func _sbw_get_rawValue_B5426A41(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_NetworkConfig_ContentType_rawValue")
+public func _sbw_get_rawValue_25987144(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkConfig.ContentType.self).pointee
     let result = obj.rawValue
     let utf8 = Array(result.utf8)
@@ -7366,8 +7365,8 @@ public func SBW_SwiftBindingsTestLib_OrderContainer_Status_CaseByIndex(_ index: 
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.OrderContainer.Status.rawValue.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Get_SwiftBindingsTestLib_Status_rawValue")
-public func _sbw_get_rawValue_D64E022C(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+@_cdecl("SBW_Get_SwiftBindingsTestLib_OrderContainer_Status_rawValue")
+public func _sbw_get_rawValue_4B7D123C(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.OrderContainer.Status.self).pointee
     let result = obj.rawValue
     let utf8 = Array(result.utf8)
@@ -7464,6 +7463,22 @@ public func SBW_SwiftBindingsTestLib_PaymentContainer_Status_CaseByIndex(_ index
     return UnsafeMutableRawPointer(ptr)
 }
 
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.PaymentContainer.Status.rawValue.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Get_SwiftBindingsTestLib_PaymentContainer_Status_rawValue")
+public func _sbw_get_rawValue_E19C121E(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.PaymentContainer.Status.self).pointee
+    let result = obj.rawValue
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.PaymentContainer.Status.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_PaymentContainer_Status_78830C10")

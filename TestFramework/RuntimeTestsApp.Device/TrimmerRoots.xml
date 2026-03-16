@@ -5,5 +5,21 @@
     <type fullname="RuntimeTestsApp.AppDelegate" preserve="all" />
     <type fullname="RuntimeTestsApp.MainViewController" preserve="all" />
     <type fullname="RuntimeTestsApp.Marshalling.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Lifetime.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Metadata.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Closures.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.ErrorHandling.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Generics.*" preserve="all" />
+    <!-- OperatorTests excluded: ILC segfaults on ArithmeticValue/ComparableValue/BitwiseValue/UnaryValue
+         operator stubs with CallConvSwift. StructEqualityTests (Tag type) works fine. -->
+    <type fullname="RuntimeTestsApp.Operators.StructEqualityTests" preserve="all" />
+    <type fullname="RuntimeTestsApp.Patterns.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Protocols.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Async.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Concurrency.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Spike.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Collections.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Properties.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.SwiftUIBridge.*" preserve="all" />
   </assembly>
 </linker>

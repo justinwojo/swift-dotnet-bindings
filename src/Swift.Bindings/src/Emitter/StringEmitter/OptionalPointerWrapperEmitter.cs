@@ -25,6 +25,10 @@ public static class OptionalPointerWrapperEmitter
             if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
                 continue;
             if (arg.IsGeneric) return false;
+            // Closure params (including Optional<Closure>) need funcPtr+context decomposition
+            // that @_cdecl GetCdeclParamMapping doesn't support. Fall back to @_silgen_name
+            // where closures pass as native Swift types.
+            if (env.ClosureHandler.IsClosure(arg)) return false;
             if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
