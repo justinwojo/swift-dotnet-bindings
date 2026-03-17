@@ -253,10 +253,9 @@ namespace BindingsGeneration
                     callArgs.Add($"{externalLabel}: {pName}");
             }
 
-            // Emit @MainActor if needed
-            bool needsMainActor = (parentTypeDecl?.IsMainActorIsolated == true
-                || methodDecl.IsActorIsolated)
-                && !methodDecl.IsNonisolated;
+            // Emit @MainActor only for @MainActor isolation (not custom actors)
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+                parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");

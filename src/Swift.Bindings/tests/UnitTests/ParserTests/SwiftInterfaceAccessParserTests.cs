@@ -1673,7 +1673,7 @@ public class SwiftInterfaceAccessParserTests
         try
         {
             var customActors = new HashSet<string> { "ProcessingActor" };
-            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors, out var mainActorMembers);
 
             // Should detect 3 custom-actor-isolated methods
             Assert.Contains("BlinkIDSession.process(inputImage:)", result);
@@ -1682,6 +1682,11 @@ public class SwiftInterfaceAccessParserTests
 
             // Non-isolated method should NOT be included
             Assert.DoesNotContain("BlinkIDSession.resumeActiveProcessing()", result);
+
+            // Custom actor members should NOT be in mainActorMembers
+            Assert.DoesNotContain("BlinkIDSession.process(inputImage:)", mainActorMembers);
+            Assert.DoesNotContain("BlinkIDSession.reset()", mainActorMembers);
+            Assert.DoesNotContain("BlinkIDSession.getResult()", mainActorMembers);
         }
         finally { File.Delete(path); }
     }
@@ -1705,9 +1710,13 @@ public class SwiftInterfaceAccessParserTests
 
             // With custom actors, both should be detected
             var customActors = new HashSet<string> { "ProcessingActor" };
-            var resultWithCustom = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+            var resultWithCustom = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors, out var mainActorMembers);
             Assert.Contains("SomeClass.mainActorMethod()", resultWithCustom);
             Assert.Contains("SomeClass.actorMethod()", resultWithCustom);
+
+            // mainActorMembers should only contain @MainActor, not custom actors
+            Assert.Contains("SomeClass.mainActorMethod()", mainActorMembers);
+            Assert.DoesNotContain("SomeClass.actorMethod()", mainActorMembers);
         }
         finally { File.Delete(path); }
     }
@@ -1725,9 +1734,66 @@ public class SwiftInterfaceAccessParserTests
         try
         {
             var customActors = new HashSet<string> { "ProcessingActor" };
-            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors);
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path, customActors, out var mainActorMembers);
             Assert.Contains("BlinkIDSdk.terminateBlinkIDSdk()", result);
             Assert.DoesNotContain("BlinkIDSdk.refreshLicenseLease()", result);
+            // Custom actor should NOT be in mainActorMembers
+            Assert.DoesNotContain("BlinkIDSdk.terminateBlinkIDSdk()", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_TopLevelMainActorFreeFunction_SingleLine()
+    {
+        var swiftInterface = """
+            @_Concurrency.MainActor public func mainActorFreeFunction() -> Swift.String
+            public func regularFreeFunction() -> Swift.Int
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path);
+            Assert.Contains("mainActorFreeFunction()", result);
+            Assert.DoesNotContain("regularFreeFunction()", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_TopLevelMainActorFreeFunction_Multiline()
+    {
+        // Multiline signature: opening paren on first line, closing paren on a later line
+        var swiftInterface = """
+            @_Concurrency.MainActor public func multilineActorFunc(
+                _ value: Swift.Int,
+                label: Swift.String) -> Swift.Bool
+            public func regularFreeFunction() -> Swift.Int
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(path);
+            Assert.Contains("multilineActorFunc(_:label:)", result);
+            Assert.DoesNotContain("regularFreeFunction()", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_TopLevelMainActorFreeFunction_MainActorMembersOut()
+    {
+        // Verify the mainActorMembers out-parameter includes top-level free functions
+        var swiftInterface = """
+            @_Concurrency.MainActor public func mainActorFreeFunc() -> Swift.String
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("mainActorFreeFunc()", result);
+            Assert.Contains("mainActorFreeFunc()", mainActorMembers);
         }
         finally { File.Delete(path); }
     }

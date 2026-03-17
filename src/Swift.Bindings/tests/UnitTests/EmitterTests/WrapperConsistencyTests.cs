@@ -314,26 +314,38 @@ public class WrapperConsistencyTests
         var actorDecl = CreateClassDecl("MyActor", moduleDecl);
         actorDecl.IsActor = true;
 
-        Assert.True(WrapperValidation.IsActorIsolatedMember(actorDecl, memberIsActorIsolated: false));
+        Assert.True(WrapperValidation.IsActorIsolatedMember(actorDecl, memberIsActorIsolated: false, memberIsMainActorIsolated: false));
     }
 
     [Fact]
-    public void IsActorIsolatedMember_MainActorIsolatedParent_ReturnsTrue()
+    public void IsActorIsolatedMember_MainActorIsolatedParent_ReturnsFalse()
     {
+        // @MainActor parent types are now allowed — synchronous gate lift
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("MyClass", moduleDecl);
         classDecl.IsMainActorIsolated = true;
 
-        Assert.True(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: false));
+        Assert.False(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: false, memberIsMainActorIsolated: false));
     }
 
     [Fact]
-    public void IsActorIsolatedMember_ActorIsolatedMethod_ReturnsTrue()
+    public void IsActorIsolatedMember_PerMemberMainActor_ReturnsFalse()
     {
+        // Per-member @MainActor on non-actor class is now allowed
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("MyClass", moduleDecl);
 
-        Assert.True(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: true));
+        Assert.False(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: true, memberIsMainActorIsolated: true));
+    }
+
+    [Fact]
+    public void IsActorIsolatedMember_PerMemberCustomActor_ReturnsTrue()
+    {
+        // Per-member custom actor (e.g., @ProcessingActor) on non-actor class is still blocked
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        Assert.True(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: true, memberIsMainActorIsolated: false));
     }
 
     [Fact]
@@ -342,7 +354,7 @@ public class WrapperConsistencyTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("MyClass", moduleDecl);
 
-        Assert.False(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: false));
+        Assert.False(WrapperValidation.IsActorIsolatedMember(classDecl, memberIsActorIsolated: false, memberIsMainActorIsolated: false));
     }
 
     [Fact]
@@ -568,10 +580,10 @@ public class WrapperConsistencyTests
 
     #endregion
 
-    #region Actor Isolation — All Wrappers Must Reject
+    #region Actor Isolation — Custom Actors Reject, @MainActor Accepts
 
     [Fact]
-    public void ActorIsolatedParent_SubscriptWrapperRejects()
+    public void CustomActorParent_SubscriptWrapperRejects()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("ActorParent");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -592,8 +604,9 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void MainActorIsolatedParent_SubscriptWrapperRejects()
+    public void MainActorIsolatedParent_SubscriptWrapperAccepts()
     {
+        // @MainActor parent types are now allowed — synchronous gate lift
         var (moduleDecl, typeDb) = CreateTestEnvironment("MainActorParent");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -609,12 +622,13 @@ public class WrapperConsistencyTests
             parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(accessorMethod, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env));
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env));
     }
 
     [Fact]
-    public void ActorIsolatedAccessor_SubscriptWrapperRejects()
+    public void MainActorIsolatedAccessor_SubscriptWrapperAccepts()
     {
+        // Per-member @MainActor on non-actor class is now allowed
         var (moduleDecl, typeDb) = CreateTestEnvironment("NormalParent");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -622,6 +636,7 @@ public class WrapperConsistencyTests
 
         var accessorMethod = CreateAccessorMethod("getter:item", isGetter: true, parentDecl, moduleDecl);
         accessorMethod.IsActorIsolated = true;
+        accessorMethod.IsMainActorIsolated = true;
         var accessor = new GetAccessorDecl { Method = accessorMethod };
         var subscript = CreateSubscriptDecl(
             new NamedTypeSpec("Swift.Int"),
@@ -630,7 +645,7 @@ public class WrapperConsistencyTests
             parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(accessorMethod, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env));
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env));
     }
 
     #endregion
@@ -701,8 +716,23 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void GetRejectionReason_ActorIsolated_ReturnsReason()
+    public void GetRejectionReason_CustomActor_ReturnsActorType()
     {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Counter");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Counter", moduleDecl);
+        parentDecl.IsActor = true;
+        var method = CreateMethod("increment", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.Equal("actor_type", WrapperValidation.GetRejectionReason(env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_MainActorParent_ReturnsNull()
+    {
+        // @MainActor parent types are now allowed — no rejection
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -711,7 +741,7 @@ public class WrapperConsistencyTests
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("main_actor_parent", WrapperValidation.GetRejectionReason(env));
+        Assert.Null(WrapperValidation.GetRejectionReason(env));
     }
 
     #endregion

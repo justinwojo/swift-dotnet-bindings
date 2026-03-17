@@ -479,9 +479,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitSwiftGetterWrapper_MainActorIsolated_NoAnnotationOnCdecl()
+    public void EmitSwiftGetterWrapper_MainActorIsolated_HasAnnotationOnCdecl()
     {
-        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
+        // @MainActor IS propagated to @_cdecl wrappers — Swift 6 requires the caller
+        // to share isolation context. @MainActor on @_cdecl is compile-time only.
         var (swiftWriter, sw, propertyDecl, env, ctx) = CreateGetterTestSetup(
             "count", new NamedTypeSpec("Swift.Int"), isClass: true, isMainActorIsolated: true);
 
@@ -489,7 +490,7 @@ public class PropertyWrapperEmitterTests
         PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
 
         var output = sw.ToString();
-        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@MainActor", output);
         Assert.Contains("@_cdecl", output);
     }
 
@@ -1651,30 +1652,58 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ActorIsolatedProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_PerMemberMainActorProperty_ReturnsTrue()
     {
-        // Regression test (Issue H): actor-isolated properties cannot be accessed
-        // from synchronous nonisolated @_cdecl wrapper
+        // Per-member @MainActor on non-actor class is now allowed — synchronous gate lift
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var (propertyDecl, env) = CreatePropertyAndEnv("state", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
         propertyDecl.IsActorIsolated = true;
+        propertyDecl.IsMainActorIsolated = true;
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_PerMemberCustomActorProperty_ReturnsFalse()
+    {
+        // Custom global actor (e.g., @ProcessingActor) on property is still blocked
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, env) = CreatePropertyAndEnv("state", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+        propertyDecl.IsActorIsolated = true;
+        // IsMainActorIsolated stays false — this is a custom actor
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_MainActorParent_ReturnsFalse()
+    public void ShouldEmitWrapper_MainActorParent_ReturnsTrue()
     {
-        // Regression test (Issue H): @MainActor parent type — all members are actor-isolated,
-        // protocol conformance for type erasure crosses actor boundaries
+        // @MainActor parent types are now allowed — synchronous gate lift
         var (moduleDecl, typeDb) = CreateTestEnvironment("ViewModel");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("ViewModel", moduleDecl);
         parentDecl.IsMainActorIsolated = true;
+        var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_CustomActorProperty_ReturnsFalse()
+    {
+        // Custom actor types still blocked — require async dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Counter");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Counter", moduleDecl);
+        parentDecl.IsActor = true;
         var (propertyDecl, env) = CreatePropertyAndEnv("count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));

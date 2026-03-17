@@ -243,6 +243,7 @@ while [ $ATTEMPT -lt $MAX_RETRIES ]; do
         -sdk "$SDK_PATH" \
         -F "$XCFW_DIR/" \
         -module-name "$WRAPPER_MODULE" \
+        -strict-concurrency=minimal \
         -Xlinker -install_name -Xlinker "@rpath/${WRAPPER_MODULE}.framework/${WRAPPER_MODULE}" \
         -o "$OUTPUT_FW_DIR/$WRAPPER_MODULE" \
         $CLEANED_FILES > "$COMPILE_LOG" 2>&1
@@ -322,7 +323,7 @@ for fname, error_lines in file_error_lines.items():
         actual_start = start
         while actual_start > 0:
             prev = lines[actual_start - 1].strip()
-            if prev.startswith("@_cdecl(") or prev.startswith("@_silgen_name(") or prev.startswith("//"):
+            if prev.startswith("@_cdecl(") or prev.startswith("@_silgen_name(") or prev.startswith("//") or prev.startswith("@MainActor"):
                 actual_start -= 1
             else:
                 break

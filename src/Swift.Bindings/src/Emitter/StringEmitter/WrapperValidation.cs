@@ -35,24 +35,59 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Checks whether a member is actor-isolated, considering three sources of isolation:
-    /// (a) parent is an actor class (ClassDecl { IsActor: true }),
-    /// (b) the member itself is actor-isolated (e.g., @ProcessingActor, @MainActor on the member),
-    /// (c) the parent type is @MainActor-isolated (all members inherit isolation).
-    /// Actor-isolated members cannot be called from synchronous nonisolated @_cdecl wrappers.
+    /// Checks whether a member should be blocked from @_cdecl wrapper emission due to actor isolation.
+    /// Blocks:
+    /// (a) Custom actor types (ClassDecl { IsActor: true }) — all members require async dispatch
+    /// (b) Per-member custom actor isolation (e.g., @ProcessingActor) on non-actor classes
+    ///
+    /// Does NOT block @MainActor members — those are exposed as synchronous C# APIs following
+    /// the Xamarin.iOS precedent. The consumer manages thread affinity.
     /// </summary>
-    public static bool IsActorIsolatedMember(BaseDecl? parentDecl, bool memberIsActorIsolated)
+    public static bool IsActorIsolatedMember(BaseDecl? parentDecl, bool memberIsActorIsolated, bool memberIsMainActorIsolated)
     {
-        // (a) Parent is an actor class — all members are actor-isolated
+        // (a) Parent is a custom actor class — all members require async dispatch
         if (parentDecl is ClassDecl { IsActor: true })
             return true;
 
-        // (b) Member itself is actor-isolated
-        if (memberIsActorIsolated)
+        // (b) Per-member custom actor isolation (not @MainActor) — requires async dispatch
+        // memberIsActorIsolated covers BOTH @MainActor and custom actors;
+        // memberIsMainActorIsolated is true only for @MainActor.
+        // Block only when it's a custom actor (actor-isolated but NOT main-actor-isolated).
+        if (memberIsActorIsolated && !memberIsMainActorIsolated)
             return true;
 
-        // (c) Parent type is @MainActor-isolated — all members inherit isolation
+        return false;
+    }
+
+    /// <summary>
+    /// Backward-compatible overload for callers that don't have the IsMainActorIsolated flag.
+    /// Assumes any actor isolation is from a custom actor (conservative — blocks emission).
+    /// </summary>
+    public static bool IsActorIsolatedMember(BaseDecl? parentDecl, bool memberIsActorIsolated)
+    {
+        // Without the MainActor distinction, treat all per-member isolation as custom actor
+        return IsActorIsolatedMember(parentDecl, memberIsActorIsolated, memberIsMainActorIsolated: false);
+    }
+
+    /// <summary>
+    /// Returns true when a @_cdecl wrapper function should be annotated with @MainActor.
+    /// Swift 6 requires the caller to share the isolation context. @MainActor on @_cdecl is
+    /// a compile-time constraint only (no ABI change). The C# consumer manages thread affinity.
+    ///
+    /// Only returns true for @MainActor isolation — NOT for custom global actors.
+    /// </summary>
+    public static bool NeedsMainActorAnnotation(BaseDecl? parentDecl, bool memberIsMainActorIsolated, bool memberIsNonisolated = false)
+    {
+        // nonisolated members explicitly opt out of their parent's isolation
+        if (memberIsNonisolated)
+            return false;
+
+        // Parent type is @MainActor — all members inherit isolation
         if (parentDecl is TypeDecl { IsMainActorIsolated: true })
+            return true;
+
+        // Per-member @MainActor isolation (NOT custom actors)
+        if (memberIsMainActorIsolated)
             return true;
 
         return false;
@@ -422,17 +457,13 @@ public static class WrapperValidation
         if (HasRawGenericTypeParams(env.MethodDecl))
             return "raw_generic_type_params";
 
-        // 6b. Actor types
+        // 6b. Custom actor types (requires async dispatch)
         if (parentTypeDecl is ClassDecl { IsActor: true })
             return "actor_type";
 
-        // 6c. Actor-isolated methods
-        if (env.MethodDecl.IsActorIsolated)
-            return "actor_isolated";
-
-        // 6d. @MainActor-isolated parent types
-        if (parentTypeDecl is { IsMainActorIsolated: true })
-            return "main_actor_parent";
+        // 6c. Per-member custom actor isolation (not @MainActor)
+        if (env.MethodDecl.IsActorIsolated && !env.MethodDecl.IsMainActorIsolated)
+            return "custom_actor_isolated";
 
         // 7. Not async
         if (env.MethodDecl.IsAsync)

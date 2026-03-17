@@ -529,9 +529,10 @@ public static class ForeignTypeExtensionEmitter
             if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             {
+                // Use Unmanaged<AnyObject> + cast to handle both true classes and ObjC-bridged structs
                 var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                 var localName = $"__{paramName}";
-                ctx.AddForeignExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+                ctx.AddForeignExtWrapperLine($"    let {localName} = Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else

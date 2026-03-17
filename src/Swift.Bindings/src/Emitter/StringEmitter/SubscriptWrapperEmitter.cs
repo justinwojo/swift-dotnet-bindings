@@ -53,8 +53,8 @@ public static class SubscriptWrapperEmitter
         if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
             return false;
 
-        // 6b. Actor isolation: actor types, actor-isolated accessors, @MainActor parent types
-        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated))
+        // 6b. Custom actor types / per-member custom actor: require async dispatch
+        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated))
             return false;
 
         // 7. No opaque return type (some Protocol)
@@ -146,8 +146,8 @@ public static class SubscriptWrapperEmitter
             return "async_accessor";
         if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
             return "non_copyable_struct_parent";
-        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated))
-            return "actor_isolated_subscript";
+        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated))
+            return "actor_type_subscript";
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return "opaque_return_type";
         if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))
@@ -319,10 +319,22 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        // Add @MainActor when wrapping @MainActor-isolated subscripts.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated);
+        if (needsMainActor)
+        {
+            swiftWriter.WriteLines($$"""
+                @MainActor
+                @_cdecl("{{symbolName}}")
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbolName}}")
+                """);
+        }
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
@@ -475,10 +487,22 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        // Add @MainActor when wrapping @MainActor-isolated subscripts.
+        bool needsMainActorSetter = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated);
+        if (needsMainActorSetter)
+        {
+            swiftWriter.WriteLines($$"""
+                @MainActor
+                @_cdecl("{{symbolName}}")
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbolName}}")
+                """);
+        }
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 

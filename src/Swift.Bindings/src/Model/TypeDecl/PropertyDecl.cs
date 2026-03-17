@@ -55,9 +55,16 @@ namespace BindingsGeneration
         public bool IsSpiProtected { get; set; } = false;
 
         /// <summary>
-        /// Whether this property is @MainActor-isolated (individually annotated, not inherited from type).
+        /// Whether this property is actor-isolated via a per-member annotation (e.g., @MainActor or @ProcessingActor).
+        /// Both @MainActor and custom global actors set this flag.
         /// </summary>
         public bool IsActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this property is specifically @MainActor-isolated (per-member annotation).
+        /// A subset of IsActorIsolated — true only for @MainActor, false for custom actors.
+        /// </summary>
+        public bool IsMainActorIsolated { get; set; } = false;
 
         /// <summary>
         /// Whether this property is declared nonisolated (opts out of containing type's isolation).

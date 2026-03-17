@@ -67,8 +67,8 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.IsGeneric)
             return false;
 
-        // 6b-6d. Actor isolation: actor types, actor-isolated methods, @MainActor parent types
-        if (WrapperValidation.IsActorIsolatedMember(parentTypeDecl, env.MethodDecl.IsActorIsolated))
+        // 6b. Custom actor types / per-member custom actor: require async dispatch
+        if (WrapperValidation.IsActorIsolatedMember(parentTypeDecl, env.MethodDecl.IsActorIsolated, env.MethodDecl.IsMainActorIsolated))
             return false;
 
         // 7. Not async (async uses its own wrapper pattern)
@@ -386,15 +386,25 @@ public static class MethodWrapperEmitter
             // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // @MainActor is intentionally NOT added to @_cdecl wrapper functions.
-        // These are C-bridge functions called from nonisolated C#/.NET context.
-        // Adding @MainActor causes Swift 6 to reject calls to @MainActor members
-        // from within the wrapper body. With -strict-concurrency=minimal (used by
-        // the wrapper compiler), nonisolated functions can call @MainActor members
-        // without error, which is the correct behavior for these bridges.
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        // Add @MainActor when wrapping @MainActor-isolated members.
+        // Swift 6 requires the caller to share the isolation context, even at
+        // -strict-concurrency=minimal. @MainActor on @_cdecl is a compile-time
+        // constraint only (no ABI change). The C# consumer manages thread affinity.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentTypeDecl ?? (BaseDecl?)parentModuleDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
+        if (needsMainActor)
+        {
+            swiftWriter.WriteLines($$"""
+                @MainActor
+                @_cdecl("{{symbolName}}")
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbolName}}")
+                """);
+        }
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;

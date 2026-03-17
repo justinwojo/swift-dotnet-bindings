@@ -324,10 +324,9 @@ public static class OptionalPointerWrapperEmitter
 
         var tryPrefix = methodDecl.Throws ? "try " : "";
 
-        // Determine if wrapper needs @MainActor annotation for actor-isolated types
-        bool needsMainActor = ((parentDecl as TypeDecl)?.IsMainActorIsolated == true
-            || methodDecl.IsActorIsolated)
-            && !methodDecl.IsNonisolated;
+        // Determine if wrapper needs @MainActor annotation (only for @MainActor, not custom actors)
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
         // Emit the wrapper
         if (needsMainActor)

@@ -1184,13 +1184,16 @@ public static class ProtocolExtensionEmitter
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
-        // Class: Unmanaged.fromOpaque
+        // Class/ObjC-bridged: Unmanaged.fromOpaque
+        // Use Unmanaged<AnyObject> + cast to handle both true classes and ObjC-bridged structs
+        // (e.g., IndexPath bridged to NSIndexPath). Unmanaged<T> requires T: AnyObject, so
+        // Unmanaged<IndexPath> fails for bridged structs.
         if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
             !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
         {
             var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
             var localName = $"__{paramName}";
-            ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<{renderedType}>.fromOpaque({paramName}).takeUnretainedValue()");
+            ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
@@ -1846,6 +1849,7 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             IsProtocolExtensionMethod = true,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
+            IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };
     }
 
@@ -1940,6 +1944,7 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             IsProtocolExtensionMethod = true,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
+            IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
         };
     }
 

@@ -507,9 +507,10 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitGetterWrapper_MainActorIsolated_NoAnnotationOnCdecl()
+    public void EmitGetterWrapper_MainActorIsolated_HasAnnotationOnCdecl()
     {
-        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
+        // @MainActor IS propagated to @_cdecl wrappers — Swift 6 requires the caller
+        // to share isolation context. @MainActor on @_cdecl is compile-time only.
         var (swiftWriter, sw, subscriptDecl, env, ctx) = CreateGetterTestSetup(
             new NamedTypeSpec("Swift.Int"),
             new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), env: null) },
@@ -519,7 +520,7 @@ public class SubscriptWrapperEmitterTests
         SubscriptWrapperEmitter.EmitSwiftSubscriptGetterWrapper(swiftWriter, subscriptDecl, "SBW_SubGet_test", env, ctx);
 
         var output = sw.ToString();
-        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@MainActor", output);
         Assert.Contains("@_cdecl", output);
     }
 

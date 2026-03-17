@@ -1321,8 +1321,10 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public async Task TryGetTypeRecord_UIControlState_ReturnsUIntRawValueType()
+    public async Task TryGetTypeRecord_UIControlState_ReturnsStruct()
     {
+        // UIControl.State is an OptionSet (struct), not an enum.
+        // Changed from kind="enum" to kind="struct" to fix guard-let compilation error.
         var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(
@@ -1330,8 +1332,7 @@ public class TypeDatabaseExtensionsTests
 
         Assert.True(found);
         Assert.NotNull(record);
-        Assert.Equal(TypeRecordKind.Enum, record.Kind);
-        Assert.Equal("UInt", record.RawValueTypeName);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
     }
 
     [Fact]

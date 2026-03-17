@@ -1152,9 +1152,9 @@ public class WitnessDispatchEmitter
     /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
     /// </summary>
     private static void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
-        string moduleQualifiedName, string propertyName, string swiftTypeName, bool isActorIsolated = false)
+        string moduleQualifiedName, string propertyName, string swiftTypeName, bool needsMainActor = false)
     {
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
         writer.WriteLines($$"""
             {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
@@ -1180,8 +1180,8 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
 
-        bool isActorIsolated = property.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
         if (IsStringType(property.SwiftTypeSpec))
         {
             // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
@@ -1217,7 +1217,7 @@ public class WitnessDispatchEmitter
             // Blittable getter: direct pointer allocation
             var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
             var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, isActorIsolated);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor);
         }
     }
 
@@ -1225,8 +1225,8 @@ public class WitnessDispatchEmitter
     {
         var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "set", property.Name, 0);
-        bool isActorIsolated = property.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         if (IsStringType(property.SwiftTypeSpec))
         {
@@ -1279,8 +1279,8 @@ public class WitnessDispatchEmitter
         var isStringReturn = hasReturn && IsStringType(returnType!);
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
-        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1409,8 +1409,8 @@ public class WitnessDispatchEmitter
         var isStringReturn = hasReturn && IsStringType(returnType!);
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
-        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param + errorOut
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1589,8 +1589,8 @@ public class WitnessDispatchEmitter
         var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
         var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
-        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + one UnsafeRawPointer per param
         // + errorOut if throwing
@@ -1730,8 +1730,8 @@ public class WitnessDispatchEmitter
             return;
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
-        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer" };
@@ -1819,8 +1819,8 @@ public class WitnessDispatchEmitter
             return;
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "method", method.Name, index);
-        bool isActorIsolated = method.IsActorIsolated || protocolDecl.IsMainActorIsolated;
-        var mainActorAttr = isActorIsolated ? "@MainActor " : "";
+        bool needsMainActor = method.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         // Build Swift parameter list: containerPtr + resultBuf + per-param + errorOut
         var swiftParams = new List<string> { "_ containerPtr: UnsafeRawPointer", "_ resultBuf: UnsafeMutableRawPointer" };

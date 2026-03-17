@@ -218,21 +218,22 @@ namespace BindingsGeneration
         {
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{printedName}";
+            var shortKey = $"{parentTypeDecl.Name}.{printedName}";
 
             if (_actorIsolatedMembers != null)
             {
                 if (_actorIsolatedMembers.Contains(key))
                     methodDecl.IsActorIsolated = true;
-                else
-                {
-                    // Fallback for nested types: the swiftinterface parser uses LastIndexOf('.')
-                    // to extract type name from extensions, which drops intermediate components
-                    // (e.g., "Kingfisher.KF.Builder" → "Builder" instead of "KF.Builder").
-                    // Try the short name as a fallback.
-                    var shortKey = $"{parentTypeDecl.Name}.{printedName}";
-                    if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
-                        methodDecl.IsActorIsolated = true;
-                }
+                else if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
+                    methodDecl.IsActorIsolated = true;
+            }
+
+            // Set @MainActor-specific flag (subset of IsActorIsolated)
+            if (_mainActorIsolatedMembers != null)
+            {
+                if (_mainActorIsolatedMembers.Contains(key) ||
+                    (shortKey != key && _mainActorIsolatedMembers.Contains(shortKey)))
+                    methodDecl.IsMainActorIsolated = true;
             }
 
             if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
@@ -247,18 +248,22 @@ namespace BindingsGeneration
         {
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{propertyDecl.Name}";
+            var shortKey = $"{parentTypeDecl.Name}.{propertyDecl.Name}";
 
             if (_actorIsolatedMembers != null)
             {
                 if (_actorIsolatedMembers.Contains(key))
                     propertyDecl.IsActorIsolated = true;
-                else
-                {
-                    // Fallback for nested types (same as ApplyMemberActorIsolation).
-                    var shortKey = $"{parentTypeDecl.Name}.{propertyDecl.Name}";
-                    if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
-                        propertyDecl.IsActorIsolated = true;
-                }
+                else if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
+                    propertyDecl.IsActorIsolated = true;
+            }
+
+            // Set @MainActor-specific flag (subset of IsActorIsolated)
+            if (_mainActorIsolatedMembers != null)
+            {
+                if (_mainActorIsolatedMembers.Contains(key) ||
+                    (shortKey != key && _mainActorIsolatedMembers.Contains(shortKey)))
+                    propertyDecl.IsMainActorIsolated = true;
             }
 
             if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
@@ -484,9 +489,15 @@ namespace BindingsGeneration
         private readonly HashSet<string>? _customActorTypes;
 
         /// <summary>
-        /// Optional set of "TypeName.memberName" keys for @MainActor-annotated members.
+        /// Optional set of "TypeName.memberName" keys for actor-isolated members (both @MainActor and custom actors).
         /// </summary>
         private readonly HashSet<string>? _actorIsolatedMembers;
+
+        /// <summary>
+        /// Optional set of "TypeName.memberName" keys for @MainActor-isolated members only (subset of _actorIsolatedMembers).
+        /// Used to distinguish @MainActor from custom actor isolation when setting IsMainActorIsolated.
+        /// </summary>
+        private readonly HashSet<string>? _mainActorIsolatedMembers;
 
         /// <summary>
         /// Optional set of "TypeName.memberName" keys for nonisolated members.
@@ -540,7 +551,8 @@ namespace BindingsGeneration
             Dictionary<string, List<string?>>? defaultParameterValues = null,
             Dictionary<string, List<bool>>? autoclosureParameters = null,
             HashSet<string>? publicMemberNames = null,
-            Dictionary<string, List<string>>? subscriptLabels = null)
+            Dictionary<string, List<string>>? subscriptLabels = null,
+            HashSet<string>? mainActorIsolatedMembers = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -561,6 +573,7 @@ namespace BindingsGeneration
             _autoclosureParameters = autoclosureParameters;
             _publicMemberNames = publicMemberNames;
             _subscriptLabels = subscriptLabels;
+            _mainActorIsolatedMembers = mainActorIsolatedMembers;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1311,6 +1324,15 @@ namespace BindingsGeneration
             {
                 ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
                 ApplyMemberAvailability(methodDecl, parentType, node.PrintedName);
+            }
+            else if (parentDecl is ModuleDecl)
+            {
+                // Free functions: check if the function itself is actor-isolated.
+                // The actorIsolatedMembers set uses bare printedName for free functions.
+                if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(node.PrintedName))
+                    methodDecl.IsActorIsolated = true;
+                if (_mainActorIsolatedMembers != null && _mainActorIsolatedMembers.Contains(node.PrintedName))
+                    methodDecl.IsMainActorIsolated = true;
             }
 
             PopulateDocumentation(methodDecl, node);

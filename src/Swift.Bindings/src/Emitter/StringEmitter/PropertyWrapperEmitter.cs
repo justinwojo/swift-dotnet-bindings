@@ -56,9 +56,8 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return false;
 
-        // 4b. Skip actor-isolated properties — @_cdecl wrappers are synchronous nonisolated,
-        // and protocol conformance for generic class type erasure crosses actor boundaries
-        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated))
+        // 4b. Custom actor types / per-member custom actor: require async dispatch
+        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
             return false;
 
         // 6. Skip non-copyable (~Copyable) struct parents
@@ -114,8 +113,8 @@ public static class PropertyWrapperEmitter
             return "closure_property";
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return "async_property";
-        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated))
-            return "actor_isolated_property";
+        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
+            return "actor_type_property";
         if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
             return "non_copyable_struct_parent";
         if (WrapperValidation.IsNestedType(propertyDecl.SwiftTypeSpec))
@@ -234,10 +233,22 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        // Add @MainActor when wrapping @MainActor-isolated properties.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        if (needsMainActor)
+        {
+            swiftWriter.WriteLines($$"""
+                @MainActor
+                @_cdecl("{{symbolName}}")
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbolName}}")
+                """);
+        }
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
@@ -381,10 +392,22 @@ public static class PropertyWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        // @MainActor intentionally omitted — see MethodWrapperEmitter comment.
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        // Add @MainActor when wrapping @MainActor-isolated properties.
+        bool needsMainActorSetter = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        if (needsMainActorSetter)
+        {
+            swiftWriter.WriteLines($$"""
+                @MainActor
+                @_cdecl("{{symbolName}}")
+                """);
+        }
+        else
+        {
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbolName}}")
+                """);
+        }
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 

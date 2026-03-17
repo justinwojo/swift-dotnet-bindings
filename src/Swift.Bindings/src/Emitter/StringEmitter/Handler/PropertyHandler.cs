@@ -106,19 +106,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     "AsyncStream property requires [UnmanagedCallersOnly] callback inside generic type.");
                 return;
             }
-            // Skip @MainActor-isolated instance AsyncStream properties — the wrapper captures
-            // `self` as a function parameter, which Swift 6 strict concurrency won't allow
-            // to access @MainActor-isolated properties through (only the actor's implicit self gets
-            // the isolation privilege). Static properties don't have this issue.
-            if (!propertyDecl.IsStatic && !propertyDecl.IsNonisolated)
+            // Skip custom actor instance AsyncStream properties — the wrapper captures `self`
+            // as a function parameter and cannot dispatch through the actor's serial executor.
+            // @MainActor is NOT blocked: under -strict-concurrency=minimal, nonisolated wrappers
+            // can access @MainActor members. The consumer manages thread affinity.
+            if (!propertyDecl.IsStatic && propertyDecl.ParentDecl is ClassDecl { IsActor: true })
             {
-                bool isParentMainActorIsolated = (propertyDecl.ParentDecl as TypeDecl)?.IsMainActorIsolated == true;
-                if (isParentMainActorIsolated || propertyDecl.IsActorIsolated)
-                {
-                    SkipProperty(SkipReason.ActorIsolatedAsyncStream,
-                        "@MainActor-isolated AsyncStream property cannot be wrapped — self is a function parameter, not the actor's implicit self.");
-                    return;
-                }
+                SkipProperty(SkipReason.ActorIsolatedAsyncStream,
+                    "Custom actor AsyncStream property cannot be wrapped — requires async dispatch through actor executor.");
+                return;
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);
             propertyDecl.WasEmitted = true;

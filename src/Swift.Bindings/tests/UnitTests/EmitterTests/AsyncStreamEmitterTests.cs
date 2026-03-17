@@ -7,10 +7,10 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for AsyncStreamEmitter — Issue K: @MainActor-isolated AsyncStream properties are skipped
-/// because the wrapper captures `self` as a function parameter, not the actor's implicit self.
-/// Swift 6 strict concurrency won't allow accessing @MainActor-isolated properties through a
-/// captured reference parameter.
+/// Tests for AsyncStreamEmitter — custom actor AsyncStream properties are skipped because
+/// they require async dispatch through the actor's serial executor. @MainActor AsyncStream
+/// properties are allowed: under -strict-concurrency=minimal, nonisolated wrappers can
+/// access them, following the Xamarin.iOS synchronous access precedent.
 /// </summary>
 public class AsyncStreamEmitterTests
 {
@@ -36,8 +36,10 @@ public class AsyncStreamEmitterTests
     }
 
     [Fact]
-    public void MemberEmissionValidator_SkipsMainActorIsolatedAsyncStream()
+    public void MemberEmissionValidator_AllowsMainActorIsolatedAsyncStream()
     {
+        // @MainActor AsyncStream properties are now allowed — under -strict-concurrency=minimal,
+        // nonisolated wrappers can access @MainActor members
         var typeDatabase = new MockTypeDatabase();
 
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -49,19 +51,18 @@ public class AsyncStreamEmitterTests
         var skipReason = MemberEmissionValidator.CanEmitProperty(
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
-        Assert.Equal(SkipReason.ActorIsolatedAsyncStream, skipReason);
-        Assert.Contains("@MainActor-isolated", skipDetails!);
-        Assert.Null(projectedTypeName);
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
     }
 
     [Fact]
-    public void MemberEmissionValidator_SkipsPropertyLevelActorIsolatedAsyncStream()
+    public void MemberEmissionValidator_AllowsPropertyLevelActorIsolatedAsyncStream()
     {
+        // Per-member @MainActor on non-actor class is now allowed
         var typeDatabase = new MockTypeDatabase();
 
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateClassDecl("DataStream", moduleDecl);
-        // Parent is NOT @MainActor, but property itself is
 
         var property = CreateAsyncStreamProperty("events", classDecl, moduleDecl);
         property.IsActorIsolated = true;
@@ -69,7 +70,27 @@ public class AsyncStreamEmitterTests
         var skipReason = MemberEmissionValidator.CanEmitProperty(
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_SkipsCustomActorAsyncStream()
+    {
+        // Custom actor AsyncStream properties still blocked — require async dispatch
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var actorDecl = CreateClassDecl("DataProcessor", moduleDecl);
+        actorDecl.IsActor = true;
+
+        var property = CreateAsyncStreamProperty("results", actorDecl, moduleDecl);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
         Assert.Equal(SkipReason.ActorIsolatedAsyncStream, skipReason);
+        Assert.Contains("Custom actor", skipDetails!);
         Assert.Null(projectedTypeName);
     }
 

@@ -82,10 +82,9 @@ namespace BindingsGeneration
                 ? string.Join("\n                ", opaqueDerefLines) + "\n                "
                 : "";
 
-            // Determine if wrapper needs @MainActor annotation
-            bool needsMainActor = ((_env.ParentDecl as TypeDecl)?.IsMainActorIsolated == true
-                || _env.MethodDecl.IsActorIsolated)
-                && !_env.MethodDecl.IsNonisolated;
+            // Determine if wrapper needs @MainActor annotation (only for @MainActor, not custom actors)
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+                _env.ParentDecl, _env.MethodDecl.IsMainActorIsolated, _env.MethodDecl.IsNonisolated);
             var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
             if (parentTypeName != null)

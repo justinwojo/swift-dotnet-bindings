@@ -469,26 +469,41 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ActorIsolatedMethod_ReturnsFalse()
+    public void ShouldEmitWrapper_PerMemberMainActor_ReturnsTrue()
     {
-        // Regression test (Issue G): @ProcessingActor or @MainActor on individual methods
-        // — cannot be called from synchronous nonisolated @_cdecl wrapper
+        // @MainActor on individual methods is now allowed — synchronous gate lift
         var (moduleDecl, typeDb) = CreateTestEnvironment("Session");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("Session", moduleDecl);
         var method = CreateMethod("process", parentDecl, moduleDecl);
         method.IsActorIsolated = true;
+        method.IsMainActorIsolated = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_PerMemberCustomActor_ReturnsFalse()
+    {
+        // Custom global actor (e.g., @ProcessingActor) on individual methods is still blocked
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Session");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Session", moduleDecl);
+        var method = CreateMethod("process", parentDecl, moduleDecl);
+        method.IsActorIsolated = true;
+        // IsMainActorIsolated stays false — this is a custom actor
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_MainActorParent_ReturnsFalse()
+    public void ShouldEmitWrapper_MainActorParent_ReturnsTrue()
     {
-        // Regression test (Issue H): @MainActor-isolated parent type — all members are
-        // actor-isolated, and protocol conformance for type erasure crosses actor boundaries
+        // @MainActor parent types are now allowed — synchronous gate lift
         var (moduleDecl, typeDb) = CreateTestEnvironment("ViewModel");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -497,7 +512,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethod("refresh", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -1081,11 +1096,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void EmitSwiftMethodWrapper_MainActor_NotPropagatedToCdecl()
+    public void EmitSwiftMethodWrapper_MainActor_PropagatedToCdecl()
     {
-        // EC-6: @MainActor is intentionally NOT added to @_cdecl wrapper functions.
-        // These are C-bridge functions called from nonisolated C#. With -strict-concurrency=minimal,
-        // nonisolated wrappers can call @MainActor members without error.
+        // @MainActor IS propagated to @_cdecl wrappers — Swift 6 requires the caller
+        // to share isolation context. @MainActor on @_cdecl is compile-time only (no ABI change).
         var (swiftWriter, sw, method, env, ctx) = CreateMethodTestSetup(
             "doWork", TupleTypeSpec.Empty, isClass: true, isMainActorIsolated: true);
 
@@ -1096,7 +1110,7 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
 
         var output = sw.ToString();
-        Assert.DoesNotContain("@MainActor", output);
+        Assert.Contains("@MainActor", output);
         Assert.Contains("@_cdecl", output);
     }
 

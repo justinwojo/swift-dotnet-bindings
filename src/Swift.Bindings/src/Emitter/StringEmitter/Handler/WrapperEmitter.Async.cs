@@ -727,10 +727,9 @@ namespace BindingsGeneration
             var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
-            // Determine if wrapper needs @MainActor annotation
-            bool needsMainActor = ((_env.ParentDecl as TypeDecl)?.IsMainActorIsolated == true
-                || _env.MethodDecl.IsActorIsolated)
-                && !_env.MethodDecl.IsNonisolated;
+            // Determine if wrapper needs @MainActor annotation (only for @MainActor, not custom actors)
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+                _env.ParentDecl, _env.MethodDecl.IsMainActorIsolated, _env.MethodDecl.IsNonisolated);
 
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
                 isExtension: isExtension,

@@ -98,10 +98,10 @@ public static class AsyncStreamEmitter
         var isStatic = propertyDecl.IsStatic;
         var selfParam = isStatic ? "" : "_ self_: UnsafeMutableRawPointer, ";
         var selfAccess = isStatic ? parentTypeName : "__self";
-        // Note: @MainActor-isolated instance AsyncStream properties are skipped at the gate
-        // (PropertyHandler + MemberEmissionValidator) because the wrapper captures `self` as a
-        // function parameter, which Swift 6 strict concurrency won't allow to access actor-isolated
-        // properties through. Only custom actor and non-isolated properties reach here.
+        // Note: Custom actor instance AsyncStream properties are skipped at the gate
+        // (PropertyHandler + MemberEmissionValidator) because they require async dispatch through
+        // the actor's serial executor. @MainActor properties are allowed — under
+        // -strict-concurrency=minimal, nonisolated wrappers can access them.
         bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true;
         // Custom actor properties need `await` to access from within a Task
         var awaitPrefix = isOnCustomActor ? "await " : "";

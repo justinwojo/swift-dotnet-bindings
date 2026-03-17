@@ -2385,16 +2385,31 @@ public class WitnessDispatchEmitterTests
     }
 
     [Fact]
-    public void EmitPropertyGetter_ActorIsolatedProperty_EmitsMainActorAttribute()
+    public void EmitPropertyGetter_MainActorIsolatedProperty_EmitsMainActorAttribute()
     {
-        // Individual property with IsActorIsolated (protocol not @MainActor)
+        // Individual property with @MainActor isolation (protocol not @MainActor)
         var protocol = CreateSimpleProtocol("SomeProtocol");
         var prop = CreateProperty("isolatedProp", new NamedTypeSpec("Swift.Int32"));
         prop.IsActorIsolated = true;
+        prop.IsMainActorIsolated = true;
         protocol.Properties.Add(prop);
         var output = EmitDispatch(protocol);
 
         Assert.Contains("@MainActor @_silgen_name(\"SBW_SomeProtocol_get_isolatedProp_0\")", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_CustomActorIsolatedProperty_NoMainActorAttribute()
+    {
+        // Individual property with custom actor isolation should NOT emit @MainActor
+        var protocol = CreateSimpleProtocol("SomeProtocol");
+        var prop = CreateProperty("isolatedProp", new NamedTypeSpec("Swift.Int32"));
+        prop.IsActorIsolated = true;
+        // IsMainActorIsolated stays false — this is a custom actor
+        protocol.Properties.Add(prop);
+        var output = EmitDispatch(protocol);
+
+        Assert.DoesNotContain("@MainActor", output);
     }
 
     [Fact]

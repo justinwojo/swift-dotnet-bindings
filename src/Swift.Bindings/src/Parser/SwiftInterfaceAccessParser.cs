@@ -343,16 +343,23 @@ public static class SwiftInterfaceAccessParser
     /// Handles multi-line function signatures via continuation buffer.
     /// </summary>
     public static HashSet<string> GetActorIsolatedMembers(string swiftInterfacePath)
-        => GetActorIsolatedMembers(swiftInterfacePath, customActorTypeNames: null);
+        => GetActorIsolatedMembers(swiftInterfacePath, customActorTypeNames: null, mainActorMembers: out _);
 
     /// <summary>
     /// Extended overload that also detects custom actor annotations (e.g., @BlinkID.ProcessingActor)
     /// in addition to @MainActor. The customActorTypeNames set contains unqualified actor type names
     /// (e.g., "ProcessingActor") from GetCustomActorTypes().
+    ///
+    /// The mainActorMembers out-parameter receives only @MainActor-annotated members (a subset of
+    /// the return value). This enables distinguishing @MainActor from custom actor isolation in
+    /// the ABI parser, which is needed to emit correct wrapper annotations.
     /// </summary>
-    public static HashSet<string> GetActorIsolatedMembers(string swiftInterfacePath, HashSet<string>? customActorTypeNames)
+    public static HashSet<string> GetActorIsolatedMembers(
+        string swiftInterfacePath, HashSet<string>? customActorTypeNames,
+        out HashSet<string> mainActorMembers)
     {
         var result = new HashSet<string>();
+        mainActorMembers = new HashSet<string>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -372,8 +379,9 @@ public static class SwiftInterfaceAccessParser
         var typeStack = new Stack<(string Name, int Depth)>();
         int braceDepth = 0;
         bool pendingActorIsolated = false;
-        // Multi-line continuation: (accumulated line, wasActorIsolated)
-        (string Line, bool IsActorIsolated)? continuation = null;
+        bool pendingIsMainActor = false;
+        // Multi-line continuation: (accumulated line, wasActorIsolated, wasMainActor)
+        (string Line, bool IsActorIsolated, bool IsMainActor)? continuation = null;
 
         foreach (var line in lines)
         {
@@ -387,24 +395,43 @@ public static class SwiftInterfaceAccessParser
                 {
                     // Signature complete — process the full line
                     var wasActorIsolated = continuation.Value.IsActorIsolated;
+                    var wasMainActor = continuation.Value.IsMainActor;
                     continuation = null;
                     if (wasActorIsolated && typeStack.Count > 0)
+                    {
                         ProcessActorIsolatedMember(accumulated, typeStack, result);
+                        if (wasMainActor)
+                            ProcessActorIsolatedMember(accumulated, typeStack, mainActorMembers);
+                    }
+                    // Free function continuation (Finding 4: multiline free functions)
+                    if (wasActorIsolated && typeStack.Count == 0)
+                    {
+                        var funcMatch = PublicFuncRegex.Match(accumulated);
+                        if (funcMatch.Success)
+                        {
+                            var printedName = ExtractPrintedName(accumulated, funcMatch.Groups[1].Value);
+                            result.Add(printedName);
+                            if (wasMainActor)
+                                mainActorMembers.Add(printedName);
+                        }
+                    }
                 }
                 else
                 {
-                    continuation = (accumulated, continuation.Value.IsActorIsolated);
+                    continuation = (accumulated, continuation.Value.IsActorIsolated, continuation.Value.IsMainActor);
                 }
                 continue;
             }
 
             var (openBraces, closeBraces) = CountBraces(line);
 
-            // Check for @MainActor or custom actor annotation
-            bool hasActorAnnotation = pendingActorIsolated ||
-                                      MainActorAnnotationRegex.IsMatch(trimmed) ||
-                                      (customActorRegex != null && customActorRegex.IsMatch(trimmed));
+            // Check for @MainActor or custom actor annotation — track which kind
+            bool isMainActorLine = MainActorAnnotationRegex.IsMatch(trimmed);
+            bool isCustomActorLine = customActorRegex != null && customActorRegex.IsMatch(trimmed);
+            bool hasActorAnnotation = pendingActorIsolated || isMainActorLine || isCustomActorLine;
+            bool isMainActor = pendingIsMainActor || isMainActorLine;
             pendingActorIsolated = false;
+            pendingIsMainActor = false;
 
             // Check for pending annotation (attribute on its own line)
             if (hasActorAnnotation && !TypeDeclRegex.IsMatch(trimmed) &&
@@ -412,6 +439,7 @@ public static class SwiftInterfaceAccessParser
                 !PublicInitRegex.IsMatch(trimmed) && openBraces == 0)
             {
                 pendingActorIsolated = true;
+                pendingIsMainActor = isMainActor;
                 braceDepth += openBraces - closeBraces;
                 while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
                     typeStack.Pop();
@@ -439,18 +467,42 @@ public static class SwiftInterfaceAccessParser
                 }
             }
 
-            // Check for member-level actor isolation (only within a type context)
+            // Check for member-level actor isolation (within a type context)
             if (hasActorAnnotation && typeStack.Count > 0 && !pushedScope)
             {
                 // Check for multi-line signature
                 if ((PublicFuncRegex.IsMatch(trimmed) || PublicInitRegex.IsMatch(trimmed)) &&
                     HasUnmatchedOpenParen(trimmed))
                 {
-                    continuation = (trimmed, true);
+                    continuation = (trimmed, true, isMainActor);
                 }
                 else
                 {
                     ProcessActorIsolatedMember(trimmed, typeStack, result);
+                    if (isMainActor)
+                        ProcessActorIsolatedMember(trimmed, typeStack, mainActorMembers);
+                }
+            }
+
+            // Check for top-level actor-isolated free functions (no type context)
+            if (hasActorAnnotation && typeStack.Count == 0 && !pushedScope)
+            {
+                var funcMatch = PublicFuncRegex.Match(trimmed);
+                if (funcMatch.Success)
+                {
+                    // Multi-line: regex matches the func name but signature is incomplete
+                    if (HasUnmatchedOpenParen(trimmed))
+                    {
+                        continuation = (trimmed, true, isMainActor);
+                    }
+                    else
+                    {
+                        // Single-line: complete signature
+                        var printedName = ExtractPrintedName(trimmed, funcMatch.Groups[1].Value);
+                        result.Add(printedName);
+                        if (isMainActor)
+                            mainActorMembers.Add(printedName);
+                    }
                 }
             }
 

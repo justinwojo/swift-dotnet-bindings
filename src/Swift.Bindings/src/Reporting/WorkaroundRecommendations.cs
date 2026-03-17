@@ -41,7 +41,7 @@ public static class WorkaroundRecommendations
         SkipReason.GenericTypeCallback =>
             "Write a Swift wrapper that avoids closures or async in generic type members.",
         SkipReason.ActorIsolatedAsyncStream =>
-            "@MainActor-isolated AsyncStream properties cannot be wrapped (self is a function parameter). Use a Swift wrapper that accesses the property through actor method dispatch.",
+            "Custom actor AsyncStream properties cannot be wrapped (requires async dispatch through actor executor). Use a Swift wrapper that accesses the property through actor method dispatch.",
         SkipReason.StaticProtocolMember =>
             "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper.",
         SkipReason.SynthesizedCodable =>
@@ -90,7 +90,7 @@ public static class WorkaroundRecommendations
         SkipReason.GenericTypeCallback =>
             "closure or async in generic type member",
         SkipReason.ActorIsolatedAsyncStream =>
-            "@MainActor-isolated AsyncStream property (self is function parameter)",
+            "custom actor AsyncStream property (requires async dispatch)",
         SkipReason.StaticProtocolMember =>
             "static protocol member cannot be dispatched",
         SkipReason.SynthesizedCodable =>

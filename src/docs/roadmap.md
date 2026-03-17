@@ -24,6 +24,8 @@ Of the 9,521 emitted members:
 **Projected cumulative coverage after sessions 1–4: 67% → ~80%** (~1,900 members recovered)
 **After Session 1**: 152 compile errors eliminated across 21 libraries (90/90 validation). Precise member count delta pending re-measurement.
 
+Session 2 recovered ~852 `@MainActor` skips across 21 libraries. Actual emitted member recovery depends on overlap with other skip reasons (unsupported types, closures, etc.). Swift wrapper compilation: 40/56 (net -2 from 42/56 due to 2 pre-existing bugs exposed by the gate lift; see Session 2 notes).
+
 ---
 
 ## Prioritized Sessions
@@ -52,36 +54,35 @@ Completed March 17, 2026. 152 compile errors eliminated across 21 libraries. 90/
 
 ---
 
-### Session 2: Actor Isolation
+### ~~Session 2: Actor Isolation — @MainActor Sync Gate Lift~~ (Complete)
 
-**Coverage impact**: ~852 skips recovered → ~70% → ~76%
-**Libraries affected**: 21
+Completed March 17, 2026. Lifted the `@MainActor` skip gate so `@MainActor`-isolated members are emitted as synchronous C# APIs, following the Xamarin.iOS precedent (consumer manages thread affinity via `MainThread.BeginInvokeOnMainThread()`). Custom actors (`actor Counter`) remain blocked.
 
-The single largest gap and growing as libraries adopt Swift concurrency. Every UIKit-facing property/method on modern Swift view classes gets `@MainActor` isolation. This session would design and implement async wrapper trampolines for isolated members.
+**Approach**: Synchronous gate lift, NOT async trampolines. `@_cdecl` wrappers get `@MainActor` annotation for Swift 6 compilation, but this is compile-time only — no runtime dispatch overhead. The C# consumer is responsible for calling from the main thread, same as all .NET iOS UIKit APIs.
 
-| Sub-task | Effort | Notes |
-|----------|--------|-------|
-| **@MainActor wrapper trampoline design** | Medium | Emit `@MainActor`-annotated `@_cdecl` wrapper functions that dispatch to the isolated member |
-| **Async P/Invoke integration** | Medium | C# side needs to call these via async interop, respecting SafeHandle lifetime constraints |
-| **Custom actor support** | Medium | Extend beyond `@MainActor` to library-defined actors (lower frequency) |
+**What was done:**
+- Refactored `IsActorIsolatedMember()` to only block custom actor types, not `@MainActor`
+- Added `IsMainActorIsolated` flag to `MethodDecl`/`PropertyDecl` to distinguish `@MainActor` from custom actors like `@ProcessingActor`
+- Added `NeedsMainActorAnnotation()` with `nonisolated` guard — wrappers get `@MainActor` only when needed
+- Updated all 16 wrapper emitter sites (Method, Property, Subscript, Constructor, Closure, OptionalPointer, Marshalling, Async, MarkerProtocolOverload, WitnessDispatch, ProtocolExtension)
+- Extended `SwiftInterfaceAccessParser` to detect `@MainActor` free functions (single-line + multiline) and output separate `mainActorMembers` set
+- Narrowed `ActorIsolatedAsyncStream` skip to custom actors only
+- Added `-strict-concurrency=minimal` to TestFramework wrapper build scripts
+- Fixed strip scripts to absorb `@MainActor` predecessor lines during error recovery
+- Fixed `UIControl.State`/`UIControl.Event` XML entries (OptionSet → `kind="struct"`)
+- Fixed ObjC-bridged struct `Unmanaged` reconstruction (use `Unmanaged<AnyObject> as! T`)
+- 8 runtime tests (MainActorTests.cs), 7756 unit tests passing
 
-**Approach** — emit `@MainActor`-annotated async wrappers:
-```swift
-@MainActor
-@_cdecl("SBW_MyView_title_Get")
-func wrapper_title_Get(_ self: UnsafeMutableRawPointer) async -> SBW_Utf8Slice {
-    let obj = Unmanaged<MyView>.fromOpaque(self).takeUnretainedValue()
-    return obj.title.toUtf8Slice()
-}
-```
+**Validation**: 90/90 compile gate. Swift wrapper: 40/56 (was 42/56 pre-session — net -2).
 
-**Affected libraries:** Parchment (160), Lottie (103), StripePaymentsUI (96), Kingfisher (66), PhoneNumberKit (63), FSPagerView (59), AMPopTip (58), Mappedin (40)
+**Remaining wrapper regressions (2 libraries):**
 
-**Example APIs unlocked:**
-- All properties/methods on `PagingViewController` (Parchment)
-- All properties on `LottieAnimationView` (Lottie)
-- All UI configuration properties on `NVActivityIndicatorView`
-- Essentially all UIKit-facing view class APIs
+| Library | Root Cause | Fix Area |
+|---------|-----------|----------|
+| **Parchment** | `Unmanaged.passRetained(indexPath)` on return side — `IndexPath` is ObjC-bridged struct, `Unmanaged` requires class. Parameter side fixed but return marshalling in `MethodWrapperEmitter` still uses `Unmanaged<T>` for ObjC-bridged returns. | `MethodWrapperEmitter.cs` return mapping — needs `Unmanaged<AnyObject>` pattern for ObjC-bridged struct returns |
+| **BlinkIDUX** | `missing required module 'BlinkID'` — wrapper compilation needs `-F` for BlinkID dependency framework. Pre-existing inter-module gap, not actor-related. | `SwiftWrapperCompiler.cs` — propagate framework dependencies to wrapper compilation |
+
+**Custom actors stay deferred**: `actor Counter`-style types require async dispatch through the actor's serial executor — fundamentally different from `@MainActor`. These remain blocked via `ClassDecl { IsActor: true }` and per-member custom actor detection (`IsActorIsolated && !IsMainActorIsolated`).
 
 ---
 
@@ -166,7 +167,8 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **String enum raw values** | — | GRDB, CryptoSwift | **Blocked** — no data source in compiled xcframeworks |
 | **ObjC-bridged optional setters** | 90 | 11 | Setter paths for optional ObjC-bridged types |
 | **Unsupported generic containers** | 71 | 20 | `Result<T,E>`, `Optional<existential>` |
-| **Async methods** | 28 | 5 | Methods with `async` keyword (partially gated by actor isolation work) |
+| **Custom actor types** (`actor Counter`) | — | 5+ | Requires async dispatch through actor's serial executor. Blocked by `ClassDecl { IsActor: true }`. Fundamentally different from `@MainActor` (Session 2). |
+| **Async methods** | 28 | 5 | Methods with `async` keyword |
 | **Async properties** | 14 | 5 | Properties with `async get` |
 | **inout parameters** | 14 | 2 | `inout` write-back semantics |
 
@@ -233,6 +235,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
+| Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. Synchronous C# APIs following Xamarin.iOS precedent. Also fixed OptionSet XML misclassification (UIControl.State/Event) and ObjC-bridged struct Unmanaged reconstruction. 2 wrapper regressions remain (Parchment return-side Unmanaged, BlinkIDUX missing module). 40/56 swift wrapper, 90/90 compile gate, 481 runtime tests. |
 | Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |
 | Session 0: TestFramework generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
 | Apple framework XML database expansion | `ac39a4f7` (Mar 16) | ~473 skips resolved (nested + unresolvable Apple types). 90/90 validation. |

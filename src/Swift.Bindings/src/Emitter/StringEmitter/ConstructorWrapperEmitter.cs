@@ -730,6 +730,17 @@ public static class ConstructorWrapperEmitter
                             $"{argLabel}{label}Val");
                 }
 
+                // ObjC-bridged types (e.g., IndexPath bridged to NSIndexPath) may be Swift structs
+                // but passed as class pointers across FFI. Use Unmanaged<AnyObject> + cast to handle
+                // both true classes and bridged structs safely. Unmanaged<T> requires T: AnyObject,
+                // so Unmanaged<IndexPath> fails for bridged structs.
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                {
+                    return ($"_ {label}: UnsafeMutableRawPointer",
+                            $"let {label}Val = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
+                            $"{argLabel}{label}Val");
+                }
+
                 return ($"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()",
                         $"{argLabel}{label}Val");

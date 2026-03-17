@@ -126,9 +126,18 @@ namespace BindingsGeneration
         public bool IsImplicit { get; set; } = false;
 
         /// <summary>
-        /// Whether this method is @MainActor-isolated (individually annotated, not inherited from type).
+        /// Whether this method is actor-isolated via a per-member annotation (e.g., @MainActor or @ProcessingActor).
+        /// Does NOT include isolation inherited from the parent type — that uses TypeDecl.IsMainActorIsolated
+        /// or ClassDecl.IsActor. Both @MainActor and custom global actors set this flag.
         /// </summary>
         public bool IsActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Whether this method is specifically @MainActor-isolated (per-member annotation).
+        /// A subset of IsActorIsolated — true only for @MainActor, false for custom actors like @ProcessingActor.
+        /// Used to decide whether a @_cdecl wrapper needs @MainActor annotation (vs. blocking entirely).
+        /// </summary>
+        public bool IsMainActorIsolated { get; set; } = false;
 
         /// <summary>
         /// Whether this method is declared nonisolated (opts out of containing type's isolation).

@@ -47,10 +47,10 @@
             <typedeclaration kind="enum" name="UIUserInterfaceStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIControlState">
-            <typedeclaration kind="enum" name="UIControl.State" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="struct" name="UIControl.State" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIControlEvent">
-            <typedeclaration kind="enum" name="UIControl.Event" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="struct" name="UIControl.Event" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIImageRenderingMode">
             <typedeclaration kind="struct" name="UIImage.RenderingMode" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
