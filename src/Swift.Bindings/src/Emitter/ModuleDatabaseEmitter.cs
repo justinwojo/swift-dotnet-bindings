@@ -138,6 +138,10 @@ namespace BindingsGeneration
             if (record.SuperclassTypeName != null)
                 writer.WriteAttributeString("superclass", record.SuperclassTypeName.ModuleQualifiedName);
 
+            // Inline size for frozen struct Buffer field sizing (e.g., Swift.String = 16 bytes)
+            if (record.InlineSize.HasValue)
+                writer.WriteAttributeString("inlineSize", record.InlineSize.Value.ToString());
+
             // Native type name (e.g., Foundation.NSUrl for URL)
             if (record.NativeTypeName != null)
             {

@@ -129,7 +129,6 @@ public class ClassMarshallingTests : TestBase
 
     #region MutableProps Struct (property get/set)
 
-    [Skip("NativeAOT: SIGSEGV — Buffer struct undersized for Swift.String (16 bytes mapped to IntPtr 8 bytes)")]
     public void TestMutablePropsCreation()
     {
         var props = new MutableProps(42, "TestName");
@@ -143,7 +142,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"MutableProps: Value={value}, Name={name}");
     }
 
-    [Skip("NativeAOT: SIGSEGV — Buffer struct undersized for Swift.String (16 bytes mapped to IntPtr 8 bytes)")]
     public void TestMutablePropsSetValue()
     {
         var props = new MutableProps(10, "Original");

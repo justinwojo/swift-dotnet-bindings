@@ -144,4 +144,14 @@ public record TypeRecord
     /// and non-class types. Used for cross-module inheritance resolution.
     /// </summary>
     public SwiftTypeName? SuperclassTypeName { get; init; }
+
+    /// <summary>
+    /// The inline byte size of this type when embedded as a field in a frozen struct Buffer.
+    /// For XML-loaded types, this comes from the <c>inlineSize</c> attribute.
+    /// For module types, this is computed from <see cref="SwiftTypeInfo"/> at parse time.
+    /// Used by FrozenStructHandler to emit correctly-sized backing fields (e.g., Swift.String
+    /// is 16 bytes but would otherwise default to IntPtr = 8 bytes).
+    /// Null means unknown — falls back to IntPtr.Size for RequiresMemoryManagement types.
+    /// </summary>
+    public int? InlineSize { get; init; }
 }

@@ -588,7 +588,7 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
-    public void Emit_FrozenStructHandler_StoredRefTypeProperty_EmitsIntPtrField()
+    public void Emit_FrozenStructHandler_StoredRefTypeProperty_EmitsCorrectSizedFields()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftString();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -606,7 +606,48 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
 
-        Assert.Contains("private IntPtr name_", csOutput);
+        // Swift.String is 16 bytes (2 words) — should emit two IntPtr fields
+        Assert.Contains("private IntPtr name_0_", csOutput);
+        Assert.Contains("private IntPtr name_1_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_StoredRefTypeWithoutInlineSize_EmitsSingleIntPtr()
+    {
+        // When InlineSize is not set (unknown size), falls back to single IntPtr
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.SomeRefType"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SomeRefType"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.SomeRefType"),
+                MetadataAccessor = "$sSomeRefTypeMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+                // No InlineSize — unknown size, should fall back to IntPtr
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Container", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "data",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.SomeRefType"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        // Without InlineSize, should emit single IntPtr (backward compatible)
+        Assert.Contains("private IntPtr data_", csOutput);
+        Assert.DoesNotContain("data_0_", csOutput);
     }
 
     private static TypeDatabase CreateTypeDatabase()
@@ -654,7 +695,8 @@ public class TypeHandlersOutputTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                 MetadataAccessor = "$sSSMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
-                Kind = TypeRecordKind.Struct
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
             });
         typeDatabase.AddModuleDatabase(swiftModule);
         return typeDatabase;

@@ -315,6 +315,17 @@ namespace BindingsGeneration
                     structDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
             var csharpTypeIdentifier = string.Join(".",
                 rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
+            // Compute InlineSize from SwiftTypeInfo if metadata is available.
+            // This is used by FrozenStructHandler to emit correctly-sized Buffer fields.
+            int? inlineSize = null;
+            if (swiftTypeInfo.MetadataPtr != IntPtr.Zero)
+            {
+                unsafe
+                {
+                    inlineSize = (int)swiftTypeInfo.ValueWitnessTable->Size;
+                }
+            }
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = structDecl.SwiftTypeName,
@@ -323,6 +334,7 @@ namespace BindingsGeneration
                 MetadataAccessor = structDecl.MetadataAccessor,
                 Flags = flags,
                 Kind = TypeRecordKind.Struct,
+                InlineSize = inlineSize,
             };
 
             _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
@@ -406,6 +418,16 @@ namespace BindingsGeneration
             var csharpTypeIdentifier = string.Join(".",
                 rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
 
+            // Compute InlineSize from SwiftTypeInfo if metadata is available.
+            int? inlineSize = null;
+            if (swiftTypeInfo.MetadataPtr != IntPtr.Zero)
+            {
+                unsafe
+                {
+                    inlineSize = (int)swiftTypeInfo.ValueWitnessTable->Size;
+                }
+            }
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = enumDecl.SwiftTypeName,
@@ -415,6 +437,7 @@ namespace BindingsGeneration
                 Flags = flags,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = enumDecl.RawValueTypeName,
+                InlineSize = inlineSize,
             };
 
             _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);

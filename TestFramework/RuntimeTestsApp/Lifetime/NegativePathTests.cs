@@ -122,7 +122,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Non-Equatable UniqueResource uses reference equality");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestMutablePropsReferenceEquality()
     {
         var p1 = new MutableProps(1, "A");
@@ -165,7 +164,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("Sound set after dispose correctly throws");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestDisposedMutablePropsNameAfterDispose()
     {
         var props = new MutableProps(1, "Test");
@@ -179,7 +177,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("MutableProps.Name after dispose correctly throws");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestDisposedMutablePropsNameSetAfterDispose()
     {
         var props = new MutableProps(1, "Test");

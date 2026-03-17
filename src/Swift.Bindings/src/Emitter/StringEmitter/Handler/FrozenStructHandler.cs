@@ -223,7 +223,34 @@ namespace BindingsGeneration
                         var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
                         if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
                         {
-                            csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
+                            // Determine the actual inline size of the field type.
+                            // Swift.String is 16 bytes (2 words) but was previously mapped to IntPtr (8 bytes),
+                            // causing heap overflow and SIGSEGV for frozen structs with String fields.
+                            int fieldSize = IntPtr.Size; // default: single pointer
+                            if (fieldRecord.InlineSize.HasValue)
+                            {
+                                fieldSize = fieldRecord.InlineSize.Value;
+                            }
+                            else if (fieldRecord.SwiftTypeInfo.HasValue && fieldRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
+                            {
+                                unsafe
+                                {
+                                    fieldSize = (int)fieldRecord.SwiftTypeInfo.Value.ValueWitnessTable->Size;
+                                }
+                            }
+
+                            int wordCount = (fieldSize + IntPtr.Size - 1) / IntPtr.Size;
+                            if (wordCount <= 1)
+                            {
+                                csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
+                            }
+                            else
+                            {
+                                for (int i = 0; i < wordCount; i++)
+                                {
+                                    csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_{i}_;  // Note: Do not access this field directly - use the property accessors");
+                                }
+                            }
                         }
                         else
                         {

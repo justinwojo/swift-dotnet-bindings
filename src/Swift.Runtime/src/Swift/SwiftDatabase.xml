@@ -65,7 +65,7 @@
             <typedeclaration kind="struct" name="UnsafeMutableRawBufferPointer" module="Swift" mangledName="sSw" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftString">
-            <typedeclaration kind="struct" name="String" module="Swift" mangledName="sSS" frozen="true" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="String" module="Swift" mangledName="sSS" frozen="true" requiresMemoryManagement="true" inlineSize="16" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftArray">
             <typedeclaration kind="struct" name="Array" module="Swift" mangledName="sSa" frozen="true" requiresMemoryManagement="true" />

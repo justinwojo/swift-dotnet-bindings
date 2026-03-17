@@ -69,7 +69,6 @@ public class OwnershipGCStressTests : TestBase
 
     #region MutableProps (CallConvSwift constructor)
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestMutablePropsLifecycle()
     {
         // MutableProps struct lifecycle
@@ -87,7 +86,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps lifecycle completed");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestMutablePropsDoubleDispose()
     {
         var props = new MutableProps(5, "DoubleDispose");
@@ -99,7 +97,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps double-dispose safe");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestMutablePropsAccessAfterDispose()
     {
         var props = new MutableProps(10, "Test");
@@ -113,7 +110,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("MutableProps access after dispose correctly throws");
     }
 
-    [Skip("NativeAOT: SIGSEGV — MutableProps Buffer undersized for Swift.String")]
     public void TestMutablePropsSetAfterDispose()
     {
         var props = new MutableProps(10, "Test");

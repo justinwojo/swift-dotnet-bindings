@@ -14932,8 +14932,10 @@ namespace SwiftBindingsTestLib
                 // use the generated property accessors which call into Swift.
             private int constantValue_;  // Note: Do not access this field directly - use the property accessors
             private int mutableValue_;  // Note: Do not access this field directly - use the property accessors
-            private IntPtr name_;  // Note: Do not access this field directly - use the property accessors
-            private IntPtr defaultName_;  // Note: Do not access this field directly - use the property accessors
+            private IntPtr name_0_;  // Note: Do not access this field directly - use the property accessors
+            private IntPtr name_1_;  // Note: Do not access this field directly - use the property accessors
+            private IntPtr defaultName_0_;  // Note: Do not access this field directly - use the property accessors
+            private IntPtr defaultName_1_;  // Note: Do not access this field directly - use the property accessors
     }
     
     public unsafe PayloadBuffer<FrozenStructWithProperties.Buffer> PayloadBuffer => new PayloadBuffer<FrozenStructWithProperties.Buffer>(_payload);
@@ -15956,7 +15958,8 @@ public partial class NestedOuter : ISwiftObject, ISwiftStruct, IDisposable
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.
         private SwiftBindingsTestLib.NestedOuter.Inner inner_;  // Note: Do not access this field directly - use the property accessors
-        private IntPtr label_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr label_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr label_1_;  // Note: Do not access this field directly - use the property accessors
 }
 
 public unsafe PayloadBuffer<NestedOuter.Buffer> PayloadBuffer => new PayloadBuffer<NestedOuter.Buffer>(_payload);
@@ -18700,7 +18703,8 @@ public partial class BatchConfig : ISwiftObject, ISwiftStruct, IDisposable
                 //
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.
-        private IntPtr name_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr name_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr name_1_;  // Note: Do not access this field directly - use the property accessors
         private int maxRetries_;  // Note: Do not access this field directly - use the property accessors
         private IntPtr tags_;  // Note: Do not access this field directly - use the property accessors
 }
@@ -25914,7 +25918,8 @@ public partial class AsyncResult : ISwiftObject, ISwiftStruct, IDisposable
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.
         private int id_;  // Note: Do not access this field directly - use the property accessors
-        private IntPtr message_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr message_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr message_1_;  // Note: Do not access this field directly - use the property accessors
         private bool success_;  // Note: Do not access this field directly - use the property accessors
 }
 
@@ -40364,7 +40369,8 @@ public partial class MutableProps : ISwiftObject, ISwiftStruct, IDisposable
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.
         private int value_;  // Note: Do not access this field directly - use the property accessors
-        private IntPtr name_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr name_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr name_1_;  // Note: Do not access this field directly - use the property accessors
 }
 
 public unsafe PayloadBuffer<MutableProps.Buffer> PayloadBuffer => new PayloadBuffer<MutableProps.Buffer>(_payload);
@@ -42939,7 +42945,8 @@ public partial class ReadOnlyProps : ISwiftObject, ISwiftStruct, IDisposable
                 // use the generated property accessors which call into Swift.
         private int storedInt_;  // Note: Do not access this field directly - use the property accessors
         private double storedDouble_;  // Note: Do not access this field directly - use the property accessors
-        private IntPtr storedString_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr storedString_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr storedString_1_;  // Note: Do not access this field directly - use the property accessors
         private int version_;  // Note: Do not access this field directly - use the property accessors
 }
 
@@ -43962,7 +43969,8 @@ public partial class OptionalConfig : ISwiftObject, ISwiftStruct, IDisposable
                 // use the generated property accessors which call into Swift.
         private IntPtr label_;  // Note: Do not access this field directly - use the property accessors
         private IntPtr count_;  // Note: Do not access this field directly - use the property accessors
-        private IntPtr fallbackLabel_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr fallbackLabel_0_;  // Note: Do not access this field directly - use the property accessors
+        private IntPtr fallbackLabel_1_;  // Note: Do not access this field directly - use the property accessors
 }
 
 public unsafe PayloadBuffer<OptionalConfig.Buffer> PayloadBuffer => new PayloadBuffer<OptionalConfig.Buffer>(_payload);
@@ -46701,7 +46709,7 @@ public interface IProcessingMode
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleMode : ISwiftObject, ISwiftStruct, IDisposable
+public partial class SimpleMode : ISwiftObject, ISwiftStruct, IDisposable, IProcessingMode, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice ModeName_Get()
     {
@@ -46860,6 +46868,10 @@ public partial class SimpleMode : ISwiftObject, ISwiftStruct, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<SimpleMode, TProtocol>(this);
+    
     
     public SimpleMode()
     {
@@ -46919,7 +46931,7 @@ public partial class SimpleMode : ISwiftObject, ISwiftStruct, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class StrictMode : ISwiftObject, ISwiftStruct, IDisposable
+public partial class StrictMode : ISwiftObject, ISwiftStruct, IDisposable, IProcessingMode, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice ModeName_Get()
     {
@@ -47077,6 +47089,10 @@ public partial class StrictMode : ISwiftObject, ISwiftStruct, IDisposable
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<StrictMode, TProtocol>(this);
     
     
     public StrictMode()
@@ -47602,7 +47618,7 @@ public interface IHasValue
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleItem : ISwiftObject, ISwiftStruct, IDisposable
+public partial class SimpleItem : ISwiftObject, ISwiftStruct, IDisposable, IDescribable, ITestIdentifiable, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Id_Get()
     {
@@ -47841,6 +47857,10 @@ public partial class SimpleItem : ISwiftObject, ISwiftStruct, IDisposable
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<SimpleItem, TProtocol>(this);
     
     public override string ToString() => Description;
     
@@ -48189,7 +48209,7 @@ public partial class MutableItem : ISwiftObject, ISwiftStruct, IDisposable, IHas
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDisplayable, Swift.Runtime.IExistentialBoxable
+public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDisplayable, IDescribable, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Text_Get()
     {
@@ -48512,7 +48532,7 @@ public partial class DisplayItem : ISwiftObject, ISwiftStruct, IDisposable, IDis
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, IAgeable, Swift.Runtime.IExistentialBoxable
+public partial class Person : ISwiftObject, ISwiftStruct, IDisposable, INameable, IAgeable, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Name_Get()
     {
@@ -49543,7 +49563,7 @@ public interface IPriorityHandler
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class NamedItem : ISwiftObject, ISwiftStruct, IDisposable
+public partial class NamedItem : ISwiftObject, ISwiftStruct, IDisposable, INamed, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Name_Get()
     {
@@ -49705,6 +49725,10 @@ public partial class NamedItem : ISwiftObject, ISwiftStruct, IDisposable
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
     
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<NamedItem, TProtocol>(this);
+    
     
     public NamedItem( string name)
     {
@@ -49736,7 +49760,7 @@ public partial class NamedItem : ISwiftObject, ISwiftStruct, IDisposable
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
+public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable, IMutableNamed, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice Name_Get()
     {
@@ -49929,6 +49953,10 @@ public partial class MutableNamedItem : ISwiftObject, ISwiftStruct, IDisposable
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<MutableNamedItem, TProtocol>(this);
     
     
     public MutableNamedItem( string name)
@@ -50370,7 +50398,7 @@ public partial class MutablePrioritizedItem : ISwiftObject, ISwiftStruct, IDispo
 /// This type wraps a Swift struct and must be disposed explicitly.
 /// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.
 /// </remarks>
-public partial class SimpleTask : ISwiftObject, ISwiftStruct, IDisposable
+public partial class SimpleTask : ISwiftObject, ISwiftStruct, IDisposable, ITaskDescriptor, Swift.Runtime.IExistentialBoxable
 {
     private Utf8Slice TaskName_Get()
     {
@@ -50599,6 +50627,10 @@ public partial class SimpleTask : ISwiftObject, ISwiftStruct, IDisposable
         }
         return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
     }
+    
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
+        => ExistentialContainerFactory.Create<SimpleTask, TProtocol>(this);
     
     
     public SimpleTask( string taskName,  SwiftBindingsTestLib.TaskStatus status,  SwiftBindingsTestLib.TaskPriority priority)
@@ -52457,6 +52489,200 @@ internal static class __SwiftFrameworkResolver_SwiftBindingsTestLib
     internal static void Initialize()
     {
         global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_SwiftBindingsTestLib).Assembly);
+    }
+}
+internal static class __SwiftNativeAOTFactories_SwiftBindingsTestLib
+{
+    [ModuleInitializer]
+    internal static void Initialize()
+    {
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SummableInt32>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<IntContainer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<OpaqueProvider>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MetatypeTestStruct>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AnotherMetatypeStruct>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<BoundIntPair>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<BoundStringPair>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Codec>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Codec.Encoding>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Codec.CompressionLevel>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<HashAlgorithm>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<UniqueResource>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FileHandle>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<TextStyle>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ImageRequest>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ImageRequest.Options>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<StatusCode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Shape>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<EnumPropertyHolder>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Animal>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Dog>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FinalCounter>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ClassWithProperties>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<TreeNode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Scope>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FrozenPoint>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FrozenStructWithProperties>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NonFrozenPoint>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NonFrozenStructWithProperties>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NestedOuter>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NestedOuter.Inner>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<StructBuilder>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<DeviceModel>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FetchError>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FetchResult>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ResultClosureTest>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<BatchConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ValueAnimal>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Registry>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<EventHandler>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Transformer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ConfigLoader>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<RequestBuilder>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<HttpVerb>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ArithmeticValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<BitwiseValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ComparableValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ApproximatelyEqual>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Tag>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<UnaryValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ParseError>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<RangeError>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<TypedThrowingParser>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ValidationError>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ThrowingStruct>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<TupleReturner>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncDataSource>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncThrowingWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncResult>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncStatus>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncTask>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncStringWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncArrayWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncComplexWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MainActorViewModel>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MainActorMethods>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Counter>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncProcessor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SharedState>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SendablePoint>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SendableConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NetworkConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NetworkConfig.HttpMethod>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NetworkConfig.ContentType>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<OrderContainer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<OrderContainer.Status>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<PaymentContainer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<PaymentContainer.Status>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<LogLevel>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Greeting>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<EdgeCaseStrings>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<CaseSensitiveEnum>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NetworkResponse>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<VisibilityTest>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<OpenBaseClass>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<DerivedClass>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<FilterScope>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<KeywordTest>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MutableProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NonFrozenMutableProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MutableClass>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ComputedSetterStruct>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<StaticProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<StaticMethods>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<KeyValueStore>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<IndexedStore>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ComputedProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ReadOnlyProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NonFrozenReadOnlyProps>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<EncodingConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<OptionalConfig>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<PointerWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<RawMemoryWorker>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<HandleWrapper>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ClosureConsumer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ClosureFactory>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<DataBuffer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<PathResolver>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<LabeledBuffer>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<HeaderMap>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SliceProcessor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimpleMode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<StrictMode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<ModeProcessor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Pipeline>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimpleItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MutableItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<DisplayItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Person>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MultiConformingValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<TaskPriority>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<NamedItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MutableNamedItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<PrioritizedItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<MutablePrioritizedItem>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimpleTask>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<EchoProcessor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimpleStatusHandler>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimplePriorityHandler>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<SimpleModel>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<AsyncService>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Processor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SummableInt32, ISummable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MetatypeTestStruct, IDefaultInitializable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<AnotherMetatypeStruct, IDefaultInitializable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Codec.Encoding, IEquatable<Codec.Encoding>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Codec.Encoding, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<TextStyle, IEquatable<TextStyle>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<ImageRequest.Options, IEquatable<ImageRequest.Options>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<StatusCode, IEquatable<StatusCode>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<StatusCode, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<ValueAnimal, IHasValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<HttpVerb, IEquatable<HttpVerb>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<ComparableValue, IEquatable<ComparableValue>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<ApproximatelyEqual, IEquatable<ApproximatelyEqual>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Tag, IEquatable<Tag>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<NetworkConfig.HttpMethod, IEquatable<NetworkConfig.HttpMethod>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<NetworkConfig.HttpMethod, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<NetworkConfig.ContentType, IEquatable<NetworkConfig.ContentType>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<NetworkConfig.ContentType, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<OrderContainer.Status, IEquatable<OrderContainer.Status>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<OrderContainer.Status, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<PaymentContainer.Status, IEquatable<PaymentContainer.Status>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<PaymentContainer.Status, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<LogLevel, IEquatable<LogLevel>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<LogLevel, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Greeting, IEquatable<Greeting>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Greeting, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<EdgeCaseStrings, IEquatable<EdgeCaseStrings>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<EdgeCaseStrings, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<CaseSensitiveEnum, IEquatable<CaseSensitiveEnum>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<CaseSensitiveEnum, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimpleMode, IProcessingMode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<StrictMode, IProcessingMode>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimpleItem, IDescribable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimpleItem, ITestIdentifiable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MutableItem, IHasValue>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<DisplayItem, IDisplayable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<DisplayItem, IDescribable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Person, INameable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<Person, IAgeable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MultiConformingValue, IAddable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MultiConformingValue, ISubtractable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MultiConformingValue, IMultipliable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MultiConformingValue, IDividable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<TaskPriority, IEquatable<TaskPriority>>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<TaskPriority, ISwiftHashable>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<NamedItem, INamed>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MutableNamedItem, IMutableNamed>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<PrioritizedItem, IPrioritized>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<MutablePrioritizedItem, IMutablePrioritized>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimpleTask, ITaskDescriptor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<EchoProcessor, IStringProcessor>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimpleStatusHandler, IStatusHandler>();
+        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<SimplePriorityHandler, IPriorityHandler>();
     }
 }
 #pragma warning restore CA2255

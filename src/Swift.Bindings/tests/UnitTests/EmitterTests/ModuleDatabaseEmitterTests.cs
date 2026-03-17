@@ -437,6 +437,75 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_InlineSize_RoundTrips()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.TwoWordStruct");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "TwoWordStruct"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib14TwoWordStructV",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct,
+                    InlineSize = 16
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.Contains("inlineSize=\"16\"", xml);
+
+                // Round-trip: load and verify InlineSize survives
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(16, loaded!.InlineSize);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_WithoutInlineSize_DoesNotEmitAttribute()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.SimpleStruct");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "SimpleStruct"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib12SimpleStructV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                    // No InlineSize
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.DoesNotContain("inlineSize", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.InlineSize);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");
