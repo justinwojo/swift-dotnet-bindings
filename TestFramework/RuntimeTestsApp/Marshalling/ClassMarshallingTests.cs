@@ -94,7 +94,7 @@ public class ClassMarshallingTests : TestBase
     #region UniqueResource (via public constructor)
 
     // createUniqueResource wrapper stripped during compilation — Swift wrapper can't compile this function
-    [Skip("Wrapper stripped during compilation")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestUniqueResourceCreation()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);

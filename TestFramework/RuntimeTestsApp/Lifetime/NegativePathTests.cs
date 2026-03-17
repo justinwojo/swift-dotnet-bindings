@@ -191,7 +191,7 @@ public class NegativePathTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation — can't test dispose behavior
-    [Skip("createUniqueResource wrapper stripped")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestDisposedResourceConsumeAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(10);

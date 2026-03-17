@@ -141,9 +141,25 @@ i = 0
 seen_utf8slice = False
 seen_empty_buffer = False
 
-# Protocols to preserve for runtime testing (Session 6+).
+# Protocols to preserve for runtime testing.
 # EveryProtocol conformances for these protocols are kept so proxy dispatch works at runtime.
-PRESERVED_PROTOCOLS = {"HasValue", "ExistentialParamDelegate"}
+# All protocols with witness dispatch tests need to be preserved here.
+PRESERVED_PROTOCOLS = {
+    "HasValue", "ExistentialParamDelegate",
+    "ProcessingMode",
+    "Describable", "TestIdentifiable", "Displayable",
+    "Nameable", "Ageable", "Addable", "Subtractable", "Multipliable", "Dividable",
+    "Named", "Prioritized",
+    "TaskDescriptor", "StringProcessor",
+    "StatusHandler", "PriorityHandler",
+}
+
+import re
+# Build regex pattern for whole-word protocol name matching.
+# Avoids "Named" matching inside "MutableNamed".
+_preserved_pattern = re.compile(r'\b(' + '|'.join(re.escape(p) for p in PRESERVED_PROTOCOLS) + r')\b')
+def _references_preserved_protocol(body):
+    return bool(_preserved_pattern.search(body))
 
 while i < len(lines):
     line = lines[i]
@@ -155,7 +171,7 @@ while i < len(lines):
         end = find_block_end(lines, i)
         body = scan_block_body(lines, i, end)
         # Preserve if the block references a preserved protocol
-        preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+        preserve = _references_preserved_protocol(body)
         if not preserve:
             removed_count += 1
             i = end + 1
@@ -175,7 +191,7 @@ while i < len(lines):
         # (a) EveryProtocol() — protocol witness dispatch for unimplemented conformances
         # Preserve if the block references a preserved protocol (Session 6+)
         if "EveryProtocol()" in body:
-            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            preserve = _references_preserved_protocol(body)
             if not preserve:
                 broken = True
 
@@ -225,7 +241,7 @@ while i < len(lines):
 
         broken = False
         if "EveryProtocol()" in body:
-            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            preserve = _references_preserved_protocol(body)
             if not preserve:
                 broken = True
         if not broken and "__self.init(" in body:
@@ -251,7 +267,7 @@ while i < len(lines):
 
         broken = False
         if "EveryProtocol()" in body:
-            preserve = any(p in body for p in PRESERVED_PROTOCOLS)
+            preserve = _references_preserved_protocol(body)
             if not preserve:
                 broken = True
         if not broken and "let existential" in body and "existential." in body:

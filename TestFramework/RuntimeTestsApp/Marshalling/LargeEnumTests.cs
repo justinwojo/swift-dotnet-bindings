@@ -77,7 +77,6 @@ public class LargeEnumTests : TestBase
         TestLogger.Info("DeviceModel.Custom created successfully");
     }
 
-    [Skip("SBW_Free_ entry point not found")] // SBW_Free_ entry point not found — string-returning free function
     public void TestDeviceDescriptionFreeFunction()
     {
         var phone1 = DeviceModel.Phone1;

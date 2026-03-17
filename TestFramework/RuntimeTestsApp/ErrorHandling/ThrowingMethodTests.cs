@@ -212,9 +212,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ValidationError.Empty case construction passed");
     }
 
-    // ValidationError.TooLong(Int32) — EntryPointNotFoundException at runtime
-    // The symbol $s...ValidationErrorO7tooLong... is not exported from the dylib
-    [Skip("Entry point not exported from dylib")]
     public void TestValidationErrorTooLongCase()
     {
         var tooLong = ValidationError.TooLong(50);

@@ -121,8 +121,7 @@ public class ProxyDisposeTests : TestBase
         public void SetValue(int newValue) => _value = newValue;
     }
 
-    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [Skip("witness table P/Invoke requires wrapper lib")]
+    [MonoJitCrash] // HasValueProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
     public void TestProxyDisposeReleasesStrongReference()
     {
         var initialCount = SwiftObjectRegistry.StrongCount;
@@ -136,8 +135,7 @@ public class ProxyDisposeTests : TestBase
         AssertEqual(initialCount, afterDispose, "StrongCount should return to initial value after dispose");
     }
 
-    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [Skip("witness table P/Invoke requires wrapper lib")]
+    [MonoJitCrash] // HasValueProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
     public void TestProxyDoubleDisposeIsSafe()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(10));
@@ -151,8 +149,7 @@ public class ProxyDisposeTests : TestBase
         TestLogger.Info("Double-dispose on proxy did not crash");
     }
 
-    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [Skip("witness table P/Invoke requires wrapper lib")]
+    [MonoJitCrash] // HasValueProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
     public void TestProxyPropertyAccessAfterDisposeThrows()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(42));
@@ -166,8 +163,7 @@ public class ProxyDisposeTests : TestBase
         TestLogger.Info("Property access after dispose correctly throws ObjectDisposedException");
     }
 
-    // Requires wrapper lib for witness table P/Invoke: HasValueProxy(impl) construction fails at runtime
-    [Skip("witness table P/Invoke requires wrapper lib")]
+    [MonoJitCrash] // HasValueProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
     public void TestProxyMethodAccessAfterDisposeThrows()
     {
         var proxy = new HasValueProxy(new SimpleHasValue(42));

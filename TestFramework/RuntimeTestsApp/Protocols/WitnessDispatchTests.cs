@@ -164,7 +164,7 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region String Method Dispatch Through Interface (Tier 2)
 
-    [Skip("class constructor with string params: InvalidCastException")] // Class constructor with string params: InvalidCastException at runtime
+    [MonoJitCrash] // class constructor with SwiftString.Buffer params: Mono JIT crash (works on NativeAOT) // Class constructor with string params: InvalidCastException at runtime
     public void TestDescribeMethodThroughInterface()
     {
         var item = new SimpleItem(id: "s1", label: "Widget");
@@ -183,7 +183,7 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDisplayable)DisplayItem).GetDisplay() = \"{iface.GetDisplay()}\"");
     }
 
-    [Skip("class constructor with string params: InvalidCastException")] // Class constructor with string params: InvalidCastException at runtime
+    [MonoJitCrash] // class constructor with SwiftString.Buffer params: Mono JIT crash (works on NativeAOT) // Class constructor with string params: InvalidCastException at runtime
     public void TestInheritedDescribeThroughDisplayable()
     {
         var item = new DisplayItem(text: "World");
@@ -246,7 +246,6 @@ public class BasicProtocolDispatchTests : TestBase
     // Tier 3: TaskPriority has String raw value — FromRawValue("high") routes through
     // SwiftBindings wrapper library, which isn't bundled in RuntimeTestsApp.
     // TaskStatus (Int32 raw value) works because FromRawValue(int) goes directly to native lib.
-    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerGetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
@@ -256,7 +255,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IPriorityHandler)handler).GetPriority().Tag = {priority.Tag}");
     }
 
-    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerSetPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.Low);
@@ -267,7 +265,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"After SetPriority(Critical), GetPriority().Tag = {priority.Tag}");
     }
 
-    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPriorityHandlerIsHigherPriority()
     {
         var handler = new SimplePriorityHandler(initialPriority: TaskPriority.High);
@@ -281,7 +278,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Enum Property Dispatch Through Interface (Tier 3 — String raw value enum needs wrapper lib)
 
-    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestPrioritizedPropertyGetThroughInterface()
     {
         var item = new PrioritizedItem(priority: TaskPriority.Medium);
@@ -290,7 +286,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IPrioritized)PrioritizedItem).Priority.Tag = {iface.Priority.Tag}");
     }
 
-    [Skip("TaskPriority String raw value needs wrapper lib")]
     public void TestMutablePrioritizedPropertySetThroughInterface()
     {
         var item = new MutablePrioritizedItem(priority: TaskPriority.Low);

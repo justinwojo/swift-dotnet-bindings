@@ -247,7 +247,7 @@ if [ "$PLATFORM" = "device" ]; then
     # Step 0: Find connected device
     echo "--- Step 0: Find connected device ---"
     if [ -z "$DEVICE_UDID" ]; then
-        DEVICE_UDID=$(xcrun devicectl list devices 2>/dev/null | grep -i "iphone\|ipad" | head -1 | awk '{print $NF}' || true)
+        DEVICE_UDID=$(xcrun devicectl list devices 2>/dev/null | grep -i "iphone\|ipad" | head -1 | grep -oE '[0-9A-Fa-f]{8,}-[0-9A-Fa-f-]{4,}[0-9A-Fa-f]' || true)
         if [ -z "$DEVICE_UDID" ]; then
             DEVICE_UDID=$(xcrun xctrace list devices 2>/dev/null | grep -v "Simulator" | grep "(.*)" | head -1 | sed 's/.*(\(.*\))/\1/' || true)
         fi

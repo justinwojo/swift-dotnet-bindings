@@ -180,11 +180,8 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"describeConfig with tags = {desc}");
     }
 
-    // --- ValueAnimal: entry points not exported from dylib ---
+    // --- ValueAnimal: entry points now in SwiftBindings wrapper ---
 
-    // Value property/GetValue/SetValue: EntryPointNotFoundException — symbols
-    // for inherited class + protocol conformance composition not in TBD
-    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalBlittableProperty()
     {
         var va = new ValueAnimal(name: "Fox", sound: "Ring", value: 42);
@@ -192,7 +189,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal.Value = {va.Value}");
     }
 
-    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalGetSetValue()
     {
         var va = new ValueAnimal(name: "Bear", sound: "Growl", value: 10);
@@ -203,7 +199,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal Get/SetValue: {va.GetValue()}");
     }
 
-    [Skip("Entry point not exported from dylib")]
     public void TestValueAnimalHasValueInterface()
     {
         var va = new ValueAnimal(name: "Owl", sound: "Hoot", value: 55);

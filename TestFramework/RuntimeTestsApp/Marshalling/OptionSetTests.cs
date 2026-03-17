@@ -127,7 +127,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info("TextStyle custom construction with RawValue 0 passed");
     }
 
-    [Skip("SBW_Free_ entry point not found")] // SBW_Free_ entry point not found — string-returning free function
     public void TestDescribeTextStyleBold()
     {
         var desc = TestLibFunctions.DescribeTextStyle(TextStyle.Bold);
@@ -135,7 +134,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"DescribeTextStyle(Bold) = \"{desc}\"");
     }
 
-    [Skip("SBW_Free_ entry point not found")]
     public void TestDescribeTextStyleItalic()
     {
         var desc = TestLibFunctions.DescribeTextStyle(TextStyle.Italic);
@@ -153,7 +151,6 @@ public class OptionSetTests : TestBase
         TestLogger.Info($"Bold|Italic RawValue = {combined.RawValue}");
     }
 
-    [Skip("SBW_Free_ entry point not found")]
     public void TestDescribeCombinedFlags()
     {
         // Bold (1) | Italic (2) = 3

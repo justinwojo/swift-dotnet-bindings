@@ -36,7 +36,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [Skip("createUniqueResource wrapper stripped")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestUniqueResourceDoubleDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
@@ -105,7 +105,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [Skip("createUniqueResource wrapper stripped")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestUniqueResourceAccessAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -120,7 +120,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [Skip("createUniqueResource wrapper stripped")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestUniqueResourceMethodAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -157,7 +157,7 @@ public class OwnershipTests : TestBase
     }
 
     // createUniqueResource wrapper stripped during compilation
-    [Skip("createUniqueResource wrapper stripped")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
     public void TestMultipleResourcesIndependent()
     {
         var r1 = TestLibFunctions.CreateUniqueResource(1);
