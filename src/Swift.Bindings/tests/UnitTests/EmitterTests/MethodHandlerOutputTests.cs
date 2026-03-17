@@ -463,6 +463,7 @@ public class MethodHandlerOutputTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
+        // Frozen struct return is now Cdecl-compatible — closure goes through @_cdecl path
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
             new NamedTypeSpec("TestModule.Box"));
@@ -481,10 +482,9 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("private static unsafe TestModule.Box handle_callback_", csOutput);
-        Assert.DoesNotContain("private static unsafe void* handle_callback_", csOutput);
         Assert.Contains("return del(", csOutput);
-        // Closure returns non-primitive struct → falls back to legacy Swift path (not Cdecl-compatible)
-        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, TestModule.Box>", csOutput);
+        // Frozen struct return in closure → now Cdecl-compatible, uses @_cdecl path
+        Assert.Contains("CallConvCdecl", csOutput);
     }
 
     [Fact]
@@ -494,6 +494,7 @@ public class MethodHandlerOutputTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
+        // Scalar (frozen struct) return is now Cdecl-compatible
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
             new NamedTypeSpec("TestModule.Scalar"));
@@ -513,9 +514,8 @@ public class MethodHandlerOutputTests
 
         Assert.Contains("private static unsafe double sample_callback_", csOutput);
         Assert.DoesNotContain("private static unsafe void* sample_callback_", csOutput);
-        // Closure returns mapped scalar (frozen struct mapped to Double, but TypeSpec is TestModule.Scalar)
-        // Falls back to legacy Swift path because the raw TypeSpec is non-primitive
-        Assert.Contains("delegate* unmanaged[Swift]<double, SwiftSelf, double>", csOutput);
+        // Scalar frozen struct return → now Cdecl-compatible, uses @_cdecl path
+        Assert.Contains("CallConvCdecl", csOutput);
     }
 
     [Fact]

@@ -33,8 +33,6 @@ public static class OptionalPointerWrapperEmitter
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
                 return false;
-            if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase))
-                return false;
         }
         return true;
     }

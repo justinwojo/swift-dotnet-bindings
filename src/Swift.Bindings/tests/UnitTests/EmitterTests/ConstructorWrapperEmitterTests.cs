@@ -1144,10 +1144,11 @@ public class ConstructorWrapperEmitterTests
     #region Frozen/Non-Frozen Struct Parameter Tests
 
     [Fact]
-    public void EmitSwiftWrapper_WithFrozenStructParam_PassesByValue()
+    public void EmitSwiftWrapper_WithFrozenStructParam_PassesAsPointer()
     {
-        // Frozen structs are passed by value from C# (Buffer or blittable),
-        // so the @_cdecl wrapper must accept the Swift type directly.
+        // Custom frozen structs are now passed as UnsafeRawPointer in @_cdecl wrappers
+        // and reconstructed via .load(as: T.self). This avoids "Swift structs cannot be
+        // represented in Objective-C" errors at wrapper compilation.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
             "Container",
             ("TestModule.Point", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
@@ -1195,12 +1196,117 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        // Frozen struct: passed by value (Swift type name), NOT as UnsafeRawPointer
-        // RenderSwiftTypeSpec may use unqualified name "Point" or qualified "TestModule.Point"
-        Assert.Contains("_ point: ", output);
-        Assert.Contains("Point", output);
+        // Custom frozen struct: passed as UnsafeRawPointer, reconstructed via .load(as:)
+        Assert.Contains("_ point: UnsafeRawPointer", output);
+        Assert.Contains("point.load(as: TestModule.Point.self)", output);
+        Assert.Contains("point: pointVal", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_WithSystemFrozenStructParam_PassesByValue()
+    {
+        // System framework frozen structs (CoreGraphics.CGPoint, etc.) are C-representable
+        // and must be passed by-value in @_cdecl wrappers, NOT via UnsafeRawPointer.
+        var typeDb = new TypeDatabase();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+                MetadataAccessor = "$sSdMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var cgModule = new ModuleTypeDatabase("CoreGraphics", "/usr/lib/swift/libswiftCoreGraphics.dylib");
+        cgModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+                MetadataAccessor = "$sSo7CGPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(cgModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Container"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+                MetadataAccessor = "$s10TestModule9ContainerCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule9ContainerCyAcSo7CGPointVcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "origin",
+                    PrivateName = "origin",
+                    SwiftTypeSpec = new NamedTypeSpec("CoreGraphics.CGPoint"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+            "TestModule", "Container", method.MangledName);
+        method.MangledName = cdeclSymbol;
+        method.UsesCdeclConstructorWrapper = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+        // System frozen struct (CoreGraphics.CGPoint): passed by-value, NOT as UnsafeRawPointer
+        Assert.Contains("_ origin: CGPoint", output);
         Assert.DoesNotContain("UnsafeRawPointer", output);
-        Assert.Contains("point: point", output);
+        Assert.Contains("origin: origin", output);
     }
 
     [Fact]

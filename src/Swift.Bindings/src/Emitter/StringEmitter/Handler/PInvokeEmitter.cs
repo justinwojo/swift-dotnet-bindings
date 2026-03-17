@@ -478,6 +478,17 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // @_cdecl frozen struct params: pass as IntPtr (pointer to marshalled buffer).
+                // Custom frozen structs are not C-representable in @_cdecl — Swift wrapper
+                // receives UnsafeRawPointer and reconstructs via .load(as: T.self).
+                if (_env.MethodDecl.UsesCdeclWrapper &&
+                    WrapperValidation.IsNonPrimitiveFrozenStructParam(argument, _env.TypeDatabase))
+                {
+                    AddParameter(new MarshalledType.CdeclFrozenStruct(
+                        argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);
+                    continue;
+                }
+
                 if (MarshallingHelpers.RequiresMemoryManagement(argumentTypeRecord))
                     AddParameter(new MarshalledType.FrozenBuffer(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName, inoutModifier);
                 else

@@ -242,11 +242,10 @@ public static class WrapperValidation
             typeRecord.Kind == TypeRecordKind.Struct &&
             MarshallingHelpers.IsTypeFrozen(typeRecord))
         {
-            // Known Apple framework value types (e.g., Foundation.Date = Double wrapper)
-            // are simple blittable value types safe for @_cdecl by-value passing.
-            // Custom frozen structs (e.g., LottieColor) are NOT safe — they trigger
-            // "Swift structs cannot be represented in Objective-C" at wrapper compilation.
-            if (spec is NamedTypeSpec namedSpec && AppleFrameworkRegistry.IsKnownValueType(namedSpec.Name))
+            // System/Apple framework frozen structs (CGRect, CGSize, Foundation.Date, etc.)
+            // are blittable and safe for @_cdecl by-value passing. Only custom frozen structs
+            // from third-party/user libraries need UnsafeRawPointer marshalling.
+            if (spec is NamedTypeSpec namedSpec && ConstructorWrapperEmitter.IsSystemFrozenStruct(namedSpec))
                 return false;
             return true;
         }
@@ -460,9 +459,8 @@ public static class WrapperValidation
         if (env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNestedFrozenStructParam(arg, env.TypeDatabase)))
             return "nested_frozen_struct_param";
 
-        // 12b. No non-primitive frozen struct parameters
-        if (env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase)))
-            return "non_primitive_frozen_struct_param";
+        // 12b. Non-primitive frozen struct parameters are now handled via UnsafeRawPointer
+        // in @_cdecl wrappers — no longer a rejection reason.
 
         // 13. Not already using wrapper library
         if (env.MethodDecl.UsesWrapperLibrary)

@@ -199,6 +199,31 @@ public class ClosureTests : TestBase
 
     #endregion
 
+    #region Frozen Struct Closure Parameters
+
+    public void TestClosureWithFrozenStructParam()
+    {
+        // Tests closure with frozen struct parameter via @_cdecl heap allocation path.
+        // Swift adapter: allocates FrozenPoint on heap via initializeMemory, passes UnsafeMutableRawPointer.
+        // C# callback: receives void*, unmarshals via SwiftMarshal.MarshalFromSwift<FrozenPoint>.
+        // Swift function creates FrozenPoint(x: 3.0, y: 4.0) and passes to callback.
+        var result = TestLibFunctions.CallWithFrozenStruct(point => point.X + point.Y);
+        AssertEqual(7.0, result, "CallWithFrozenStruct: 3.0 + 4.0 = 7.0");
+        TestLogger.Info($"CallWithFrozenStruct(x+y) = {result}");
+    }
+
+    public void TestClosureWithFrozenStructParamComplex()
+    {
+        // Tests that the frozen struct data is correctly marshalled through the closure boundary.
+        // Compute distance from origin: sqrt(x^2 + y^2) for FrozenPoint(3.0, 4.0) = 5.0.
+        var result = TestLibFunctions.CallWithFrozenStruct(point =>
+            Math.Sqrt(point.X * point.X + point.Y * point.Y));
+        AssertEqual(5.0, result, "CallWithFrozenStruct: distance(3,4) = 5.0");
+        TestLogger.Info($"CallWithFrozenStruct(distance) = {result}");
+    }
+
+    #endregion
+
     #region Pass 2 — X2: Multiple Closure Parameters
 
     public void TestExecuteWithCallbacks()

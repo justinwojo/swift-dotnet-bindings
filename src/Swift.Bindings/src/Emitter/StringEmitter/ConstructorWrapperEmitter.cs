@@ -792,13 +792,23 @@ public static class ConstructorWrapperEmitter
                         $"{argLabel}{label}Val");
             }
 
-            // Frozen structs (including those with memory management like String):
-            // C# passes the struct value directly (Buffer or blittable struct),
-            // so @_cdecl must accept the Swift type by value — not as a pointer.
+            // Frozen structs: system/Apple types pass by-value, custom types via UnsafeRawPointer.
             if (MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
-                return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
+                // System framework frozen structs (CGRect, Date, etc.) are C-representable
+                // and safe for @_cdecl by-value passing. Custom frozen structs from third-party
+                // libraries trigger "Swift structs cannot be represented in Objective-C".
+                if (swiftTypeSpec is NamedTypeSpec frozenNamed && IsSystemFrozenStruct(frozenNamed))
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                    return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
+                }
+
+                // Custom frozen structs: pass as UnsafeRawPointer and reconstruct via .load(as:).
+                var moduleQualifiedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+                return ($"_ {label}: UnsafeRawPointer",
+                        $"let {label}Val = {label}.load(as: {moduleQualifiedType}.self)",
+                        $"{argLabel}{label}Val");
             }
         }
 
@@ -873,6 +883,29 @@ public static class ConstructorWrapperEmitter
 
         return named.Name is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
             or "Swift.Set" or "Swift.Result";
+    }
+
+    /// <summary>
+    /// Returns true for frozen structs from system/Apple frameworks that are C-representable
+    /// and safe for by-value @_cdecl passing. Covers:
+    /// - Types in AppleFrameworkRegistry.ValueTypes (explicitly registered Apple value types)
+    /// - Types from known system C-bridging modules (CoreGraphics, CoreFoundation, Darwin, simd)
+    ///   that are not in the Apple framework registry but are always C-representable
+    /// Does NOT include arbitrary third-party dependency modules — those may contain custom
+    /// Swift structs that trigger "cannot be represented in Objective-C".
+    /// </summary>
+    internal static bool IsSystemFrozenStruct(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        // Explicitly registered Apple value types (Foundation.Date, ARKit.ARRaycastQuery, etc.)
+        if (AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name))
+            return true;
+        // System C-bridging modules whose frozen structs are always C-representable.
+        // These modules expose C structs via Swift overlays — they are inherently @_cdecl-safe.
+        var module = SwiftTypeName.FromTypeSpec(typeSpec).Module;
+        return module is "CoreGraphics" or "CoreFoundation" or "Darwin" or "simd"
+            or "Swift" or "ObjectiveC" or "_Concurrency";
     }
 
     /// <summary>

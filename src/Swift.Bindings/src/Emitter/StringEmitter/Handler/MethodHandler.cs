@@ -745,6 +745,8 @@ namespace BindingsGeneration
                     if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
                     if (ConstructorWrapperEmitter.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
+                    // Async emitter has no CdeclFrozenStruct marshalling path — keep blocking.
+                    // stackalloc buffers are not safe after await (plan risk #2).
                     if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
                     return true;
                 });

@@ -411,11 +411,15 @@ public class SilgenNameTrampolineTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("name", optStringType, moduleDecl));
 
-        EmitMethod(method, typeDatabase);
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Generic parent → no optional pointer wrapper at all (can't express generic in @_cdecl)
+        // Generic parent with concrete signature → method gets @_cdecl wrapper via protocol erasure.
+        // Previously blocked by frozen struct gate (Optional is registered as frozen struct),
+        // now handled correctly via UnsafeRawPointer. No optional pointer wrapper needed.
         Assert.False(method.HasOptionalPointerWrapper);
-        Assert.False(method.UsesCdeclMethodWrapper);
+        Assert.True(method.UsesCdeclMethodWrapper);
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.Contains("_SBW_P_", swiftOutput); // Protocol erasure
     }
 
     [Fact]
@@ -794,8 +798,10 @@ public class SilgenNameTrampolineTests
 
         EmitMethod(method, typeDatabase);
 
+        // With frozen struct gate removed, ShouldEmitWrapper returns true first,
+        // so method gets standard @_cdecl wrapper (not optional pointer wrapper).
         Assert.True(method.UsesCdeclMethodWrapper);
-        Assert.True(method.HasOptionalPointerWrapper);
+        Assert.False(method.HasOptionalPointerWrapper);
         Assert.True(method.UsesCdeclWrapper);
     }
 
@@ -848,12 +854,12 @@ public class SilgenNameTrampolineTests
     #region Simple Enum @_cdecl Return Tests
 
     [Fact]
-    public void OptionalPointerWrapper_RawValueEnumReturn_EmitsRawValueConversion()
+    public void MethodWrapper_RawValueEnumReturn_EmitsRawValueConversion()
     {
-        // Regression test: wrapper-owned @_cdecl paths must convert simple enum returns
+        // Regression test: @_cdecl wrapper paths must convert simple enum returns
         // via .rawValue, not return the Swift enum directly (which is incompatible with
         // the C integer return type in the @_cdecl signature).
-        // Uses OptionalPointer path (large Optional param) to exercise EmitCdeclDirectReturn.
+        // With frozen struct gate removed, method goes through standard @_cdecl method wrapper.
         var typeDatabase = CreateOptionalPointerTypeDatabaseWithEnum("Status", rawValueType: "Int32");
 
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -869,20 +875,20 @@ public class SilgenNameTrampolineTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Debug: if this fails, output the swift to see what path was taken
-        Assert.True(method.HasOptionalPointerWrapper,
-            $"HasOptionalPointerWrapper=false. UsesCdeclMethodWrapper={method.UsesCdeclMethodWrapper}, UsesWrapperLibrary={method.UsesWrapperLibrary}. Swift:\n{swiftOutput}");
+        // Method now goes through standard @_cdecl wrapper (not optional pointer wrapper)
+        Assert.True(method.UsesCdeclMethodWrapper,
+            $"UsesCdeclMethodWrapper=false. HasOptionalPointerWrapper={method.HasOptionalPointerWrapper}, UsesWrapperLibrary={method.UsesWrapperLibrary}. Swift:\n{swiftOutput}");
         Assert.Contains("@_cdecl", swiftOutput);
         // Must convert via .rawValue, not return the enum directly
         Assert.Contains(".rawValue)", swiftOutput);
     }
 
     [Fact]
-    public void OptionalPointerWrapper_TagOnlyEnumReturn_EmitsUnsafePointerConversion()
+    public void MethodWrapper_TagOnlyEnumReturn_EmitsUnsafePointerConversion()
     {
         // Regression test: tag-only enums (no raw value) use withUnsafePointer
         // to extract the tag bits for the @_cdecl integer return.
-        // Uses OptionalPointer path (large Optional param) to exercise EmitCdeclDirectReturn.
+        // With frozen struct gate removed, method goes through standard @_cdecl method wrapper.
         var typeDatabase = CreateOptionalPointerTypeDatabaseWithEnum("Direction", rawValueType: null);
 
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -899,7 +905,7 @@ public class SilgenNameTrampolineTests
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("@_cdecl", swiftOutput);
-        Assert.True(method.HasOptionalPointerWrapper);
+        Assert.True(method.UsesCdeclMethodWrapper);
         // Tag-only enum: must use withUnsafePointer to extract tag bits
         Assert.Contains("withUnsafePointer", swiftOutput);
     }

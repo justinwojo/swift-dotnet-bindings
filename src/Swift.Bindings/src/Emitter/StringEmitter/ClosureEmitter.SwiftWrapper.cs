@@ -144,9 +144,20 @@ public static partial class ClosureEmitter
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
             closureParams.Add($"p{argIndex}: {swiftType}");
 
-            // D1: Complex enums use heap allocation — track for cdecl arg substitution
-            if (closureHandler != null && closureHandler.IsComplexEnum(arg))
-                heapAllocArgs.Add((argIndex, swiftType));
+            // D1: Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
+            // Exclude types that pass directly through @convention(c): primitives, Bool, pointers,
+            // classes, ObjC-bridged, and simple enums (these are handled by GetSwiftArgConversion).
+            if (closureHandler != null)
+            {
+                if (closureHandler.IsComplexEnum(arg))
+                    heapAllocArgs.Add((argIndex, swiftType));
+                else if (arg is NamedTypeSpec frozenNamed && closureHandler.IsFrozenStruct(frozenNamed) &&
+                         !IsSwiftPrimitive(frozenNamed.Name) && frozenNamed.Name != "Swift.Bool" &&
+                         !frozenNamed.Name.Contains("Pointer") && frozenNamed.Name != "Swift.OpaquePointer" &&
+                         !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
+                         !closureHandler.IsSimpleEnum(frozenNamed))
+                    heapAllocArgs.Add((argIndex, swiftType));
+            }
 
             argIndex++;
         }
@@ -432,6 +443,18 @@ public static partial class ClosureEmitter
             if (closureHandler.IsSimpleEnum(named))
                 return true;
 
+            // Frozen structs: passed via UnsafeMutableRawPointer heap allocation in adapter closure.
+            // The C# callback receives struct via stackalloc + MarshalToSwift (Layer 1 already handles this).
+            if (closureHandler.IsFrozenStruct(named))
+                return true;
+
+            // Complex enums: passed via UnsafeMutableRawPointer heap allocation in adapter closure.
+            // C# callback and Swift adapter heap allocation code are already written.
+            // Note: complex enum RETURNS are blocked by Layer 1 (IsSupportedClosureReturnType),
+            // so this gate only effectively enables complex enum parameters.
+            if (closureHandler.IsComplexEnum(named))
+                return true;
+
             // Optional<Class/ObjC> uses nil-pointer ABI (pointer-sized)
             if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
                 named.GenericParameters.Count == 1)
@@ -488,8 +511,6 @@ public static partial class ClosureEmitter
             if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
-                return false;
-            if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase))
                 return false;
         }
         return true;

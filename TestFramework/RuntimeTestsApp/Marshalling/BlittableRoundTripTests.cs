@@ -58,6 +58,29 @@ public class BlittableRoundTripTests : TestBase
         TestLogger.Info("FrozenPoint edge cases passed");
     }
 
+    public void TestFrozenPointMethodWithStructParam()
+    {
+        // Tests frozen struct method parameter via @_cdecl UnsafeRawPointer path.
+        // C# marshals FrozenPoint via stackalloc + MarshalToSwift, passes IntPtr to Swift wrapper.
+        // Swift wrapper does .load(as: FrozenPoint.self) to reconstruct.
+        var p1 = new FrozenPoint { X = 2.0, Y = 4.0 };
+        var p2 = new FrozenPoint { X = 6.0, Y = 8.0 };
+        var mid = p1.Midpoint(p2);
+        AssertEqual(4.0, mid.X, "Midpoint X = (2+6)/2");
+        AssertEqual(6.0, mid.Y, "Midpoint Y = (4+8)/2");
+        TestLogger.Info($"Midpoint(({p1.X},{p1.Y}), ({p2.X},{p2.Y})) = ({mid.X},{mid.Y})");
+    }
+
+    public void TestFrozenPointTranslated()
+    {
+        // Tests method returning frozen struct after struct param marshalling.
+        var point = new FrozenPoint { X = 1.0, Y = 2.0 };
+        var translated = point.Translated(3.0, 4.0);
+        AssertEqual(4.0, translated.X, "Translated X = 1+3");
+        AssertEqual(6.0, translated.Y, "Translated Y = 2+4");
+        TestLogger.Info($"Translated = ({translated.X},{translated.Y})");
+    }
+
     #endregion
 
     #region Simple Class Tests

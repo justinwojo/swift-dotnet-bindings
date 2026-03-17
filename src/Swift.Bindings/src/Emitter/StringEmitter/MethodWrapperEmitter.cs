@@ -99,11 +99,8 @@ public static class MethodWrapperEmitter
         if (HasNestedFrozenStructParameter(env))
             return false;
 
-        // 12b. No non-primitive frozen struct parameters — @_cdecl rejects "Swift structs
-        // cannot be represented in Objective-C" for custom frozen struct types.
-        // Primitives (Int, Float, Bool, CGFloat) and String are handled via GetCdeclParamMapping.
-        if (HasNonPrimitiveFrozenStructParameter(env))
-            return false;
+        // 12b. Non-primitive frozen struct parameters are now handled via UnsafeRawPointer
+        // in @_cdecl wrappers — no longer a skip reason.
 
         // 13. Not already using wrapper library (DebugParam, ArraySlice, etc. own the wrapper)
         if (env.MethodDecl.UsesWrapperLibrary)

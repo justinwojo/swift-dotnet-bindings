@@ -258,13 +258,13 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NonCdeclClosureParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_FrozenStructClosureParameter_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
-        // Closure with String arg — not Cdecl-compatible
+        // String (frozen struct) is now Cdecl-compatible via heap allocation in closure adapter
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
             TupleTypeSpec.Empty);
@@ -273,7 +273,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

@@ -22,6 +22,7 @@ namespace BindingsGeneration
                 MarshalledType.CdeclExistential(_, var publicType) => publicType,
                 MarshalledType.SimpleEnum(var underlyingType, var enumTypeName) => enumTypeName,
                 MarshalledType.ObjCBridged(var csTypeName) => csTypeName,
+                MarshalledType.CdeclFrozenStruct(var cdeclFsType) => cdeclFsType,
                 MarshalledType.CdeclClosureFuncPtr => "IntPtr",
                 MarshalledType.CdeclClosureContext => "IntPtr",
                 MarshalledType.AsyncThrowingContext => "IntPtr",
@@ -57,6 +58,8 @@ namespace BindingsGeneration
             MarshalledType.Existential(var containerType, _) => $"{modifier} {containerType} {Name}",
             // @_cdecl existential: pass container by ref (matches UnsafeRawPointer in Swift)
             MarshalledType.CdeclExistential(var containerType, _) => $"ref {containerType} {Name}",
+            // @_cdecl frozen struct: pass as IntPtr (pointer to marshalled buffer)
+            MarshalledType.CdeclFrozenStruct => $"IntPtr {Name}",
             // Bool requires explicit [MarshalAs] with LibraryImport + DisableRuntimeMarshalling
             MarshalledType.BoolType => $"[MarshalAs(UnmanagedType.U1)] {modifier} bool {Name}",
             // All other types delegate to SignatureString
@@ -80,6 +83,8 @@ namespace BindingsGeneration
             MarshalledType.Existential(_, var publicType) => $"{modifier} {publicType} {Name}",
             // @_cdecl existential: same public type in wrapper signature
             MarshalledType.CdeclExistential(_, var publicType) => $"{modifier} {publicType} {Name}",
+            // @_cdecl frozen struct: show public C# type in wrapper signature (not IntPtr)
+            MarshalledType.CdeclFrozenStruct(var cdeclFsCsType) => $"{modifier} {cdeclFsCsType} {Name}",
             // Native-remapped types: URL uses SafeHandle, Data uses the actual Swift type
             MarshalledType.NativeRemappedNonFrozenType => $"{modifier} SafeHandle {Name}",
             MarshalledType.NativeRemappedFrozen(var swiftWrapperType) => $"{modifier} {swiftWrapperType} {Name}",
@@ -172,6 +177,8 @@ namespace BindingsGeneration
                 // @_cdecl existential: ref to pre-extracted container local variable
                 { Type: MarshalledType.CdeclExistential(var containerType, _) } =>
                     $"ref {parameter.Name}Container",
+                // @_cdecl frozen struct: use the marshalled pointer local variable
+                { Type: MarshalledType.CdeclFrozenStruct } => $"{parameter.Name}Ptr",
                 { Type: MarshalledType.NonFrozenIntPtrType } => $"{parameter.Name}Handle",
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: MarshalledType.FrozenBuffer, modifier: "ref" } => $"ref {parameter.Name}Disposable.BufferRef",

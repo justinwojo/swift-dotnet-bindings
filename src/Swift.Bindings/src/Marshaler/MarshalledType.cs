@@ -45,6 +45,10 @@ public abstract record MarshalledType
     /// <summary>Frozen struct with memory management requiring a .Buffer wrapper.</summary>
     public sealed record FrozenBuffer(string TypeName) : MarshalledType;
 
+    /// <summary>Custom frozen struct passed as IntPtr (UnsafeRawPointer) in @_cdecl wrappers.
+    /// Carries the public C# type name for wrapper signature, while P/Invoke uses IntPtr.</summary>
+    public sealed record CdeclFrozenStruct(string CSharpTypeName) : MarshalledType;
+
     /// <summary>@convention(c) function pointer with full delegate* type string.</summary>
     public sealed record ConventionCFuncPtr(string FuncPtrType) : MarshalledType;
 
@@ -128,6 +132,7 @@ public abstract record MarshalledType
         ObjCBridged(var csTypeName) => csTypeName,
         NativeRemappedFrozen(var swiftWrapperType) => swiftWrapperType,
         FrozenBuffer(var typeName) => typeName + ".Buffer",
+        CdeclFrozenStruct(var csharpTypeName) => csharpTypeName,
         ConventionCFuncPtr(var funcPtrType) => funcPtrType,
         SwiftSelfTyped(var innerType) => $"SwiftSelf<{innerType}>",
         BoolType => "bool",

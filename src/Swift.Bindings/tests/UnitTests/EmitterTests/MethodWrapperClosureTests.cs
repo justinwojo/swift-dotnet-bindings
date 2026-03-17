@@ -34,13 +34,13 @@ public class MethodWrapperClosureTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NonCdeclClosure_ReturnsFalse()
+    public void ShouldEmitWrapper_FrozenStructClosureParam_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
-        // String arg is not Cdecl-compatible
+        // String (frozen struct) is now Cdecl-compatible via heap allocation in closure adapter
         var closureType = CreateEscapingClosure(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
             TupleTypeSpec.Empty);
@@ -48,7 +48,7 @@ public class MethodWrapperClosureTests
         var method = CreateMethodWithParam("doWork", closureType, "callback", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -124,12 +124,27 @@ public class MethodWrapperClosureTests
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
+        // Register a non-frozen struct for genuinely non-Cdecl-compatible closure arg
+        var extraModule = new ModuleTypeDatabase("TestExtra", "/tmp/TestExtra.dylib");
+        extraModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeSized"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestExtra", "RuntimeSized"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeSized"),
+                MetadataAccessor = "$s9TestExtra11RuntimeSizedVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement, // NOT frozen
+                Kind = TypeRecordKind.Struct
+            });
+        typeDb.AddModuleDatabase(extraModule);
+
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var cdeclClosure = CreateEscapingClosure(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
             TupleTypeSpec.Empty);
+        // Non-frozen struct is genuinely non-Cdecl-compatible
         var nonCdeclClosure = CreateEscapingClosure(
-            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
+            new TupleTypeSpec(new[] { new NamedTypeSpec("TestExtra.RuntimeSized") }),
             TupleTypeSpec.Empty);
 
         var method = CreateMethodWithParams("doWork",
@@ -297,12 +312,13 @@ public class MethodWrapperClosureTests
     }
 
     [Fact]
-    public void Constructor_ShouldEmitWrapper_NonCdeclClosure_ReturnsFalse()
+    public void Constructor_ShouldEmitWrapper_FrozenStructClosureParam_ReturnsTrue()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        // String (frozen struct) is now Cdecl-compatible via heap allocation in closure adapter
         var closureType = CreateEscapingClosure(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.String") }),
             TupleTypeSpec.Empty);
@@ -310,7 +326,7 @@ public class MethodWrapperClosureTests
         var method = CreateConstructorWithParam(closureType, "handler", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

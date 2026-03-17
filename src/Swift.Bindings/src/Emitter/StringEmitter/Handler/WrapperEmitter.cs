@@ -105,6 +105,18 @@ namespace BindingsGeneration
                 IsProtocolAvailableForConstraint);
             _syncPlan = builder.BuildSyncPlan();
             _needsUnsafeBody = _syncPlan.RequiresUnsafe;
+
+            // CdeclFrozenStruct params use stackalloc + byte* which require unsafe context
+            if (_env.MethodDecl.UsesCdeclWrapper &&
+                _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+                    WrapperValidation.IsNonPrimitiveFrozenStructParam(arg, _env.TypeDatabase) &&
+                    !_env.BoundGenericsHandler.IsBoundGeneric(arg) &&
+                    !_env.ClosureHandler.IsClosure(arg) &&
+                    !MarshallingHelpers.IsConvertibleType(arg.SwiftTypeSpec) &&
+                    !_env.TypeConversionHandler.HasNativeTypeRemapping(arg.SwiftTypeSpec)))
+            {
+                _needsUnsafeBody = true;
+            }
         }
 
         /// <summary>
@@ -159,6 +171,7 @@ namespace BindingsGeneration
             EmitBoundGenericArguments(csWriter);
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
+            EmitCdeclFrozenStructMarshalling(csWriter);
 
             if (isGeneric)
             {
@@ -220,6 +233,7 @@ namespace BindingsGeneration
 
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
+            EmitCdeclFrozenStructMarshalling(csWriter);
 
             if (needsTryFinally)
             {
@@ -320,6 +334,7 @@ namespace BindingsGeneration
             EmitBoundGenericArguments(csWriter);
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
+            EmitCdeclFrozenStructMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
             EmitPInvokeCall(csWriter);

@@ -271,13 +271,26 @@ public class ClosureCdeclEmitterTests
     public void Emit_IndirectReturnClosureNonAsync_NonPrimitiveReturn_FallsBackToSwift()
     {
         var typeDatabase = CreateTypeDatabase();
+        // Register a non-frozen struct for genuinely non-Cdecl-compatible closure return
+        var extraModule = new ModuleTypeDatabase("TestExtra", "/tmp/TestExtra.dylib");
+        extraModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeData"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestExtra", "RuntimeData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeData"),
+                MetadataAccessor = "$s9TestExtra11RuntimeDataVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement, // NOT frozen
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(extraModule);
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // Closure returning non-primitive struct → NOT Cdecl-compatible → legacy Swift path
+        // Closure returning non-frozen struct → NOT Cdecl-compatible → legacy Swift path
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
-            new NamedTypeSpec("TestModule.LottieColor"));
+            new NamedTypeSpec("TestExtra.RuntimeData"));
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
 
         var method = CreateMethodDecl("tint", parentDecl, moduleDecl,

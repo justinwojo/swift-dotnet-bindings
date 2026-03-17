@@ -434,6 +434,61 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits marshalling code for @_cdecl frozen struct parameters.
+        /// Blittable frozen structs use stackalloc + MarshalToSwift to create a native buffer.
+        /// Frozen structs with ref fields (e.g., containing String) use Payload.DangerousGetHandle()
+        /// to get a pointer to the existing native buffer.
+        /// Both paths produce an IntPtr variable ({name}Ptr) consumed by GetCallArgumentString.
+        /// </summary>
+        private void EmitCdeclFrozenStructMarshalling(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+
+            foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!WrapperValidation.IsNonPrimitiveFrozenStructParam(argument, _env.TypeDatabase))
+                    continue;
+
+                // Skip parameters already handled by other marshalling paths:
+                // - Bound generics (Array, Dict, Set, Optional) → EmitBoundGenericArguments
+                // - Closures → EmitClosureMarshalling
+                // - Type conversions (String, URL, Data) → EmitTypeConversions
+                // - Native-remapped types → handled by NativeRemappedFrozen in PInvokeEmitter
+                if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
+                    continue;
+                if (_env.ClosureHandler.IsClosure(argument))
+                    continue;
+                if (MarshallingHelpers.IsConvertibleType(argument.SwiftTypeSpec))
+                    continue;
+                if (_env.TypeConversionHandler.HasNativeTypeRemapping(argument.SwiftTypeSpec))
+                    continue;
+
+                var csName = NameProvider.GetCSharpParameterName(argument);
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(argument.SwiftTypeSpec);
+                var csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+
+                if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+                {
+                    // Frozen struct with ref fields (e.g., has String): the native buffer
+                    // is already allocated by the C# class's Payload. Get its handle.
+                    csWriter.WriteLine($"IntPtr {csName}Ptr = {csName}.Payload.DangerousGetHandle();");
+                }
+                else
+                {
+                    // Blittable frozen struct: allocate a stack buffer, marshal the struct into it.
+                    csWriter.WriteLines($"""
+                        var {csName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csTypeName}>();
+                        byte* {csName}Buffer = stackalloc byte[(int){csName}Metadata.Size];
+                        var {csName}Span = new Span<byte>({csName}Buffer, (int){csName}Metadata.Size);
+                        SwiftMarshal.MarshalToSwift({csName}, ref {csName}Span);
+                        IntPtr {csName}Ptr = (IntPtr){csName}Buffer;
+                        """);
+                }
+            }
+        }
+
+        /// <summary>
         /// Emits P/Invoke declarations for SBW_GetErrorDescription, SBW_ReleaseError, and SBW_Free
         /// (if not already emitted by Utf8SliceEmitter). These are class-level member declarations
         /// emitted before the method signature, deduped per C# type.

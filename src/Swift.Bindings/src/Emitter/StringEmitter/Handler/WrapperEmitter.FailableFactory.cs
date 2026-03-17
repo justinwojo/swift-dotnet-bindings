@@ -88,6 +88,7 @@ namespace BindingsGeneration
             EmitBoundGenericArguments(csWriter);
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
+            EmitCdeclFrozenStructMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
 
             // Call P/Invoke (writes Optional<Self> into resultBuffer)

@@ -22,6 +22,7 @@ Of the 9,521 emitted members:
 - **549 (6%)** are `SB0003` stubs (protocol members that throw `NotSupportedException` at runtime)
 
 **Projected cumulative coverage after sessions 1–4: 67% → ~80%** (~1,900 members recovered)
+**After Session 1**: 152 compile errors eliminated across 21 libraries (90/90 validation). Precise member count delta pending re-measurement.
 
 ---
 
@@ -33,27 +34,21 @@ Completed March 17, 2026. All 4 generator bugs fixed, Swift source restored, C# 
 
 ---
 
-### Session 1: Struct & Closure Boundary Expansion
+### ~~Session 1: Struct & Closure Boundary Expansion~~ (Complete)
 
-**Coverage impact**: ~480 skips recovered → 67% → ~70%
-**Libraries affected**: 33+
+Completed March 17, 2026. 152 compile errors eliminated across 21 libraries. 90/90 validation, 4 new runtime tests passing on simulator.
 
-The core blocker is that non-primitive frozen structs can't cross the `@_cdecl` wrapper boundary today. The approach (`UnsafeRawPointer` + `pointee`) already exists in the codebase for indirect returns. Once struct params work, several closure sub-shapes are directly unlocked, and Foundation.Data uses the identical pattern.
+**What shipped:**
+- **Non-primitive frozen struct params** — Custom frozen structs pass as `UnsafeRawPointer` in `@_cdecl` wrappers, reconstructed via `.load(as: T.self)`. System framework types (CoreGraphics, Foundation) remain by-value. C# side: blittable structs use `stackalloc + MarshalToSwift`; memory-managed use `Payload.DangerousGetHandle()`. Skip gates removed from 6 files.
+- **Closures with frozen struct params** — `IsCdeclCompatibleType` now accepts frozen structs. Swift adapter uses heap allocation (`initializeMemory`) with defer cleanup. C# callback receives via `MarshalFromSwift`.
+- **Complex enums in closures** — Pure gate lift in `IsCdeclCompatibleType`. C# callback and Swift adapter heap allocation already existed.
+- **Foundation.Data** — Investigation confirmed implementation already complete (`DataProjection.cs`). No action needed.
 
-| Sub-task | Skips | Effort | Notes |
-|----------|------:|--------|-------|
-| **Non-primitive frozen struct params** | 288 (27 libs) | Medium | Core pattern: pass structs via `UnsafeRawPointer` in `@_cdecl` wrapper, reconstruct via `.load(as: T.self)`. Affects NVActivityIndicatorView (56), Alamofire (33), GRDB (33), CryptoSwift (28), Lottie (24), Nuke (19), Kingfisher (15). |
-| **Foundation.Data projection** | — | Medium | Same `UnsafeRawPointer + nint` pattern as `DateProjection`. Blocks `WebSocketEvent.Binary(byte[])` and `WebSocketEvent.Ping(Data?)` in Starscream. |
-| **Closures with frozen struct params** | subset of 333 | Medium | Directly unlocked by struct param work. e.g., `(CGRect) -> Void`, `(LottieColor) -> Void`. |
-| **Optional\<Primitive/Enum\> in closures** | subset of 333 | Medium | Different ABI from pointer-based Optional. Affects various closure-accepting APIs. |
-| **Complex enums in closures** | subset of 333 | Medium | Structural emitter change for enum payloads in closure params. |
+**Deferred to future session:**
+- **Optional\<Primitive/Enum\> in closures** — Risky ABI change (tag-byte layout vs pointer-based Optional). Needs runtime verification before enabling.
+- **Async frozen struct params** — `stackalloc` not safe after `await`. Gate retained in async @_cdecl eligibility.
 
-**Example APIs unlocked:**
-- Methods taking `LottieColor` as param (Lottie)
-- Methods taking config structs (Alamofire `URLRequest` wrappers)
-- Methods taking crypto operation structs (CryptoSwift)
-- `WebSocketEvent.Binary(byte[])` (Starscream)
-- Callbacks with `CGRect`, enum, and optional primitive params across 33 libraries
+**Libraries improved:** DeviceKit, Swinject, PhoneNumberKit (59→0 errors), Valet, SwiftyBeaver (20→0), NVActivityIndicatorView, ObjectMapper, BonMot, Parchment, KeychainSwift, SwipeCellKit (13→0), Quick, AMPopTip, XMLCoder (12→0), SVGView (12→0), plus 6 Stripe modules.
 
 ---
 
@@ -238,6 +233,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
+| Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |
 | Session 0: TestFramework generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
 | Apple framework XML database expansion | `ac39a4f7` (Mar 16) | ~473 skips resolved (nested + unresolvable Apple types). 90/90 validation. |
 | NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries. See `Completed/nativeaot-stability-sessions.md`. |
