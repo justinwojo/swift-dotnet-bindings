@@ -81,6 +81,56 @@ public func callWithStringArrayReturn(_ handler: @escaping (Int32) -> [String]) 
     return handler(3)
 }
 
+// MARK: - P1: Nullable Closure Property (Lottie AnimationLoaded pattern)
+
+/// Class with an optional closure stored property.
+/// Tests nullable closure marshalling: setter handles both non-null and null.
+public class ClosureHolder {
+    public var onValueChanged: ((Int32) -> Void)?
+
+    public init() {
+        self.onValueChanged = nil
+    }
+
+    public func triggerChange(value: Int32) {
+        onValueChanged?(value)
+    }
+}
+
+// MARK: - P2: Static Closure Property (NVActivityIndicatorView pattern)
+
+/// Class with a static optional closure property.
+/// Combines static property access with closure marshalling.
+public class LogRouter {
+    public static var logHandler: ((String) -> Void)?
+
+    public static func route(message: String) {
+        logHandler?(message)
+    }
+}
+
+// MARK: - P3: Optional Closure Parameter (Mixpanel Flush pattern)
+
+/// Free function taking an optional closure parameter.
+/// Tests Optional<Closure> parameter marshalling.
+public func executeIfPresent(action: (() -> Void)?, fallbackValue: Int32) -> Int32 {
+    if let action = action {
+        action()
+        return 1
+    }
+    return fallbackValue
+}
+
+// MARK: - X2: Method with Multiple Closure Parameters (StripePayments pattern)
+
+/// Free function with two closure parameters (one void, one with arg).
+public func executeWithCallbacks(
+    onStart: @escaping () -> Void,
+    onComplete: @escaping (Int32) -> Void) {
+    onStart()
+    onComplete(42)
+}
+
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.

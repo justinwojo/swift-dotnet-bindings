@@ -116,4 +116,39 @@ public class ArrayMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — O3: Array of Class Instances Property (TeamRoster)
+
+    public void TestTeamRosterCreation()
+    {
+        var animals = new List<Animal>
+        {
+            new Animal("Rex", "Bark"),
+            new Animal("Kitty", "Meow"),
+        };
+        var roster = new TeamRoster(animals);
+        AssertNotNull(roster, "TeamRoster created");
+        AssertEqual(2, roster.GetSize(), "TeamRoster size = 2");
+        TestLogger.Info("TeamRoster creation passed");
+    }
+
+    [MonoJitCrash]
+    public void TestTeamRosterMembersPropertyGet()
+    {
+        var animals = new List<Animal>
+        {
+            new Animal("Rex", "Bark"),
+            new Animal("Kitty", "Meow"),
+            new Animal("Birdy", "Tweet"),
+        };
+        var roster = new TeamRoster(animals);
+        var members = roster.Members;
+        AssertEqual(3, members.Count, "Members.Count = 3");
+        AssertEqual("Rex", members[0].Name.ToString(), "Members[0].Name = Rex");
+        AssertEqual("Kitty", members[1].Name.ToString(), "Members[1].Name = Kitty");
+        AssertEqual("Birdy", members[2].Name.ToString(), "Members[2].Name = Birdy");
+        TestLogger.Info("TeamRoster.Members getter passed");
+    }
+
+    #endregion
 }

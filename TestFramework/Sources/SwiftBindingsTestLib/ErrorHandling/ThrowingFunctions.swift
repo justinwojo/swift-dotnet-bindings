@@ -58,3 +58,25 @@ public struct ThrowingStruct {
         return a / b
     }
 }
+
+// MARK: - S2: Traditional Throws with Typed Error (Valet SecureEnclaveValet pattern)
+
+/// Free function that throws a StorageError (Int32 raw value Error enum).
+/// The wrapper layer generates SBW_ExtractTypedError_* to extract the typed error.
+public func loadFromStorage(key: String) throws -> String {
+    if key.isEmpty { throw StorageError.notFound }
+    if key == "restricted" { throw StorageError.accessDenied }
+    return "stored:\(key)"
+}
+
+/// Struct with throwing methods that use StorageError.
+public struct SecureStore {
+    public init() {}
+
+    public func retrieve(key: String) throws -> String {
+        guard !key.isEmpty else {
+            throw StorageError.notFound
+        }
+        return "value-for-\(key)"
+    }
+}

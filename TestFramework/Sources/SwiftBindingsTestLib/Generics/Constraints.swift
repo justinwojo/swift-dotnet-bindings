@@ -51,3 +51,19 @@ public func sumTwo<T: Summable>(_ a: T, _ b: T) -> T {
 public func describeConstrained<T>(_ item: T) -> String where T: Describable, T: TestIdentifiable {
     return "[\(item.id)] \(item.describe())"
 }
+
+// MARK: - M2: Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
+
+/// Generic class where the constructor requires both type metadata and a protocol witness table.
+/// The PWT is for the Describable constraint.
+public class ConstrainedBox<T: Describable> {
+    public let item: T
+
+    public init(item: T) {
+        self.item = item
+    }
+
+    public func getDescription() -> String {
+        return item.describe()
+    }
+}

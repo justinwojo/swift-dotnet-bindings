@@ -219,6 +219,108 @@ public class ExistentialBoxingTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — N1: Protocol Default Implementation (ConfigurableItem)
+
+    public void TestConfigurableItemUsesDefault()
+    {
+        var item = new ConfigurableItem("WiFi");
+        AssertEqual("WiFi", item.ConfigName, "ConfigName property");
+        // Protocol default: ConfigurableItem doesn't emit Configure() — it's on the interface
+        // with throw NotSupportedException. Test that the type conforms to IConfigurable.
+        IConfigurable iface = item;
+        AssertNotNull(iface, "ConfigurableItem implements IConfigurable");
+        TestLogger.Info("ConfigurableItem uses protocol default (not directly callable)");
+    }
+
+    public void TestCustomConfigItemOverrides()
+    {
+        var item = new CustomConfigItem("WiFi");
+        // CustomConfigItem overrides the protocol default, so Configure() is emitted
+        var config = item.Configure();
+        AssertEqual("Custom: WiFi", config, "Custom configure override");
+        TestLogger.Info($"CustomConfigItem.Configure = {config}");
+    }
+
+    #endregion
+
+    #region Pass 2 — N2: Protocol with Existential Parameters (ModeConsumer)
+
+    public void TestRunModeConsumerWithSimpleMode()
+    {
+        var consumer = new SimpleModeConsumer();
+        var mode = new SimpleMode();
+        var result = TestLibFunctions.RunModeConsumer(consumer, mode);
+        AssertEqual("Consumed: simple", result, "RunModeConsumer with SimpleMode");
+        TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, SimpleMode) = {result}");
+    }
+
+    public void TestRunModeConsumerWithStrictMode()
+    {
+        var consumer = new SimpleModeConsumer();
+        var mode = new StrictMode();
+        var result = TestLibFunctions.RunModeConsumer(consumer, mode);
+        AssertEqual("Consumed: strict", result, "RunModeConsumer with StrictMode");
+        TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, StrictMode) = {result}");
+    }
+
+    #endregion
+
+    #region Pass 2 — N3: Multiple Protocol Conformance (MultiProtocolEntity)
+
+    public void TestMultiProtocolEntityCreation()
+    {
+        var entity = new MultiProtocolEntity("e1", "TestEntity");
+        AssertNotNull(entity, "MultiProtocolEntity created");
+        AssertEqual("e1", entity.Id.ToString(), "Entity Id");
+        AssertEqual("TestEntity", entity.Name.ToString(), "Entity Name");
+        TestLogger.Info("MultiProtocolEntity creation passed");
+    }
+
+    public void TestMultiProtocolEntityDescribe()
+    {
+        var entity = new MultiProtocolEntity("e2", "MyEntity");
+        var desc = entity.GetDescribe();
+        AssertTrue(desc.Contains("e2"), "Describe contains id");
+        AssertTrue(desc.Contains("MyEntity"), "Describe contains name");
+        TestLogger.Info($"MultiProtocolEntity.Describe = {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — N4: Marker Protocol (TaggedItem)
+
+    public void TestTaggedItemCreation()
+    {
+        var item = new TaggedItem("important");
+        AssertNotNull(item, "TaggedItem created");
+        AssertEqual("important", item.Tag.ToString(), "TaggedItem.Tag");
+        TestLogger.Info("TaggedItem creation passed");
+    }
+
+    #endregion
+
+    #region Pass 2 — AB2: 3-Level Protocol Chain (LengthRule)
+
+    public void TestLengthRuleCreation()
+    {
+        var rule = new LengthRule("maxlen", 2, 10);
+        AssertEqual("maxlen", rule.RuleName.ToString(), "LengthRule.RuleName");
+        AssertEqual(2, rule.StrictLevel, "LengthRule.StrictLevel");
+        TestLogger.Info("LengthRule creation passed");
+    }
+
+    public void TestLengthRuleValidation()
+    {
+        var rule = new LengthRule("maxlen", 1, 5);
+        var valid = rule.Validate("hi");
+        AssertTrue(valid, "Short string validates");
+        var invalid = rule.Validate("toolongstring");
+        AssertFalse(invalid, "Long string fails validation");
+        TestLogger.Info("LengthRule validation passed");
+    }
+
+    #endregion
 }
 
 /// <summary>

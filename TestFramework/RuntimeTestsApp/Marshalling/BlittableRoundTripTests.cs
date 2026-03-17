@@ -105,4 +105,108 @@ public class BlittableRoundTripTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — W1: CoreGraphics Types (CGPoint/CGSize/CGRect)
+
+    public void TestCreatePoint()
+    {
+        var pt = TestLibFunctions.CreatePoint(10.0, 20.0);
+        AssertEqual(10.0, pt.X, "Point X");
+        AssertEqual(20.0, pt.Y, "Point Y");
+        TestLogger.Info($"CreatePoint(10,20) = ({pt.X},{pt.Y})");
+    }
+
+    public void TestCreateSize()
+    {
+        var sz = TestLibFunctions.CreateSize(100.0, 200.0);
+        AssertEqual(100.0, sz.Width, "Size width");
+        AssertEqual(200.0, sz.Height, "Size height");
+        TestLogger.Info($"CreateSize(100,200) = ({sz.Width},{sz.Height})");
+    }
+
+    public void TestCreateRect()
+    {
+        var rect = TestLibFunctions.CreateRect(5.0, 10.0, 50.0, 30.0);
+        AssertEqual(5.0, rect.Origin.X, "Rect origin X");
+        AssertEqual(10.0, rect.Origin.Y, "Rect origin Y");
+        AssertEqual(50.0, rect.Size.Width, "Rect width");
+        AssertEqual(30.0, rect.Size.Height, "Rect height");
+        TestLogger.Info("CreateRect passed");
+    }
+
+    public void TestRectArea()
+    {
+        var rect = TestLibFunctions.CreateRect(0, 0, 10.0, 5.0);
+        var area = TestLibFunctions.RectArea(rect);
+        AssertEqual(50.0, area, "RectArea(10x5) = 50");
+        TestLogger.Info($"RectArea = {area}");
+    }
+
+    public void TestDescribeRect()
+    {
+        var rect = TestLibFunctions.CreateRect(1.0, 2.0, 3.0, 4.0);
+        var desc = TestLibFunctions.DescribeRect(rect);
+        AssertTrue(desc.Contains("1.0"), "Describe contains x");
+        AssertTrue(desc.Contains("3.0"), "Describe contains width");
+        TestLogger.Info($"DescribeRect = {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — W3: Float (32-bit) Properties (FloatHolder)
+
+    public void TestFloatHolderCreation()
+    {
+        var holder = new FloatHolder(1.5f, 0.8f);
+        AssertEqual(1.5f, holder.Radius, "FloatHolder radius");
+        AssertEqual(0.8f, holder.Opacity, "FloatHolder opacity");
+        TestLogger.Info($"FloatHolder: r={holder.Radius}, o={holder.Opacity}");
+    }
+
+    public void TestFloatHolderDescribe()
+    {
+        var holder = new FloatHolder(2.5f, 0.5f);
+        var desc = holder.GetDescribe();
+        AssertTrue(desc.Contains("2.5"), "Describe contains radius");
+        AssertTrue(desc.Contains("0.5"), "Describe contains opacity");
+        TestLogger.Info($"FloatHolder.Describe = {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — V1: Method Overloading (Converter)
+
+    public void TestConverterInt()
+    {
+        var c = new Converter();
+        var result = c.Convert(42);
+        AssertEqual("int:42", result, "Convert(int)");
+        TestLogger.Info($"Convert(int) = {result}");
+    }
+
+    public void TestConverterDouble()
+    {
+        var c = new Converter();
+        var result = c.Convert(3.14);
+        AssertTrue(result.StartsWith("double:3.14"), "Convert(double)");
+        TestLogger.Info($"Convert(double) = {result}");
+    }
+
+    public void TestConverterBool()
+    {
+        var c = new Converter();
+        var result = c.Convert(true);
+        AssertEqual("bool:true", result, "Convert(bool)");
+        TestLogger.Info($"Convert(bool) = {result}");
+    }
+
+    public void TestConverterString()
+    {
+        var c = new Converter();
+        var result = c.Convert("hello");
+        AssertEqual("string:hello", result, "Convert(string)");
+        TestLogger.Info($"Convert(string) = {result}");
+    }
+
+    #endregion
 }

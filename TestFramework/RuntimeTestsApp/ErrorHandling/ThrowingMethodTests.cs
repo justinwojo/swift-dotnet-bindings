@@ -473,4 +473,97 @@ public class BasicThrowingTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — S1: Failable Init (SafeDiv, RangedInt)
+
+    [MonoJitCrash]
+    public void TestSafeDivSuccess()
+    {
+        var success = SafeDiv.TryCreate(10, 2, out var div);
+        AssertTrue(success, "SafeDiv.TryCreate succeeds for valid inputs");
+        AssertEqual(10, div!.Numerator, "Numerator = 10");
+        AssertEqual(2, div!.Denominator, "Denominator = 2");
+        TestLogger.Info("SafeDiv.TryCreate success passed");
+    }
+
+    [MonoJitCrash]
+    public void TestSafeDivFailure()
+    {
+        var success = SafeDiv.TryCreate(10, 0, out var div);
+        AssertFalse(success, "SafeDiv.TryCreate fails for zero denominator");
+        TestLogger.Info("SafeDiv.TryCreate failure passed");
+    }
+
+    [MonoJitCrash]
+    public void TestRangedIntSuccess()
+    {
+        var success = RangedInt.TryCreate(5, 1, 10, out var val);
+        AssertTrue(success, "RangedInt.TryCreate succeeds for value in range");
+        AssertEqual(5, val!.Value, "Value = 5");
+        AssertEqual(1, val!.Min, "Min = 1");
+        AssertEqual(10, val!.Max, "Max = 10");
+        TestLogger.Info("RangedInt.TryCreate success passed");
+    }
+
+    [MonoJitCrash]
+    public void TestRangedIntFailure()
+    {
+        var success = RangedInt.TryCreate(15, 1, 10, out var val);
+        AssertFalse(success, "RangedInt.TryCreate fails for out of range");
+        TestLogger.Info("RangedInt.TryCreate failure passed");
+    }
+
+    #endregion
+
+    #region Pass 2 — S2: Traditional Throws with Typed Error (SecureStore)
+
+    public void TestLoadFromStorageSuccess()
+    {
+        var result = TestLibFunctions.LoadFromStorage("mykey");
+        AssertEqual("stored:mykey", result, "LoadFromStorage success");
+        TestLogger.Info($"LoadFromStorage = {result}");
+    }
+
+    public void TestLoadFromStorageThrowsNotFound()
+    {
+        try
+        {
+            TestLibFunctions.LoadFromStorage("");
+            AssertTrue(false, "Should have thrown");
+        }
+        catch (Swift.Runtime.SwiftRuntimeException ex)
+        {
+            // Traditional `throws` — generator emits SwiftRuntimeException (not SwiftException<StorageError>).
+            // StorageError.notFound has rawValue -1, surfaced as "code -1" in the message.
+            AssertTrue(ex.Message.Contains("code -1"), "Error message contains notFound raw value (code -1)");
+            AssertTrue(ex.Message.Contains("StorageError"), "Error message identifies StorageError type");
+            TestLogger.Info($"LoadFromStorage(\"\") threw: {ex.Message}");
+        }
+    }
+
+    public void TestLoadFromStorageThrowsAccessDenied()
+    {
+        try
+        {
+            TestLibFunctions.LoadFromStorage("restricted");
+            AssertTrue(false, "Should have thrown");
+        }
+        catch (Swift.Runtime.SwiftRuntimeException ex)
+        {
+            // StorageError.accessDenied has rawValue -2, distinct from notFound's -1.
+            AssertTrue(ex.Message.Contains("code -2"), "Error message contains accessDenied raw value (code -2)");
+            AssertTrue(ex.Message.Contains("StorageError"), "Error message identifies StorageError type");
+            TestLogger.Info($"LoadFromStorage(\"restricted\") threw: {ex.Message}");
+        }
+    }
+
+    public void TestSecureStoreRetrieve()
+    {
+        var store = new SecureStore();
+        var result = store.Retrieve("data");
+        AssertEqual("value-for-data", result, "SecureStore.Retrieve success");
+        TestLogger.Info($"SecureStore.Retrieve = {result}");
+    }
+
+    #endregion
 }

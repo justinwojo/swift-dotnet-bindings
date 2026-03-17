@@ -255,7 +255,6 @@ public class ClassMarshallingTests : TestBase
 
     #region GC Survival
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestClassSurvivesGCPressure()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -273,7 +272,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("Class survives GC pressure");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestMultipleObjectsGCPressure()
     {
         // Create several objects, apply GC pressure, verify all survive
@@ -292,6 +290,71 @@ public class ClassMarshallingTests : TestBase
         }
 
         TestLogger.Info("Multiple objects survive GC pressure");
+    }
+
+    #endregion
+
+    #region Pass 2 — Q1: 3-Level Class Hierarchy (Puppy)
+
+    public void TestPuppyCreation()
+    {
+        var puppy = new Puppy("Max", "Poodle", "Bone");
+        AssertNotNull(puppy, "Puppy created");
+        TestLogger.Info("Puppy creation passed");
+    }
+
+    public void TestPuppyInheritedProperties()
+    {
+        var puppy = new Puppy("Max", "Poodle", "Bone");
+        AssertEqual("Max", puppy.Name.ToString(), "Puppy.Name from Animal");
+        AssertEqual("Poodle", puppy.Breed.ToString(), "Puppy.Breed from Dog");
+        AssertEqual("Bone", puppy.ToyName.ToString(), "Puppy.ToyName");
+        TestLogger.Info("Puppy inherited properties passed");
+    }
+
+    public void TestPuppyOverriddenDescribe()
+    {
+        var puppy = new Puppy("Max", "Poodle", "Bone");
+        var desc = puppy.GetDescribe();
+        AssertTrue(desc.Contains("Puppy"), "Describe says Puppy");
+        AssertTrue(desc.Contains("Max"), "Describe contains name");
+        AssertTrue(desc.Contains("Bone"), "Describe contains toy");
+        TestLogger.Info($"Puppy.Describe = {desc}");
+    }
+
+    public void TestPuppyOwnMethod()
+    {
+        var puppy = new Puppy("Max", "Poodle", "Bone");
+        var play = puppy.GetPlay();
+        AssertTrue(play.Contains("Max"), "Play contains name");
+        AssertTrue(play.Contains("Bone"), "Play contains toy");
+        TestLogger.Info($"Puppy.Play = {play}");
+    }
+
+    #endregion
+
+    #region Pass 2 — Y2: Factory-Only Class (Token)
+
+    public void TestTokenCreation()
+    {
+        var token = TestLibFunctions.CreateToken("abc123");
+        AssertNotNull(token, "Token created via factory");
+        TestLogger.Info("Token creation passed");
+    }
+
+    public void TestTokenProperty()
+    {
+        var token = TestLibFunctions.CreateToken("secret");
+        AssertEqual("secret", token.Value.ToString(), "Token.Value");
+        TestLogger.Info($"Token.Value = {token.Value.ToString()}");
+    }
+
+    public void TestTokenDescribe()
+    {
+        var token = TestLibFunctions.CreateToken("xyz");
+        var desc = token.GetDescribe();
+        AssertEqual("Token(xyz)", desc, "Token.Describe");
+        TestLogger.Info($"Token.Describe = {desc}");
     }
 
     #endregion

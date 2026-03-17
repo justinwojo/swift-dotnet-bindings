@@ -45,3 +45,28 @@ public struct StaticMethods {
         return _storedValue
     }
 }
+
+// MARK: - U1: Static Constants Struct (KeychainSwiftConstants pattern)
+
+/// Struct with only static computed properties, no instance members.
+/// Acts as a pure namespace for string/numeric constants.
+public struct Constants {
+    public static var appName: String { "SwiftApp" }
+    public static var version: String { "1.0.0" }
+    public static var maxRetries: Int32 { 3 }
+    public static var timeoutSeconds: Double { 30.0 }
+
+    private init() {}
+}
+
+// MARK: - U2: Multiple Typed Static Mutable Properties (NVActivityIndicatorView pattern)
+
+/// Class with multiple static mutable properties of different types.
+public class AppConfig {
+    public static var debugMode: Bool = false
+    public static var logLevel: Int32 = 0
+    public static var appTitle: String = "Default"
+    public static var maxItems: Int32 = 100
+
+    public init() {}
+}

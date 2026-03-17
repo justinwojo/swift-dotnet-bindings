@@ -74,3 +74,24 @@ public func runWithMode(_ mode: any ProcessingMode, value: Int32) -> Bool {
 public func compareResults(_ a: any ProcessingMode, _ b: any ProcessingMode, value: Int32) -> Bool {
     return a.validate(input: value) == b.validate(input: value)
 }
+
+// MARK: - N2: Protocol Methods Accepting Existential Parameters (Parchment pattern)
+
+/// Protocol whose methods take existential parameters.
+public protocol ModeConsumer {
+    func consume(mode: any ProcessingMode) -> String
+}
+
+/// Concrete type conforming to ModeConsumer.
+public struct SimpleModeConsumer: ModeConsumer {
+    public init() {}
+
+    public func consume(mode: any ProcessingMode) -> String {
+        return "Consumed: \(mode.modeName)"
+    }
+}
+
+/// Free function exercising ModeConsumer with existential params.
+public func runModeConsumer(_ consumer: any ModeConsumer, mode: any ProcessingMode) -> String {
+    return consumer.consume(mode: mode)
+}

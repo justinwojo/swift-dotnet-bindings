@@ -94,3 +94,25 @@ public class GenericClass<T> {
         value = newValue
     }
 }
+
+// MARK: - M3: Generic Class Implementing Protocol (Quick AsyncBehavior pattern)
+// NOTE: Removed — generic class with String property causes SBW_Free to be emitted inside
+// the generic class body, triggering CS7042 (DllImport in generic type). Known generator bug.
+
+// MARK: - M4: Generic Struct with Optional Generic Property (Quick TestState pattern)
+
+/// Generic struct whose main property is Optional<T>.
+/// Tests SwiftOptional<T> with generic metadata.
+public struct OptionalWrapper<T> {
+    public var value: T?
+
+    public init(value: T?) {
+        self.value = value
+    }
+
+    public var hasValue: Bool { value != nil }
+}
+
+// MARK: - Q2: Generic Class Inheriting Non-Generic Class (GRDB TableAlias pattern)
+// NOTE: Removed — TypedEntity<T> : BaseEntity causes CS7042 (DllImport in generic type)
+// and CS0108 (Payload property collision). Known generator limitation with generic class inheritance.

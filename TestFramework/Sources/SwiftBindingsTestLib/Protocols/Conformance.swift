@@ -72,3 +72,75 @@ public struct Person: Nameable, Ageable {
         self.age = age
     }
 }
+
+// MARK: - N3: Class Conforming to Multiple Custom Protocols (Parchment PagingViewController pattern)
+
+/// Class conforming to three separate protocols simultaneously.
+/// Tests multiple witness table registrations and IExistentialBoxable boxing paths.
+public class MultiProtocolEntity: Describable, TestIdentifiable, Nameable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    public var description: String { "[\(id)] \(name)" }
+    public func describe() -> String { description }
+}
+
+// MARK: - N1: Configurable Conformance (uses protocol default implementation)
+
+/// Uses the default configure() from Configurable extension.
+public struct ConfigurableItem: Configurable {
+    public let configName: String
+
+    public init(configName: String) {
+        self.configName = configName
+    }
+    // Uses default configure() — no override
+}
+
+/// Overrides the default configure() implementation.
+public struct CustomConfigItem: Configurable {
+    public let configName: String
+
+    public init(configName: String) {
+        self.configName = configName
+    }
+
+    public func configure() -> String {
+        return "Custom: \(configName)"
+    }
+}
+
+// MARK: - N4: Marker Protocol Conformance
+
+/// Type conforming to the empty Taggable marker protocol.
+public struct TaggedItem: Taggable {
+    public let tag: String
+
+    public init(tag: String) {
+        self.tag = tag
+    }
+}
+
+// MARK: - AB2: 3-Level Protocol Chain Conformance
+
+/// Concrete type implementing the full 3-level protocol chain.
+public struct LengthRule: StrictInputValidation {
+    public let ruleName: String
+    public let strictLevel: Int32
+    public let maxLength: Int32
+
+    public init(ruleName: String, strictLevel: Int32, maxLength: Int32) {
+        self.ruleName = ruleName
+        self.strictLevel = strictLevel
+        self.maxLength = maxLength
+    }
+
+    public func validate(input: String) -> Bool {
+        return input.count <= Int(maxLength)
+    }
+}

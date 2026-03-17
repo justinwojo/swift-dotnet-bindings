@@ -50,3 +50,31 @@ public func describeAnimals(_ animals: [Animal]) -> [String] {
 public func filterPositive(_ array: [Int32]) -> [Int32] {
     return array.filter { $0 > 0 }
 }
+
+// MARK: - O3: Array of Class Instances Property (SVGView SVGGroup.Contents pattern)
+
+/// Class with an array-of-class-instances stored property.
+/// Tests SwiftArray<ClassType> marshalling for property get/set.
+public class TeamRoster {
+    public var members: [Animal]
+
+    public init(members: [Animal]) {
+        self.members = members
+    }
+
+    public func size() -> Int32 { Int32(members.count) }
+}
+
+// MARK: - O4: Existential Array Property (SVGView XMLElement.Contents pattern)
+
+/// Class with an array-of-existential stored property.
+/// Tests SwiftArray<ExistentialContainer1> with proxy projection.
+public class ProcessingPipeline {
+    public var modes: [any ProcessingMode]
+
+    public init(modes: [any ProcessingMode]) {
+        self.modes = modes
+    }
+
+    public func modeCount() -> Int32 { Int32(modes.count) }
+}

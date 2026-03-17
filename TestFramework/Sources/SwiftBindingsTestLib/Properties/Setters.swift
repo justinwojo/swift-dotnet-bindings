@@ -66,3 +66,26 @@ public struct ComputedSetterStruct {
         set { rawValue = -newValue }
     }
 }
+
+// MARK: - Y1: Nonmutating Set Property (SnapKit ConstraintViewDSL pattern)
+
+/// Mutable reference storage for nonmutating set pattern.
+public class MutableBox {
+    public var value: Int32
+    public init(value: Int32) { self.value = value }
+}
+
+/// Struct with a nonmutating set property.
+/// The setter modifies external state (the box) rather than the struct's own memory.
+public struct NonMutatingView {
+    private let box: MutableBox
+
+    public init(value: Int32) {
+        self.box = MutableBox(value: value)
+    }
+
+    public var currentValue: Int32 {
+        get { box.value }
+        nonmutating set { box.value = newValue }
+    }
+}

@@ -178,4 +178,40 @@ public class ClosureTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — P3: Optional Closure Parameter
+
+    public void TestExecuteIfPresentWithAction()
+    {
+        var called = false;
+        var result = TestLibFunctions.ExecuteIfPresent(() => { called = true; }, 99);
+        AssertEqual(1, result, "Returns 1 when action executed");
+        AssertTrue(called, "Action was called");
+        TestLogger.Info("ExecuteIfPresent with action passed");
+    }
+
+    public void TestExecuteIfPresentWithNull()
+    {
+        var result = TestLibFunctions.ExecuteIfPresent(null, 42);
+        AssertEqual(42, result, "Returns fallback when null");
+        TestLogger.Info("ExecuteIfPresent with null passed");
+    }
+
+    #endregion
+
+    #region Pass 2 — X2: Multiple Closure Parameters
+
+    public void TestExecuteWithCallbacks()
+    {
+        var started = false;
+        var completedValue = 0;
+        TestLibFunctions.ExecuteWithCallbacks(
+            () => { started = true; },
+            v => { completedValue = v; });
+        AssertTrue(started, "onStart was called");
+        AssertEqual(42, completedValue, "onComplete received 42");
+        TestLogger.Info("ExecuteWithCallbacks passed");
+    }
+
+    #endregion
 }

@@ -125,4 +125,70 @@ public class StaticStructSingletonTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — U1: Static Constants Struct (Constants)
+
+    public void TestConstantsAppName()
+    {
+        var name = Constants.AppName;
+        AssertEqual("SwiftApp", name, "Constants.AppName");
+        TestLogger.Info($"Constants.AppName = {name}");
+    }
+
+    public void TestConstantsVersion()
+    {
+        var version = Constants.Version;
+        AssertEqual("1.0.0", version, "Constants.Version");
+        TestLogger.Info($"Constants.Version = {version}");
+    }
+
+    public void TestConstantsMaxRetries()
+    {
+        var retries = Constants.MaxRetries;
+        AssertEqual(3, retries, "Constants.MaxRetries");
+        TestLogger.Info($"Constants.MaxRetries = {retries}");
+    }
+
+    public void TestConstantsTimeout()
+    {
+        var timeout = Constants.TimeoutSeconds;
+        AssertEqual(30.0, timeout, "Constants.TimeoutSeconds");
+        TestLogger.Info($"Constants.TimeoutSeconds = {timeout}");
+    }
+
+    #endregion
+
+    #region Pass 2 — U2: Multiple Typed Static Props (AppConfig)
+
+    public void TestAppConfigDefaults()
+    {
+        AppConfig.DebugMode = false;
+        AppConfig.LogLevel = 0;
+        AppConfig.AppTitle = "Default";
+        AppConfig.MaxItems = 100;
+
+        AssertFalse(AppConfig.DebugMode, "Default debug mode");
+        AssertEqual(0, AppConfig.LogLevel, "Default log level");
+        AssertEqual("Default", AppConfig.AppTitle.ToString(), "Default title");
+        AssertEqual(100, AppConfig.MaxItems, "Default max items");
+        TestLogger.Info("AppConfig defaults passed");
+    }
+
+    public void TestAppConfigMutation()
+    {
+        AppConfig.DebugMode = true;
+        AppConfig.LogLevel = 3;
+        AppConfig.MaxItems = 50;
+
+        AssertTrue(AppConfig.DebugMode, "Debug mode set to true");
+        AssertEqual(3, AppConfig.LogLevel, "Log level set to 3");
+        AssertEqual(50, AppConfig.MaxItems, "Max items set to 50");
+
+        AppConfig.DebugMode = false;
+        AppConfig.LogLevel = 0;
+        AppConfig.MaxItems = 100;
+        TestLogger.Info("AppConfig mutation passed");
+    }
+
+    #endregion
 }

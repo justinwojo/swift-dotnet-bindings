@@ -296,4 +296,46 @@ public class NestedEnumTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — L2: Nested Enum-with-AVs (PlaybackMode)
+
+    public void TestPlaybackModePlaying()
+    {
+        using var mode = PlaybackMode.Playing(2.0);
+        AssertEqual(PlaybackMode.CaseTag.Playing, mode.Tag, "Playing tag");
+        var desc = TestLibFunctions.DescribePlaybackMode(mode);
+        AssertEqual("Playing at 2.0x", desc, "Describe playing");
+        TestLogger.Info($"PlaybackMode.Playing: {desc}");
+    }
+
+    public void TestPlaybackModeStopped()
+    {
+        var mode = PlaybackMode.Stopped;
+        AssertEqual(PlaybackMode.CaseTag.Stopped, mode.Tag, "Stopped tag");
+        var desc = TestLibFunctions.DescribePlaybackMode(mode);
+        AssertEqual("Stopped", desc, "Describe stopped");
+        TestLogger.Info($"PlaybackMode.Stopped: {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — L6: Nested Enum with String RawValue + CaseIterable
+
+    public void TestCodecAlignmentCases()
+    {
+        AssertEqual(Codec.Alignment.CaseTag.Left, Codec.Alignment.Left.Tag, "Left tag");
+        AssertEqual(Codec.Alignment.CaseTag.Center, Codec.Alignment.Center.Tag, "Center tag");
+        AssertEqual(Codec.Alignment.CaseTag.Right, Codec.Alignment.Right.Tag, "Right tag");
+        TestLogger.Info("Codec.Alignment case tags passed");
+    }
+
+    public void TestCodecAlignmentRawValues()
+    {
+        AssertEqual("left", Codec.Alignment.Left.RawValue.ToString(), "Left raw value");
+        AssertEqual("center", Codec.Alignment.Center.RawValue.ToString(), "Center raw value");
+        AssertEqual("right", Codec.Alignment.Right.RawValue.ToString(), "Right raw value");
+        TestLogger.Info("Codec.Alignment raw values passed");
+    }
+
+    #endregion
 }

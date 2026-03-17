@@ -18,3 +18,17 @@ public class HeaderMap {
     public func get(_ key: String) -> String? { headers[key] }
     public func set(_ key: String, _ value: String) { headers[key] = value }
 }
+
+// MARK: - O1: Dictionary Property (get/set) (SVGView XMLElement.Attributes pattern)
+
+/// Class with a dictionary stored property (read-write).
+/// Tests SwiftDictionary marshalling in both getter and setter directions.
+public class PropertyBag {
+    public var properties: [String: String]
+
+    public init(properties: [String: String] = [:]) {
+        self.properties = properties
+    }
+
+    public func count() -> Int32 { Int32(properties.count) }
+}

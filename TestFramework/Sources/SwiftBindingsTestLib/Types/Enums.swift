@@ -155,6 +155,77 @@ public func colorForIndex(_ index: Int32) -> Color {
     return Color(rawValue: index) ?? .red
 }
 
+// MARK: - L1: Enum with Collection Payload (Lottie MediaSource pattern)
+
+/// Enum case carrying an array — exercises SwiftArray<SwiftString> inside DestructiveProjectEnumData.
+public enum MediaSource {
+    case single(name: String)
+    case playlist(names: [String])
+    case empty
+}
+
+public func describeMediaSource(_ source: MediaSource) -> String {
+    switch source {
+    case .single(let name): return "Single: \(name)"
+    case .playlist(let names): return "Playlist: \(names.joined(separator: ", "))"
+    case .empty: return "Empty"
+    }
+}
+
+// MARK: - L3: All-Payload Enum (every case has associated value)
+
+/// Enum where every case carries an associated value (no empty cases).
+public enum AnimationSource {
+    case local(path: String)
+    case remote(url: String)
+}
+
+public func describeAnimationSource(_ source: AnimationSource) -> String {
+    switch source {
+    case .local(let path): return "Local: \(path)"
+    case .remote(let url): return "Remote: \(url)"
+    }
+}
+
+// MARK: - L4: Mixed Payload Enum with Heterogeneous Types (GRDB DatabaseValue.Storage pattern)
+
+/// Enum with heterogeneous payload types (Int64, Double, String, Bool, none).
+public enum DataValue {
+    case integer(Int64)
+    case floating(Double)
+    case text(String)
+    case flag(Bool)
+    case nothing
+}
+
+public func describeDataValue(_ value: DataValue) -> String {
+    switch value {
+    case .integer(let v): return "Int:\(v)"
+    case .floating(let v): return "Float:\(v)"
+    case .text(let v): return "Text:\(v)"
+    case .flag(let v): return "Bool:\(v)"
+    case .nothing: return "Null"
+    }
+}
+
+// MARK: - L5: Caseless Enum as Namespace (GRDB ValueReducers pattern)
+
+/// Caseless enum used purely as a namespace for nested types.
+/// Generator should emit as `static partial class`.
+public enum MathUtils {
+    @frozen
+    public struct Counter {
+        public var count: Int32
+        public init(count: Int32 = 0) { self.count = count }
+        public func describe() -> String { "Count: \(count)" }
+    }
+
+    public static func factorial(_ n: Int32) -> Int32 {
+        if n <= 1 { return 1 }
+        return n * factorial(n - 1)
+    }
+}
+
 // MARK: - Enum Extension Methods (KeychainAccess/DeviceKit pattern)
 
 /// Extension-defined methods on Color enum.

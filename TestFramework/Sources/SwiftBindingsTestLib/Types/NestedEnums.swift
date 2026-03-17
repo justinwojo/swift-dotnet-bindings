@@ -72,3 +72,41 @@ public func describeAlgorithm(_ algo: HashAlgorithm) -> String {
     case .custom(let r): return "Custom-\(r)"
     }
 }
+
+// MARK: - L2: Nested Enum-with-AVs inside Enum-with-AVs (Lottie PlaybackMode pattern)
+
+/// Enum containing a nested enum, both with associated values.
+public enum PlaybackMode {
+    case playing(speed: Double)
+    case paused(reason: PauseReason)
+    case stopped
+
+    public enum PauseReason {
+        case userAction
+        case buffering(progress: Double)
+        case error(code: Int32)
+    }
+}
+
+public func describePlaybackMode(_ mode: PlaybackMode) -> String {
+    switch mode {
+    case .playing(let speed): return "Playing at \(speed)x"
+    case .paused(let reason):
+        switch reason {
+        case .userAction: return "Paused by user"
+        case .buffering(let progress): return "Buffering: \(progress)%"
+        case .error(let code): return "Error: \(code)"
+        }
+    case .stopped: return "Stopped"
+    }
+}
+
+// MARK: - L6: Nested Enum with String RawValue + CaseIterable
+
+extension Codec {
+    public enum Alignment: String, CaseIterable {
+        case left = "left"
+        case center = "center"
+        case right = "right"
+    }
+}

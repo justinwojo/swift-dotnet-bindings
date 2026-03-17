@@ -58,3 +58,23 @@ public struct OpaqueProvider {
 public func makeOpaqueComposition(id: String, text: String) -> some Describable & TestIdentifiable {
     return SimpleItem(id: id, label: text)
 }
+
+// MARK: - R1: ExistentialContainer0 (Any) (DifferenceKit AnyDifferentiable pattern)
+
+/// Class with a property returning unconstrained `Any`.
+/// Tests ExistentialContainer0 marshalling (distinct from ExistentialContainer1).
+public class AnyHolder {
+    private let stored: Any
+
+    public init(intValue: Int32) {
+        self.stored = intValue
+    }
+
+    public init(stringValue: String) {
+        self.stored = stringValue
+    }
+
+    public var base: Any {
+        return stored
+    }
+}

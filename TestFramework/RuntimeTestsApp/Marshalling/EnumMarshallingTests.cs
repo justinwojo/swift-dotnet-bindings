@@ -351,4 +351,148 @@ public class EnumMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — L1: Collection Payload Enum (MediaSource)
+
+    public void TestMediaSourceSingle()
+    {
+        using var source = MediaSource.Single("track1");
+        AssertEqual(MediaSource.CaseTag.Single, source.Tag, "Single case tag");
+        var result = TestLibFunctions.DescribeMediaSource(source);
+        AssertEqual("Single: track1", result, "Describe single");
+        TestLogger.Info($"MediaSource.Single: {result}");
+    }
+
+    [MonoJitCrash]
+    public void TestMediaSourcePlaylist()
+    {
+        using var source = MediaSource.Playlist(new[] { "a", "b", "c" });
+        AssertEqual(MediaSource.CaseTag.Playlist, source.Tag, "Playlist case tag");
+        var result = TestLibFunctions.DescribeMediaSource(source);
+        AssertEqual("Playlist: a, b, c", result, "Describe playlist");
+        TestLogger.Info($"MediaSource.Playlist: {result}");
+    }
+
+    public void TestMediaSourceEmpty()
+    {
+        var source = MediaSource.Empty;
+        AssertEqual(MediaSource.CaseTag.Empty, source.Tag, "Empty case tag");
+        var result = TestLibFunctions.DescribeMediaSource(source);
+        AssertEqual("Empty", result, "Describe empty");
+        TestLogger.Info($"MediaSource.Empty: {result}");
+    }
+
+    public void TestMediaSourceTryGetSingle()
+    {
+        using var source = MediaSource.Single("hello");
+        var got = source.TryGetSingle(out var name);
+        AssertTrue(got, "TryGetSingle succeeds");
+        AssertEqual("hello", name, "Extracted name");
+        TestLogger.Info($"TryGetSingle: {name}");
+    }
+
+    [MonoJitCrash]
+    public void TestMediaSourceTryGetPlaylist()
+    {
+        using var source = MediaSource.Playlist(new[] { "x", "y" });
+        var got = source.TryGetPlaylist(out var names);
+        AssertTrue(got, "TryGetPlaylist succeeds");
+        AssertEqual(2, names!.Count, "Playlist count");
+        AssertEqual("x", names[0], "First item");
+        AssertEqual("y", names[1], "Second item");
+        TestLogger.Info($"TryGetPlaylist: count={names.Count}");
+    }
+
+    #endregion
+
+    #region Pass 2 — L3: All-Payload Enum (AnimationSource)
+
+    public void TestAnimationSourceLocal()
+    {
+        using var src = AnimationSource.Local("/path/anim.json");
+        AssertEqual(AnimationSource.CaseTag.Local, src.Tag, "Local tag");
+        var desc = TestLibFunctions.DescribeAnimationSource(src);
+        AssertEqual("Local: /path/anim.json", desc, "Describe local");
+        TestLogger.Info($"AnimationSource.Local: {desc}");
+    }
+
+    public void TestAnimationSourceRemote()
+    {
+        using var src = AnimationSource.Remote("https://cdn.example.com/anim.json");
+        AssertEqual(AnimationSource.CaseTag.Remote, src.Tag, "Remote tag");
+        var desc = TestLibFunctions.DescribeAnimationSource(src);
+        AssertTrue(desc.Contains("cdn.example.com"), "Describe remote contains URL");
+        TestLogger.Info($"AnimationSource.Remote: {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — L4: Mixed Heterogeneous Payload Enum (DataValue)
+
+    public void TestDataValueInteger()
+    {
+        using var val = DataValue.Integer(42);
+        AssertEqual(DataValue.CaseTag.Integer, val.Tag, "Integer tag");
+        var desc = TestLibFunctions.DescribeDataValue(val);
+        AssertEqual("Int:42", desc, "Describe integer");
+        TestLogger.Info($"DataValue.Integer: {desc}");
+    }
+
+    public void TestDataValueFloating()
+    {
+        using var val = DataValue.Floating(3.14);
+        AssertEqual(DataValue.CaseTag.Floating, val.Tag, "Floating tag");
+        var desc = TestLibFunctions.DescribeDataValue(val);
+        AssertTrue(desc.StartsWith("Float:3.14"), "Describe floating");
+        TestLogger.Info($"DataValue.Floating: {desc}");
+    }
+
+    public void TestDataValueText()
+    {
+        using var val = DataValue.Text("hello");
+        AssertEqual(DataValue.CaseTag.Text, val.Tag, "Text tag");
+        var desc = TestLibFunctions.DescribeDataValue(val);
+        AssertEqual("Text:hello", desc, "Describe text");
+        TestLogger.Info($"DataValue.Text: {desc}");
+    }
+
+    public void TestDataValueFlag()
+    {
+        using var val = DataValue.Flag(true);
+        AssertEqual(DataValue.CaseTag.Flag, val.Tag, "Flag tag");
+        var desc = TestLibFunctions.DescribeDataValue(val);
+        AssertEqual("Bool:true", desc, "Describe flag");
+        TestLogger.Info($"DataValue.Flag: {desc}");
+    }
+
+    public void TestDataValueNothing()
+    {
+        var val = DataValue.Nothing;
+        AssertEqual(DataValue.CaseTag.Nothing, val.Tag, "Nothing tag");
+        var desc = TestLibFunctions.DescribeDataValue(val);
+        AssertEqual("Null", desc, "Describe nothing");
+        TestLogger.Info($"DataValue.Nothing: {desc}");
+    }
+
+    #endregion
+
+    #region Pass 2 — L5: Caseless Enum as Namespace (MathUtils)
+
+    public void TestMathUtilsFactorial()
+    {
+        var result = MathUtils.Factorial(5);
+        AssertEqual(120, result, "Factorial(5) = 120");
+        TestLogger.Info($"MathUtils.Factorial(5) = {result}");
+    }
+
+    public void TestMathUtilsNestedCounter()
+    {
+        var counter = new MathUtils.Counter(10);
+        AssertEqual(10, counter.Count, "Counter.Count = 10");
+        var desc = counter.GetDescribe();
+        AssertEqual("Count: 10", desc, "Counter.Describe()");
+        TestLogger.Info($"MathUtils.Counter: {desc}");
+    }
+
+    #endregion
 }

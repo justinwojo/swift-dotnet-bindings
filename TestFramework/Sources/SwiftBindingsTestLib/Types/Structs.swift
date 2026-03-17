@@ -155,3 +155,63 @@ public func makeOrigin() -> FrozenPoint {
 public func scalePoint(_ point: NonFrozenPoint, by factor: Double) -> NonFrozenPoint {
     return NonFrozenPoint(x: point.x * factor, y: point.y * factor)
 }
+
+// MARK: - V1: Method Overloading by Parameter Type (KeychainSwift Set pattern)
+
+/// Struct with 4 overloaded methods differing only by parameter type.
+/// Each overload has a different mangled name and marshalling path.
+public struct Converter {
+    public init() {}
+
+    public func convert(_ value: Int32) -> String {
+        return "int:\(value)"
+    }
+
+    public func convert(_ value: Double) -> String {
+        return "double:\(value)"
+    }
+
+    public func convert(_ value: Bool) -> String {
+        return "bool:\(value)"
+    }
+
+    public func convert(_ value: String) -> String {
+        return "string:\(value)"
+    }
+}
+
+// MARK: - V2: @available Annotations (Parchment SupportedOSPlatform pattern)
+
+/// Type with @available annotation → C# [SupportedOSPlatform].
+@available(iOS 14.0, *)
+public struct ModernFeature {
+    public let name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+
+    @available(iOS 15.0, *)
+    public func enhance() -> String {
+        return "Enhanced: \(name)"
+    }
+}
+
+// MARK: - W3: Swift Float (32-bit) Properties (AMPopTip ShadowRadius pattern)
+
+/// Frozen struct with Float (32-bit) stored properties.
+/// Distinct from Double/CGFloat — uses `Sf` suffix in mangled name.
+@frozen
+public struct FloatHolder {
+    public var radius: Float
+    public var opacity: Float
+
+    public init(radius: Float, opacity: Float) {
+        self.radius = radius
+        self.opacity = opacity
+    }
+
+    public func describe() -> String {
+        return "r=\(radius), o=\(opacity)"
+    }
+}

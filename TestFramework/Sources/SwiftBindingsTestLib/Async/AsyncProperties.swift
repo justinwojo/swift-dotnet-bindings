@@ -73,3 +73,23 @@ public func createAsyncConfig(name: String) -> AsyncConfig {
 public func createAsyncDataSource(identifier: String) -> AsyncDataSource {
     return AsyncDataSource(identifier: identifier)
 }
+
+// MARK: - X1: AsyncStream Property (Nuke ImageTask pattern)
+// Generator has AsyncStreamEmitter.cs, runtime has SwiftAsyncStream.cs — both untested.
+// NOTE: AsyncStream<Int32> fails because SwiftAsyncStream<TElement> requires ISwiftObject.
+// Using AsyncStream<String> instead since SwiftString implements ISwiftObject.
+
+/// Class with an AsyncStream<String> computed property.
+/// Should be projected as IAsyncEnumerable<string> in C#.
+public class AsyncValueSource {
+    public init() {}
+
+    public var messages: AsyncStream<String> {
+        AsyncStream { continuation in
+            continuation.yield("first")
+            continuation.yield("second")
+            continuation.yield("third")
+            continuation.finish()
+        }
+    }
+}

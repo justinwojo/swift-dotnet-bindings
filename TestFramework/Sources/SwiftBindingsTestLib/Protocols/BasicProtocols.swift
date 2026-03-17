@@ -27,3 +27,40 @@ public protocol HasValue {
     func getValue() -> Int32
     mutating func setValue(_ newValue: Int32)
 }
+
+// MARK: - N1: Protocol with Default Implementation (Lottie AnimationImageProvider pattern)
+
+/// Protocol where one method has a default implementation via extension.
+/// Generator should emit `throw new NotSupportedException(...)` for the default.
+public protocol Configurable {
+    var configName: String { get }
+    func configure() -> String
+}
+
+extension Configurable {
+    public func configure() -> String {
+        return "Default: \(configName)"
+    }
+}
+
+// MARK: - N4: Marker Protocol (zero members, SVGView IXMLNode pattern)
+
+/// Empty protocol used as a type constraint.
+public protocol Taggable {}
+
+// MARK: - AB2: 3-Level Protocol Inheritance Chain (SnapKit ConstraintDSL pattern)
+
+/// Base protocol in a 3-level chain.
+public protocol BaseRule {
+    var ruleName: String { get }
+}
+
+/// Mid-level protocol inheriting from BaseRule.
+public protocol InputValidation: BaseRule {
+    func validate(input: String) -> Bool
+}
+
+/// Leaf protocol inheriting from InputValidation.
+public protocol StrictInputValidation: InputValidation {
+    var strictLevel: Int32 { get }
+}

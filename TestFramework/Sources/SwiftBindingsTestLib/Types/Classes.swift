@@ -152,6 +152,47 @@ public class Scope {
     public func describe() -> String { "Scope: \(name)" }
 }
 
+// MARK: - Q1: 3+ Level Class Hierarchy (SVGNode→SVGShape→SVGCircle pattern)
+
+/// Third-level subclass testing deep inheritance dispatch.
+public class Puppy: Dog {
+    public var toyName: String
+
+    public init(name: String, breed: String, toyName: String) {
+        self.toyName = toyName
+        super.init(name: name, breed: breed)
+    }
+
+    override public func describe() -> String {
+        return "Puppy: \(name) (\(breed)), toy=\(toyName)"
+    }
+
+    public func play() -> String {
+        return "\(name) plays with \(toyName)"
+    }
+}
+
+// MARK: - Y2: Class with No Public Init (SnapKit ConstraintItem pattern)
+
+/// Class obtainable only via factory — no public constructors emitted.
+/// Tests @_hasMissingDesignatedInitializers behavior.
+public class Token {
+    public let value: String
+
+    init(value: String) {
+        self.value = value
+    }
+
+    public func describe() -> String {
+        return "Token(\(value))"
+    }
+}
+
+/// Factory function for creating Token instances.
+public func createToken(value: String) -> Token {
+    return Token(value: value)
+}
+
 // MARK: - Weak and Unowned References
 // NOTE: Temporarily disabled. Generator bug with tuples containing class types
 // (tries to access Owner.Buffer which doesn't exist for pure reference types).

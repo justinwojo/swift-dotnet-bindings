@@ -323,4 +323,27 @@ public class BasicGenericTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
+
+    [MonoJitCrash]
+    public void TestConstrainedBoxCreation()
+    {
+        var item = new SimpleItem("gen-id", "test");
+        var box = new ConstrainedBox<SimpleItem>(item);
+        AssertNotNull(box, "ConstrainedBox created");
+        TestLogger.Info("ConstrainedBox creation passed");
+    }
+
+    [MonoJitCrash]
+    public void TestConstrainedBoxGetDescription()
+    {
+        var item = new SimpleItem("id1", "hello");
+        var box = new ConstrainedBox<SimpleItem>(item);
+        var desc = box.GetDescription();
+        AssertTrue(desc.Contains("hello"), "Description contains label");
+        TestLogger.Info($"ConstrainedBox.GetDescription = {desc}");
+    }
+
+    #endregion
 }

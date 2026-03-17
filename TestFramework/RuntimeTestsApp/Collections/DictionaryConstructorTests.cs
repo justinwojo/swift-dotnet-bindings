@@ -96,4 +96,59 @@ public class DictionaryConstructorTests : TestBase
     }
 
     #endregion
+
+    #region Pass 2 — O1: Dictionary Property (PropertyBag)
+
+    public void TestPropertyBagCreation()
+    {
+        var bag = new PropertyBag(new Dictionary<string, string>
+        {
+            { "key1", "value1" },
+            { "key2", "value2" },
+        });
+        AssertNotNull(bag, "PropertyBag created");
+        AssertEqual(2, bag.GetCount(), "PropertyBag count = 2");
+        TestLogger.Info("PropertyBag creation passed");
+    }
+
+    public void TestPropertyBagEmptyCreation()
+    {
+        var bag = new PropertyBag();
+        AssertNotNull(bag, "Empty PropertyBag created");
+        AssertEqual(0, bag.GetCount(), "Empty PropertyBag count = 0");
+        TestLogger.Info("Empty PropertyBag passed");
+    }
+
+    [MonoJitCrash]
+    public void TestPropertyBagPropertyGet()
+    {
+        var bag = new PropertyBag(new Dictionary<string, string>
+        {
+            { "color", "red" },
+            { "size", "large" },
+        });
+        var props = bag.Properties;
+        AssertEqual(2, props.Count, "Properties.Count = 2");
+        AssertEqual("red", props["color"], "Properties[color] = red");
+        AssertEqual("large", props["size"], "Properties[size] = large");
+        TestLogger.Info("PropertyBag.Properties getter passed");
+    }
+
+    [MonoJitCrash]
+    public void TestPropertyBagPropertySet()
+    {
+        var bag = new PropertyBag();
+        bag.Properties = new Dictionary<string, string>
+        {
+            { "a", "1" },
+            { "b", "2" },
+            { "c", "3" },
+        };
+        AssertEqual(3, bag.GetCount(), "Count after set = 3");
+        var props = bag.Properties;
+        AssertEqual("1", props["a"], "Properties[a] = 1 after set");
+        TestLogger.Info("PropertyBag.Properties setter passed");
+    }
+
+    #endregion
 }
