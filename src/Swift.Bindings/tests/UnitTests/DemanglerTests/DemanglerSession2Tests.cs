@@ -895,4 +895,33 @@ exports:
         // And also some errors (symbols the reducer doesn't handle)
         Assert.True(results.Errors.Length > 0, "Expected some reduction errors from Foundation.tbd");
     }
+
+    // ================================================================
+    // Variadic parameter demangling tests
+    // ================================================================
+
+    [Fact]
+    public void VariadicParam_SwiftyBeaver_StartsWith_DemanglerReturnsError()
+    {
+        // SwiftyBeaver.FunctionFilterFactory.startsWith(_: String..., caseSensitive: Bool, required: Bool, minLevel: Level)
+        // The demangler doesn't produce a FunctionReduction for this symbol — it returns a ReductionError.
+        // This is expected because the demangler's ConvertVariadicTupleElement only handles simple cases.
+        // Variadic detection must use an alternative approach (swiftinterface or ABI JSON analysis).
+        var demangler = new Swift5Demangler();
+        var result = demangler.Run("$s12SwiftyBeaver21FunctionFilterFactoryC10startsWith_13caseSensitive8required8minLevelAA0D4Type_pSSd_S2bA2AC0L0OtFZ");
+        // Demangler may return null or ReductionError — both are acceptable
+        // FunctionReduction is NOT expected for this symbol
+        Assert.True(result is null or ReductionError,
+            $"Expected null or ReductionError but got {result?.GetType().Name}");
+    }
+
+    [Fact]
+    public void VariadicParam_RxSwift_BuildBlock_DemanglerReturnsError()
+    {
+        // RxSwift.DisposeBag.DisposableBuilder.buildBlock(_: Disposable...)
+        var demangler = new Swift5Demangler();
+        var result = demangler.Run("$s7RxSwift10DisposeBagC19DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ");
+        Assert.True(result is null or ReductionError,
+            $"Expected null or ReductionError but got {result?.GetType().Name}");
+    }
 }

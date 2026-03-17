@@ -69,6 +69,7 @@ internal sealed class SwiftInterfaceContextTracker
         ExtensionDeclaration,
         AnnotationOnly,
         MemberLine,
+        FreeFunctionLine,
         Continuation,
         Other
     }
@@ -175,6 +176,24 @@ internal sealed class SwiftInterfaceContextTracker
             _braceDepth += openBraces - closeBraces;
             PopTypeStackIfNeeded();
             return LineKind.MemberLine;
+        }
+
+        // Check for free function at module level (not inside a type) that may span multiple lines.
+        // Same multi-line continuation logic as type members above, but for top-level functions.
+        if (_typeStack.Count == 0 && IsMemberLine(trimmedLine))
+        {
+            if (HasUnmatchedOpenParen(trimmedLine))
+            {
+                _continuationLine = trimmedLine;
+                _continuationPendingAnnotations = new List<string>(_pendingAnnotationLines);
+                _braceDepth += openBraces - closeBraces;
+                PopTypeStackIfNeeded();
+                return LineKind.Continuation;
+            }
+
+            _braceDepth += openBraces - closeBraces;
+            PopTypeStackIfNeeded();
+            return LineKind.FreeFunctionLine;
         }
 
         _braceDepth += openBraces - closeBraces;
@@ -288,8 +307,9 @@ internal sealed class SwiftInterfaceContextTracker
 
     private LineKind ClassifyCompletedLine(string completedLine, string rawLine)
     {
-        // A completed multi-line continuation is always a member line
-        return LineKind.MemberLine;
+        // A completed multi-line continuation is a member line if inside a type,
+        // or a free function line if at module level.
+        return _typeStack.Count > 0 ? LineKind.MemberLine : LineKind.FreeFunctionLine;
     }
 
     /// <summary>

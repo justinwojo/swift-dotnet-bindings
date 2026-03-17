@@ -1147,7 +1147,15 @@ public static class NestedClosureBridge
             if (named.Name == "Swift.Optional" && named.ContainsGenericParameters &&
                 named.GenericParameters.Count == 1 && env.ClosureHandler.IsReferenceType(named.GenericParameters[0]))
             {
-                var innerTypeStr = ExistentialBypassEmitter.RenderSwiftTypeSpec(named.GenericParameters[0]);
+                var innerSpec = named.GenericParameters[0];
+                var innerTypeStr = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerSpec);
+                // ObjC-bridged structs (e.g., NSZone, IndexPath) need AnyObject bridge for Unmanaged
+                if (innerSpec is NamedTypeSpec innerNamed &&
+                    !env.ClosureHandler.IsClassType(innerNamed) &&
+                    env.ClosureHandler.IsObjCBridgedClass(innerNamed))
+                {
+                    return $"{paramName} != nil ? (Unmanaged<AnyObject>.fromOpaque({paramName}!).takeUnretainedValue() as! {innerTypeStr}) : nil";
+                }
                 return $"{paramName} != nil ? Unmanaged<{innerTypeStr}>.fromOpaque({paramName}!).takeUnretainedValue() : nil";
             }
 
@@ -1166,7 +1174,13 @@ public static class NestedClosureBridge
             }
 
             // ObjC / classes: Unmanaged.fromOpaque().takeUnretainedValue()
+            // ObjC-bridged structs need AnyObject bridge for Unmanaged (T: AnyObject constraint)
             var typeStr = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
+            if (!env.ClosureHandler.IsClassType(named) &&
+                env.ClosureHandler.IsObjCBridgedClass(named))
+            {
+                return $"(Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {typeStr})";
+            }
             return $"Unmanaged<{typeStr}>.fromOpaque({paramName}).takeUnretainedValue()";
         }
 

@@ -985,6 +985,79 @@ public class SwiftABIParserTests
 
     #endregion
 
+    #region HasVariadicElement Tests
+
+    [Fact]
+    public void HasVariadicElement_VariadicStringParam_ReturnsTrue()
+    {
+        // Swift `func foo(_ args: String...)` demangles as Array<String> with inner IsVariadic=true
+        var innerType = new NamedTypeSpec("Swift.String") { IsVariadic = true };
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(innerType);
+
+        var paramTuple = new TupleTypeSpec(new TypeSpec[] { arrayType });
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    [Fact]
+    public void HasVariadicElement_RegularArrayParam_ReturnsFalse()
+    {
+        // Regular Array<String> parameter (not variadic) — inner type does NOT have IsVariadic
+        var innerType = new NamedTypeSpec("Swift.String");
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(innerType);
+
+        var paramTuple = new TupleTypeSpec(new TypeSpec[] { arrayType });
+        Assert.False(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    [Fact]
+    public void HasVariadicElement_MixedParams_VariadicAndNon_ReturnsTrue()
+    {
+        // func foo(_ prefixes: String..., caseSensitive: Bool)
+        // Demangled: (Array<String{IsVariadic}>, Bool)
+        var innerType = new NamedTypeSpec("Swift.String") { IsVariadic = true };
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(innerType);
+        var boolType = new NamedTypeSpec("Swift.Bool");
+
+        var paramTuple = new TupleTypeSpec(new TypeSpec[] { arrayType, boolType });
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    [Fact]
+    public void HasVariadicElement_EmptyParamList_ReturnsFalse()
+    {
+        var paramTuple = new TupleTypeSpec();
+        Assert.False(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    [Fact]
+    public void HasVariadicElement_VariadicProtocolParam_ReturnsTrue()
+    {
+        // func buildBlock(_ disposables: Disposable...) — demangled as Array<Disposable{IsVariadic}>
+        var innerType = new NamedTypeSpec("RxSwift.Disposable") { IsVariadic = true };
+        var arrayType = new NamedTypeSpec("Swift.Array");
+        arrayType.GenericParameters.Add(innerType);
+
+        var paramTuple = new TupleTypeSpec(new TypeSpec[] { arrayType });
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    [Fact]
+    public void HasVariadicElement_ArrayNameWithoutModule_ReturnsTrue()
+    {
+        // Some demangling contexts use "Array" without "Swift." prefix
+        var innerType = new NamedTypeSpec("Swift.Int") { IsVariadic = true };
+        var arrayType = new NamedTypeSpec("Array");
+        arrayType.GenericParameters.Add(innerType);
+
+        var paramTuple = new TupleTypeSpec(new TypeSpec[] { arrayType });
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    #endregion
+
     #region B2: Tuple Label Parsing for Enum Associated Values
 
     /// <summary>

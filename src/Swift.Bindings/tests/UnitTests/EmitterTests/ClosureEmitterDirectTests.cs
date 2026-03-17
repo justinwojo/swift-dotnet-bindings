@@ -746,6 +746,173 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
+    #region Frozen struct closure return (CGSize/CGPoint/CGFloat direct return fix)
+
+    [Fact]
+    public void SwiftConventionCType_FrozenStructReturn_UsesActualSwiftType()
+    {
+        // When a closure returns a frozen struct (e.g., CGSize), the @convention(c) return type
+        // must be the actual Swift type (CGSize), not UnsafeMutableRawPointer.
+        // C# returns the struct directly via CanUseDirectCallbackReturn, so the types must match.
+        var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGFloat) -> CGSize — frozen struct param + frozen struct return
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGFloat"),
+            new NamedTypeSpec("CoreGraphics.CGSize"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureTypeSpec, closureHandler);
+
+        // Return type should be CGSize, not UnsafeMutableRawPointer
+        Assert.Contains("-> CGSize", conventionCType);
+        Assert.DoesNotContain("-> UnsafeMutableRawPointer", conventionCType);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_FrozenStructReturn_DirectlyReturnsValue()
+    {
+        // The Swift adapter closure should directly return the cdecl call result
+        // for frozen struct returns (no pointer load/deallocate needed).
+        var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGFloat) -> CGSize
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGFloat"),
+            new NamedTypeSpec("CoreGraphics.CGSize"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "block", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+
+        // Should have -> CGSize return type in the adapted closure
+        Assert.Contains("-> CGSize", result);
+        // Should directly return the cdecl call (no .load or .deallocate)
+        Assert.Contains("return cdecl_block(", result);
+        Assert.DoesNotContain("load(as:", result);
+        Assert.DoesNotContain("resultBuf", result);
+    }
+
+    [Fact]
+    public void SwiftConventionCType_FrozenStructReturn_PrimitiveParamPassesDirectly()
+    {
+        // Frozen struct return with a primitive param: the param should pass through
+        // while the return type uses the actual Swift struct type.
+        var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int32) -> CGPoint
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("CoreGraphics.CGPoint"));
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureTypeSpec, closureHandler);
+
+        Assert.Contains("Int32", conventionCType);
+        Assert.Contains("-> CGPoint", conventionCType);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_FrozenStructReturn_ReturnsByValue()
+    {
+        // C# callback for a frozen struct return should return the struct directly,
+        // not void* with heap allocation.
+        var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (CGFloat) -> CGSize
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("CoreGraphics.CGFloat"),
+            new NamedTypeSpec("CoreGraphics.CGSize"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "init", "block", closureTypeSpec, closureHandler,
+            "$s6Lottie17SizeValueProviderCyAA_XCTF", useCdecl: true);
+
+        var result = output.ToString();
+        // Return type should be CGSize, not void* with heap allocation
+        Assert.Contains("Swift.CGSize", result);
+        Assert.DoesNotContain("NativeMemory.Alloc", result);
+        // The callback method signature should return CGSize (not void*)
+        Assert.Matches(@"static unsafe Swift\.CGSize \w+_Callback\(", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithFrozenStruct()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+                MetadataAccessor = "$sSdMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var cgModule = new ModuleTypeDatabase("CoreGraphics", "/usr/lib/swift/libswiftCoreGraphics.dylib");
+        // CGFloat — frozen struct, no memory management (blittable, direct return)
+        cgModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGFloat"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGFloat"),
+                MetadataAccessor = "$s14CoreGraphics7CGFloatVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        // CGSize — frozen struct, no memory management (direct return)
+        cgModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "CGSize"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGSize"),
+                MetadataAccessor = "$sSo6CGSizeVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        // CGPoint — frozen struct, no memory management (direct return)
+        cgModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "CGPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGPoint"),
+                MetadataAccessor = "$sSo7CGPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(cgModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
+
     #region Session 4 — GCHandle lifetime: Free in callback, not in calling method's finally block
 
     [Fact]

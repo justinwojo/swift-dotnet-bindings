@@ -215,6 +215,16 @@ namespace BindingsGeneration
         public bool HasThrowingClosureSimplification { get; set; } = false;
 
         /// <summary>
+        /// When true, one or more parameters of this method are Swift variadic parameters
+        /// (e.g., String..., Disposable...). The ABI JSON represents these as Array&lt;T&gt;,
+        /// but the actual Swift API expects T... — passing [T] where T... is expected causes
+        /// a compilation error. Detected from the demangler's IsVariadic flag on the inner
+        /// element type of the Array parameter.
+        /// @_cdecl wrappers cannot call variadic methods correctly, so this blocks wrapper emission.
+        /// </summary>
+        public bool HasVariadicParameter { get; set; } = false;
+
+        /// <summary>
         /// When true, this method was synthesized from a protocol extension method
         /// parsed from a .swiftinterface file. Protocol extension methods use static
         /// dispatch and are called via generated @_silgen_name Swift wrappers.

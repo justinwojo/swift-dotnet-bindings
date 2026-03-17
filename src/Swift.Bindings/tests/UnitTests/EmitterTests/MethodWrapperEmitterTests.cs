@@ -716,6 +716,124 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_VariadicParameter_ReturnsFalse()
+    {
+        // Swift variadic params (T...) appear as Array<T> in ABI JSON. The @_cdecl wrapper
+        // would pass [T] where T... is expected, causing compilation error:
+        // "cannot pass array of type '[String]' as variadic arguments of type 'String'"
+        // E.g., SwiftyBeaver.FunctionFilterFactory.startsWith(_ prefixes: String..., ...)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "startsWith",
+            MangledName = "$s10TestModule_startsWith",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    // ABI JSON represents String... as Array<String>
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.String") } },
+                    Name = "prefixes",
+                    PrivateName = "prefixes",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+                    Name = "caseSensitive",
+                    PrivateName = "caseSensitive",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            HasVariadicParameter = true // Set by demangler during parsing
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NonVariadicArrayParameter_ReturnsTrue()
+    {
+        // Regular Array<T> parameter (not variadic) should NOT be blocked.
+        // Only variadic params (T...) that demangler marks with IsVariadic should be blocked.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s10TestModule_process",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    // Regular Array<String> parameter — not variadic
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.String") } },
+                    Name = "items",
+                    PrivateName = "items",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            HasVariadicParameter = false // Regular array, NOT variadic
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void HasCdeclCompatibleFunctionShape_InoutParam_ReturnsFalse()
     {
         // Async path gate: inout params also blocked for async @_cdecl wrappers.

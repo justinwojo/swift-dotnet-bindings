@@ -759,6 +759,50 @@ public class ConstructorWrapperEmitterTests
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_HasVariadicParameter_ReturnsFalse()
+    {
+        // Constructors with variadic params detected from demangler (HasVariadicParameter flag)
+        // should skip wrapper emission. This is the definitive variadic check — it catches
+        // cases that HasVariadicExpansionPattern doesn't (e.g., single variadic param without
+        // matching individual params).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("DisposeBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("DisposeBag", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s7RxSwift10DisposeBagCyACypd_tcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "disposables",
+                    PrivateName = "disposables",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("RxSwift.Disposable")),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            HasVariadicParameter = true // Set by demangler
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
     #endregion
 
     #region Symbol Naming Tests
@@ -2886,6 +2930,86 @@ public class ConstructorWrapperEmitterTests
         Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer, mapping.Kind);
         Assert.Equal("UnsafeMutableRawPointer?", mapping.cdeclReturnType);
         Assert.False(needsResultPtr);
+    }
+
+    [Fact]
+    public void GetCdeclParamMapping_OptionalObjCBridgedType_UsesAnyObjectBridge()
+    {
+        // ObjC-bridged types (e.g., NSZone, IndexPath) get synthetic TypeRecords with
+        // Kind=Class and ObjCBridged flag from CreateObjCBridgedTypeRecord. Even though
+        // they appear as Class kind, Unmanaged<NSZone> fails at Swift compilation because
+        // NSZone is actually a Swift struct. Use Unmanaged<AnyObject> + cast instead.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Container",
+            ("Foundation.NSZone", TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("Foundation.NSZone"));
+
+        var arg = new ArgumentDecl
+        {
+            Name = "zone",
+            PrivateName = "zone",
+            SwiftTypeSpec = optionalSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+            arg, "zone", env, omitLabels: false);
+
+        // Swift param should be UnsafeMutableRawPointer? (nullable)
+        Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
+        // Reconstruction should use Unmanaged<AnyObject> (NOT Unmanaged<NSZone>)
+        Assert.NotNull(reconstruction);
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque", reconstruction);
+        Assert.Contains("as! NSZone", reconstruction);
+        // Should NOT contain Unmanaged<NSZone> — that's the bug this test guards against
+        Assert.DoesNotContain("Unmanaged<NSZone>", reconstruction);
+    }
+
+    [Fact]
+    public void GetCdeclParamMapping_OptionalTrueClass_UsesDirectUnmanaged()
+    {
+        // True class types (Kind=Class, no ObjCBridged flag) should use Unmanaged<ClassName>
+        // directly since they conform to AnyObject.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("Container",
+            ("TestModule.MyClass", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
+
+        var arg = new ArgumentDecl
+        {
+            Name = "child",
+            PrivateName = "child",
+            SwiftTypeSpec = optionalSpec,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+            arg, "child", env, omitLabels: false);
+
+        // True class: Unmanaged<MyClass> is safe (no AnyObject bridge needed)
+        Assert.NotNull(reconstruction);
+        Assert.Contains("Unmanaged<MyClass>.fromOpaque", reconstruction);
+        Assert.DoesNotContain("AnyObject", reconstruction);
     }
 
     #endregion

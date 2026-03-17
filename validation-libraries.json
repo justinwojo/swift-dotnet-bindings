@@ -279,7 +279,8 @@
         {
           "scheme": "StripeiOS",
           "framework": "Stripe",
-          "dependencies": ["StripeApplePay", "StripePayments"]
+          "dependencies": ["StripeApplePay", "StripePayments"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripeApplePay",
@@ -308,7 +309,8 @@
         {
           "scheme": "StripeCryptoOnramp",
           "framework": "StripeCryptoOnramp",
-          "dependencies": ["StripeApplePay", "StripeCore", "StripePaymentSheet", "StripePayments"]
+          "dependencies": ["StripeApplePay", "StripeCore", "StripePaymentSheet", "StripePayments"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripeFinancialConnections",
@@ -323,22 +325,26 @@
         {
           "scheme": "StripeIssuing",
           "framework": "StripeIssuing",
-          "dependencies": ["StripeCore", "StripePayments"]
+          "dependencies": ["StripeCore", "StripePayments"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripePayments",
           "framework": "StripePayments",
-          "dependencies": ["StripeCore"]
+          "dependencies": ["StripeCore"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripePaymentSheet",
           "framework": "StripePaymentSheet",
-          "dependencies": ["StripeCore", "StripePayments", "StripeUICore"]
+          "dependencies": ["StripeCore", "StripePayments", "StripeUICore"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripePaymentsUI",
           "framework": "StripePaymentsUI",
-          "dependencies": ["StripePayments", "StripeUICore"]
+          "dependencies": ["StripePayments", "StripeUICore"],
+          "wrapper_deps": ["Stripe3DS2"]
         },
         {
           "scheme": "StripeUICore",

@@ -66,6 +66,15 @@ public static partial class ClosureEmitter
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
             return "Void";
 
+        // Frozen structs that C# returns directly (CanUseDirectCallbackReturn = true)
+        // must use the actual Swift type in the @convention(c) signature, not UnsafeMutableRawPointer.
+        // GetSwiftCdeclParamType maps all structs to UnsafeMutableRawPointer, which is correct for
+        // parameters (heap-allocated) but wrong for return types that C# returns by value.
+        // Exclude Bool — it uses special byte<->Bool marshalling (UInt8 in @convention(c), != 0 conversion).
+        if (!MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType) &&
+            closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
+            return ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
+
         return GetSwiftCdeclParamType(closureTypeSpec.ReturnType, closureHandler);
     }
 

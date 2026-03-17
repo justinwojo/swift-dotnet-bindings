@@ -539,10 +539,12 @@ public static class OptionalPointerWrapperEmitter
                 }
                 break;
             case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
-                swiftWriter.WriteLine($"{indent}return Unmanaged.passRetained({callExpr}).toOpaque()");
+                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
+                swiftWriter.WriteLine($"{indent}return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
                 break;
             case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
-                swiftWriter.WriteLine($"{indent}if let result = {callExpr} {{ return Unmanaged.passRetained(result).toOpaque() }}");
+                // Use `as AnyObject` — ObjC-bridged structs (e.g., NSZone, IndexPath) need bridge cast.
+                swiftWriter.WriteLine($"{indent}if let result = {callExpr} {{ return Unmanaged.passRetained(result as AnyObject).toOpaque() }}");
                 swiftWriter.WriteLine($"{indent}return nil");
                 break;
             default:

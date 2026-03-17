@@ -1428,6 +1428,29 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetDefaultParameterValues_MultiLineFreeFunction()
+    {
+        // Multi-line free functions should be reassembled via continuation and parsed correctly
+        var swiftInterface =
+            "public func configure(\n" +
+            "  name: Swift.String,\n" +
+            "  verbose: Swift.Bool = true\n" +
+            ")\n";
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetDefaultParameterValues(path);
+            Assert.True(result.ContainsKey("configure(name:verbose:)"));
+            var defaults = result["configure(name:verbose:)"];
+            Assert.Equal(2, defaults.Count);
+            Assert.Null(defaults[0]);
+            Assert.Equal("true", defaults[1]);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ===== GetEnumCaseLabels Tests =====
 
     [Fact]
@@ -2274,6 +2297,109 @@ public class SwiftInterfaceAccessParserTests
         var result = SwiftInterfaceAccessParser.GetSubscriptLabels("/tmp/nonexistent_file_12345.swiftinterface");
         Assert.Empty(result);
     }
+
+    #region HasVariadicParameterInSignature Tests
+
+    [Theory]
+    [InlineData("  public static func startsWith(_ prefixes: Swift.String..., caseSensitive: Swift.Bool = false) -> any SwiftyBeaver.FilterType", true)]
+    [InlineData("  public static func buildBlock(_ disposables: any RxSwift.Disposable...) -> [any RxSwift.Disposable]", true)]
+    [InlineData("  public func insert(_ disposables: any RxSwift.Disposable...)", true)]
+    [InlineData("  public func process(_ items: [Swift.String])", false)]
+    [InlineData("  public func log(_ message: Swift.String, level: Swift.Int)", false)]
+    [InlineData("  public init(items: [Swift.Int])", false)]
+    public void HasVariadicParameterInSignature_DetectsVariadics(string line, bool expected)
+    {
+        Assert.Equal(expected, SwiftInterfaceAccessParser.HasVariadicParameterInSignature(line));
+    }
+
+    [Fact]
+    public void GetVariadicMembers_DetectsVariadicFromFile()
+    {
+        var content = @"
+public class FilterFactory {
+  public static func startsWith(_ prefixes: Swift.String..., caseSensitive: Swift.Bool = false) -> any FilterType
+  public static func process(_ items: [Swift.String]) -> Swift.Void
+}
+";
+        var path = WriteTempFile(content);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetVariadicMembers(path);
+            Assert.Contains("FilterFactory.startsWith(_:caseSensitive:)", result);
+            Assert.DoesNotContain("FilterFactory.process(_:)", result);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void GetVariadicMembers_NestedType_UsesQualifiedPath()
+    {
+        var content = @"
+public class DisposeBag {
+  public struct DisposableBuilder {
+    public static func buildBlock(_ disposables: any Disposable...) -> [any Disposable]
+  }
+}
+";
+        var path = WriteTempFile(content);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetVariadicMembers(path);
+            Assert.Contains("DisposeBag.DisposableBuilder.buildBlock(_:)", result);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void GetVariadicMembers_MissingFile_ReturnsEmpty()
+    {
+        var result = SwiftInterfaceAccessParser.GetVariadicMembers("/tmp/nonexistent_file_12345.swiftinterface");
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetVariadicMembers_MultiLineFreeFunction_Detected()
+    {
+        // Multi-line free functions at module level should be reassembled and checked for variadic
+        var swiftInterface =
+            "public func broadcast(\n" +
+            "  _ values: Swift.Int...\n" +
+            ")\n";
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetVariadicMembers(path);
+            Assert.Contains("broadcast(_:)", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetVariadicMembers_MultiLineFreeFunctionNonVariadic_NotDetected()
+    {
+        // Multi-line free function without variadic should NOT be detected
+        var swiftInterface =
+            "public func process(\n" +
+            "  items: [Swift.String]\n" +
+            ")\n";
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetVariadicMembers(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 
     private static string WriteTempFile(string content)
     {

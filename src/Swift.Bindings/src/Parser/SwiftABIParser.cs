@@ -526,6 +526,14 @@ namespace BindingsGeneration
         private readonly HashSet<string>? _publicMemberNames;
 
         /// <summary>
+        /// Optional set of "TypeName.printedName" keys for members with variadic parameters
+        /// from swiftinterface parsing. The ABI JSON represents variadic params as Array&lt;T&gt;,
+        /// making them indistinguishable from regular array params. @_cdecl wrappers can't call
+        /// variadic methods correctly — passing [T] where T... is expected causes compilation error.
+        /// </summary>
+        private readonly HashSet<string>? _variadicMembers;
+
+        /// <summary>
         /// Optional subscript parameter labels from swiftinterface parsing.
         /// Keys are "TypeName.subscript(label1:label2:)" (e.g., "AES.subscript(bitAt:)").
         /// Values are lists of external labels (e.g., ["bitAt"]).
@@ -552,7 +560,8 @@ namespace BindingsGeneration
             Dictionary<string, List<bool>>? autoclosureParameters = null,
             HashSet<string>? publicMemberNames = null,
             Dictionary<string, List<string>>? subscriptLabels = null,
-            HashSet<string>? mainActorIsolatedMembers = null)
+            HashSet<string>? mainActorIsolatedMembers = null,
+            HashSet<string>? variadicMembers = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -574,6 +583,7 @@ namespace BindingsGeneration
             _publicMemberNames = publicMemberNames;
             _subscriptLabels = subscriptLabels;
             _mainActorIsolatedMembers = mainActorIsolatedMembers;
+            _variadicMembers = variadicMembers;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1378,6 +1388,30 @@ namespace BindingsGeneration
                 });
             }
 
+            // Detect variadic parameters from swiftinterface data.
+            // Swift variadic params (T...) appear as Array<T> in ABI JSON, making them
+            // indistinguishable from regular array params. The swiftinterface shows the actual
+            // "..." syntax. @_cdecl wrappers can't call variadic methods correctly — passing
+            // [T] where T... is expected causes a compilation error.
+            // Primary source: swiftinterface _variadicMembers set.
+            // Fallback: demangler's FunctionReduction (when the demangler succeeds).
+            if (_variadicMembers != null)
+            {
+                // Use BuildTypeQualifiedPath for nested types (e.g., "DisposeBag.DisposableBuilder")
+                var varScopedKey = parentDecl is TypeDecl varParentType
+                    ? $"{BuildTypeQualifiedPath(varParentType)}.{node.PrintedName}"
+                    : node.PrintedName;
+                if (_variadicMembers.Contains(varScopedKey) || _variadicMembers.Contains(node.PrintedName))
+                {
+                    methodDecl.HasVariadicParameter = true;
+                }
+            }
+            if (!methodDecl.HasVariadicParameter &&
+                functionReduction?.Function?.ParameterList is TupleTypeSpec paramTuple)
+            {
+                methodDecl.HasVariadicParameter = HasVariadicElement(paramTuple);
+            }
+
             // Apply default parameter value expressions from swiftinterface data.
             // Must happen after the argument-construction loop since it mutates CSSignature entries.
             if (parentDecl is TypeDecl parentTypeForDefaults)
@@ -1413,6 +1447,25 @@ namespace BindingsGeneration
                     continue;
                 }
                 return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks whether any element in a demangled parameter list is a variadic parameter.
+        /// Variadic params (T...) are demangled as Array&lt;T&gt; where the inner T has IsVariadic=true.
+        /// </summary>
+        internal static bool HasVariadicElement(TupleTypeSpec paramTuple)
+        {
+            foreach (var element in paramTuple.Elements)
+            {
+                if (element is NamedTypeSpec named &&
+                    (named.Name == "Swift.Array" || named.Name == "Array") &&
+                    named.GenericParameters.Count > 0 &&
+                    named.GenericParameters[0].IsVariadic)
+                {
+                    return true;
+                }
             }
             return false;
         }

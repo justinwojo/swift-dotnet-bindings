@@ -373,13 +373,24 @@ for lib in libs:
         print(f\"{prod['framework']}|{lib['name']}\")
 " 2>/dev/null)
 
-# Build framework-to-dependencies mapping
+# Build framework-to-dependencies mapping (C# compile gate)
 FW_DEPS=$(python3 -c "
 import json
 libs = json.load(open('$MANIFEST'))['libraries']
 for lib in libs:
     for prod in lib['products']:
         deps = prod.get('dependencies', [])
+        if deps:
+            print(f\"{prod['framework']}|{','.join(deps)}\")
+" 2>/dev/null)
+
+# Build framework-to-wrapper-deps mapping (includes both dependencies + wrapper_deps for swift compilation)
+WRAPPER_DEPS=$(python3 -c "
+import json
+libs = json.load(open('$MANIFEST'))['libraries']
+for lib in libs:
+    for prod in lib['products']:
+        deps = list(prod.get('dependencies', [])) + list(prod.get('wrapper_deps', []))
         if deps:
             print(f\"{prod['framework']}|{','.join(deps)}\")
 " 2>/dev/null)
@@ -481,11 +492,16 @@ compile_wrapper() {
         # Look up framework name (strip @platform suffix for mapping)
         local fw_base="${name%%@*}"
 
-        # Add --framework-dependency flags for each dependency
+        # Add --framework-dependency flags for each declared dependency, then add
+        # all sibling xcframeworks from the same library directory to resolve transitive
+        # imports (e.g., Stripe modules importing Stripe3DS2/StripeUICore transitively,
+        # CocoaLumberjackSwift importing CocoaLumberjack). Duplicates are tracked to
+        # avoid passing the same xcframework twice (which would error in the generator).
+        local added_deps="|"
         local dep_list=""
         while IFS='|' read -r dep_fw dep_fws; do
             [[ "$dep_fw" == "$fw_base" ]] && dep_list="$dep_fws"
-        done <<< "$FW_DEPS"
+        done <<< "$WRAPPER_DEPS"
 
         if [[ -n "$dep_list" ]]; then
             IFS=',' read -ra DEP_NAMES <<< "$dep_list"
@@ -499,8 +515,26 @@ compile_wrapper() {
                     local dep_xcfw="$LIBRARIES_DIR/$dep_lib_name/$dep_fw_name.xcframework"
                     if [[ -d "$dep_xcfw" ]]; then
                         CMD_ARGS+=("--framework-dependency" "$dep_xcfw")
+                        added_deps="${added_deps}$(basename "$dep_xcfw")|"
                     fi
                 fi
+            done
+        fi
+
+        # Add sibling xcframeworks (same library directory) for transitive deps
+        local lib_dir
+        lib_dir=$(dirname "$xcfw_path")
+        local self_xcfw
+        self_xcfw=$(basename "$xcfw_path")
+        if [[ -d "$lib_dir" ]]; then
+            for sibling_xcfw in "$lib_dir"/*.xcframework; do
+                [[ ! -d "$sibling_xcfw" ]] && continue
+                local sibling_base
+                sibling_base=$(basename "$sibling_xcfw")
+                [[ "$sibling_base" == "$self_xcfw" ]] && continue
+                [[ "$added_deps" == *"|${sibling_base}|"* ]] && continue
+                CMD_ARGS+=("--framework-dependency" "$sibling_xcfw")
+                added_deps="${added_deps}${sibling_base}|"
             done
         fi
 

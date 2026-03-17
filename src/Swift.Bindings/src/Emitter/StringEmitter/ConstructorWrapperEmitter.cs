@@ -87,6 +87,12 @@ public static class ConstructorWrapperEmitter
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
             return false;
 
+        // Skip constructors with variadic parameters detected from the demangler.
+        // Swift variadic params (T...) appear as Array<T> in ABI JSON. The @_cdecl wrapper
+        // would pass [T] where T... is expected, causing a compilation error.
+        if (env.MethodDecl.HasVariadicParameter)
+            return false;
+
         // Skip constructors with variadic expansion pattern: N individual protocol params
         // followed by Array<SameProtocol>. The wrapper passes the array as a positional arg,
         // but Swift resolves to the variadic overload causing type mismatch.
@@ -636,8 +642,33 @@ public static class ConstructorWrapperEmitter
         {
             var innerType = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
             var swiftInnerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerType);
+
+            // Check if the inner type is an ObjC-bridged struct (e.g., NSZone, IndexPath).
+            // Unmanaged<T> requires T: AnyObject, so ObjC-bridged structs need
+            // Unmanaged<AnyObject> + cast. Synthetic ObjCBridged records from Apple framework
+            // heuristics have Kind=Class but may represent Swift structs (e.g., NSZone),
+            // so ObjCBridged types always use the AnyObject bridge for safety.
+            // Also use AnyObject for types without TypeRecords (fallback) since we can't
+            // verify they're true classes.
+            bool useAnyObjectBridge = true;
+            if (innerType is NamedTypeSpec innerNamed &&
+                env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord))
+            {
+                // True class (not ObjC-bridged) — Unmanaged<ClassName> is safe.
+                // ObjC-bridged types use AnyObject because the synthetic TypeRecord
+                // may report Kind=Class for types that are actually Swift structs.
+                useAnyObjectBridge = innerRecord.Kind != TypeRecordKind.Class ||
+                                     MarshallingHelpers.IsObjCBridged(innerRecord);
+            }
+
+            string reconstruction;
+            if (useAnyObjectBridge)
+                reconstruction = $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {swiftInnerType} }}";
+            else
+                reconstruction = $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<{swiftInnerType}>.fromOpaque($0).takeUnretainedValue() }}";
+
             return ($"_ {label}: UnsafeMutableRawPointer?",
-                    $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<{swiftInnerType}>.fromOpaque($0).takeUnretainedValue() }}",
+                    reconstruction,
                     $"{argLabel}{label}Val");
         }
 

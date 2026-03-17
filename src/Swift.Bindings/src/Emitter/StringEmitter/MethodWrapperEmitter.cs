@@ -95,6 +95,12 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
             return false;
 
+        // 11c. No variadic parameters — Swift variadic params (T...) appear as Array<T> in ABI JSON.
+        // The @_cdecl wrapper would pass [T] where T... is expected, causing compilation error:
+        // "cannot pass array of type '[T]' as variadic arguments of type 'T'"
+        if (env.MethodDecl.HasVariadicParameter)
+            return false;
+
         // 12. No nested frozen struct parameters
         if (HasNestedFrozenStructParameter(env))
             return false;
@@ -639,11 +645,16 @@ public static class MethodWrapperEmitter
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
-                swiftWriter.WriteLine($"return Unmanaged.passRetained({callExpr}).toOpaque()");
+                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
+                // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
+                // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
+                swiftWriter.WriteLine($"return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
-                swiftWriter.WriteLine($"return ({callExpr}).map {{ Unmanaged.passRetained($0).toOpaque() }}");
+                // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
+                // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
+                swiftWriter.WriteLine($"return ({callExpr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.Direct:

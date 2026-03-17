@@ -318,6 +318,10 @@ public static class WrapperValidation
         // Guard 6b: Not actor parent
         if (parentTypeDecl is ClassDecl { IsActor: true })
             return false;
+        // Guard 10: No variadic parameters — Swift variadic (T...) appears as Array<T> in ABI JSON.
+        // Wrapper would pass [T] where T... is expected, causing "cannot pass array" compile error.
+        if (env.MethodDecl.HasVariadicParameter)
+            return false;
         // Guard 11: Not non-copyable struct parent
         if (IsNonCopyableStructParent(env.ParentDecl))
             return false;
@@ -485,6 +489,10 @@ public static class WrapperValidation
         // 11b. No inout parameters
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
             return "inout_params";
+
+        // 11c. No variadic parameters
+        if (env.MethodDecl.HasVariadicParameter)
+            return "variadic_params";
 
         // 12. No nested frozen struct parameters
         if (env.MethodDecl.CSSignature.Skip(1).Any(arg => IsNestedFrozenStructParam(arg, env.TypeDatabase)))

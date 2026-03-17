@@ -2954,15 +2954,16 @@ public static class SwiftInterfaceAccessParser
             var trimmed = line.TrimStart();
             var kind = tracker.ProcessLine(trimmed, line);
 
-            // Process member lines (inside types) and free functions (top-level Other lines)
+            // Process member lines (inside types) and free functions (top-level)
             bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
-            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.Other &&
-                              tracker.TypeDepth == 0 &&
-                              SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.FreeFunctionLine ||
+                              (kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                               tracker.TypeDepth == 0 &&
+                               SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null);
 
             if (isMember || isFreeFunc)
             {
-                var memberText = (isMember ? tracker.CompletedMultiLine : null) ?? trimmed;
+                var memberText = tracker.CompletedMultiLine ?? trimmed;
                 var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
                 if (printedName != null)
                 {
@@ -3006,13 +3007,14 @@ public static class SwiftInterfaceAccessParser
             var kind = tracker.ProcessLine(trimmed, line);
 
             bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
-            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.Other &&
-                              tracker.TypeDepth == 0 &&
-                              SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.FreeFunctionLine ||
+                              (kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                               tracker.TypeDepth == 0 &&
+                               SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null);
 
             if (isMember || isFreeFunc)
             {
-                var memberText = (isMember ? tracker.CompletedMultiLine : null) ?? trimmed;
+                var memberText = tracker.CompletedMultiLine ?? trimmed;
                 var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
                 if (printedName != null)
                 {
@@ -3110,6 +3112,148 @@ public static class SwiftInterfaceAccessParser
         }
 
         return hasAny ? flags : null;
+    }
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a set of "TypeName.printedName" keys
+    /// for members that have variadic parameters (e.g., `_ prefixes: String...`).
+    /// The ABI JSON represents variadic params as Array&lt;T&gt;, making them indistinguishable
+    /// from regular array parameters. The swiftinterface is the only reliable source.
+    /// </summary>
+    public static HashSet<string> GetVariadicMembers(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.FreeFunctionLine ||
+                              (kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                               tracker.TypeDepth == 0 &&
+                               SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null);
+
+            if (isMember || isFreeFunc)
+            {
+                // Use CompletedMultiLine for both members and free functions — it's set when
+                // a multi-line continuation completes, regardless of nesting depth.
+                var memberText = tracker.CompletedMultiLine ?? trimmed;
+                var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                if (printedName != null && HasVariadicParameterInSignature(memberText))
+                {
+                    var key = tracker.BuildMemberKey(printedName);
+                    result.Add(key);
+                }
+                tracker.ConsumePendingAnnotations();
+            }
+            else if (kind == SwiftInterfaceContextTracker.LineKind.TypeDeclaration ||
+                     kind == SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration)
+            {
+                tracker.ConsumePendingAnnotations();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Checks if a function/init declaration line has any variadic parameter (type ending in "...").
+    /// Scans the parameter list for "..." at depth-0 (not inside generics/closures).
+    /// </summary>
+    internal static bool HasVariadicParameterInSignature(string memberLine)
+    {
+        // Find the function/init name and opening paren
+        string? funcName = null;
+        var funcMatch = AnyFuncRegex.Match(memberLine);
+        if (funcMatch.Success)
+            funcName = funcMatch.Groups[1].Value;
+        else if (AnyInitRegex.IsMatch(memberLine))
+            funcName = "init";
+        else
+            return false;
+
+        var funcNameIdx = memberLine.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return false;
+
+        var parenStart = memberLine.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return false;
+
+        // Find matching close paren
+        int depth = 0, parenEnd = parenStart;
+        for (int i = parenStart; i < memberLine.Length; i++)
+        {
+            if (memberLine[i] == '(') depth++;
+            if (memberLine[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { parenEnd = i; break; }
+            }
+        }
+
+        if (parenEnd == parenStart)
+            return false;
+
+        var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return false;
+
+        var parts = SplitParameters(paramStr);
+        foreach (var part in parts)
+        {
+            var trimmedPart = part.Trim();
+            // Find the colon separating label from type
+            var colonIdx = FindTopLevelColon(trimmedPart);
+            if (colonIdx >= 0)
+            {
+                var typeStr = trimmedPart.Substring(colonIdx + 1).Trim();
+                // Remove default value (everything after " = " at depth 0)
+                var eqIdx = FindTopLevelEquals(typeStr);
+                if (eqIdx >= 0)
+                    typeStr = typeStr.Substring(0, eqIdx).TrimEnd();
+                // Variadic: type ends with "..."
+                if (typeStr.EndsWith("..."))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Finds the index of " = " at depth-0 in a type string.
+    /// Returns -1 if not found.
+    /// </summary>
+    private static int FindTopLevelEquals(string s)
+    {
+        int depth = 0;
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (c == '<' || c == '(' || c == '[') depth++;
+            else if (c == '>' || c == ')' || c == ']') depth--;
+            else if (c == '=' && depth == 0 && i > 0 && s[i - 1] == ' ')
+            {
+                if (i + 1 < s.Length && s[i + 1] == ' ')
+                    return i - 1; // Return start of " = "
+            }
+        }
+        return -1;
     }
 
     /// <summary>

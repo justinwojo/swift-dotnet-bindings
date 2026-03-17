@@ -320,6 +320,7 @@ public class MemberValidationPipeline
         if (ConstructorWrapperEmitter.HasNestedFrozenStructParameter(env)) return "nested_frozen_struct_parameter";
         if (ConstructorWrapperEmitter.HasBufferPointerParameter(env)) return "buffer_pointer_parameter";
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl)) return "raw_generic_type_params";
+        if (env.MethodDecl.HasVariadicParameter) return "variadic_parameter";
         if (ConstructorWrapperEmitter.HasVariadicExpansionPattern(env)) return "variadic_expansion_pattern";
         return "unknown";
     }

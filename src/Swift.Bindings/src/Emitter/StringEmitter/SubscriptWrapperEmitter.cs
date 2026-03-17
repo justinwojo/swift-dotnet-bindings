@@ -635,11 +635,16 @@ public static class SubscriptWrapperEmitter
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
-                swiftWriter.WriteLine($"return Unmanaged.passRetained({expr}).toOpaque()");
+                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
+                // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
+                // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
+                swiftWriter.WriteLine($"return Unmanaged.passRetained({expr} as AnyObject).toOpaque()");
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
-                swiftWriter.WriteLine($"return ({expr}).map {{ Unmanaged.passRetained($0).toOpaque() }}");
+                // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
+                // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
+                swiftWriter.WriteLine($"return ({expr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
                 break;
 
             case PropertyWrapperEmitter.CdeclReturnKind.Direct:

@@ -412,7 +412,7 @@ public class PropertyWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("-> UnsafeMutableRawPointer", output);
-        Assert.Contains("Unmanaged.passRetained(obj.child).toOpaque()", output);
+        Assert.Contains("Unmanaged.passRetained(obj.child as AnyObject).toOpaque()", output);
     }
 
     [Fact]
