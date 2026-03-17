@@ -3,7 +3,7 @@
 Plan for measuring Swift-only call performance versus C# -> Swift interop call performance, with both CI-safe regression checks and deeper ad-hoc benchmarking.
 
 **Date**: February 2026
-**Scope**: `TestFramework` + a new standalone benchmark harness
+**Scope**: `BindingTests` + a new standalone benchmark harness
 
 ---
 
@@ -23,7 +23,7 @@ Plan for measuring Swift-only call performance versus C# -> Swift interop call p
 
 ## Proposed Structure
 
-### 1) CI Perf Smoke Checks (inside TestFramework workflow)
+### 1) CI Perf Smoke Checks (inside BindingTests workflow)
 
 Add a small, stable set of perf scenarios to validate "no large regression":
 
@@ -78,9 +78,9 @@ Primary comparison metric:
 
 ## Repo Layout (Proposed)
 
-- `TestFramework/Sources/SwiftBindingsTestLib/Performance/`  
+- `BindingTests/Sources/SwiftBindingsTestLib/Performance/`  
   Swift functions explicitly designed for repeatable perf measurement.
-- `TestFramework/perf-smoke.sh`  
+- `BindingTests/perf-smoke.sh`  
   Runs lightweight perf checks and emits pass/fail on ratio thresholds.
 - `perf/SwiftBindings.InteropBenchmarks/`  
   Standalone .NET BenchmarkDotNet project.
@@ -114,7 +114,7 @@ Phase 3 (tighten where stable):
 
 ### Phase A - Baseline Plumbing
 
-- Add Swift perf functions under `TestFramework` `Performance/`.
+- Add Swift perf functions under `BindingTests` `Performance/`.
 - Add minimal .NET invocations for matching calls.
 - Add smoke script and machine-readable output.
 
@@ -143,7 +143,7 @@ Phase 3 (tighten where stable):
 
 ## Acceptance Criteria
 
-- Perf smoke suite exists in `TestFramework` and runs in under 60s.
+- Perf smoke suite exists in `BindingTests` and runs in under 60s.
 - Standalone benchmark harness can compare native vs interop for initial 5 scenarios.
 - Results include interop/native ratio for each scenario.
 - CI has an explicit perf policy (observe-only or soft-gated) documented in repo.

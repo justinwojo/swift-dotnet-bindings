@@ -69,8 +69,8 @@ jobs:
             **/TestResults/*.trx
           retention-days: 7
 
-  testframework:
-    name: TestFramework
+  bindingtests:
+    name: BindingTests
     runs-on: macos-26
     steps:
       - name: Checkout
@@ -92,19 +92,19 @@ jobs:
           restore-keys: nuget-
 
       - name: Build and test
-        run: cd TestFramework && ./build-and-test.sh --strict
+        run: cd BindingTests && ./build-and-test.sh --strict
 
       - name: Generate coverage report
-        run: cd TestFramework && ./generate-coverage-report.sh
+        run: cd BindingTests && ./generate-coverage-report.sh
 
       - name: Check baselines
-        run: cd TestFramework && ./check-baselines.sh
+        run: cd BindingTests && ./check-baselines.sh
 
       - name: Verify no degraded must-pass features
         run: |
           DEGRADED=$(python3 -c "
           import json
-          with open('TestFramework/output/coverage-matrix.json') as f:
+          with open('BindingTests/output/coverage-matrix.json') as f:
               data = json.load(f)
           mp = data.get('summary', {}).get('must_pass', {})
           print(mp.get('degraded', 0))
@@ -136,7 +136,7 @@ jobs:
   release:
     name: Release
     runs-on: macos-26
-    needs: [build-and-test, testframework]
+    needs: [build-and-test, bindingtests]
     environment: nuget-publish
     steps:
       - name: Checkout

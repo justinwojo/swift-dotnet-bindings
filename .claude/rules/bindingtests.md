@@ -1,9 +1,9 @@
 ---
 paths:
-  - "TestFramework/**"
+  - "BindingTests/**"
 ---
 
-# TestFramework Guide
+# BindingTests Guide
 
 ## Scripts
 | Script | Purpose |

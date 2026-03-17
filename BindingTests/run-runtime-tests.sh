@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Justin Wojciechowski.
 # Licensed under the MIT License.
 
-# Runtime Tests Runner for TestFramework
+# Runtime Tests Runner for BindingTests
 # Builds the test library, regenerates bindings, builds the test app, and runs tests.
 # Supports iOS Simulator (default), physical device (NativeAOT), and macOS native.
 #
@@ -74,7 +74,7 @@ case "$PLATFORM" in
 esac
 
 echo "========================================="
-echo " TestFramework Runtime Tests"
+echo " BindingTests Runtime Tests"
 echo "========================================="
 echo ""
 echo "Platform: $PLATFORM"

@@ -202,8 +202,8 @@ launchSettings.json
 # Testing artifacts
 testing/
 src/samples/
-TestFramework/output/
-TestFramework/output-macos/
+BindingTests/output/
+BindingTests/output-macos/
 
 # Fetched library xcframeworks (rebuilt by scripts/fetch-libraries.sh)
 .libraries/

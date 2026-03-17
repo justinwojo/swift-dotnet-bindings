@@ -24,20 +24,20 @@ echo "=== Running Analyzer Tests ==="
 dotnet test src/Swift.Analyzers.Tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
 echo ""
-echo "=== Running TestFramework Regression Suite ==="
+echo "=== Running BindingTests Regression Suite ==="
 if [ "$(uname)" != "Darwin" ]; then
-    echo "Skipping TestFramework (requires macOS with Xcode)."
-elif [ ! -d "TestFramework" ]; then
-    echo "TestFramework directory not found, skipping."
+    echo "Skipping BindingTests (requires macOS with Xcode)."
+elif [ ! -d "BindingTests" ]; then
+    echo "BindingTests directory not found, skipping."
 else
-    cd TestFramework
+    cd BindingTests
     ./build-and-test.sh --strict
     ./generate-coverage-report.sh
     ./check-baselines.sh
     cd ..
 
     # Fail on degraded must-pass features (actual regressions)
-    COVERAGE_JSON="TestFramework/output/coverage-matrix.json"
+    COVERAGE_JSON="BindingTests/output/coverage-matrix.json"
     if [ -f "$COVERAGE_JSON" ]; then
         DEGRADED=$(python3 -c "
 import json, sys
@@ -48,7 +48,7 @@ print(mp.get('degraded', 0))
 " 2>/dev/null || echo "0")
         if [ "$DEGRADED" -gt 0 ]; then
             echo ""
-            echo "ERROR: $DEGRADED must-pass feature(s) are degraded in TestFramework."
+            echo "ERROR: $DEGRADED must-pass feature(s) are degraded in BindingTests."
             echo "See $COVERAGE_JSON for details."
             exit 1
         fi
@@ -56,7 +56,7 @@ print(mp.get('degraded', 0))
 
     # Run runtime tests on iOS Simulator (if available)
     echo ""
-    echo "=== Running TestFramework Runtime Tests ==="
+    echo "=== Running BindingTests Runtime Tests ==="
     if ! command -v xcrun &>/dev/null; then
         echo "Skipping runtime tests (xcrun not available)."
     elif ! xcrun simctl list devices &>/dev/null 2>&1; then
@@ -78,7 +78,7 @@ sys.exit(1)
         if [ "$HAS_SIM" != "yes" ]; then
             echo "Skipping runtime tests (no available iPhone simulator found)."
         else
-            cd TestFramework
+            cd BindingTests
             # Simulator mode: runs all tests except [MonoJitCrash] and [Skip].
             # Any failure or crash is a regression.
             ./run-runtime-tests.sh --skip-regen --timeout 90

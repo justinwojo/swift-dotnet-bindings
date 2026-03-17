@@ -79,7 +79,7 @@ def is_infra_failure(error: Exception) -> bool:
 # ---------------------------------------------------------------------------
 
 def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
-    """Run the TestFramework build steps.
+    """Run the BindingTests build steps.
 
     When used in the full CI pipeline, build-and-test.sh has already run
     by this point. We just need to ensure the RuntimeTestsApp is built.
@@ -487,7 +487,7 @@ def main():
         epilog="""
 Examples:
   # Full pipeline (parallel boot+build, test, cleanup)
-  python3 ci_ios_test.py --test-framework-dir TestFramework
+  python3 ci_ios_test.py --test-framework-dir BindingTests
 
   # Just prepare simulator and output UDID
   python3 ci_ios_test.py --prepare-only
@@ -514,8 +514,8 @@ Examples:
 
     # Build/test options
     test_group = parser.add_argument_group("test")
-    test_group.add_argument("--test-framework-dir", default="TestFramework",
-                           help="Path to TestFramework directory (default: TestFramework)")
+    test_group.add_argument("--test-framework-dir", default="BindingTests",
+                           help="Path to BindingTests directory (default: BindingTests)")
     test_group.add_argument("--tier", type=int, default=2, help="Test tier (default: 2)")
     test_group.add_argument("--timeout", type=int, default=90, help="Test timeout in seconds (default: 90)")
     test_group.add_argument("--skip-regen", action="store_true", default=True,
@@ -549,7 +549,7 @@ Examples:
     # Resolve test framework directory relative to repo root
     tf_dir = args.test_framework_dir
     if not os.path.isabs(tf_dir):
-        # If running from repo root, TestFramework is a subdirectory
+        # If running from repo root, BindingTests is a subdirectory
         # If running from .github/workflows context, adjust
         if not os.path.isdir(tf_dir):
             # Try relative to script location
@@ -558,7 +558,7 @@ Examples:
             tf_dir = str(repo_root / tf_dir)
 
     if not os.path.isdir(tf_dir):
-        log.error("TestFramework directory not found: %s", tf_dir)
+        log.error("BindingTests directory not found: %s", tf_dir)
         sys.exit(1)
 
     exit_code = run_pipeline(

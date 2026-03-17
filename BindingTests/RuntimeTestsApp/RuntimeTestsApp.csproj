@@ -37,7 +37,7 @@
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
-  <!-- Include TestFramework bindings -->
+  <!-- Include BindingTests bindings -->
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" />
   </ItemGroup>

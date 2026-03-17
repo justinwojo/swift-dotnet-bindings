@@ -1798,6 +1798,15 @@ public func _sbw_method_5B4EBE5C(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_id
     let result = makeIdentifiableDescribable(id: idVal, text: textVal)
     resultPtr.initializeMemory(as: (any SwiftBindingsTestLib.Describable & SwiftBindingsTestLib.TestIdentifiable).self, repeating: result, count: 1)
 }
+
+// Method @_cdecl wrapper for free function describeAll.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeAll_2EA61D14")
+public func _sbw_method_223F08C1(_ resultPtr: UnsafeMutableRawPointer, _ items: UnsafeRawPointer) {
+    let itemsVal = items.load(as: Swift.Array<SwiftBindingsTestLib.Describable>.self)
+    let result = describeAll(itemsVal)
+    resultPtr.initializeMemory(as: Swift.Array<Swift.String>.self, repeating: result, count: 1)
+}
 @_silgen_name("$s20SwiftBindingsTestLib21makeOpaqueDescribable4textQrSS_tF_opaque")
 public func PInvoke_makeOpaqueDescribable_F4E1351D(text: Swift.String) -> any SwiftBindingsTestLib.Describable {
     return SwiftBindingsTestLib.makeOpaqueDescribable(text: text)
@@ -1807,6 +1816,13 @@ public func PInvoke_makeOpaqueComposition_D52B2840(id: Swift.String, text: Swift
     return SwiftBindingsTestLib.makeOpaqueComposition(id: id, text: text)
 }
 
+// Method @_cdecl wrapper for free function SBW_GenericAbi_sizeOfT_cdecl.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_sizeOfT_cdecl_E41F26F4")
+public func _sbw_method_1E5012CE(_ metadataPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutablePointer<Int>) {
+    SBW_GenericAbi_sizeOfT_cdecl(metadataPtr, resultBuf)
+}
+
 // Method @_cdecl wrapper for free function SBW_GenericAbi_createIntBox.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_createIntBox_A75CD40E")
@@ -1814,18 +1830,36 @@ public func _sbw_method_234B202B(_ resultPtr: UnsafeMutableRawPointer, _ value: 
     let result = SBW_GenericAbi_createIntBox(value)
     resultPtr.initializeMemory(as: Swift.UnsafeMutableRawPointer.self, repeating: result, count: 1)
 }
-@_silgen_name("SBW_GenericAbi_getErrorDescription_optbuf")
-public func PInvoke_SBW_GenericAbi_getErrorDescription_16DBADF8(
-    _ errorPtr: UnsafeMutableRawPointer,
-    _ _resultBuf: UnsafeMutableRawPointer
-) {
-    let _result = SwiftBindingsTestLib.SBW_GenericAbi_getErrorDescription(errorPtr)
-    withUnsafePointer(to: _result) { _srcPtr in
-        _resultBuf.copyMemory(from: UnsafeRawPointer(_srcPtr),
-            byteCount: MemoryLayout<Optional<UnsafeMutablePointer<Int8>>>.size)
-    }
+
+// Method @_cdecl wrapper for free function SBW_GenericAbi_releaseBox.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_releaseBox_C401B216")
+public func _sbw_method_AB6995C3(_ ptr: UnsafeMutableRawPointer) {
+    SBW_GenericAbi_releaseBox(ptr)
 }
 
+// Method @_cdecl wrapper for free function SBW_GenericAbi_createError.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_createError_3AF41316")
+public func _sbw_method_25DF7BA3(_ resultPtr: UnsafeMutableRawPointer, _ message: UnsafePointer<Int8>) {
+    let result = SBW_GenericAbi_createError(message)
+    resultPtr.initializeMemory(as: Swift.UnsafeMutableRawPointer.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function SBW_GenericAbi_getErrorDescription.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_getErrorDescription_16DBADF8")
+public func _sbw_method_E4E50856(_ resultPtr: UnsafeMutableRawPointer, _ errorPtr: UnsafeMutableRawPointer) {
+    let result = SBW_GenericAbi_getErrorDescription(errorPtr)
+    resultPtr.initializeMemory(as: Swift.Optional<Swift.UnsafeMutablePointer<Swift.Int8>>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function SBW_GenericAbi_releaseError.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_releaseError_D06BF5FD")
+public func _sbw_method_8695709E(_ errorPtr: UnsafeMutableRawPointer) {
+    SBW_GenericAbi_releaseError(errorPtr)
+}
 
 // Method @_cdecl wrapper for free function createHashAlgorithm.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -1985,7 +2019,7 @@ public func _sbw_method_79F1AE7E(_ resultPtr: UnsafeMutableRawPointer, _ value: 
 public func _sbw_method_E6AE2013(_ _sW0_name: Int, _ _sW1_name: Int, _ _sW0_sound: Int, _ _sW1_sound: Int) -> UnsafeMutableRawPointer {
     let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
     let soundVal = unsafeBitCast((_sW0_sound, _sW1_sound), to: String.self)
-    return Unmanaged.passRetained(createAnimal(name: nameVal, sound: soundVal)).toOpaque()
+    return Unmanaged.passRetained(createAnimal(name: nameVal, sound: soundVal) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function createToken.
@@ -1993,7 +2027,70 @@ public func _sbw_method_E6AE2013(_ _sW0_name: Int, _ _sW1_name: Int, _ _sW0_soun
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createToken_FF02B27D")
 public func _sbw_method_9ED516DD(_ _sW0_value: Int, _ _sW1_value: Int) -> UnsafeMutableRawPointer {
     let valueVal = unsafeBitCast((_sW0_value, _sW1_value), to: String.self)
-    return Unmanaged.passRetained(createToken(value: valueVal)).toOpaque()
+    return Unmanaged.passRetained(createToken(value: valueVal) as AnyObject).toOpaque()
+}
+
+// Method @_cdecl wrapper for free function createPoint.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_createPoint_B781D2EB")
+public func _sbw_method_F37C8600(_ resultPtr: UnsafeMutableRawPointer, _ x: CGFloat, _ y: CGFloat) {
+    let result = createPoint(x: x, y: y)
+    resultPtr.initializeMemory(as: CoreFoundation.CGPoint.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function createSize.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_createSize_965A5666")
+public func _sbw_method_A309FDDA(_ resultPtr: UnsafeMutableRawPointer, _ width: CGFloat, _ height: CGFloat) {
+    let result = createSize(width: width, height: height)
+    resultPtr.initializeMemory(as: CoreFoundation.CGSize.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function createRect.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_createRect_D33E5A5A")
+public func _sbw_method_643E10A0(_ resultPtr: UnsafeMutableRawPointer, _ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) {
+    let result = createRect(x: x, y: y, width: width, height: height)
+    resultPtr.initializeMemory(as: CoreFoundation.CGRect.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function describeRect.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeRect_D22A7935")
+public func _sbw_method_7AAA70A5(_ resultPtr: UnsafeMutableRawPointer, _ rect: CGRect) {
+    let result: String = describeRect(rect)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Method @_cdecl wrapper for free function rectArea.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_rectArea_94D2432C")
+public func _sbw_method_627B578F(_ resultPtr: UnsafeMutableRawPointer, _ rect: CGRect) {
+    let result = rectArea(rect)
+    resultPtr.initializeMemory(as: CoreGraphics.CGFloat.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function describePoint.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describePoint_161E1910")
+public func _sbw_method_A07D2A6E(_ resultPtr: UnsafeMutableRawPointer, _ point: UnsafeRawPointer) {
+    let pointVal = point.load(as: SwiftBindingsTestLib.FrozenPoint.self)
+    let result: String = describePoint(pointVal)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
 
 // Method @_cdecl wrapper for free function makeOrigin.
@@ -2019,6 +2116,22 @@ public func _sbw_method_92CF0608(_ resultPtr: UnsafeMutableRawPointer, _ point: 
 public func _sbw_method_C6426518(_ resultPtr: UnsafeMutableRawPointer, _ model: UnsafeRawPointer) {
     let modelVal = model.load(as: SwiftBindingsTestLib.DeviceModel.self)
     let result: String = deviceDescription(modelVal)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Method @_cdecl wrapper for free function describeConfig.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeConfig_5922476E")
+public func _sbw_method_9D9A3C0C(_ resultPtr: UnsafeMutableRawPointer, _ config: UnsafeRawPointer) {
+    let configVal = config.load(as: SwiftBindingsTestLib.BatchConfig.self)
+    let result: String = describeConfig(configVal)
     let utf8 = Array(result.utf8)
     if utf8.isEmpty {
         resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
@@ -2255,11 +2368,12 @@ public func _sbw_method_C3085267(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_na
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createAsyncDataSource_550976B1")
 public func _sbw_method_6B95C275(_ _sW0_identifier: Int, _ _sW1_identifier: Int) -> UnsafeMutableRawPointer {
     let identifierVal = unsafeBitCast((_sW0_identifier, _sW1_identifier), to: String.self)
-    return Unmanaged.passRetained(createAsyncDataSource(identifier: identifierVal)).toOpaque()
+    return Unmanaged.passRetained(createAsyncDataSource(identifier: identifierVal) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function mainActorFreeFunction.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
 @_cdecl("SBW_SwiftBindingsTestLib_Free_mainActorFreeFunction_089CB50C")
 public func _sbw_method_7E4CC103(_ resultPtr: UnsafeMutableRawPointer) {
     let result: String = mainActorFreeFunction()
@@ -2284,21 +2398,21 @@ public func _sbw_method_EB0F7AA9() {
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createCounter_4D0CFE68")
 public func _sbw_method_4044AB6D() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(createCounter()).toOpaque()
+    return Unmanaged.passRetained(createCounter() as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function createCounterWithInitial.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createCounterWithInitial_A7812A02")
 public func _sbw_method_71BE5F0B(_ initial: Int32) -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(createCounterWithInitial(initial)).toOpaque()
+    return Unmanaged.passRetained(createCounterWithInitial(initial) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function createAsyncProcessor.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createAsyncProcessor_6C9F27D7")
 public func _sbw_method_0D11C721() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(createAsyncProcessor()).toOpaque()
+    return Unmanaged.passRetained(createAsyncProcessor() as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function createSharedState.
@@ -2306,7 +2420,7 @@ public func _sbw_method_0D11C721() -> UnsafeMutableRawPointer {
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createSharedState_6301698E")
 public func _sbw_method_770964B3(_ _sW0_label: Int, _ _sW1_label: Int) -> UnsafeMutableRawPointer {
     let labelVal = unsafeBitCast((_sW0_label, _sW1_label), to: String.self)
-    return Unmanaged.passRetained(createSharedState(label: labelVal)).toOpaque()
+    return Unmanaged.passRetained(createSharedState(label: labelVal) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function performWithSendable.
@@ -2318,6 +2432,29 @@ public func _sbw_method_862A926C(_ workFuncPtr: UnsafeMutableRawPointer?, _ work
         return cdecl_work(workContext!)
     }
     return performWithSendable(_adapted_work)
+}
+
+// Method @_cdecl wrapper for free function storeAndExecuteSendable.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_storeAndExecuteSendable_80056D38")
+public func _sbw_method_8CC53D48(_ resultPtr: UnsafeMutableRawPointer, _ workFuncPtr: UnsafeMutableRawPointer?, _ workContext: UnsafeMutableRawPointer?) {
+    let cdecl_work = unsafeBitCast(workFuncPtr!, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer?) -> Void).self)
+    let _adapted_work = { () -> String in
+        let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<String>.size, alignment: MemoryLayout<String>.alignment)
+        cdecl_work(resultBuf, workContext!)
+        let result = resultBuf.load(as: String.self)
+        resultBuf.deallocate()
+        return result
+    }
+    let result: String = storeAndExecuteSendable(_adapted_work)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
 
 // Method @_cdecl wrapper for free function createSendablePoint.
@@ -2333,7 +2470,7 @@ public func _sbw_method_0C297B31(_ resultPtr: UnsafeMutableRawPointer, _ x: Int3
 @_cdecl("SBW_SwiftBindingsTestLib_Free_createSendableConfig_DEF05FCD")
 public func _sbw_method_24491AF2(_ _sW0_name: Int, _ _sW1_name: Int, _ maxRetries: Int32) -> UnsafeMutableRawPointer {
     let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
-    return Unmanaged.passRetained(createSendableConfig(name: nameVal, maxRetries: maxRetries)).toOpaque()
+    return Unmanaged.passRetained(createSendableConfig(name: nameVal, maxRetries: maxRetries) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for free function createOrder.
@@ -2572,13 +2709,31 @@ public func _sbw_method_D03D9C6E(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_ho
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-@_cdecl("SBW_SwiftBindingsTestLib_Free_describeOptionalString_3089AA57_optbuf")
-public func PInvoke_describeOptionalString_69710D99(
-    _ resultPtr: UnsafeMutableRawPointer,
-    _ value: UnsafeRawPointer
-) {
-    let valueVal = value.assumingMemoryBound(to: (Swift.String)?.self).pointee
-    let result = SwiftBindingsTestLib.describeOptionalString(valueVal)
+
+// Method @_cdecl wrapper for free function findIndex.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_findIndex_92FCB6F2")
+public func _sbw_method_0308AED4(_ resultPtr: UnsafeMutableRawPointer, _ array: UnsafeRawPointer, _ value: Int32) {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    let result = findIndex(arrayVal, value: value)
+    resultPtr.initializeMemory(as: Swift.Optional<Swift.Int32>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function findAnimalByName.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_findAnimalByName_E3485BBE")
+public func _sbw_method_A866FBEA(_ animals: UnsafeRawPointer, _ _sW0_name: Int, _ _sW1_name: Int) -> UnsafeMutableRawPointer? {
+    let animalsVal = animals.load(as: Swift.Array<SwiftBindingsTestLib.Animal>.self)
+    let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
+    return (findAnimalByName(animalsVal, name: nameVal)).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }
+}
+
+// Method @_cdecl wrapper for free function describeOptionalInt.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeOptionalInt_672CBC87")
+public func _sbw_method_14505D3F(_ resultPtr: UnsafeMutableRawPointer, _ value: UnsafeRawPointer) {
+    let valueVal = value.load(as: Swift.Optional<Swift.Int32>.self)
+    let result: String = describeOptionalInt(valueVal)
     let utf8 = Array(result.utf8)
     if utf8.isEmpty {
         resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
@@ -2589,6 +2744,42 @@ public func PInvoke_describeOptionalString_69710D99(
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
 
+// Method @_cdecl wrapper for free function describeOptionalString.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeOptionalString_3089AA57")
+public func _sbw_method_69710D99(_ resultPtr: UnsafeMutableRawPointer, _ value: UnsafeRawPointer) {
+    let valueVal = value.load(as: Swift.Optional<Swift.String>.self)
+    let result: String = describeOptionalString(valueVal)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Method @_cdecl wrapper for free function readPointerValue.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_readPointerValue_36ED0ACE")
+public func _sbw_method_ED110B36(_ ptr: UnsafeMutablePointer<Int32>) -> Int32 {
+    return readPointerValue(ptr)
+}
+
+// Method @_cdecl wrapper for free function readPointerValueImmutable.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_readPointerValueImmutable_AC25AFC6")
+public func _sbw_method_AF56FE26(_ ptr: UnsafePointer<Int32>) -> Int32 {
+    return readPointerValueImmutable(ptr)
+}
+
+// Method @_cdecl wrapper for free function writePointerValue.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_writePointerValue_2D224037")
+public func _sbw_method_A444C130(_ ptr: UnsafeMutablePointer<Int32>, _ value: Int32) {
+    writePointerValue(ptr, value: value)
+}
 
 // Method @_cdecl wrapper for free function getStaticBuffer.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -2597,14 +2788,56 @@ public func _sbw_method_15F71CD5(_ resultPtr: UnsafeMutableRawPointer) {
     let result = getStaticBuffer()
     resultPtr.initializeMemory(as: Swift.UnsafeMutablePointer<Swift.Int32>.self, repeating: result, count: 1)
 }
-@_cdecl("SBW_SwiftBindingsTestLib_Free_optionalOpaquePointer_C39AA2B9_optbuf")
-public func PInvoke_optionalOpaquePointer_412C4555(
-    _ ptr: UnsafeRawPointer
-) -> Int8 {
-    let ptrVal = ptr.assumingMemoryBound(to: (Swift.OpaquePointer)?.self).pointee
-    return (SwiftBindingsTestLib.optionalOpaquePointer(ptrVal)) ? 1 : 0
+
+// Method @_cdecl wrapper for free function incrementPointer.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_incrementPointer_0A0FF210")
+public func _sbw_method_7ACC65BD(_ ptr: UnsafeMutablePointer<Int32>, _ amount: Int32) {
+    incrementPointer(ptr, by: amount)
 }
 
+// Method @_cdecl wrapper for free function fillBuffer.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_fillBuffer_5AF289C5")
+public func _sbw_method_7809BA43(_ ptr: UnsafeMutablePointer<Int32>, _ count: Int32, _ value: Int32) {
+    fillBuffer(ptr, count: count, value: value)
+}
+
+// Method @_cdecl wrapper for free function rawPointerToInt32.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_rawPointerToInt32_6075BAF7")
+public func _sbw_method_9560C261(_ ptr: UnsafeRawPointer) -> Int32 {
+    return rawPointerToInt32(ptr)
+}
+
+// Method @_cdecl wrapper for free function storeInt32.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_storeInt32_F7A27E79")
+public func _sbw_method_B65B0CE2(_ ptr: UnsafeMutableRawPointer, _ value: Int32) {
+    storeInt32(ptr, value: value)
+}
+
+// Method @_cdecl wrapper for free function copyRawBytes.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_copyRawBytes_907824DA")
+public func _sbw_method_79F38374(_ source: UnsafeRawPointer, _ dest: UnsafeMutableRawPointer, _ count: Int32) {
+    copyRawBytes(from: source, to: dest, count: count)
+}
+
+// Method @_cdecl wrapper for free function opaquePointerIsValid.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_opaquePointerIsValid_ADD20A8E")
+public func _sbw_method_DE033A1E(_ ptr: OpaquePointer) -> Int8 {
+    return (opaquePointerIsValid(ptr)) ? 1 : 0
+}
+
+// Method @_cdecl wrapper for free function optionalOpaquePointer.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_optionalOpaquePointer_C39AA2B9")
+public func _sbw_method_412C4555(_ ptr: UnsafeRawPointer) -> Int8 {
+    let ptrVal = ptr.load(as: Swift.Optional<Swift.OpaquePointer>.self)
+    return (optionalOpaquePointer(ptrVal)) ? 1 : 0
+}
 
 // Method @_cdecl wrapper for free function callWithInt32.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -2650,6 +2883,20 @@ public func _sbw_method_961F6C62(_ callbackFuncPtr: UnsafeMutableRawPointer?, _ 
     return (callBoolCallback(_adapted_callback)) ? 1 : 0
 }
 
+// Method @_cdecl wrapper for free function callWithFrozenStruct.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_callWithFrozenStruct_F6CC92F4")
+public func _sbw_method_7BB51891(_ callbackFuncPtr: UnsafeMutableRawPointer?, _ callbackContext: UnsafeMutableRawPointer?) -> Double {
+    let cdecl_callback = unsafeBitCast(callbackFuncPtr!, to: (@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer?) -> Double).self)
+    let _adapted_callback = { (_ p0: FrozenPoint) -> Double in
+        let __heap_0 = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<FrozenPoint>.size, alignment: MemoryLayout<FrozenPoint>.alignment)
+        __heap_0.initializeMemory(as: FrozenPoint.self, repeating: p0, count: 1)
+        defer { __heap_0.assumingMemoryBound(to: FrozenPoint.self).deinitialize(count: 1); __heap_0.deallocate() }
+        return cdecl_callback(__heap_0, callbackContext!)
+    }
+    return callWithFrozenStruct(_adapted_callback)
+}
+
 // Method @_cdecl wrapper for free function callDoubleCallback.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_callDoubleCallback_74171CF7")
@@ -2683,12 +2930,11 @@ public func PInvoke_callWithOptionalStringReturn_8C3FB6E5(
     }
 }
 
-@_cdecl("SBW_SwiftBindingsTestLib_Free_executeIfPresent_788BCD70_cdecl")
-public func PInvoke_executeIfPresent_0FF2ADAF(
-    _ actionFuncPtr: UnsafeMutableRawPointer?,
-    _ actionContext: UnsafeMutableRawPointer?,
-    _ fallbackValue: Int32
-) -> Int32 {
+
+// Method @_cdecl wrapper for free function executeIfPresent.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_executeIfPresent_788BCD70")
+public func _sbw_method_0FF2ADAF(_ actionFuncPtr: UnsafeMutableRawPointer?, _ actionContext: UnsafeMutableRawPointer?, _ fallbackValue: Int32) -> Int32 {
     var _adapted_action: (() -> ())? = nil
     if let actionFuncPtr = actionFuncPtr {
         let cdecl_action = unsafeBitCast(actionFuncPtr, to: (@convention(c) (UnsafeMutableRawPointer?) -> Void).self)
@@ -2696,9 +2942,8 @@ public func PInvoke_executeIfPresent_0FF2ADAF(
             cdecl_action(actionContext!)
         }
     }
-    return SwiftBindingsTestLib.executeIfPresent(action: _adapted_action, fallbackValue: fallbackValue)
+    return executeIfPresent(action: _adapted_action, fallbackValue: fallbackValue)
 }
-
 
 // Method @_cdecl wrapper for free function executeWithCallbacks.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -2739,29 +2984,64 @@ public func _sbw_method_42D53C07(_ resultPtr: UnsafeMutableRawPointer, _ thresho
     resultPtr.initializeMemory(as: ((Swift.Int32) -> Swift.Bool).self, repeating: result, count: 1)
 }
 
-@_silgen_name("SBW_Global_sumArraySlice_9A8BB3E2")
-public func _sbw_sumArraySlice_9A8BB3E2(_ slice: Array<Int32>) -> Int32 {
-    return SwiftBindingsTestLib.sumArraySlice(Swift.ArraySlice(slice))
+@_cdecl("SBW_SwiftBindingsTestLib_Free_sumArraySlice_5DE0C301")
+public func _sbw_sumArraySlice_9A8BB3E2(_ slice: UnsafeRawPointer) -> Int32 {
+    let sliceVal = slice.load(as: Swift.Array<Swift.Int32>.self)
+    return SwiftBindingsTestLib.sumArraySlice(Swift.ArraySlice(sliceVal))
 }
 
-@_silgen_name("SBW_Global_arraySliceCount_134E3942")
-public func _sbw_arraySliceCount_134E3942(_ slice: Array<UInt8>) -> Int32 {
-    return SwiftBindingsTestLib.arraySliceCount(Swift.ArraySlice(slice))
+@_cdecl("SBW_SwiftBindingsTestLib_Free_arraySliceCount_5201F472")
+public func _sbw_arraySliceCount_134E3942(_ slice: UnsafeRawPointer) -> Int32 {
+    let sliceVal = slice.load(as: Swift.Array<Swift.UInt8>.self)
+    return SwiftBindingsTestLib.arraySliceCount(Swift.ArraySlice(sliceVal))
 }
 
-@_silgen_name("SBW_Global_isEmptyArraySlice_98EFBEBA")
-public func _sbw_isEmptyArraySlice_98EFBEBA(_ slice: Array<UInt8>) -> Bool {
-    return SwiftBindingsTestLib.isEmptyArraySlice(Swift.ArraySlice(slice))
+@_cdecl("SBW_SwiftBindingsTestLib_Free_isEmptyArraySlice_508A726D")
+public func _sbw_isEmptyArraySlice_98EFBEBA(_ slice: UnsafeRawPointer) -> Int8 {
+    let sliceVal = slice.load(as: Swift.Array<Swift.UInt8>.self)
+    return (SwiftBindingsTestLib.isEmptyArraySlice(Swift.ArraySlice(sliceVal))) ? 1 : 0
 }
 
-@_silgen_name("SBW_Global_combinedSliceCount_383DCB26")
-public func _sbw_combinedSliceCount_383DCB26(_ first: Array<UInt8>, _ second: Array<UInt8>) -> Int32 {
-    return SwiftBindingsTestLib.combinedSliceCount(Swift.ArraySlice(first), Swift.ArraySlice(second))
+@_cdecl("SBW_SwiftBindingsTestLib_Free_combinedSliceCount_5BDE9010")
+public func _sbw_combinedSliceCount_383DCB26(_ first: UnsafeRawPointer, _ second: UnsafeRawPointer) -> Int32 {
+    let firstVal = first.load(as: Swift.Array<Swift.UInt8>.self)
+    let secondVal = second.load(as: Swift.Array<Swift.UInt8>.self)
+    return SwiftBindingsTestLib.combinedSliceCount(Swift.ArraySlice(firstVal), Swift.ArraySlice(secondVal))
 }
 
-@_silgen_name("SBW_Global_firstOrThrow_E2E07302")
-public func _sbw_firstOrThrow_E2E07302(_ slice: Array<UInt8>) throws -> UInt8 {
-    return try SwiftBindingsTestLib.firstOrThrow(Swift.ArraySlice(slice))
+@_cdecl("SBW_SwiftBindingsTestLib_Free_firstOrThrow_E06AE22A")
+public func _sbw_firstOrThrow_E2E07302(_ slice: UnsafeRawPointer, _ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> UInt8 {
+    let sliceVal = slice.load(as: Swift.Array<Swift.UInt8>.self)
+    do {
+        return try SwiftBindingsTestLib.firstOrThrow(Swift.ArraySlice(sliceVal))
+    } catch {
+        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+        return 0
+    }
+}
+
+// Method @_cdecl wrapper for free function arrayCount.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_arrayCount_12FD5283")
+public func _sbw_method_BAB766D8(_ array: UnsafeRawPointer) -> Int32 {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    return arrayCount(arrayVal)
+}
+
+// Method @_cdecl wrapper for free function sumArray.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_sumArray_AEC90DB6")
+public func _sbw_method_A2356619(_ array: UnsafeRawPointer) -> Int32 {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    return sumArray(arrayVal)
+}
+
+// Method @_cdecl wrapper for free function isEmptyArray.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_isEmptyArray_51884325")
+public func _sbw_method_37608F93(_ array: UnsafeRawPointer) -> Int8 {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    return (isEmptyArray(arrayVal)) ? 1 : 0
 }
 
 // Method @_cdecl wrapper for free function createIntArray.
@@ -2780,6 +3060,33 @@ public func _sbw_method_4DF1F71A(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_fi
     let secondVal = unsafeBitCast((_sW0_second, _sW1_second), to: String.self)
     let result = createStringArray(first: firstVal, second: secondVal)
     resultPtr.initializeMemory(as: Swift.Array<Swift.String>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function reverseIntArray.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_reverseIntArray_19BE9707")
+public func _sbw_method_43481815(_ resultPtr: UnsafeMutableRawPointer, _ array: UnsafeRawPointer) {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    let result = reverseIntArray(arrayVal)
+    resultPtr.initializeMemory(as: Swift.Array<Swift.Int32>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function describeAnimals.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeAnimals_097536C6")
+public func _sbw_method_D0C8BCD2(_ resultPtr: UnsafeMutableRawPointer, _ animals: UnsafeRawPointer) {
+    let animalsVal = animals.load(as: Swift.Array<SwiftBindingsTestLib.Animal>.self)
+    let result = describeAnimals(animalsVal)
+    resultPtr.initializeMemory(as: Swift.Array<Swift.String>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function filterPositive.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_filterPositive_C9148D05")
+public func _sbw_method_2978D806(_ resultPtr: UnsafeMutableRawPointer, _ array: UnsafeRawPointer) {
+    let arrayVal = array.load(as: Swift.Array<Swift.Int32>.self)
+    let result = filterPositive(arrayVal)
+    resultPtr.initializeMemory(as: Swift.Array<Swift.Int32>.self, repeating: result, count: 1)
 }
 
 // Method @_cdecl wrapper for free function runWithMode.
@@ -2947,6 +3254,24 @@ public func _sbw_method_23FFCBB1(_ resultPtr: UnsafeMutableRawPointer, _ item: U
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.Prioritized.self, repeating: result, count: 1)
 }
 
+// Method @_cdecl wrapper for free function describeAllNamed.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_describeAllNamed_287015A7")
+public func _sbw_method_C24A1CCB(_ resultPtr: UnsafeMutableRawPointer, _ items: UnsafeRawPointer) {
+    let itemsVal = items.load(as: Swift.Array<SwiftBindingsTestLib.Named>.self)
+    let result = describeAllNamed(itemsVal)
+    resultPtr.initializeMemory(as: Swift.Array<Swift.String>.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for free function getAllPriorities.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_Free_getAllPriorities_81F9DE32")
+public func _sbw_method_8A29FBBE(_ resultPtr: UnsafeMutableRawPointer, _ items: UnsafeRawPointer) {
+    let itemsVal = items.load(as: Swift.Array<SwiftBindingsTestLib.Prioritized>.self)
+    let result = getAllPriorities(itemsVal)
+    resultPtr.initializeMemory(as: Swift.Array<SwiftBindingsTestLib.TaskPriority>.self, repeating: result, count: 1)
+}
+
 // Method @_cdecl wrapper for free function fireExistentialDelegate.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Free_fireExistentialDelegate_A888850F")
@@ -2975,6 +3300,16 @@ public func _sbw_getMetadata_C3158722() -> UnsafeMutableRawPointer {
 public func _sbw_init_BD7AE875(_ resultPtr: UnsafeMutableRawPointer, _ value: Int32) {
     let result = SwiftBindingsTestLib.SummableInt32(value: value)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SummableInt32.self).initialize(to: result)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.SummableInt32.add.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_SummableInt32_add_E724A903")
+public func _sbw_method_E11F48C1(_ resultPtr: UnsafeMutableRawPointer, _ other: UnsafeRawPointer, _ self_: UnsafeRawPointer) {
+    let otherVal = other.load(as: SwiftBindingsTestLib.SummableInt32.self)
+    let obj = self_.load(as: SwiftBindingsTestLib.SummableInt32.self)
+    let result = obj.add(otherVal)
+    resultPtr.initializeMemory(as: SwiftBindingsTestLib.SummableInt32.self, repeating: result, count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.IntContainer.count.
@@ -3916,8 +4251,9 @@ public func _sbw_case_rectangle_9CFDEDD4(_ width: Double, _ height: Double, _ re
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.Shape.point.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_Shape_point_161DD5DC")
-public func _sbw_case_point_7D842EE2(_ value0: FrozenPoint, _ resultPtr: UnsafeMutableRawPointer) {
-    let result = SwiftBindingsTestLib.Shape.point(value0)
+public func _sbw_case_point_7D842EE2(_ value0: UnsafeRawPointer, _ resultPtr: UnsafeMutableRawPointer) {
+    let value0Val = value0.load(as: SwiftBindingsTestLib.FrozenPoint.self)
+    let result = SwiftBindingsTestLib.Shape.point(value0Val)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.Shape.self, repeating: result, count: 1)
 }
 
@@ -4508,7 +4844,7 @@ public func _sbw_get_label_167FFF09(_ resultPtr: UnsafeMutableRawPointer, _ self
 @_cdecl("SBW_Get_SwiftBindingsTestLib_TreeNode_parent")
 public func _sbw_get_parent_157ED601(_ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
     let obj = Unmanaged<SwiftBindingsTestLib.TreeNode>.fromOpaque(self_).takeUnretainedValue()
-    return (obj.parent).map { Unmanaged.passRetained($0).toOpaque() }
+    return (obj.parent).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.TreeNode.
@@ -4571,28 +4907,28 @@ public func _sbw_get_name_9DE87DCA(_ resultPtr: UnsafeMutableRawPointer, _ self_
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Scope_transient")
 public func _sbw_get_transient_FA2A3239() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.transient).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.transient as AnyObject).toOpaque()
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.Scope.graph.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Scope_graph")
 public func _sbw_get_graph_5711FF93() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.graph).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.graph as AnyObject).toOpaque()
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.Scope.container.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Scope_container")
 public func _sbw_get_container_CB2CFFF4() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.container).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.container as AnyObject).toOpaque()
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.Scope.weak.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Scope_weak")
 public func _sbw_get_weak_C4944B95() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.weak).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.Scope.weak as AnyObject).toOpaque()
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.Scope.
@@ -4887,6 +5223,16 @@ public func _sbw_method_D7C79E2E(_ self_: UnsafeRawPointer) -> Double {
 public func _sbw_method_5C7A11AD(_ resultPtr: UnsafeMutableRawPointer, _ dx: Double, _ dy: Double, _ self_: UnsafeRawPointer) {
     let obj = self_.load(as: SwiftBindingsTestLib.FrozenPoint.self)
     let result = obj.translated(dx: dx, dy: dy)
+    resultPtr.initializeMemory(as: SwiftBindingsTestLib.FrozenPoint.self, repeating: result, count: 1)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.FrozenPoint.midpoint.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_FrozenPoint_midpoint_52B3C5FE")
+public func _sbw_method_A43E7FBA(_ resultPtr: UnsafeMutableRawPointer, _ other: UnsafeRawPointer, _ self_: UnsafeRawPointer) {
+    let otherVal = other.load(as: SwiftBindingsTestLib.FrozenPoint.self)
+    let obj = self_.load(as: SwiftBindingsTestLib.FrozenPoint.self)
+    let result = obj.midpoint(to: otherVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.FrozenPoint.self, repeating: result, count: 1)
 }
 // Per-type destroy wrapper for SwiftBindingsTestLib.FrozenStructWithProperties.
@@ -5753,7 +6099,7 @@ public func _sbw_method_8AC35C32(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Registry_shared")
 public func _sbw_get_shared_6DEC0A85() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.Registry.shared).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.Registry.shared as AnyObject).toOpaque()
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.Registry.
@@ -5776,7 +6122,7 @@ public func _sbw_method_0E8590C6(_ animal: UnsafeMutableRawPointer, _ self_: Uns
 @_cdecl("SBW_SwiftBindingsTestLib_Registry_lookup_4BDCDB0F")
 public func _sbw_method_E0C112AF(_ id: Int32, _ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
     let obj = Unmanaged<SwiftBindingsTestLib.Registry>.fromOpaque(self_).takeUnretainedValue()
-    return (obj.lookup(id: id)).map { Unmanaged.passRetained($0).toOpaque() }
+    return (obj.lookup(id: id)).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.Registry.count.
@@ -5846,7 +6192,7 @@ public func _sbw_init_E9647334(_ _sW0_label: Int, _ _sW1_label: Int, _ onComplet
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_EventHandler_createDefault_6E40A5F2")
 public func _sbw_method_F635BF75() -> UnsafeMutableRawPointer {
-    return Unmanaged.passRetained(SwiftBindingsTestLib.EventHandler.createDefault()).toOpaque()
+    return Unmanaged.passRetained(SwiftBindingsTestLib.EventHandler.createDefault() as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.EventHandler.fire.
@@ -5949,7 +6295,7 @@ public func _sbw_getMetadata_13057EB5() -> UnsafeMutableRawPointer {
 @_cdecl("SBW_SwiftBindingsTestLib_ConfigLoader_create_9AB25823")
 public func _sbw_method_58B8198C(_ _sW0_name: Int, _ _sW1_name: Int) -> UnsafeMutableRawPointer? {
     let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
-    return (SwiftBindingsTestLib.ConfigLoader.create(name: nameVal)).map { Unmanaged.passRetained($0).toOpaque() }
+    return (SwiftBindingsTestLib.ConfigLoader.create(name: nameVal)).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.ConfigLoader.create.
@@ -5957,7 +6303,7 @@ public func _sbw_method_58B8198C(_ _sW0_name: Int, _ _sW1_name: Int) -> UnsafeMu
 @_cdecl("SBW_SwiftBindingsTestLib_ConfigLoader_create_4F139A42")
 public func _sbw_method_B9E2096A(_ _sW0_name: Int, _ _sW1_name: Int, _ version: Int32) -> UnsafeMutableRawPointer? {
     let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
-    return (SwiftBindingsTestLib.ConfigLoader.create(name: nameVal, version: version)).map { Unmanaged.passRetained($0).toOpaque() }
+    return (SwiftBindingsTestLib.ConfigLoader.create(name: nameVal, version: version)).map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.ConfigLoader.describe.
@@ -6079,7 +6425,7 @@ public func _sbw_init_C93B48D4(_ _sW0_url: Int, _ _sW1_url: Int) -> UnsafeMutabl
 public func _sbw_method_E0667112(_ _sW0_method: Int, _ _sW1_method: Int, _ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
     let methodVal = unsafeBitCast((_sW0_method, _sW1_method), to: String.self)
     let obj = Unmanaged<SwiftBindingsTestLib.RequestBuilder>.fromOpaque(self_).takeUnretainedValue()
-    return Unmanaged.passRetained(obj.withMethod(methodVal)).toOpaque()
+    return Unmanaged.passRetained(obj.withMethod(methodVal) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.RequestBuilder.withTimeout.
@@ -6087,7 +6433,7 @@ public func _sbw_method_E0667112(_ _sW0_method: Int, _ _sW1_method: Int, _ self_
 @_cdecl("SBW_SwiftBindingsTestLib_RequestBuilder_withTimeout_9C17E630")
 public func _sbw_method_55BA93D8(_ timeout: Int32, _ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
     let obj = Unmanaged<SwiftBindingsTestLib.RequestBuilder>.fromOpaque(self_).takeUnretainedValue()
-    return Unmanaged.passRetained(obj.withTimeout(timeout)).toOpaque()
+    return Unmanaged.passRetained(obj.withTimeout(timeout) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.RequestBuilder.withRetryCount.
@@ -6095,7 +6441,7 @@ public func _sbw_method_55BA93D8(_ timeout: Int32, _ self_: UnsafeMutableRawPoin
 @_cdecl("SBW_SwiftBindingsTestLib_RequestBuilder_withRetryCount_95729DA1")
 public func _sbw_method_04A78872(_ count: Int32, _ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
     let obj = Unmanaged<SwiftBindingsTestLib.RequestBuilder>.fromOpaque(self_).takeUnretainedValue()
-    return Unmanaged.passRetained(obj.withRetryCount(count)).toOpaque()
+    return Unmanaged.passRetained(obj.withRetryCount(count) as AnyObject).toOpaque()
 }
 
 // Method @_cdecl wrapper for SwiftBindingsTestLib.RequestBuilder.describe.
@@ -7931,6 +8277,68 @@ public func PInvoke_asyncStaticTask_29AF052B(_ callback: @convention(c) (OpaqueP
     }
 }
 
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.title.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Get_SwiftBindingsTestLib_MainActorViewModel_title")
+public func _sbw_get_title_3D62A749(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeMutableRawPointer) {
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    let result = obj.title
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Property setter @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.title.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Set_SwiftBindingsTestLib_MainActorViewModel_title")
+public func _sbw_set_title_7BC2E405(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: Int, _ self_: UnsafeMutableRawPointer) {
+    let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    obj.title = newValue
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.count.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Get_SwiftBindingsTestLib_MainActorViewModel_count")
+public func _sbw_get_count_26B69234(_ self_: UnsafeMutableRawPointer) -> Int32 {
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    return obj.count
+}
+
+// Property setter @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.count.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Set_SwiftBindingsTestLib_MainActorViewModel_count")
+public func _sbw_set_count_483C1DB0(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    obj.count = newValue
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.summary.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Get_SwiftBindingsTestLib_MainActorViewModel_summary")
+public func _sbw_get_summary_2D942153(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeMutableRawPointer) {
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    let result = obj.summary
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_MainActorViewModel_F62E2BD1")
 public func _sbw_getMetadata_F2ACD9FD() -> UnsafeMutableRawPointer {
@@ -7945,6 +8353,15 @@ public func _sbw_init_F645FF20(_ _sW0_title: Int, _ _sW1_title: Int) -> UnsafeMu
     let titleVal = unsafeBitCast((_sW0_title, _sW1_title), to: String.self)
     let result = SwiftBindingsTestLib.MainActorViewModel(title: titleVal)
     return Unmanaged.passRetained(result).toOpaque()
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.MainActorViewModel.increment.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_SwiftBindingsTestLib_MainActorViewModel_increment_B3ED6879")
+public func _sbw_method_72BED10A(_ self_: UnsafeMutableRawPointer) -> Int32 {
+    let obj = Unmanaged<SwiftBindingsTestLib.MainActorViewModel>.fromOpaque(self_).takeUnretainedValue()
+    return obj.increment()
 }
 @MainActor
 @_cdecl("SBW_SwiftBindingsTestLib_MainActorViewModel_refreshTitle_BD57AD67_async")
@@ -8012,12 +8429,46 @@ public func _sbw_init_0D2CFC09(_ resultPtr: UnsafeMutableRawPointer, _ value: In
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MainActorMethods.self).initialize(to: result)
 }
 
+// Method @_cdecl wrapper for SwiftBindingsTestLib.MainActorMethods.mainActorMethod.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_SwiftBindingsTestLib_MainActorMethods_mainActorMethod_AA83CAC4")
+public func _sbw_method_4BA802FC(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.load(as: SwiftBindingsTestLib.MainActorMethods.self)
+    let result: String = obj.mainActorMethod()
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
 // Method @_cdecl wrapper for SwiftBindingsTestLib.MainActorMethods.regularMethod.
 // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_SwiftBindingsTestLib_MainActorMethods_regularMethod_5906F1EB")
 public func _sbw_method_A894CCCC(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
     let obj = self_.load(as: SwiftBindingsTestLib.MainActorMethods.self)
     let result: String = obj.regularMethod()
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.AsyncWorker.name.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@MainActor
+@_cdecl("SBW_Get_SwiftBindingsTestLib_AsyncWorker_name")
+public func _sbw_get_name_198D019C(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncWorker.self).pointee
+    let result = obj.name
     let utf8 = Array(result.utf8)
     if utf8.isEmpty {
         resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
@@ -10545,6 +10996,30 @@ public func _sbw_init_6011844D(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_labe
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PointerWorker.self).initialize(to: result)
 }
 
+// Method @_cdecl wrapper for SwiftBindingsTestLib.PointerWorker.describeValue.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_PointerWorker_describeValue_EE20FBA7")
+public func _sbw_method_4645FA9C(_ resultPtr: UnsafeMutableRawPointer, _ ptr: UnsafeMutablePointer<Int32>, _ self_: UnsafeRawPointer) {
+    let obj = self_.load(as: SwiftBindingsTestLib.PointerWorker.self)
+    let result: String = obj.describeValue(ptr)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.PointerWorker.doubleValue.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_PointerWorker_doubleValue_FDB9E476")
+public func _sbw_method_D4BD5557(_ ptr: UnsafeMutablePointer<Int32>, _ self_: UnsafeRawPointer) {
+    let obj = self_.load(as: SwiftBindingsTestLib.PointerWorker.self)
+    obj.doubleValue(ptr)
+}
+
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.RawMemoryWorker.alignment.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_RawMemoryWorker_alignment")
@@ -10578,6 +11053,22 @@ public func _sbw_getMetadata_7BDE9A23() -> UnsafeMutableRawPointer {
 public func _sbw_init_0D98D78B(_ resultPtr: UnsafeMutableRawPointer, _ alignment: Int32) {
     let result = SwiftBindingsTestLib.RawMemoryWorker(alignment: alignment)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.RawMemoryWorker.self).initialize(to: result)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.RawMemoryWorker.readInt32.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_RawMemoryWorker_readInt32_596CE92C")
+public func _sbw_method_2A513F2A(_ resultPtr: UnsafeMutableRawPointer, _ ptr: UnsafeRawPointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.load(as: SwiftBindingsTestLib.RawMemoryWorker.self)
+    let result: String = obj.readInt32(ptr)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.HandleWrapper.name.
@@ -10623,6 +11114,22 @@ public func _sbw_init_AE7E302F(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_name
     let nameVal = unsafeBitCast((_sW0_name, _sW1_name), to: String.self)
     let result = SwiftBindingsTestLib.HandleWrapper(name: nameVal)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.HandleWrapper.self).initialize(to: result)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.HandleWrapper.describe.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_HandleWrapper_describe_9B805396")
+public func _sbw_method_2816125D(_ resultPtr: UnsafeMutableRawPointer, _ ptr: OpaquePointer, _ self_: UnsafeRawPointer) {
+    let obj = self_.load(as: SwiftBindingsTestLib.HandleWrapper.self)
+    let result: String = obj.describe(ptr)
+    let utf8 = Array(result.utf8)
+    if utf8.isEmpty {
+        resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
+        return
+    }
+    let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
+    ptr.initialize(from: utf8, count: utf8.count)
+    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.ClosureConsumer.multiplier.
@@ -10969,18 +11476,17 @@ public func _sbw_init_68F3C148(_ offset: Int32) -> UnsafeMutableRawPointer {
     return Unmanaged.passRetained(result).toOpaque()
 }
 
-extension SwiftBindingsTestLib.SliceProcessor {
-    @_silgen_name("SBW_SliceProcessor_processSlice_E9797EFB")
-    public func _sbw_processSlice_E9797EFB(_ data: Array<Int32>) -> Int32 {
-        return self.processSlice(Swift.ArraySlice(data))
-    }
+@_cdecl("SBW_SwiftBindingsTestLib_SliceProcessor_processSlice_6B267883")
+public func _sbw_processSlice_E9797EFB(_ data: UnsafeRawPointer, _ self_: UnsafeMutableRawPointer) -> Int32 {
+    let obj = Unmanaged<SwiftBindingsTestLib.SliceProcessor>.fromOpaque(self_).takeUnretainedValue()
+    let dataVal = data.load(as: Swift.Array<Swift.Int32>.self)
+    return obj.processSlice(Swift.ArraySlice(dataVal))
 }
 
-extension SwiftBindingsTestLib.SliceProcessor {
-    @_silgen_name("SBW_SliceProcessor_totalSlice_3E026686")
-    public static func _sbw_totalSlice_3E026686(_ data: Array<Int32>) -> Int32 {
-        return Self.totalSlice(Swift.ArraySlice(data))
-    }
+@_cdecl("SBW_SwiftBindingsTestLib_SliceProcessor_totalSlice_38C7BBA2")
+public func _sbw_totalSlice_3E026686(_ data: UnsafeRawPointer) -> Int32 {
+    let dataVal = data.load(as: Swift.Array<Swift.Int32>.self)
+    return SwiftBindingsTestLib.SliceProcessor.totalSlice(Swift.ArraySlice(dataVal))
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.TeamRoster.members.
@@ -12536,7 +13042,7 @@ public func _sbw_method_C98C8572(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Processor_service")
 public func _sbw_get_service_7ADF4A08(_ self_: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
     let obj = Unmanaged<SwiftBindingsTestLib.Processor>.fromOpaque(self_).takeUnretainedValue()
-    return Unmanaged.passRetained(obj.service).toOpaque()
+    return Unmanaged.passRetained(obj.service as AnyObject).toOpaque()
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.Processor.mode.

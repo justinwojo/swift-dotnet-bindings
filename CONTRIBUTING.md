@@ -54,7 +54,7 @@ scripts/fetch-libraries.sh          # First time only (~30-60 min)
 | `src/Swift.Runtime/src/Swift/` | Runtime library (SwiftString, SwiftArray, SafeHandle, ARC) |
 | `src/Swift.Bindings.Sdk/` | MSBuild SDK package |
 | `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
-| `TestFramework/` | Integration test library + iOS Simulator runtime tests |
+| `BindingTests/` | Integration test library + iOS Simulator runtime tests |
 | `src/Swift.Bindings/tests/` | Unit tests |
 
 ### Generator CLI

@@ -12,7 +12,7 @@ namespace Swift.Runtime.Tests;
 /// <summary>
 /// Tests for SwiftClassHandle&lt;T&gt; — ARC-bridged SafeHandle for Swift class instances.
 /// These are unit tests that verify the handle's behavior using mock pointers.
-/// Real Swift object ARC verification happens in TestFramework runtime tests.
+/// Real Swift object ARC verification happens in BindingTests runtime tests.
 /// </summary>
 public class SwiftClassHandleTests
 {

@@ -10,7 +10,7 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Sdk/` — MSBuild SDK package (`SwiftBindings.Sdk`): `Sdk.props`, `Sdk.targets`, build scripts
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `SwiftBindings.Runtime`)
-- `TestFramework/` — Comprehensive test library + runtime tests (iOS Simulator)
+- `BindingTests/` — Comprehensive test library + runtime tests (iOS Simulator)
 - `validation-libraries.json` — Library validation manifest (90 targets across 46 libraries)
 - `scripts/` — `fetch-libraries.sh` (build xcframeworks), `lib.sh` (shared helpers)
 - `src/docs/` — Internal design docs, status, known issues
@@ -20,14 +20,14 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 
 **Always use helper scripts, not raw commands.**
 
-**IMPORTANT: Slow commands (`./run-tests.sh` ~2 min, `./build-and-test.sh` ~5 min, `./validate-libraries.sh` ~1 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
+**IMPORTANT: Slow commands (`./run-tests.sh` ~2 min, `./build-and-test.sh` ~5 min, `./run-runtime-tests.sh` ~3 min, `./validate-libraries.sh` ~1 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
 
 ```bash
 ./build.sh                    # Build the project
 ./run-tests.sh                # Run all unit + integration tests
 
-# TestFramework (after generator changes):
-cd TestFramework
+# BindingTests (after generator changes):
+cd BindingTests
 ./build-and-test.sh           # Full: xcframework + bindings + bridge
 ./generate-coverage-report.sh # Coverage matrix
 ./run-runtime-tests.sh --timeout 90            # Runtime on iOS Sim (default: simulator)
@@ -219,9 +219,23 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 - Use logical/semantic cohesion for refactoring, not arbitrary LOC limits.
 - Double-check memory management operations target the correct pointer/object.
 - Do NOT commit unless the user explicitly asks.
-- `run-tests.sh` is fine to run per sub-task. `validate-libraries.sh`, `build-and-test.sh`, and `TestFramework/golden/check-golden-files.sh` should only run at the end of all sub-tasks or when absolutely needed mid-session.
+- **Mid-session feedback loop**: Use `run-tests.sh` (~2 min) per sub-task for fast iteration. Avoid running `validate-libraries.sh`, `build-and-test.sh`, `run-runtime-tests.sh`, or `BindingTests/golden/check-golden-files.sh` mid-session — these are primarily end-of-session gates. Running 5+ minute commands repeatedly destroys productivity. Do as much work as possible using unit tests first. If you specifically need to validate something mid-session (e.g., confirming a tricky runtime behavior on-device), that's fine — just don't make it a habit.
 - NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
 - Test files are organized by domain, not by milestone/session/SDK version. Place tests in their respective domain test files (e.g., closure tests go in closure test files, not in a "phase-15" file).
+
+### Final Validation Gates (required before signing off)
+
+After ALL sub-tasks are complete and unit tests pass (`run-tests.sh`), run these as the very last step. **Both must pass before the session's work is considered done.** Do not run these between sub-tasks — batch all work first, validate once at the end.
+
+1. **Library validation**: `./validate-libraries.sh 2>&1 | tee /tmp/validate-results.txt`
+2. **BindingTests** (pick the fastest option that covers your changes):
+   - Generator/emitter changes → full rebuild: `cd BindingTests && ./build-and-test.sh 2>&1 | tee /tmp/build-and-test-results.txt`
+   - Runtime-only changes → skip regen: `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90 2>&1 | tee /tmp/runtime-tests-results.txt`
+   - If unsure, run `build-and-test.sh` (it includes runtime tests)
+
+**ALWAYS output to temp files.** These commands are slow. Pipe to `/tmp/` as shown above, then use the Read tool to inspect. NEVER re-run a slow command just to see a different slice of output — read further back in the temp file instead.
+
+If either gate fails, fix the regressions before signing off. A passing `run-tests.sh` alone is NOT sufficient — the BindingTests exercises real generated bindings on iOS Simulator and catches regressions that unit tests miss.
 
 ## Known Issues
 

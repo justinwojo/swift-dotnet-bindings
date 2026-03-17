@@ -30,7 +30,7 @@ Session 2 recovered ~852 `@MainActor` skips across 21 libraries. Actual emitted 
 
 ## Prioritized Sessions
 
-### ~~Session 0: TestFramework Generator Bug Fixes~~ (Complete)
+### ~~Session 0: BindingTests Generator Bug Fixes~~ (Complete)
 
 Completed March 17, 2026. All 4 generator bugs fixed, Swift source restored, C# tests written. 90/90 validation, 480 runtime tests pass (477→480).
 
@@ -67,7 +67,7 @@ Completed March 17, 2026. Lifted the `@MainActor` skip gate so `@MainActor`-isol
 - Updated all 16 wrapper emitter sites (Method, Property, Subscript, Constructor, Closure, OptionalPointer, Marshalling, Async, MarkerProtocolOverload, WitnessDispatch, ProtocolExtension)
 - Extended `SwiftInterfaceAccessParser` to detect `@MainActor` free functions (single-line + multiline) and output separate `mainActorMembers` set
 - Narrowed `ActorIsolatedAsyncStream` skip to custom actors only
-- Added `-strict-concurrency=minimal` to TestFramework wrapper build scripts
+- Added `-strict-concurrency=minimal` to BindingTests wrapper build scripts
 - Fixed strip scripts to absorb `@MainActor` predecessor lines during error recovery
 - Fixed `UIControl.State`/`UIControl.Event` XML entries (OptionSet → `kind="struct"`)
 - Fixed ObjC-bridged struct `Unmanaged` reconstruction (use `Unmanaged<AnyObject> as! T`)
@@ -237,7 +237,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 |------|-----------|-------|
 | Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. Synchronous C# APIs following Xamarin.iOS precedent. Also fixed OptionSet XML misclassification (UIControl.State/Event) and ObjC-bridged struct Unmanaged reconstruction. 2 wrapper regressions remain (Parchment return-side Unmanaged, BlinkIDUX missing module). 40/56 swift wrapper, 90/90 compile gate, 481 runtime tests. |
 | Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |
-| Session 0: TestFramework generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
+| Session 0: BindingTests generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
 | Apple framework XML database expansion | `ac39a4f7` (Mar 16) | ~473 skips resolved (nested + unresolvable Apple types). 90/90 validation. |
 | NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries. See `Completed/nativeaot-stability-sessions.md`. |
 | C# keyword escaping in enum case labels | `51efaeec` (Mar 14) | FilterScope.swift fixture enabled. |

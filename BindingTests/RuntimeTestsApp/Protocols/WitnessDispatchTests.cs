@@ -17,7 +17,7 @@ namespace RuntimeTestsApp.Protocols;
 /// exercise the existential *witness-dispatch proxy* path (C# implementing a
 /// Swift protocol via existential containers and witness tables). Proxy-based
 /// witness dispatch requires the SwiftBindings wrapper library to be compiled
-/// into the runtime app bundle, which is not yet set up for TestFramework.
+/// into the runtime app bundle, which is not yet set up for BindingTests.
 ///
 /// Class name sorts alphabetically BEFORE EnumMarshallingTests (the Mono JIT
 /// crash point), ensuring these tests complete before the process is killed.

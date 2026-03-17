@@ -138,7 +138,7 @@ Generic views like `AnimatedImage<Placeholder: View>` and `LottieView<Placeholde
 | `UIViewWrapper` | Deferred | Wrap a UIKit `UIView` provided from C# |
 | `AnyViewFromVC` | Deferred | Wrap a `UIViewController` as `UIViewControllerRepresentable` |
 
-**Test coverage**: 22+ unit tests, 2 TestFramework integration views (`GenericPlaceholderView<Placeholder>`, `PlaceholderOnlyView<Content>`), bridge compiles with 17 bridged views, 53/53 library validation.
+**Test coverage**: 22+ unit tests, 2 BindingTests integration views (`GenericPlaceholderView<Placeholder>`, `PlaceholderOnlyView<Content>`), bridge compiles with 17 bridged views, 53/53 library validation.
 
 **Key files modified**: `SwiftUIBridgeEmitter.cs` (analysis + emission), `SwiftUIBridgeEmitter.InitAnalyzer.cs` (synthesized args), `BridgeHints.cs` (placeholder hint), `SwiftUIBridgeEmitterTests.cs` (22+ tests), `SimpleViews.swift` (2 generic test views).
 
@@ -411,5 +411,5 @@ The product contract remains: **present SwiftUI View as UIViewController, with c
 | Post-creation state updates | No | No | No | No | **Yes** | Yes | Yes |
 | Self-returning modifiers | No | No | No | No | No | **Yes** | Yes |
 | Lifecycle/modifier support | No | No | No | No | No | No | Yes |
-| Bridged views (TestFramework) | — | 15 | 17 | 17 | 19 | 19 | 20+ |
+| Bridged views (BindingTests) | — | 15 | 17 | 17 | 19 | 19 | 20+ |
 | Unit tests (bridge) | — | 174 | 196 | 210 | 228 | 248 | 270+ |

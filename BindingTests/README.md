@@ -1,4 +1,4 @@
-# TestFramework
+# BindingTests
 
 Comprehensive test suite for the Swift Bindings generator. Tests are organized into two layers that answer distinct questions about correctness.
 
@@ -36,7 +36,7 @@ Comprehensive test suite for the Swift Bindings generator. Tests are organized i
 ### Layer 1
 
 ```bash
-cd TestFramework
+cd BindingTests
 
 # Full pipeline: build xcframework + generate bindings
 ./build-and-test.sh
@@ -48,7 +48,7 @@ cd TestFramework
 ### Layer 2
 
 ```bash
-cd TestFramework
+cd BindingTests
 
 # Run on iOS Simulator (default) — skips [MonoJitCrash] and [Skip] tests
 ./run-runtime-tests.sh
@@ -78,7 +78,7 @@ After any generator code change:
 ./run-tests.sh
 
 # 2. Layer 1 coverage
-cd TestFramework
+cd BindingTests
 ./build-and-test.sh
 ./generate-coverage-report.sh
 
@@ -152,13 +152,13 @@ Known-unsupported features: 47/52 have tests (5 compiled out)
 - **must_pass / missing**: No test file exists (should not happen).
 - **known_unsupported**: Features the generator intentionally doesn't handle yet (actors, property wrappers, etc.).
 
-See `src/docs/Completed/testframework-enhancement-plan.md` for the full contract matrix and skip reason reference.
+See `src/docs/Completed/bindingtests-enhancement-plan.md` for the full contract matrix and skip reason reference.
 
 ## Test Profiles
 
 | Profile | Command | What Runs | Crash Tolerance |
 |---------|---------|-----------|-----------------|
-| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime (simulator) | Any crash is a regression |
+| **PR Gate** | `./run-tests.sh` | Unit + integration + compile gate + baselines + runtime (simulator) | Any crash is a regression  |
 | **Device** | `./run-runtime-tests.sh --platform device` | All tests including `[MonoJitCrash]` on NativeAOT | `[Skip]` tests still skipped |
 
 ### PR Gate (`./run-tests.sh`)
@@ -167,8 +167,8 @@ The primary validation command. Runs in ~10 minutes:
 
 1. **Unit tests** — xUnit tests (parser, marshaler, emitter, type database)
 2. **Integration tests** — end-to-end binding generation tests
-3. **TestFramework Layer 1** — build xcframework, regenerate bindings, compile-check, coverage report
+3. **BindingTests Layer 1** — build xcframework, regenerate bindings, compile-check, coverage report
 4. **Baseline checks** — generator exit code, degraded count, compiled-out count, strip count
-5. **TestFramework Layer 2** — runtime tests on iOS Simulator (skips `[MonoJitCrash]` and `[Skip]`)
+5. **BindingTests Layer 2** — runtime tests on iOS Simulator (skips `[MonoJitCrash]` and `[Skip]`)
 
 On simulator, all MonoJitCrash-prone tests are skipped. Any crash is treated as a regression.

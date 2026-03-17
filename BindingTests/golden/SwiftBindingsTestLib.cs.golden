@@ -281,7 +281,6 @@ namespace SwiftBindingsTestLib
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Describable")]
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Accepts an existential array.
         /// </summary>
@@ -289,30 +288,35 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<SwiftString>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<IDescribable>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
-                    using var itemsDisposable = itemsSwift.PayloadBuffer;
-                    IntPtr itemsBuffer = itemsDisposable.Buffer;
+                    IntPtr itemsBuffer = itemsSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_describeAll_2EA61D14(itemsBuffer);
+                    PInvoke_describeAll_223F08C1(resultPtr, itemsBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(resultPtr).AsProjected(e => e.ToString());
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11describeAllySaySSGSayAA11Describable_pGF")]
-        private static partial IntPtr PInvoke_describeAll_2EA61D14( IntPtr itemsBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeAll_2EA61D14")]
+        private static partial void PInvoke_describeAll_223F08C1( IntPtr resultPtr,  IntPtr itemsBuffer);
         
         
         [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
@@ -636,7 +640,6 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Non-generic version: receives metadata as UnsafeRawPointer. Takes raw pointer (no CallConvSwift issues).
         /// </summary>
@@ -646,7 +649,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_SBW_GenericAbi_sizeOfT_cdecl_E41F26F4(metadataPtr, resultBuf);
+                PInvoke_SBW_GenericAbi_sizeOfT_cdecl_1E5012CE(metadataPtr, resultBuf);
                 
                 return;
             }
@@ -657,9 +660,9 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib28SBW_GenericAbi_sizeOfT_cdeclyySV_SpySiGtF")]
-        private static partial void PInvoke_SBW_GenericAbi_sizeOfT_cdecl_E41F26F4( System.IntPtr metadataPtr,  System.IntPtr resultBuf);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_sizeOfT_cdecl_E41F26F4")]
+        private static partial void PInvoke_SBW_GenericAbi_sizeOfT_cdecl_1E5012CE( System.IntPtr metadataPtr,  System.IntPtr resultBuf);
         
         
         
@@ -701,7 +704,6 @@ namespace SwiftBindingsTestLib
         public System.IntPtr SBW_GenericAbi_createIntBox(int value) => SBW_GenericAbi_createIntBox((nint)value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Releases a retained GenericAbiBox.
         /// </summary>
@@ -711,7 +713,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_SBW_GenericAbi_releaseBox_C401B216(ptr);
+                PInvoke_SBW_GenericAbi_releaseBox_AB6995C3(ptr);
                 
                 return;
             }
@@ -722,38 +724,44 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_releaseBox")]
-        private static partial void PInvoke_SBW_GenericAbi_releaseBox_C401B216( System.IntPtr ptr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_releaseBox_C401B216")]
+        private static partial void PInvoke_SBW_GenericAbi_releaseBox_AB6995C3( System.IntPtr ptr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Creates an NSError from a C string message. Used by C# callbacks to propagate errors.
         /// </summary>
         public static System.IntPtr SBW_GenericAbi_createError( System.IntPtr message)
         {
-            try
+            unsafe
             {
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<System.IntPtr>());
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_SBW_GenericAbi_createError_25DF7BA3(resultPtr, message);
+                    
+                    return SwiftMarshal.MarshalFromSwift<System.IntPtr>(resultPtr);
+                }
                 
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
                 
-                var result = PInvoke_SBW_GenericAbi_createError_3AF41316(message);
-                
-                return result;
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_createError")]
-        private static partial System.IntPtr PInvoke_SBW_GenericAbi_createError_3AF41316( System.IntPtr message);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_createError_3AF41316")]
+        private static partial void PInvoke_SBW_GenericAbi_createError_25DF7BA3( IntPtr resultPtr,  System.IntPtr message);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Gets the error description as a C string (caller must free with free()).
         /// </summary>
@@ -761,31 +769,33 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<System.IntPtr>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
                     
                     
-                    var _optRetSize = (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<System.IntPtr>>().Size;
-                    byte* _optRetBuf = stackalloc byte[_optRetSize];
-                    IntPtr _optRetPtr = (IntPtr)_optRetBuf;
-                    PInvoke_SBW_GenericAbi_getErrorDescription_16DBADF8(errorPtr, _optRetPtr);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<System.IntPtr>>(_optRetPtr).ToNullable();
+                    PInvoke_SBW_GenericAbi_getErrorDescription_E4E50856(resultPtr, errorPtr);
+                    
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<System.IntPtr>>(resultPtr).ToNullable();
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_GenericAbi_getErrorDescription_optbuf")]
-        private static partial void PInvoke_SBW_GenericAbi_getErrorDescription_16DBADF8( System.IntPtr errorPtr,  IntPtr _optRetPtr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_getErrorDescription_16DBADF8")]
+        private static partial void PInvoke_SBW_GenericAbi_getErrorDescription_E4E50856( IntPtr resultPtr,  System.IntPtr errorPtr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true). P/Invoke entry point not exported by the library. This method will throw EntryPointNotFoundException at runtime.", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Releases an error object.
         /// </summary>
@@ -795,7 +805,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_SBW_GenericAbi_releaseError_D06BF5FD(errorPtr);
+                PInvoke_SBW_GenericAbi_releaseError_8695709E(errorPtr);
                 
                 return;
             }
@@ -806,9 +816,9 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_releaseError")]
-        private static partial void PInvoke_SBW_GenericAbi_releaseError_D06BF5FD( System.IntPtr errorPtr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_SBW_GenericAbi_releaseError_D06BF5FD")]
+        private static partial void PInvoke_SBW_GenericAbi_releaseError_8695709E( System.IntPtr errorPtr);
         
         
         /// <summary>
@@ -1313,151 +1323,210 @@ namespace SwiftBindingsTestLib
         private static partial IntPtr PInvoke_createToken_9ED516DD( Swift.SwiftString.Buffer value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static Swift.CGPoint CreatePoint( double x,  double y)
         {
-            try
+            unsafe
             {
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<Swift.CGPoint>());
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_createPoint_F37C8600(resultPtr, x, y);
+                    
+                    return SwiftMarshal.MarshalFromSwift<Swift.CGPoint>(resultPtr);
+                }
                 
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
                 
-                var result = PInvoke_createPoint_B781D2EB(x, y);
-                
-                return result;
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11createPoint1x1ySo7CGPointV12CoreGraphics7CGFloatV_AItF")]
-        private static partial Swift.CGPoint PInvoke_createPoint_B781D2EB( double x,  double y);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_createPoint_B781D2EB")]
+        private static partial void PInvoke_createPoint_F37C8600( IntPtr resultPtr,  double x,  double y);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static Swift.CGSize CreateSize( double width,  double height)
         {
-            try
+            unsafe
             {
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<Swift.CGSize>());
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_createSize_A309FDDA(resultPtr, width, height);
+                    
+                    return SwiftMarshal.MarshalFromSwift<Swift.CGSize>(resultPtr);
+                }
                 
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
                 
-                var result = PInvoke_createSize_965A5666(width, height);
-                
-                return result;
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10createSize5width6heightSo6CGSizeV12CoreGraphics7CGFloatV_AItF")]
-        private static partial Swift.CGSize PInvoke_createSize_965A5666( double width,  double height);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_createSize_965A5666")]
+        private static partial void PInvoke_createSize_A309FDDA( IntPtr resultPtr,  double width,  double height);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static Swift.CGRect CreateRect( double x,  double y,  double width,  double height)
         {
-            try
+            unsafe
             {
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<Swift.CGRect>());
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_createRect_643E10A0(resultPtr, x, y, width, height);
+                    
+                    return SwiftMarshal.MarshalFromSwift<Swift.CGRect>(resultPtr);
+                }
                 
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
                 
-                var result = PInvoke_createRect_D33E5A5A(x, y, width, height);
-                
-                return result;
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10createRect1x1y5width6heightSo6CGRectV12CoreGraphics7CGFloatV_A3KtF")]
-        private static partial Swift.CGRect PInvoke_createRect_D33E5A5A( double x,  double y,  double width,  double height);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_createRect_D33E5A5A")]
+        private static partial void PInvoke_createRect_643E10A0( IntPtr resultPtr,  double x,  double y,  double width,  double height);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static string DescribeRect( Swift.CGRect rect)
         {
-            try
+            unsafe
             {
-                
-                
-                var result = PInvoke_describeRect_D22A7935(rect);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_describeRect_7AAA70A5(resultPtr, rect);
+                    
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
+                
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
+                
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12describeRectySSSo6CGRectVF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeRect_D22A7935( Swift.CGRect rect);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeRect_D22A7935")]
+        private static partial void PInvoke_describeRect_7AAA70A5( IntPtr resultPtr,  Swift.CGRect rect);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static double RectArea( Swift.CGRect rect)
         {
-            try
+            unsafe
             {
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<double>());
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    
+                    PInvoke_rectArea_627B578F(resultPtr, rect);
+                    
+                    return SwiftMarshal.MarshalFromSwift<double>(resultPtr);
+                }
                 
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
                 
-                var result = PInvoke_rectArea_94D2432C(rect);
-                
-                return result;
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8rectAreay12CoreGraphics7CGFloatVSo6CGRectVF")]
-        private static partial double PInvoke_rectArea_94D2432C( Swift.CGRect rect);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_rectArea_94D2432C")]
+        private static partial void PInvoke_rectArea_627B578F( IntPtr resultPtr,  Swift.CGRect rect);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Free function accepting a frozen struct.
         /// </summary>
         public static string DescribePoint( SwiftBindingsTestLib.FrozenPoint point)
         {
-            try
+            unsafe
             {
-                
-                
-                var result = PInvoke_describePoint_161E1910(point);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    var pointMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.FrozenPoint>();
+                    byte* pointBuffer = stackalloc byte[(int)pointMetadata.Size];
+                    var pointSpan = new Span<byte>(pointBuffer, (int)pointMetadata.Size);
+                    SwiftMarshal.MarshalToSwift(point, ref pointSpan);
+                    IntPtr pointPtr = (IntPtr)pointBuffer;
+                    
+                    PInvoke_describePoint_A07D2A6E(resultPtr, pointPtr);
+                    
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
+                
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
+                
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13describePointySSAA06FrozenF0VF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describePoint_161E1910( SwiftBindingsTestLib.FrozenPoint point);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describePoint_161E1910")]
+        private static partial void PInvoke_describePoint_A07D2A6E( IntPtr resultPtr, IntPtr point);
         
         
         /// <summary>
@@ -1568,34 +1637,48 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_deviceDescription_C6426518( IntPtr resultPtr,  IntPtr model);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Describe a batch config for display.
         /// </summary>
         public static string DescribeConfig( SwiftBindingsTestLib.BatchConfig config)
         {
-            using PayloadBuffer<SwiftBindingsTestLib.BatchConfig.Buffer> configDisposable = config.PayloadBuffer;
-            try
+            unsafe
             {
-                
-                
-                var result = PInvoke_describeConfig_5922476E(configDisposable.Buffer);
-                
-                unsafe {
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                using PayloadBuffer<SwiftBindingsTestLib.BatchConfig.Buffer> configDisposable = config.PayloadBuffer;
+                void* _cdeclBuf = null;
+                try
+                {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
+                    
+                    IntPtr configPtr = config.Payload.DangerousGetHandle();
+                    
+                    PInvoke_describeConfig_9D9A3C0C(resultPtr, configPtr);
+                    
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
+                
+                finally
+                {
+                    NativeMemory.Free(_cdeclBuf);
+                }
+                
             }
-            
-            finally
-            {
-            }
-            
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14describeConfigySSAA05BatchF0VF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeConfig_5922476E( SwiftBindingsTestLib.BatchConfig.Buffer config);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeConfig_5922476E")]
+        private static partial void PInvoke_describeConfig_9D9A3C0C( IntPtr resultPtr, IntPtr config);
         
         
         /// <summary>
@@ -2606,11 +2689,11 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_performWithSendable_862A926C( IntPtr workFuncPtr,  IntPtr workContext);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_storeAndExecuteSendable_arg0_80056D38_Callback = &storeAndExecuteSendable_arg0_80056D38_Callback;
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-        private static unsafe void storeAndExecuteSendable_arg0_80056D38_Callback(void* indirectResult, SwiftSelf context)
+        private static unsafe readonly delegate* unmanaged[Cdecl]<void*, IntPtr, void> s_storeAndExecuteSendable_arg0_8CC53D48_Callback = &storeAndExecuteSendable_arg0_8CC53D48_Callback;
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+        private static unsafe void storeAndExecuteSendable_arg0_8CC53D48_Callback(void* indirectResult, IntPtr contextPtr)
         {
-            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<string>>(new IntPtr(context.Value));
+            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<string>>(contextPtr);
             var result = del();
             // Marshal the result to the indirect result buffer
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<string>();
@@ -2618,7 +2701,6 @@ namespace SwiftBindingsTestLib
             SwiftMarshal.MarshalToSwift(result, ref resultSpan);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Accepts a @Sendable escaping closure.
         /// </summary>
@@ -2627,28 +2709,40 @@ namespace SwiftBindingsTestLib
             unsafe
             {
                 GCHandle workHandle = default;
+                void* _cdeclBuf = null;
                 try
                 {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     workHandle = GCHandle.Alloc(work);
-                    var workClosure = new SwiftClosureData((IntPtr)s_storeAndExecuteSendable_arg0_80056D38_Callback, GCHandle.ToIntPtr(workHandle));
                     
-                    var result = PInvoke_storeAndExecuteSendable_80056D38(workClosure);
+                    PInvoke_storeAndExecuteSendable_8CC53D48(resultPtr, workHandle.IsAllocated ? (IntPtr)s_storeAndExecuteSendable_arg0_8CC53D48_Callback : IntPtr.Zero, workHandle.IsAllocated ? GCHandle.ToIntPtr(workHandle) : IntPtr.Zero);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib23storeAndExecuteSendableyS2SyYbcF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_storeAndExecuteSendable_80056D38( SwiftClosureData work);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_storeAndExecuteSendable_80056D38")]
+        private static partial void PInvoke_storeAndExecuteSendable_8CC53D48( IntPtr resultPtr,  IntPtr workFuncPtr,  IntPtr workContext);
         
         
         /// <summary>
@@ -3540,7 +3634,6 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_doubleInPlace_8F16DFA9(ref int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Finds the index of a value in the array, or nil if not found.
         /// </summary>
@@ -3548,32 +3641,36 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<int>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_findIndex_92FCB6F2(arrayBuffer, value);
+                    PInvoke_findIndex_0308AED4(resultPtr, arrayBuffer, value);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>(new IntPtr(&result)).ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>(resultPtr).ToNullable();
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib9findIndex_5values5Int32VSgSayAEG_AEtF")]
-        private static partial IntPtr PInvoke_findIndex_92FCB6F2( IntPtr arrayBuffer,  int value);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_findIndex_92FCB6F2")]
+        private static partial void PInvoke_findIndex_0308AED4( IntPtr resultPtr,  IntPtr arrayBuffer,  int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Finds an animal by name from the array, or nil if not found.
         /// </summary>
@@ -3587,12 +3684,11 @@ namespace SwiftBindingsTestLib
                     var animalsContainers = animals.Select(e => e.Payload.DangerousGetHandle());
                     var animalsSwiftDirect = SwiftArray<IntPtr>.FromEnumerable(animalsContainers);
                     using var animalsSwift = animalsSwiftDirect;
-                    using var animalsDisposable = animalsSwift.PayloadBuffer;
-                    IntPtr animalsBuffer = animalsDisposable.Buffer;
+                    IntPtr animalsBuffer = animalsSwift.Payload.DangerousGetHandle();
                     using var nameSwift = new SwiftString(name);
                     using var nameDisposable = nameSwift.PayloadBuffer;
                     
-                    var result = PInvoke_findAnimalByName_E3485BBE(animalsBuffer, nameDisposable.Buffer);
+                    var result = PInvoke_findAnimalByName_A866FBEA(animalsBuffer, nameDisposable.Buffer);
                     
                     return SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftBindingsTestLib.Animal>>(new IntPtr(&result)).ToNullable();
                 }
@@ -3604,12 +3700,11 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16findAnimalByName_4nameAA0F0CSgSayAEG_SStF")]
-        private static partial IntPtr PInvoke_findAnimalByName_E3485BBE( IntPtr animalsBuffer,  Swift.SwiftString.Buffer name);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_findAnimalByName_E3485BBE")]
+        private static partial IntPtr PInvoke_findAnimalByName_A866FBEA( IntPtr animalsBuffer,  Swift.SwiftString.Buffer name);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Describes an optional Int32, returning &quot;nil&quot; or the string value.
         /// </summary>
@@ -3617,29 +3712,42 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     using var valueSwift = value is { } valueValue ? SwiftOptional<int>.NewSome(valueValue) : SwiftOptional<int>.NewNone();
                     using var valueDisposable = valueSwift.PayloadBuffer;
                     IntPtr valueBuffer = valueDisposable.Buffer;
                     
-                    var result = PInvoke_describeOptionalInt_672CBC87(valueBuffer);
+                    PInvoke_describeOptionalInt_14505D3F(resultPtr, valueBuffer);
                     
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                    return swiftResult.ToString();
+                    unsafe {
+                        var __slice = *(Utf8Slice*)resultPtr;
+                        if (__slice.Len == 0) return string.Empty;
+                        try {
+                            return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                                __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                        } finally {
+                            SBW_Free(__slice.Ptr);
+                        }
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib19describeOptionalIntySSs5Int32VSgF")]
-        private static partial Swift.SwiftString.Buffer PInvoke_describeOptionalInt_672CBC87( IntPtr valueBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeOptionalInt_672CBC87")]
+        private static partial void PInvoke_describeOptionalInt_14505D3F( IntPtr resultPtr,  IntPtr valueBuffer);
         
         
         /// <summary>
@@ -3691,11 +3799,10 @@ namespace SwiftBindingsTestLib
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeOptionalString_3089AA57_optbuf")]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeOptionalString_3089AA57")]
         private static partial void PInvoke_describeOptionalString_69710D99( IntPtr resultPtr,  IntPtr valueBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Reads the Int32 value at the given mutable pointer.
         /// </summary>
@@ -3705,7 +3812,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                var result = PInvoke_readPointerValue_36ED0ACE(ptr);
+                var result = PInvoke_readPointerValue_ED110B36(ptr);
                 
                 return result;
             }
@@ -3716,12 +3823,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16readPointerValueys5Int32VSpyADGF")]
-        private static partial int PInvoke_readPointerValue_36ED0ACE( System.IntPtr ptr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_readPointerValue_36ED0ACE")]
+        private static partial int PInvoke_readPointerValue_ED110B36( System.IntPtr ptr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Reads the Int32 value at the given immutable pointer.
         /// </summary>
@@ -3731,7 +3837,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                var result = PInvoke_readPointerValueImmutable_AC25AFC6(ptr);
+                var result = PInvoke_readPointerValueImmutable_AF56FE26(ptr);
                 
                 return result;
             }
@@ -3742,12 +3848,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib25readPointerValueImmutableys5Int32VSPyADGF")]
-        private static partial int PInvoke_readPointerValueImmutable_AC25AFC6( System.IntPtr ptr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_readPointerValueImmutable_AC25AFC6")]
+        private static partial int PInvoke_readPointerValueImmutable_AF56FE26( System.IntPtr ptr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Writes a value to the given mutable pointer.
         /// </summary>
@@ -3757,7 +3862,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_writePointerValue_2D224037(ptr, value);
+                PInvoke_writePointerValue_A444C130(ptr, value);
                 
                 return;
             }
@@ -3768,9 +3873,9 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib17writePointerValue_5valueySpys5Int32VG_AEtF")]
-        private static partial void PInvoke_writePointerValue_2D224037( System.IntPtr ptr,  int value);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_writePointerValue_2D224037")]
+        private static partial void PInvoke_writePointerValue_A444C130( System.IntPtr ptr,  int value);
         
         
         /// <summary>
@@ -3806,7 +3911,6 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_getStaticBuffer_15F71CD5( IntPtr resultPtr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Increments the value at the pointer by the given amount.
         /// </summary>
@@ -3816,7 +3920,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_incrementPointer_0A0FF210(ptr, amount);
+                PInvoke_incrementPointer_7ACC65BD(ptr, amount);
                 
                 return;
             }
@@ -3827,12 +3931,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16incrementPointer_2byySpys5Int32VG_AEtF")]
-        private static partial void PInvoke_incrementPointer_0A0FF210( System.IntPtr ptr,  int amount);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_incrementPointer_0A0FF210")]
+        private static partial void PInvoke_incrementPointer_7ACC65BD( System.IntPtr ptr,  int amount);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Fills a buffer with a repeated value.
         /// </summary>
@@ -3842,7 +3945,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_fillBuffer_5AF289C5(ptr, count, value);
+                PInvoke_fillBuffer_7809BA43(ptr, count, value);
                 
                 return;
             }
@@ -3853,12 +3956,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10fillBuffer_5count5valueySpys5Int32VG_A2FtF")]
-        private static partial void PInvoke_fillBuffer_5AF289C5( System.IntPtr ptr,  int count,  int value);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_fillBuffer_5AF289C5")]
+        private static partial void PInvoke_fillBuffer_7809BA43( System.IntPtr ptr,  int count,  int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Reads an Int32 from a raw pointer (assumes proper alignment).
         /// </summary>
@@ -3868,7 +3970,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                var result = PInvoke_rawPointerToInt32_6075BAF7(ptr);
+                var result = PInvoke_rawPointerToInt32_9560C261(ptr);
                 
                 return result;
             }
@@ -3879,12 +3981,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib17rawPointerToInt32ys0H0VSVF")]
-        private static partial int PInvoke_rawPointerToInt32_6075BAF7( System.IntPtr ptr);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_rawPointerToInt32_6075BAF7")]
+        private static partial int PInvoke_rawPointerToInt32_9560C261( System.IntPtr ptr);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Stores an Int32 value at the raw mutable pointer.
         /// </summary>
@@ -3894,7 +3995,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_storeInt32_F7A27E79(ptr, value);
+                PInvoke_storeInt32_B65B0CE2(ptr, value);
                 
                 return;
             }
@@ -3905,12 +4006,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10storeInt32_5valueySv_s0F0VtF")]
-        private static partial void PInvoke_storeInt32_F7A27E79( System.IntPtr ptr,  int value);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_storeInt32_F7A27E79")]
+        private static partial void PInvoke_storeInt32_B65B0CE2( System.IntPtr ptr,  int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Copies count bytes from source to destination.
         /// </summary>
@@ -3920,7 +4020,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                PInvoke_copyRawBytes_907824DA(source, dest, count);
+                PInvoke_copyRawBytes_79F38374(source, dest, count);
                 
                 return;
             }
@@ -3931,12 +4031,11 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12copyRawBytes4from2to5countySV_Svs5Int32VtF")]
-        private static partial void PInvoke_copyRawBytes_907824DA( System.IntPtr source,  System.IntPtr dest,  int count);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_copyRawBytes_907824DA")]
+        private static partial void PInvoke_copyRawBytes_79F38374( System.IntPtr source,  System.IntPtr dest,  int count);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Returns true if the opaque pointer is non-null (always true for non-optional OpaquePointer).
         /// </summary>
@@ -3946,7 +4045,7 @@ namespace SwiftBindingsTestLib
             {
                 
                 
-                var result = PInvoke_opaquePointerIsValid_ADD20A8E(ptr);
+                var result = PInvoke_opaquePointerIsValid_DE033A1E(ptr);
                 
                 return result;
             }
@@ -3957,10 +4056,10 @@ namespace SwiftBindingsTestLib
             
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20opaquePointerIsValidySbs06OpaqueF0VF")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_opaquePointerIsValid_ADD20A8E")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_opaquePointerIsValid_ADD20A8E( System.IntPtr ptr);
+        private static partial bool PInvoke_opaquePointerIsValid_DE033A1E( System.IntPtr ptr);
         
         
         /// <summary>
@@ -3989,7 +4088,7 @@ namespace SwiftBindingsTestLib
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_optionalOpaquePointer_C39AA2B9_optbuf")]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_optionalOpaquePointer_C39AA2B9")]
         [return: MarshalAs(UnmanagedType.U1)]
         private static partial bool PInvoke_optionalOpaquePointer_412C4555( IntPtr ptrBuffer);
         
@@ -4165,15 +4264,14 @@ namespace SwiftBindingsTestLib
         private static partial bool PInvoke_callBoolCallback_961F6C62( IntPtr callbackFuncPtr,  IntPtr callbackContext);
         
         
-        private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, double> s_callWithFrozenStruct_arg0_F6CC92F4_Callback = &callWithFrozenStruct_arg0_F6CC92F4_Callback;
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
-        private static unsafe double callWithFrozenStruct_arg0_F6CC92F4_Callback(void* arg0, SwiftSelf context)
+        private static unsafe readonly delegate* unmanaged[Cdecl]<void*, IntPtr, double> s_callWithFrozenStruct_arg0_7BB51891_Callback = &callWithFrozenStruct_arg0_7BB51891_Callback;
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+        private static unsafe double callWithFrozenStruct_arg0_7BB51891_Callback(void* arg0, IntPtr contextPtr)
         {
-            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<SwiftBindingsTestLib.FrozenPoint, double>>(new IntPtr(context.Value));
+            var del = SwiftClosureMarshaller.GetDelegateFromContext<Func<SwiftBindingsTestLib.FrozenPoint, double>>(contextPtr);
             return del(SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.FrozenPoint>(new IntPtr(arg0)));
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Calls an escaping closure with a FrozenPoint argument.
         /// </summary>
@@ -4186,9 +4284,8 @@ namespace SwiftBindingsTestLib
                 {
                     
                     callbackHandle = GCHandle.Alloc(callback);
-                    var callbackClosure = new SwiftClosureData((IntPtr)s_callWithFrozenStruct_arg0_F6CC92F4_Callback, GCHandle.ToIntPtr(callbackHandle));
                     
-                    var result = PInvoke_callWithFrozenStruct_F6CC92F4(callbackClosure);
+                    var result = PInvoke_callWithFrozenStruct_7BB51891(callbackHandle.IsAllocated ? (IntPtr)s_callWithFrozenStruct_arg0_7BB51891_Callback : IntPtr.Zero, callbackHandle.IsAllocated ? GCHandle.ToIntPtr(callbackHandle) : IntPtr.Zero);
                     
                     return result;
                 }
@@ -4200,9 +4297,9 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib20callWithFrozenStructyS2dAA0G5PointVcF")]
-        private static partial double PInvoke_callWithFrozenStruct_F6CC92F4( SwiftClosureData callback);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_callWithFrozenStruct_F6CC92F4")]
+        private static partial double PInvoke_callWithFrozenStruct_7BB51891( IntPtr callbackFuncPtr,  IntPtr callbackContext);
         
         
         private static unsafe readonly delegate* unmanaged[Cdecl]<double, IntPtr, double> s_callDoubleCallback_arg0_E2AC63E9_Callback = &callDoubleCallback_arg0_E2AC63E9_Callback;
@@ -4409,7 +4506,7 @@ namespace SwiftBindingsTestLib
         }
         
         [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_executeIfPresent_788BCD70_cdecl")]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_executeIfPresent_788BCD70")]
         private static partial int PInvoke_executeIfPresent_0FF2ADAF( IntPtr actionFuncPtr,  IntPtr actionContext,  int fallbackValue);
         
         
@@ -4785,7 +4882,6 @@ namespace SwiftBindingsTestLib
         private static partial bool PInvoke_callCPredicate_0E9CECDD( SwiftClosureData fn,  int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static int SumArraySlice( IEnumerable<int> slice)
         {
             unsafe
@@ -4795,10 +4891,9 @@ namespace SwiftBindingsTestLib
                     
                     var sliceSwiftDirect = SwiftArray<int>.FromEnumerable(slice);
                     using var sliceSwift = sliceSwiftDirect;
-                    using var sliceDisposable = sliceSwift.PayloadBuffer;
-                    IntPtr sliceBuffer = sliceDisposable.Buffer;
+                    IntPtr sliceBuffer = sliceSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_sumArraySlice_5DE0C301(sliceBuffer);
+                    var result = PInvoke_sumArraySlice_86A4BE74(sliceBuffer);
                     
                     return result;
                 }
@@ -4810,11 +4905,10 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_sumArraySlice_9A8BB3E2")]
-        private static partial int PInvoke_sumArraySlice_5DE0C301( IntPtr sliceBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_sumArraySlice_5DE0C301")]
+        private static partial int PInvoke_sumArraySlice_86A4BE74( IntPtr sliceBuffer);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static int ArraySliceCount( IEnumerable<byte> slice)
         {
             unsafe
@@ -4824,10 +4918,9 @@ namespace SwiftBindingsTestLib
                     
                     var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
                     using var sliceSwift = sliceSwiftDirect;
-                    using var sliceDisposable = sliceSwift.PayloadBuffer;
-                    IntPtr sliceBuffer = sliceDisposable.Buffer;
+                    IntPtr sliceBuffer = sliceSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_arraySliceCount_5201F472(sliceBuffer);
+                    var result = PInvoke_arraySliceCount_66B12898(sliceBuffer);
                     
                     return result;
                 }
@@ -4839,11 +4932,10 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_arraySliceCount_134E3942")]
-        private static partial int PInvoke_arraySliceCount_5201F472( IntPtr sliceBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_arraySliceCount_5201F472")]
+        private static partial int PInvoke_arraySliceCount_66B12898( IntPtr sliceBuffer);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static bool IsEmptyArraySlice( IEnumerable<byte> slice)
         {
             unsafe
@@ -4853,10 +4945,9 @@ namespace SwiftBindingsTestLib
                     
                     var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
                     using var sliceSwift = sliceSwiftDirect;
-                    using var sliceDisposable = sliceSwift.PayloadBuffer;
-                    IntPtr sliceBuffer = sliceDisposable.Buffer;
+                    IntPtr sliceBuffer = sliceSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_isEmptyArraySlice_508A726D(sliceBuffer);
+                    var result = PInvoke_isEmptyArraySlice_A5A6D1CA(sliceBuffer);
                     
                     return result;
                 }
@@ -4868,12 +4959,11 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_isEmptyArraySlice_98EFBEBA")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_isEmptyArraySlice_508A726D")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_isEmptyArraySlice_508A726D( IntPtr sliceBuffer);
+        private static partial bool PInvoke_isEmptyArraySlice_A5A6D1CA( IntPtr sliceBuffer);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static int CombinedSliceCount( IEnumerable<byte> first,  IEnumerable<byte> second)
         {
             unsafe
@@ -4883,14 +4973,12 @@ namespace SwiftBindingsTestLib
                     
                     var firstSwiftDirect = SwiftArray<byte>.FromEnumerable(first);
                     using var firstSwift = firstSwiftDirect;
-                    using var firstDisposable = firstSwift.PayloadBuffer;
-                    IntPtr firstBuffer = firstDisposable.Buffer;
+                    IntPtr firstBuffer = firstSwift.Payload.DangerousGetHandle();
                     var secondSwiftDirect = SwiftArray<byte>.FromEnumerable(second);
                     using var secondSwift = secondSwiftDirect;
-                    using var secondDisposable = secondSwift.PayloadBuffer;
-                    IntPtr secondBuffer = secondDisposable.Buffer;
+                    IntPtr secondBuffer = secondSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_combinedSliceCount_5BDE9010(firstBuffer, secondBuffer);
+                    var result = PInvoke_combinedSliceCount_3FCEE079(firstBuffer, secondBuffer);
                     
                     return result;
                 }
@@ -4902,11 +4990,10 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_combinedSliceCount_383DCB26")]
-        private static partial int PInvoke_combinedSliceCount_5BDE9010( IntPtr firstBuffer,  IntPtr secondBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_combinedSliceCount_5BDE9010")]
+        private static partial int PInvoke_combinedSliceCount_3FCEE079( IntPtr firstBuffer,  IntPtr secondBuffer);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public static byte FirstOrThrow( IEnumerable<byte> slice)
         {
             unsafe
@@ -4916,16 +5003,14 @@ namespace SwiftBindingsTestLib
                     
                     var sliceSwiftDirect = SwiftArray<byte>.FromEnumerable(slice);
                     using var sliceSwift = sliceSwiftDirect;
-                    using var sliceDisposable = sliceSwift.PayloadBuffer;
-                    IntPtr sliceBuffer = sliceDisposable.Buffer;
+                    IntPtr sliceBuffer = sliceSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_firstOrThrow_E06AE22A(sliceBuffer, out var swiftError);
+                    var result = PInvoke_firstOrThrow_CD024C46(sliceBuffer, out var errorPtr);
                     
-                    if (swiftError.Value != null)
+                    if (errorPtr != IntPtr.Zero)
                     {
                         string _errorMessage;
-                        var _errorPtr = (IntPtr)swiftError.Value;
-                        var _descPtr = SBW_GetErrorDescription(_errorPtr);
+                        var _descPtr = SBW_GetErrorDescription(errorPtr);
                         try
                         {
                             _errorMessage = _descPtr != IntPtr.Zero
@@ -4935,7 +5020,7 @@ namespace SwiftBindingsTestLib
                         finally
                         {
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
-                            SBW_ReleaseError(_errorPtr);
+                            SBW_ReleaseError(errorPtr);
                         }
                         throw new SwiftRuntimeException(_errorMessage);
                     }
@@ -4950,11 +5035,10 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Global_firstOrThrow_E2E07302")]
-        private static partial byte PInvoke_firstOrThrow_E06AE22A( IntPtr sliceBuffer, out SwiftError swiftError);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_firstOrThrow_E06AE22A")]
+        private static partial byte PInvoke_firstOrThrow_CD024C46( IntPtr sliceBuffer, out IntPtr errorPtr);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Returns the count of elements in the array.
         /// </summary>
@@ -4967,10 +5051,9 @@ namespace SwiftBindingsTestLib
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_arrayCount_12FD5283(arrayBuffer);
+                    var result = PInvoke_arrayCount_BAB766D8(arrayBuffer);
                     
                     return result;
                 }
@@ -4982,12 +5065,11 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib10arrayCountys5Int32VSayADGF")]
-        private static partial int PInvoke_arrayCount_12FD5283( IntPtr arrayBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_arrayCount_12FD5283")]
+        private static partial int PInvoke_arrayCount_BAB766D8( IntPtr arrayBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Sums all elements in the array.
         /// </summary>
@@ -5000,10 +5082,9 @@ namespace SwiftBindingsTestLib
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_sumArray_AEC90DB6(arrayBuffer);
+                    var result = PInvoke_sumArray_A2356619(arrayBuffer);
                     
                     return result;
                 }
@@ -5015,12 +5096,11 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib8sumArrayys5Int32VSayADGF")]
-        private static partial int PInvoke_sumArray_AEC90DB6( IntPtr arrayBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_sumArray_AEC90DB6")]
+        private static partial int PInvoke_sumArray_A2356619( IntPtr arrayBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Returns true if the array is empty.
         /// </summary>
@@ -5033,10 +5113,9 @@ namespace SwiftBindingsTestLib
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_isEmptyArray_51884325(arrayBuffer);
+                    var result = PInvoke_isEmptyArray_37608F93(arrayBuffer);
                     
                     return result;
                 }
@@ -5048,10 +5127,10 @@ namespace SwiftBindingsTestLib
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib12isEmptyArrayySbSays5Int32VGF")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_isEmptyArray_51884325")]
         [return: MarshalAs(UnmanagedType.U1)]
-        private static partial bool PInvoke_isEmptyArray_51884325( IntPtr arrayBuffer);
+        private static partial bool PInvoke_isEmptyArray_37608F93( IntPtr arrayBuffer);
         
         
         /// <summary>
@@ -5126,7 +5205,6 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_createStringArray_4DF1F71A( IntPtr resultPtr,  Swift.SwiftString.Buffer first,  Swift.SwiftString.Buffer second);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Reverses an Int32 array.
         /// </summary>
@@ -5134,32 +5212,36 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<int>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_reverseIntArray_19BE9707(arrayBuffer);
+                    PInvoke_reverseIntArray_43481815(resultPtr, arrayBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(resultPtr).AsProjected(e => e);
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15reverseIntArrayySays5Int32VGAEF")]
-        private static partial IntPtr PInvoke_reverseIntArray_19BE9707( IntPtr arrayBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_reverseIntArray_19BE9707")]
+        private static partial void PInvoke_reverseIntArray_43481815( IntPtr resultPtr,  IntPtr arrayBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Describes each animal in the array, returning an array of descriptions.
         /// </summary>
@@ -5167,33 +5249,37 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<SwiftString>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var animalsContainers = animals.Select(e => e.Payload.DangerousGetHandle());
                     var animalsSwiftDirect = SwiftArray<IntPtr>.FromEnumerable(animalsContainers);
                     using var animalsSwift = animalsSwiftDirect;
-                    using var animalsDisposable = animalsSwift.PayloadBuffer;
-                    IntPtr animalsBuffer = animalsDisposable.Buffer;
+                    IntPtr animalsBuffer = animalsSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_describeAnimals_097536C6(animalsBuffer);
+                    PInvoke_describeAnimals_D0C8BCD2(resultPtr, animalsBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(resultPtr).AsProjected(e => e.ToString());
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15describeAnimalsySaySSGSayAA6AnimalCGF")]
-        private static partial IntPtr PInvoke_describeAnimals_097536C6( IntPtr animalsBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeAnimals_097536C6")]
+        private static partial void PInvoke_describeAnimals_D0C8BCD2( IntPtr resultPtr,  IntPtr animalsBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Filters out non-positive values from the array.
         /// </summary>
@@ -5201,29 +5287,34 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<int>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var arraySwiftDirect = SwiftArray<int>.FromEnumerable(array);
                     using var arraySwift = arraySwiftDirect;
-                    using var arrayDisposable = arraySwift.PayloadBuffer;
-                    IntPtr arrayBuffer = arrayDisposable.Buffer;
+                    IntPtr arrayBuffer = arraySwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_filterPositive_C9148D05(arrayBuffer);
+                    PInvoke_filterPositive_2978D806(resultPtr, arrayBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(new IntPtr(&result)).AsProjected(e => e);
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<int>>(resultPtr).AsProjected(e => e);
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib14filterPositiveySays5Int32VGAEF")]
-        private static partial IntPtr PInvoke_filterPositive_C9148D05( IntPtr arrayBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_filterPositive_C9148D05")]
+        private static partial void PInvoke_filterPositive_2978D806( IntPtr resultPtr,  IntPtr arrayBuffer);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.ProcessingMode")]
@@ -5981,7 +6072,6 @@ namespace SwiftBindingsTestLib
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Named")]
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Accepts an array of existential Named and describes all. Tests witness dispatch in a loop - exercises repeated witness table lookups. NOTE: Renamed from describeAll to avoid collision with Existentials.swift which has a similar function taking [any Describable]. Both would marshal to the same C# signature.
         /// </summary>
@@ -5989,34 +6079,38 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<SwiftString>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<INamed>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
-                    using var itemsDisposable = itemsSwift.PayloadBuffer;
-                    IntPtr itemsBuffer = itemsDisposable.Buffer;
+                    IntPtr itemsBuffer = itemsSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_describeAllNamed_287015A7(itemsBuffer);
+                    PInvoke_describeAllNamed_C24A1CCB(resultPtr, itemsBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(new IntPtr(&result)).AsProjected(e => e.ToString());
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(resultPtr).AsProjected(e => e.ToString());
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16describeAllNamedySaySSGSayAA0G0_pGF")]
-        private static partial IntPtr PInvoke_describeAllNamed_287015A7( IntPtr itemsBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_describeAllNamed_287015A7")]
+        private static partial void PInvoke_describeAllNamed_C24A1CCB( IntPtr resultPtr,  IntPtr itemsBuffer);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.Prioritized")]
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Accepts an array of existential Prioritized and returns all priorities. Tests witness dispatch with enum returns in a loop.
         /// </summary>
@@ -6024,30 +6118,35 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
+                    var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<SwiftBindingsTestLib.TaskPriority>>();
+                    _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                    var resultPtr = (IntPtr)_cdeclBuf;
+                    
                     
                     var itemsContainers = items.Select(e => ExistentialContainerFactory.GetOrCreate<IPrioritized>(e));
                     var itemsSwiftDirect = SwiftArray<Swift.Runtime.ExistentialContainer1>.FromEnumerable(itemsContainers);
                     using var itemsSwift = itemsSwiftDirect;
-                    using var itemsDisposable = itemsSwift.PayloadBuffer;
-                    IntPtr itemsBuffer = itemsDisposable.Buffer;
+                    IntPtr itemsBuffer = itemsSwift.Payload.DangerousGetHandle();
                     
-                    var result = PInvoke_getAllPriorities_81F9DE32(itemsBuffer);
+                    PInvoke_getAllPriorities_8A29FBBE(resultPtr, itemsBuffer);
                     
-                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftBindingsTestLib.TaskPriority>>(new IntPtr(&result)).AsProjected(e => e);
+                    return SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftBindingsTestLib.TaskPriority>>(resultPtr).AsProjected(e => e);
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16getAllPrioritiesySayAA12TaskPriorityOGSayAA11Prioritized_pGF")]
-        private static partial IntPtr PInvoke_getAllPriorities_81F9DE32( IntPtr itemsBuffer);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_Free_getAllPriorities_81F9DE32")]
+        private static partial void PInvoke_getAllPriorities_8A29FBBE( IntPtr resultPtr,  IntPtr itemsBuffer);
         
         
         [global::Swift.UnsupportedSwiftType("Existential type fallback", "any SwiftBindingsTestLib.ExistentialParamDelegate")]
@@ -6222,32 +6321,42 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_BD7AE875( IntPtr resultPtr,  int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         public SwiftBindingsTestLib.SummableInt32 Add( SwiftBindingsTestLib.SummableInt32 other)
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
-                    var self = new SwiftSelf<SummableInt32>(this);
-                    
-                    
-                    
-                    var result = PInvoke_add_E724A903(other, self);
-                    
-                    return result;
+                    fixed (SummableInt32* __self = &this)
+                    {
+                        _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<SwiftBindingsTestLib.SummableInt32>());
+                        var resultPtr = (IntPtr)_cdeclBuf;
+                        
+                        
+                        var otherMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.SummableInt32>();
+                        byte* otherBuffer = stackalloc byte[(int)otherMetadata.Size];
+                        var otherSpan = new Span<byte>(otherBuffer, (int)otherMetadata.Size);
+                        SwiftMarshal.MarshalToSwift(other, ref otherSpan);
+                        IntPtr otherPtr = (IntPtr)otherBuffer;
+                        
+                        PInvoke_add_E11F48C1(resultPtr, otherPtr, (IntPtr)__self);
+                        
+                        return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.SummableInt32>(resultPtr);
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13SummableInt32V3addyA2CF")]
-        private static partial SwiftBindingsTestLib.SummableInt32 PInvoke_add_E724A903( SwiftBindingsTestLib.SummableInt32 other,  SwiftSelf<SummableInt32> self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SummableInt32_add_E724A903")]
+        private static partial void PInvoke_add_E11F48C1( IntPtr resultPtr, IntPtr other,  IntPtr _selfFixed);
         
         
     }
@@ -19811,7 +19920,6 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_translated_5C7A11AD( IntPtr resultPtr,  double dx,  double dy,  IntPtr _selfFixed);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
         /// <summary>
         /// Returns the midpoint between this point and another.
         /// </summary>
@@ -19819,27 +19927,38 @@ namespace SwiftBindingsTestLib
         {
             unsafe
             {
+                void* _cdeclBuf = null;
                 try
                 {
-                    var self = new SwiftSelf<FrozenPoint>(this);
-                    
-                    
-                    
-                    var result = PInvoke_midpoint_52B3C5FE(other, self);
-                    
-                    return result;
+                    fixed (FrozenPoint* __self = &this)
+                    {
+                        _cdeclBuf = NativeMemory.Alloc((nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<SwiftBindingsTestLib.FrozenPoint>());
+                        var resultPtr = (IntPtr)_cdeclBuf;
+                        
+                        
+                        var otherMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftBindingsTestLib.FrozenPoint>();
+                        byte* otherBuffer = stackalloc byte[(int)otherMetadata.Size];
+                        var otherSpan = new Span<byte>(otherBuffer, (int)otherMetadata.Size);
+                        SwiftMarshal.MarshalToSwift(other, ref otherSpan);
+                        IntPtr otherPtr = (IntPtr)otherBuffer;
+                        
+                        PInvoke_midpoint_A43E7FBA(resultPtr, otherPtr, (IntPtr)__self);
+                        
+                        return SwiftMarshal.MarshalFromSwift<SwiftBindingsTestLib.FrozenPoint>(resultPtr);
+                    }
                 }
                 
                 finally
                 {
+                    NativeMemory.Free(_cdeclBuf);
                 }
                 
             }
         }
         
-        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-        [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11FrozenPointV8midpoint2toA2C_tF")]
-        private static partial SwiftBindingsTestLib.FrozenPoint PInvoke_midpoint_52B3C5FE( SwiftBindingsTestLib.FrozenPoint other,  SwiftSelf<FrozenPoint> self);
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_FrozenPoint_midpoint_52B3C5FE")]
+        private static partial void PInvoke_midpoint_A43E7FBA( IntPtr resultPtr, IntPtr other,  IntPtr _selfFixed);
         
         
     }
@@ -37277,52 +37396,52 @@ public partial class AsyncComplexWorker : ISwiftObject, ISwiftStruct, IDisposabl
 /// </remarks>
 public partial class MainActorViewModel : ISwiftObject, IDisposable
 {
-    private Swift.SwiftString Title_Get()
+    private Utf8Slice Title_Get()
     {
         unsafe
         {
             var success = false;
             _handle.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_title_Get_F6F0A056(self);
+                PInvoke_title_Get_3D62A749(resultPtr, _handle.DangerousGetHandle());
                 
                 unsafe {
-    return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
-}
+                    return *(Utf8Slice*)resultPtr;
+                }
             }
             
             finally
             {
                 if (success)
                    _handle.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5titleSSvgTj")]
-    private static partial Swift.SwiftString.Buffer PInvoke_title_Get_F6F0A056( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MainActorViewModel_title")]
+    private static partial void PInvoke_title_Get_3D62A749( IntPtr resultPtr,  IntPtr _selfClass);
     
-    private void Title_Set( Swift.SwiftString value)
+    private void Title_Set( IntPtr valueUtf8Ptr,  nint valueUtf8Len)
     {
         unsafe
         {
             var success = false;
             _handle.DangerousAddRef(ref success);
-            using PayloadBuffer<Swift.SwiftString.Buffer> valueDisposable = value.PayloadBuffer;
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
                 
                 
-                
-                PInvoke_title_Set_EAF08D72(valueDisposable.Buffer, self);
+                PInvoke_title_Set_7BC2E405(valueUtf8Ptr, valueUtf8Len, _handle.DangerousGetHandle());
                 
                 return;
             }
@@ -37336,14 +37455,20 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5titleSSvsTj")]
-    private static partial void PInvoke_title_Set_EAF08D72( Swift.SwiftString.Buffer value,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_MainActorViewModel_title")]
+    private static partial void PInvoke_title_Set_7BC2E405( IntPtr valueUtf8Ptr,  nint valueUtf8Len,  IntPtr _selfClass);
+    
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
     
     public virtual string Title
     {
-        get { using var __ret = Title_Get(); return __ret.ToString(); }
-        set { using var __val = new SwiftString(value); Title_Set(__val); }
+        get { var __slice = Title_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
+        set {
+            var __utf8 = System.Text.Encoding.UTF8.GetBytes(value);
+            unsafe { fixed (byte* __p = __utf8) { Title_Set((IntPtr)__p, __utf8.Length); } }
+        }
     }
     
     private int Count_Get()
@@ -37354,11 +37479,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             _handle.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_count_Get_A04111AF(self);
+                var result = PInvoke_count_Get_26B69234(_handle.DangerousGetHandle());
                 
                 return result;
             }
@@ -37372,9 +37495,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5counts5Int32VvgTj")]
-    private static partial int PInvoke_count_Get_A04111AF( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MainActorViewModel_count")]
+    private static partial int PInvoke_count_Get_26B69234( IntPtr _selfClass);
     
     private void Count_Set( int value)
     {
@@ -37384,11 +37507,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             _handle.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
                 
                 
-                
-                PInvoke_count_Set_8C40F233(value, self);
+                PInvoke_count_Set_483C1DB0(value, _handle.DangerousGetHandle());
                 
                 return;
             }
@@ -37402,9 +37523,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC5counts5Int32VvsTj")]
-    private static partial void PInvoke_count_Set_8C40F233( int value,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Set_SwiftBindingsTestLib_MainActorViewModel_count")]
+    private static partial void PInvoke_count_Set_483C1DB0( int value,  IntPtr _selfClass);
     
     public virtual int Count
     {
@@ -37412,44 +37533,47 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         set => Count_Set(value);
     }
     
-    private Swift.SwiftString Summary_Get()
+    private Utf8Slice Summary_Get()
     {
         unsafe
         {
             var success = false;
             _handle.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_summary_Get_024F0F8A(self);
+                PInvoke_summary_Get_2D942153(resultPtr, _handle.DangerousGetHandle());
                 
                 unsafe {
-    return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
-}
+                    return *(Utf8Slice*)resultPtr;
+                }
             }
             
             finally
             {
                 if (success)
                    _handle.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC7summarySSvgTj")]
-    private static partial Swift.SwiftString.Buffer PInvoke_summary_Get_024F0F8A( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_MainActorViewModel_summary")]
+    private static partial void PInvoke_summary_Get_2D942153( IntPtr resultPtr,  IntPtr _selfClass);
     
     /// <summary>
     /// Computed property on @MainActor class.
     /// </summary>
     public virtual string Summary
     {
-        get { using var __ret = Summary_Get(); return __ret.ToString(); }
+        get { var __slice = Summary_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -37576,7 +37700,6 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
     private static partial IntPtr PInvoke_init_F645FF20( Swift.SwiftString.Buffer title);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Synchronous method on @MainActor class.
     /// </summary>
@@ -37588,11 +37711,9 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
             _handle.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
                 
                 
-                
-                var result = PInvoke_increment_B3ED6879(self);
+                var result = PInvoke_increment_72BED10A(_handle.DangerousGetHandle());
                 
                 return result;
             }
@@ -37606,13 +37727,10 @@ public partial class MainActorViewModel : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib18MainActorViewModelC9increments5Int32VyFTj")]
-    private static partial int PInvoke_increment_B3ED6879( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorViewModel_increment_B3ED6879")]
+    private static partial int PInvoke_increment_72BED10A( IntPtr _selfClass);
     
-    
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
-    private static partial void SBW_Free(IntPtr ptr);
     
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_CancelTask_SwiftBindingsTestLib")]
     private static partial void SBW_CancelTask(long taskId);
@@ -38009,7 +38127,9 @@ public partial class MainActorMethods : ISwiftObject, ISwiftStruct, IDisposable
     private static partial void PInvoke_init_0D2CFC09( IntPtr resultPtr,  int value);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
+    
     /// <summary>
     /// Method isolated to the main actor.
     /// </summary>
@@ -38019,34 +38139,42 @@ public partial class MainActorMethods : ISwiftObject, ISwiftStruct, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_mainActorMethod_AA83CAC4(self);
+                PInvoke_mainActorMethod_4BA802FC(resultPtr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib16MainActorMethodsV04mainF6MethodSSyF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_mainActorMethod_AA83CAC4( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_MainActorMethods_mainActorMethod_AA83CAC4")]
+    private static partial void PInvoke_mainActorMethod_4BA802FC( IntPtr resultPtr,  IntPtr _self);
     
-    
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
-    private static partial void SBW_Free(IntPtr ptr);
     
     /// <summary>
     /// Non-isolated method for comparison.
@@ -38106,41 +38234,47 @@ public partial class MainActorMethods : ISwiftObject, ISwiftStruct, IDisposable
 /// </remarks>
 public partial class AsyncWorker : ISwiftObject, ISwiftStruct, IDisposable
 {
-    private Swift.SwiftString Name_Get()
+    private Utf8Slice Name_Get()
     {
         unsafe
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_name_Get_626AE99A(self);
+                PInvoke_name_Get_198D019C(resultPtr, _payload.DangerousGetHandle());
                 
                 unsafe {
-    return SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(&result));
-}
+                    return *(Utf8Slice*)resultPtr;
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib11AsyncWorkerV4nameSSvg")]
-    private static partial Swift.SwiftString.Buffer PInvoke_name_Get_626AE99A( SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Get_SwiftBindingsTestLib_AsyncWorker_name")]
+    private static partial void PInvoke_name_Get_198D019C( IntPtr resultPtr,  IntPtr _self);
+    
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
     
     public string Name
     {
-        get { using var __ret = Name_Get(); return __ret.ToString(); }
+        get { var __slice = Name_Get(); if (__slice.Len == 0) return string.Empty; try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; } finally { SBW_Free(__slice.Ptr); } }
     }
     
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -38625,9 +38759,6 @@ public partial class AsyncWorker : ISwiftObject, ISwiftStruct, IDisposable
     [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_AsyncWorker_asyncReturnMethod_0900569C_async")]
     private static unsafe partial void PInvoke_asyncReturnMethod_5EDDC5B0( void* s_asyncReturnMethodCallback_5EDDC5B0,  void* s_asyncReturnMethodErrorCallback_5EDDC5B0,  IntPtr handle,  IntPtr _self);
     
-    
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
-    private static partial void SBW_Free(IntPtr ptr);
     
             private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_asyncStringMethodCallback_50827B33 = &asyncStringMethodOnComplete_50827B33;
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
@@ -51777,7 +51908,6 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
     private static partial void PInvoke_init_6011844D( IntPtr resultPtr,  Swift.SwiftString.Buffer label);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Reads the value at the pointer and returns a description.
     /// </summary>
@@ -51787,33 +51917,43 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_describeValue_EE20FBA7(ptr, self);
+                PInvoke_describeValue_4645FA9C(resultPtr, ptr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13PointerWorkerV13describeValueySSSpys5Int32VGF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_describeValue_EE20FBA7( System.IntPtr ptr,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_PointerWorker_describeValue_EE20FBA7")]
+    private static partial void PInvoke_describeValue_4645FA9C( IntPtr resultPtr,  System.IntPtr ptr,  IntPtr _self);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Doubles the value at the mutable pointer.
     /// </summary>
@@ -51825,11 +51965,9 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
                 
                 
-                
-                PInvoke_doubleValue_FDB9E476(ptr, self);
+                PInvoke_doubleValue_D4BD5557(ptr, _payload.DangerousGetHandle());
                 
                 return;
             }
@@ -51843,9 +51981,9 @@ public partial class PointerWorker : ISwiftObject, ISwiftStruct, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13PointerWorkerV11doubleValueyySpys5Int32VGF")]
-    private static partial void PInvoke_doubleValue_FDB9E476( System.IntPtr ptr,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_PointerWorker_doubleValue_FDB9E476")]
+    private static partial void PInvoke_doubleValue_D4BD5557( System.IntPtr ptr,  IntPtr _self);
     
     
 }
@@ -52055,7 +52193,9 @@ public partial class RawMemoryWorker : ISwiftObject, ISwiftStruct, IDisposable
     private static partial void PInvoke_init_0D98D78B( IntPtr resultPtr,  int alignment);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_Free_SwiftBindingsTestLib")]
+    private static partial void SBW_Free(IntPtr ptr);
+    
     /// <summary>
     /// Reads an Int32 from the raw pointer and returns a description.
     /// </summary>
@@ -52065,30 +52205,41 @@ public partial class RawMemoryWorker : ISwiftObject, ISwiftStruct, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_readInt32_596CE92C(ptr, self);
+                PInvoke_readInt32_2A513F2A(resultPtr, ptr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib15RawMemoryWorkerV9readInt32ySSSVF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_readInt32_596CE92C( System.IntPtr ptr,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_RawMemoryWorker_readInt32_596CE92C")]
+    private static partial void PInvoke_readInt32_2A513F2A( IntPtr resultPtr,  System.IntPtr ptr,  IntPtr _self);
     
     
 }
@@ -52313,7 +52464,6 @@ public partial class HandleWrapper : ISwiftObject, ISwiftStruct, IDisposable
     private static partial void PInvoke_init_AE7E302F( IntPtr resultPtr,  Swift.SwiftString.Buffer name);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     /// <summary>
     /// Returns a description of the handle wrapper with the pointer's validity.
     /// </summary>
@@ -52323,30 +52473,41 @@ public partial class HandleWrapper : ISwiftObject, ISwiftStruct, IDisposable
         {
             var success = false;
             _payload.DangerousAddRef(ref success);
+            void* _cdeclBuf = null;
             try
             {
-                var self = new SwiftSelf((void*)_payload.DangerousGetHandle());
+                _cdeclBuf = NativeMemory.Alloc((nuint)(nint.Size * 2));
+                var resultPtr = (IntPtr)_cdeclBuf;
                 
                 
                 
-                var result = PInvoke_describe_9B805396(ptr, self);
+                PInvoke_describe_2816125D(resultPtr, ptr, _payload.DangerousGetHandle());
                 
-                var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result));
-                return swiftResult.ToString();
+                unsafe {
+                    var __slice = *(Utf8Slice*)resultPtr;
+                    if (__slice.Len == 0) return string.Empty;
+                    try {
+                        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(
+                            __slice.Ptr, (int)__slice.Len) ?? string.Empty;
+                    } finally {
+                        SBW_Free(__slice.Ptr);
+                    }
+                }
             }
             
             finally
             {
                 if (success)
                    _payload.DangerousRelease();
+                NativeMemory.Free(_cdeclBuf);
             }
             
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "$s20SwiftBindingsTestLib13HandleWrapperV8describeySSs13OpaquePointerVF")]
-    private static partial Swift.SwiftString.Buffer PInvoke_describe_9B805396( System.IntPtr ptr,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_HandleWrapper_describe_9B805396")]
+    private static partial void PInvoke_describe_2816125D( IntPtr resultPtr,  System.IntPtr ptr,  IntPtr _self);
     
     
 }
@@ -54575,7 +54736,6 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
     private static partial IntPtr PInvoke_init_68F3C148( int offset);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public virtual int ProcessSlice( IEnumerable<int> data)
     {
         unsafe
@@ -54584,15 +54744,12 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
             _handle.DangerousAddRef(ref success);
             try
             {
-                var self = new SwiftSelf((void*)_handle.DangerousGetHandle());
-                
                 
                 var dataSwiftDirect = SwiftArray<int>.FromEnumerable(data);
                 using var dataSwift = dataSwiftDirect;
-                using var dataDisposable = dataSwift.PayloadBuffer;
-                IntPtr dataBuffer = dataDisposable.Buffer;
+                IntPtr dataBuffer = dataSwift.Payload.DangerousGetHandle();
                 
-                var result = PInvoke_processSlice_6B267883(dataBuffer, self);
+                var result = PInvoke_processSlice_7AED4862(dataBuffer, _handle.DangerousGetHandle());
                 
                 return result;
             }
@@ -54606,11 +54763,10 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SliceProcessor_processSlice_E9797EFB")]
-    private static partial int PInvoke_processSlice_6B267883( IntPtr dataBuffer,  SwiftSelf self);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SliceProcessor_processSlice_6B267883")]
+    private static partial int PInvoke_processSlice_7AED4862( IntPtr dataBuffer,  IntPtr _selfClass);
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
     public static int TotalSlice( IEnumerable<int> data)
     {
         unsafe
@@ -54620,10 +54776,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
                 
                 var dataSwiftDirect = SwiftArray<int>.FromEnumerable(data);
                 using var dataSwift = dataSwiftDirect;
-                using var dataDisposable = dataSwift.PayloadBuffer;
-                IntPtr dataBuffer = dataDisposable.Buffer;
+                IntPtr dataBuffer = dataSwift.Payload.DangerousGetHandle();
                 
-                var result = PInvoke_totalSlice_38C7BBA2(dataBuffer);
+                var result = PInvoke_totalSlice_2B2A1855(dataBuffer);
                 
                 return result;
             }
@@ -54635,9 +54790,9 @@ public partial class SliceProcessor : ISwiftObject, IDisposable
         }
     }
     
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SliceProcessor_totalSlice_3E026686")]
-    private static partial int PInvoke_totalSlice_38C7BBA2( IntPtr dataBuffer);
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+    [LibraryImport("SwiftBindingsTestLibSwiftBindings", EntryPoint = "SBW_SwiftBindingsTestLib_SliceProcessor_totalSlice_38C7BBA2")]
+    private static partial int PInvoke_totalSlice_2B2A1855( IntPtr dataBuffer);
     
 }
 

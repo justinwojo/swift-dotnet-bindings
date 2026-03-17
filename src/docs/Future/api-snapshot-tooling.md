@@ -21,8 +21,8 @@ Potentially noisy during active development. May be better gated on releases or 
 
 ## Key Files
 
-New scripts in `TestFramework/`
+New scripts in `BindingTests/`
 
 ## Verification
 
-Run against TestFramework generated bindings, verify baseline matches current output.
+Run against BindingTests generated bindings, verify baseline matches current output.

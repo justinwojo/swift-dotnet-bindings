@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")/../.."
 
 PROJ="src/Swift.Bindings/src/Swift.Bindings.csproj"
-GOLDEN_DIR="TestFramework/golden"
+GOLDEN_DIR="BindingTests/golden"
 FAILURES=0
 
 # Build the generator once
@@ -59,7 +59,7 @@ generate_for_lib() {
 echo ""
 echo "=== Generating golden files ==="
 
-generate_for_lib "SwiftBindingsTestLib" "TestFramework/.build/SwiftBindingsTestLib.xcframework"
+generate_for_lib "SwiftBindingsTestLib" "BindingTests/.build/SwiftBindingsTestLib.xcframework"
 
 echo ""
 if [ $FAILURES -gt 0 ]; then

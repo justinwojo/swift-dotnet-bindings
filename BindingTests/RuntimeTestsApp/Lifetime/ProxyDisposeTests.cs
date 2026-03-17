@@ -16,7 +16,7 @@ namespace RuntimeTestsApp.Lifetime;
 ///
 /// NOTE: Tests using the C# impl constructor (new HasValueProxy(impl))
 /// require the SwiftBindings wrapper library at runtime for witness table
-/// P/Invoke resolution. This is not yet wired up in TestFramework, so
+/// P/Invoke resolution. This is not yet wired up in BindingTests, so
 /// those tests are Tier 3 (expected to fail until wrapper lib is bundled).
 /// Container-based tests (ExistentialContainer1 path) work without the
 /// wrapper lib and are Tier 2.
