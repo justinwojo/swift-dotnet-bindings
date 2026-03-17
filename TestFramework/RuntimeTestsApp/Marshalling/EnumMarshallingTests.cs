@@ -221,7 +221,7 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape default null passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Optional<Shape> setter — non-blittable enum through property setter")]
+    [Skip("NativeAOT: SIGSEGV — SwiftOptional<Shape> marshalling for enum with associated values")]
     public void TestEnumPropertyHolder_SetOptionalShape()
     {
         // Set optionalShape to a value, read back
@@ -233,7 +233,7 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape setter passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Optional<Shape> setter — non-blittable enum through property setter")]
+    [Skip("NativeAOT: SIGSEGV — SwiftOptional<Shape> marshalling for enum with associated values")]
     public void TestEnumPropertyHolder_ClearOptionalShape()
     {
         // Set optionalShape, then clear back to null

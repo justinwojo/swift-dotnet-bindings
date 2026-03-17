@@ -650,6 +650,289 @@ public class TypeHandlersOutputTests
         Assert.DoesNotContain("data_0_", csOutput);
     }
 
+    [Fact]
+    public void Emit_FrozenStructHandler_OptionalStringField_EmitsTwoIntPtrFields()
+    {
+        // Optional<String> should be 16 bytes (String has extra inhabitants via RequiresMemoryManagement).
+        // Previously, the generic Swift.Optional TypeRecord had no InlineSize, causing fallback to 8 bytes.
+        var typeDatabase = CreateTypeDatabaseWithOptionalAndString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Config", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        // Optional<String> is 16 bytes (2 words) — should emit two IntPtr fields
+        Assert.Contains("private IntPtr label_0_", csOutput);
+        Assert.Contains("private IntPtr label_1_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_OptionalInt32Field_EmitsSingleIntPtrField()
+    {
+        // Optional<Int32> should be 5 bytes (Int32 has no extra inhabitants → size + 1).
+        // 5 bytes rounds up to 1 IntPtr (8 bytes).
+        var typeDatabase = CreateTypeDatabaseWithOptionalAndInt32();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Settings", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        // Optional<Int32> is 5 bytes — rounds to 1 IntPtr field
+        Assert.Contains("private IntPtr count_", csOutput);
+        Assert.DoesNotContain("count_0_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_OptionalStringField_WithoutRequiresMemoryManagement_StillEmitsTwoIntPtrFields()
+    {
+        // Regression: Swift.Optional can be registered as a frozen enum WITHOUT RequiresMemoryManagement
+        // (see ConstructorHandlerOutputTests fixture). The Optional<T> sizing must work regardless of
+        // the Optional TypeRecord's flags — the check must happen before the RequiresMemoryManagement gate.
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen, // NO RequiresMemoryManagement — matches ConstructorHandlerOutputTests
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("Config", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        // Must still emit two IntPtr fields even without RequiresMemoryManagement on Optional
+        Assert.Contains("private IntPtr label_0_", csOutput);
+        Assert.Contains("private IntPtr label_1_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_FrozenStructHandler_MixedOptionalFields_EmitsCorrectLayout()
+    {
+        // Regression test matching OptionalConfig: Optional<String> + Optional<Int32> + String
+        var typeDatabase = CreateTypeDatabaseWithOptionalStringAndInt32();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDecl("OptConfig", moduleDecl, isFrozen: true, requiresMemoryManagement: true);
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32")),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+        structDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "fallbackLabel",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (csOutput, _) = EmitType(structDecl, typeDatabase, new FrozenStructHandler(new NullLogger<FrozenStructHandler>()));
+
+        // label: Optional<String> = 16 bytes → 2 IntPtr fields
+        Assert.Contains("private IntPtr label_0_", csOutput);
+        Assert.Contains("private IntPtr label_1_", csOutput);
+        // count: Optional<Int32> = 5 bytes → 1 IntPtr field
+        Assert.Contains("private IntPtr count_", csOutput);
+        Assert.DoesNotContain("count_0_", csOutput);
+        // fallbackLabel: String = 16 bytes → 2 IntPtr fields
+        Assert.Contains("private IntPtr fallbackLabel_0_", csOutput);
+        Assert.Contains("private IntPtr fallbackLabel_1_", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithOptionalAndString()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+                // No InlineSize — generic type, size varies by T
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithOptionalAndInt32()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 4
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithOptionalStringAndInt32()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 4
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabase()
     {
         return new TypeDatabase();

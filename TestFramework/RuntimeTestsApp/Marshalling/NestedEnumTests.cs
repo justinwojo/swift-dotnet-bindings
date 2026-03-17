@@ -96,7 +96,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 3 — Codec Construction and Properties (Mono JIT crash on class with nested enum)
 
-    [Skip("NativeAOT: SIGBUS in Codec construction — nested enum ABI mismatch")]
+    [Skip("NativeAOT: SIGBUS — String raw-value enum (Encoding) ABI mismatch in @_cdecl wrapper load(as:)")]
     public void TestCodecConstructionJson()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -106,7 +106,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Json format passed");
     }
 
-    [Skip("NativeAOT: SIGBUS in Codec construction — nested enum ABI mismatch")]
+    [Skip("NativeAOT: SIGBUS — String raw-value enum (Encoding) ABI mismatch in @_cdecl wrapper load(as:)")]
     public void TestCodecConstructionXml()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -116,7 +116,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
-    [Skip("NativeAOT: SIGBUS in Codec construction — nested enum ABI mismatch")]
+    [Skip("NativeAOT: SIGBUS — String raw-value enum (Encoding) ABI mismatch in @_cdecl wrapper load(as:)")]
     public void TestCodecEncodingValueProperty()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -127,7 +127,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
-    [Skip("NativeAOT: SIGBUS in Codec construction — nested enum ABI mismatch")]
+    [Skip("NativeAOT: SIGBUS — String raw-value enum (Encoding) ABI mismatch in @_cdecl wrapper load(as:)")]
     public void TestCodecGetDescribe()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");

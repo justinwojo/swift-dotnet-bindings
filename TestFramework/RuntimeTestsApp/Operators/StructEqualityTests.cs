@@ -10,7 +10,6 @@ namespace RuntimeTestsApp.Operators;
 /// Tests for struct equality operators: Tag struct with Key/Value string properties
 /// and overloaded == / != operators.
 /// </summary>
-[Skip("NativeAOT: SIGSEGV during Tag finalizer — Buffer struct undersized for Swift.String fields")]
 public class StructEqualityTests : TestBase
 {
     public StructEqualityTests(TestResults results) : base(results) { }
@@ -63,7 +62,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (different key) passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Tag == operator — Buffer struct undersized for second String field")]
     public void TestTagInequalityDifferentValue()
     {
         var a = new Tag("env", "prod");
@@ -73,7 +71,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (different value) passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Tag == operator — Buffer struct undersized for second String field")]
     public void TestTagInequalityBothDifferent()
     {
         var a = new Tag("env", "prod");
@@ -83,7 +80,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag inequality (both different) passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Tag == operator — Buffer struct undersized for second String field")]
     public void TestTagEqualsMethod()
     {
         var a = new Tag("key", "value");
@@ -92,7 +88,6 @@ public class StructEqualityTests : TestBase
         TestLogger.Info("Tag.Equals method passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in Tag == operator — Buffer struct undersized for second String field")]
     public void TestTagEqualsMethodInequality()
     {
         var a = new Tag("key", "value1");

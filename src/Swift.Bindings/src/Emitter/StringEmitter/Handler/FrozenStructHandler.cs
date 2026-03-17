@@ -221,7 +221,17 @@ namespace BindingsGeneration
                     if (propertyDecl.HasStorage)
                     {
                         var fieldRecord = env.TypeDatabase.GetTypeRecordOrThrow(propertyDecl.SwiftTypeSpec);
-                        if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+
+                        // Handle Optional<T> unconditionally — the generic Swift.Optional TypeRecord
+                        // has no concrete InlineSize (varies by T). Some registrations mark Optional
+                        // with RequiresMemoryManagement (SwiftDatabase.xml), others don't (enum kind).
+                        // Either way, Optional<T> in a frozen struct Buffer needs IntPtr-based emission
+                        // with the correctly computed size from the inner type T.
+                        if (TryComputeOptionalInlineSize(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int optionalFieldSize))
+                        {
+                            EmitIntPtrFields(csWriter, propertyDecl.Name, optionalFieldSize);
+                        }
+                        else if ((fieldRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
                         {
                             // Determine the actual inline size of the field type.
                             // Swift.String is 16 bytes (2 words) but was previously mapped to IntPtr (8 bytes),
@@ -239,18 +249,7 @@ namespace BindingsGeneration
                                 }
                             }
 
-                            int wordCount = (fieldSize + IntPtr.Size - 1) / IntPtr.Size;
-                            if (wordCount <= 1)
-                            {
-                                csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_;  // Note: Do not access this field directly - use the property accessors");
-                            }
-                            else
-                            {
-                                for (int i = 0; i < wordCount; i++)
-                                {
-                                    csWriter.WriteLine($"private IntPtr {propertyDecl.Name}_{i}_;  // Note: Do not access this field directly - use the property accessors");
-                                }
-                            }
+                            EmitIntPtrFields(csWriter, propertyDecl.Name, fieldSize);
                         }
                         else
                         {
@@ -308,12 +307,24 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // Emit operators
+                // For Equatable types with @_cdecl wrapper support, skip == and != operators
+                // here so EqualityMethodsWriter emits them with CallConvCdecl instead of
+                // CallConvSwift (which crashes on NativeAOT with non-blittable SafeHandle params).
                 var operatorHandler = new OperatorHandler(_logger);
                 var emittedOperatorSymbols = new HashSet<string>();
+                bool hasEquatableConformance = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+                bool hasCdeclWrapperSupport = context.GetEmissionContext() != null &&
+                    env.TypeDatabase.AsyncLibraryName != null &&
+                    structDecl.GenericParameters.Count == 0;
+                bool deferEqualityToWrapper = hasEquatableConformance && hasCdeclWrapperSupport;
                 foreach (var operatorDecl in structDecl.Operators)
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
                     {
+                        // Skip == and != when @_cdecl equality wrapper will handle them
+                        if (deferEqualityToWrapper &&
+                            (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!="))
+                            continue;
                         if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
@@ -375,5 +386,77 @@ namespace BindingsGeneration
         }
 
         // ComputePropertyRenames is now centralized in NameProvider.
+
+        /// <summary>
+        /// Computes the inline size of Optional&lt;T&gt; for frozen struct Buffer fields.
+        /// The generic Swift.Optional TypeRecord has no concrete InlineSize since it varies
+        /// by instantiation. This method resolves T and computes the correct size:
+        /// - If T has extra inhabitants (String, classes, arrays): Optional&lt;T&gt;.size == T.size
+        /// - If T has no extra inhabitants (Int32, Double): Optional&lt;T&gt;.size == T.size + 1
+        /// </summary>
+        private static bool TryComputeOptionalInlineSize(TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int optionalSize)
+        {
+            optionalSize = IntPtr.Size;
+
+            if (fieldTypeSpec is not NamedTypeSpec optionalSpec ||
+                optionalSpec.Name != "Swift.Optional" ||
+                optionalSpec.GenericParameters.Count != 1)
+                return false;
+
+            var innerTypeSpec = optionalSpec.GenericParameters[0];
+            if (!typeDatabase.TryGetTypeRecord(innerTypeSpec, out var innerRecord))
+                return false;
+
+            // Determine inner type's inline size
+            int innerSize;
+            if (innerRecord.InlineSize.HasValue)
+            {
+                innerSize = innerRecord.InlineSize.Value;
+            }
+            else if (innerRecord.SwiftTypeInfo.HasValue && innerRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
+            {
+                unsafe { innerSize = (int)innerRecord.SwiftTypeInfo.Value.ValueWitnessTable->Size; }
+            }
+            else
+            {
+                return false; // Can't determine inner size
+            }
+
+            // Determine if inner type has extra inhabitants
+            bool hasExtraInhabitants;
+            if (innerRecord.SwiftTypeInfo.HasValue && innerRecord.SwiftTypeInfo.Value.MetadataPtr != IntPtr.Zero)
+            {
+                unsafe { hasExtraInhabitants = innerRecord.SwiftTypeInfo.Value.ValueWitnessTable->HasExtraInhabitants; }
+            }
+            else
+            {
+                // Heuristic: RequiresMemoryManagement types (String, classes, arrays) contain
+                // pointers which have extra inhabitants. Primitive value types don't.
+                hasExtraInhabitants = (innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0;
+            }
+
+            optionalSize = hasExtraInhabitants ? innerSize : innerSize + 1;
+            return true;
+        }
+
+        /// <summary>
+        /// Emits IntPtr-based backing fields for a frozen struct Buffer field.
+        /// Fields larger than one pointer word get numbered suffixes (_0_, _1_, etc.).
+        /// </summary>
+        private static void EmitIntPtrFields(CSharpWriter csWriter, string fieldName, int fieldSize)
+        {
+            int wordCount = (fieldSize + IntPtr.Size - 1) / IntPtr.Size;
+            if (wordCount <= 1)
+            {
+                csWriter.WriteLine($"private IntPtr {fieldName}_;  // Note: Do not access this field directly - use the property accessors");
+            }
+            else
+            {
+                for (int i = 0; i < wordCount; i++)
+                {
+                    csWriter.WriteLine($"private IntPtr {fieldName}_{i}_;  // Note: Do not access this field directly - use the property accessors");
+                }
+            }
+        }
     }
 }

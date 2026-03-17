@@ -69,7 +69,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"DescribeOptionalInt(null) = \"{result}\"");
     }
 
-    [Skip("NativeAOT: SIGTRAP — misaligned raw pointer in OptionalConfig frozen struct constructor")]
+    [MonoJitCrash] // SwiftOptional<SwiftString>.GetTypeMetadata() hits Mono JIT assertion
     public void TestOptionalConfigConstructorWithLabel()
     {
         // Exercises NewSome(SwiftString) through frozen struct constructor
@@ -80,7 +80,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor with label passed");
     }
 
-    [Skip("NativeAOT: SIGTRAP — misaligned raw pointer in OptionalConfig frozen struct constructor")]
+    [MonoJitCrash] // SwiftOptional<SwiftString>.GetTypeMetadata() hits Mono JIT assertion
     public void TestOptionalConfigConstructorWithoutLabel()
     {
         var config = new OptionalConfig(null, null, "Default");
@@ -90,7 +90,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor without label passed");
     }
 
-    [Skip("NativeAOT: SIGTRAP — misaligned raw pointer in OptionalConfig frozen struct constructor")]
+    [MonoJitCrash] // SwiftOptional<SwiftString>.GetTypeMetadata() hits Mono JIT assertion
     public void TestOptionalConfigEffectiveLabel()
     {
         var config = new OptionalConfig(new SwiftString("Primary"), 10, "Fallback");
@@ -119,7 +119,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindIndex empty array passed");
     }
 
-    [Skip("NativeAOT: SIGTRAP — misaligned raw pointer in OptionalConfig frozen struct constructor")]
+    [MonoJitCrash] // SwiftOptional<SwiftString>.GetTypeMetadata() hits Mono JIT assertion
     public void TestOptionalStringPropertySetter()
     {
         var config = new OptionalConfig(null, null, "Fallback");

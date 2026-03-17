@@ -190,12 +190,24 @@ namespace BindingsGeneration
                 }
 
                 // Emit operators (operators also have P/Invoke - need to handle for generic types)
+                // For Equatable types with @_cdecl wrapper support, skip == and != operators
+                // here so EqualityMethodsWriter emits them with CallConvCdecl instead of
+                // CallConvSwift (which crashes on NativeAOT with non-blittable SafeHandle params).
                 var operatorHandler = new OperatorHandler(_logger);
                 var emittedOperatorSymbols = new HashSet<string>();
+                bool hasEquatableConformance = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+                bool hasCdeclWrapperSupport = context.GetEmissionContext() != null &&
+                    env.TypeDatabase.AsyncLibraryName != null &&
+                    structDecl.GenericParameters.Count == 0;
+                bool deferEqualityToWrapper = hasEquatableConformance && hasCdeclWrapperSupport;
                 foreach (var operatorDecl in structDecl.Operators)
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
                     {
+                        // Skip == and != when @_cdecl equality wrapper will handle them
+                        if (deferEqualityToWrapper &&
+                            (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!="))
+                            continue;
                         if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
