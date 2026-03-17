@@ -17,7 +17,6 @@ public class OwnershipGCStressTests : TestBase
 
     #region Basic Retain/Release Balance (ForceGC)
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestAnimalCreateUseRelease()
     {
         // Create object, use it, let it go out of scope, GC — no crash
@@ -35,7 +34,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Create-use-release cycle completed without crash");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
+    [Skip("UniqueResource is ~Copyable: noncopyable types not yet supported by generator")]
     public void TestUniqueResourceCreateUseRelease()
     {
         // UniqueResource via factory
@@ -52,7 +51,7 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("UniqueResource create-use-release completed");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
+    [Skip("UniqueResource is ~Copyable: noncopyable types not yet supported by generator")]
     public void TestUniqueResourceConstructorLifecycle()
     {
         // UniqueResource via public constructor
@@ -127,7 +126,6 @@ public class OwnershipGCStressTests : TestBase
 
     #region GC Stress with Ownership
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestObjectSurvivesRepeatedGC()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -143,7 +141,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Object survives 10 GC cycles");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestManyObjectsCreateAndAbandon()
     {
         // Create many objects and let them go — GC should clean up without crash
@@ -163,7 +160,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("100 objects created and abandoned without crash");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestInterleavedCreateDispose()
     {
         // Interleave creation and disposal
@@ -192,7 +188,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Interleaved create/dispose completed without corruption");
     }
 
-    [Skip("NativeAOT: SIGBUS during GC.Collect — finalizer destroys Swift object causing crash")]
     public void TestGCPressureDuringPropertyAccess()
     {
         var animal = TestLibFunctions.CreateAnimal("Pressure", "Test");
