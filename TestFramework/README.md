@@ -116,7 +116,8 @@ RuntimeTestsApp/
 ├── Async/                # Async method tests
 ├── Closures/             # Closure marshalling (escaping, @convention(c))
 ├── ErrorHandling/        # Throwing methods, typed throws
-├── Generics/             # Generic type tests
+├── Generics/             # Generic type tests (including hand-crafted ABI tests)
+├── Metadata/             # Existential metadata tests
 ├── Operators/            # Operator overloading, struct equality
 ├── Patterns/             # Builder, composition, static factory, struct-backed enum
 ├── Protocols/            # Protocol witness dispatch, existential boxing
@@ -151,7 +152,7 @@ Known-unsupported features: 47/52 have tests (5 compiled out)
 - **must_pass / missing**: No test file exists (should not happen).
 - **known_unsupported**: Features the generator intentionally doesn't handle yet (actors, property wrappers, etc.).
 
-See `src/docs/testframework-enhancement-plan.md` for the full contract matrix and skip reason reference.
+See `src/docs/Completed/testframework-enhancement-plan.md` for the full contract matrix and skip reason reference.
 
 ## Test Profiles
 
