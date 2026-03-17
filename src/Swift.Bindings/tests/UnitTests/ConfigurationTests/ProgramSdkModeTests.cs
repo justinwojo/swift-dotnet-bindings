@@ -500,6 +500,25 @@ namespace BindingsGeneration.Tests
             Assert.Equal(0, exitCode);
             Assert.Null(diagnosticCode);
         }
+
+        [Fact]
+        public void HandleOutcome_MissingModuleHint_FlowsThroughToMessage()
+        {
+            // Simulate the enriched exception that InvokeSwiftCompiler would throw
+            var ex = new InvalidOperationException(
+                "Swift wrapper compilation failed (exit code 1): error: no such module 'Stripe3DS2'\n\n" +
+                "Missing module(s): 'Stripe3DS2'. Provide the xcframework(s) for these modules:\n" +
+                "  CLI:  --framework-dependency /path/to/<Module>.xcframework (repeat for each)\n" +
+                "  SDK:  <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
+                "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />");
+
+            var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
+                WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
+
+            Assert.Contains("Missing module(s): 'Stripe3DS2'", message);
+            Assert.Contains("--framework-dependency", message);
+            Assert.Contains("SwiftFrameworkDependency", message);
+        }
     }
 
     /// <summary>

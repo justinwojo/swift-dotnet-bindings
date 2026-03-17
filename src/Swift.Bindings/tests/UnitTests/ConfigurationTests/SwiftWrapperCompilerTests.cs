@@ -1041,4 +1041,58 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region G. Missing Module Extraction Tests
+
+    public class ExtractMissingModulesTests
+    {
+        [Fact]
+        public void ExtractMissingModules_SingleModule_ReturnsSingleName()
+        {
+            var stderr = "/tmp/wrapper.swift:1:8: error: no such module 'Stripe3DS2'\nimport Stripe3DS2\n       ^";
+            var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
+            Assert.Single(modules);
+            Assert.Equal("Stripe3DS2", modules[0]);
+        }
+
+        [Fact]
+        public void ExtractMissingModules_MultipleModules_ReturnsDistinctNames()
+        {
+            var stderr = "error: no such module 'StripeCore'\nerror: no such module 'Stripe3DS2'\nerror: no such module 'StripeCore'";
+            var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
+            Assert.Equal(2, modules.Count);
+            Assert.Contains("StripeCore", modules);
+            Assert.Contains("Stripe3DS2", modules);
+        }
+
+        [Fact]
+        public void ExtractMissingModules_NoMissingModules_ReturnsEmpty()
+        {
+            var stderr = "error: use of undeclared type 'SomeType'\nerror: cannot convert value";
+            var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
+            Assert.Empty(modules);
+        }
+
+        [Fact]
+        public void ExtractMissingModules_EmptyStderr_ReturnsEmpty()
+        {
+            var modules = SwiftWrapperCompiler.ExtractMissingModules("");
+            Assert.Empty(modules);
+        }
+
+        [Fact]
+        public void ExtractMissingModules_MixedErrors_ExtractsOnlyModuleNames()
+        {
+            var stderr = "error: no such module 'FirebaseAuth'\n" +
+                         "error: cannot find type 'FIRAuth'\n" +
+                         "error: no such module 'FirebaseCore'\n" +
+                         "error: value of type 'Foo' has no member 'bar'";
+            var modules = SwiftWrapperCompiler.ExtractMissingModules(stderr);
+            Assert.Equal(2, modules.Count);
+            Assert.Equal("FirebaseAuth", modules[0]);
+            Assert.Equal("FirebaseCore", modules[1]);
+        }
+    }
+
+    #endregion
 }

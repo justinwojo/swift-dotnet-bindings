@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration
@@ -751,9 +752,35 @@ namespace BindingsGeneration
             {
                 logger.LogDebug("Full swiftc stderr:\n{Stderr}", stderr);
                 var errorPreview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
+
+                var missingModules = ExtractMissingModules(stderr);
+                var hint = "";
+                if (missingModules.Count > 0)
+                {
+                    var moduleList = string.Join(", ", missingModules.Select(m => $"'{m}'"));
+                    hint = $"\n\nMissing module(s): {moduleList}. " +
+                           "Provide the xcframework(s) for these modules:\n" +
+                           $"  CLI:  --framework-dependency /path/to/<Module>.xcframework (repeat for each)\n" +
+                           $"  SDK:  <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
+                           "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />";
+                }
+
                 throw new InvalidOperationException(
-                    $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}");
+                    $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
             }
+        }
+
+        /// <summary>
+        /// Extracts distinct missing module names from swiftc stderr output.
+        /// Matches the pattern: error: no such module 'ModuleName'
+        /// </summary>
+        internal static List<string> ExtractMissingModules(string stderr)
+        {
+            var matches = Regex.Matches(stderr, @"no such module '([^']+)'");
+            return matches.Cast<Match>()
+                .Select(m => m.Groups[1].Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
 
         /// <summary>
