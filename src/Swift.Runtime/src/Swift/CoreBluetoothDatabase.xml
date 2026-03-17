@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="CoreBluetooth" modulePath="/System/Library/Frameworks/CoreBluetooth.framework/CoreBluetooth">
+    <entities>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBManagerState">
+            <typedeclaration kind="enum" name="CBManagerState" module="CoreBluetooth" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBManagerAuthorization">
+            <typedeclaration kind="enum" name="CBManagerAuthorization" module="CoreBluetooth" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBPeripheralState">
+            <typedeclaration kind="enum" name="CBPeripheralState" module="CoreBluetooth" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBCharacteristicWriteType">
+            <typedeclaration kind="enum" name="CBCharacteristicWriteType" module="CoreBluetooth" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBCharacteristicProperties">
+            <typedeclaration kind="struct" name="CBCharacteristicProperties" module="CoreBluetooth" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="CoreBluetooth" managedTypeName="CBAttributePermissions">
+            <typedeclaration kind="struct" name="CBAttributePermissions" module="CoreBluetooth" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="Metal" modulePath="/System/Library/Frameworks/Metal.framework/Metal">
+    <entities>
+        <entity managedNameSpace="Metal" managedTypeName="MTLSize">
+            <typedeclaration kind="struct" name="MTLSize" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLOrigin">
+            <typedeclaration kind="struct" name="MTLOrigin" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLRegion">
+            <typedeclaration kind="struct" name="MTLRegion" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLClearColor">
+            <typedeclaration kind="struct" name="MTLClearColor" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLViewport">
+            <typedeclaration kind="struct" name="MTLViewport" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLScissorRect">
+            <typedeclaration kind="struct" name="MTLScissorRect" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLResourceOptions">
+            <typedeclaration kind="struct" name="MTLResourceOptions" module="Metal" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLPixelFormat">
+            <typedeclaration kind="enum" name="MTLPixelFormat" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLPrimitiveType">
+            <typedeclaration kind="enum" name="MTLPrimitiveType" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+        </entity>
+        <entity managedNameSpace="Metal" managedTypeName="MTLStorageMode">
+            <typedeclaration kind="enum" name="MTLStorageMode" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="MapKit" modulePath="/System/Library/Frameworks/MapKit.framework/MapKit">
+    <entities>
+        <entity managedNameSpace="MapKit" managedTypeName="MKCoordinateRegion">
+            <typedeclaration kind="struct" name="MKCoordinateRegion" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="MapKit" managedTypeName="MKCoordinateSpan">
+            <typedeclaration kind="struct" name="MKCoordinateSpan" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="MapKit" managedTypeName="MKMapRect">
+            <typedeclaration kind="struct" name="MKMapRect" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="MapKit" managedTypeName="MKMapPoint">
+            <typedeclaration kind="struct" name="MKMapPoint" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="MapKit" managedTypeName="MKMapSize">
+            <typedeclaration kind="struct" name="MKMapSize" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="MapKit" managedTypeName="MKDirectionsTransportType">
+            <typedeclaration kind="struct" name="MKDirectionsTransportType" module="MapKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="NaturalLanguage" modulePath="/System/Library/Frameworks/NaturalLanguage.framework/NaturalLanguage">
+    <entities>
+        <entity managedNameSpace="NaturalLanguage" managedTypeName="NLLanguage">
+            <typedeclaration kind="struct" name="NLLanguage" module="NaturalLanguage" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <!-- NLTag is a static class in .NET iOS (string constants) — intentionally excluded -->
+        <entity managedNameSpace="NaturalLanguage" managedTypeName="NLTagScheme">
+            <typedeclaration kind="struct" name="NLTagScheme" module="NaturalLanguage" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="NaturalLanguage" managedTypeName="NLTokenUnit">
+            <typedeclaration kind="struct" name="NLTokenUnit" module="NaturalLanguage" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

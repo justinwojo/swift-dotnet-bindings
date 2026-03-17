@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="SceneKit" modulePath="/System/Library/Frameworks/SceneKit.framework/SceneKit">
+    <entities>
+        <entity managedNameSpace="SceneKit" managedTypeName="SCNVector3">
+            <typedeclaration kind="struct" name="SCNVector3" module="SceneKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="SceneKit" managedTypeName="SCNVector4">
+            <typedeclaration kind="struct" name="SCNVector4" module="SceneKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="SceneKit" managedTypeName="SCNMatrix4">
+            <typedeclaration kind="struct" name="SCNMatrix4" module="SceneKit" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

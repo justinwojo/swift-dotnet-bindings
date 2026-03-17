@@ -4,5 +4,26 @@
         <entity managedNameSpace="Photos" managedTypeName="PHImageContentMode">
             <typedeclaration kind="struct" name="PHImageContentMode" module="Photos" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAccessLevel">
+            <typedeclaration kind="enum" name="PHAccessLevel" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAuthorizationStatus">
+            <typedeclaration kind="enum" name="PHAuthorizationStatus" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAssetMediaType">
+            <typedeclaration kind="enum" name="PHAssetMediaType" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAssetMediaSubtype">
+            <typedeclaration kind="enum" name="PHAssetMediaSubtype" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAssetCollectionType">
+            <typedeclaration kind="enum" name="PHAssetCollectionType" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAssetCollectionSubtype">
+            <typedeclaration kind="enum" name="PHAssetCollectionSubtype" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="Photos" managedTypeName="PHAssetResourceType">
+            <typedeclaration kind="enum" name="PHAssetResourceType" module="Photos" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
     </entities>
 </swifttypedatabase>

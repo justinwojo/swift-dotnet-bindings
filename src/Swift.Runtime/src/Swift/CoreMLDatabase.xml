@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="CoreML" modulePath="/System/Library/Frameworks/CoreML.framework/CoreML">
+    <entities>
+        <entity managedNameSpace="CoreML" managedTypeName="MLComputeUnits">
+            <typedeclaration kind="enum" name="MLComputeUnits" module="CoreML" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreML" managedTypeName="MLFeatureType">
+            <typedeclaration kind="enum" name="MLFeatureType" module="CoreML" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreML" managedTypeName="MLMultiArrayDataType">
+            <typedeclaration kind="enum" name="MLMultiArrayDataType" module="CoreML" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+    </entities>
+</swifttypedatabase>

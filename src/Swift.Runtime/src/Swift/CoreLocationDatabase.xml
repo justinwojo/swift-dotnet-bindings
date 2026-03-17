@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="CoreLocation" modulePath="/System/Library/Frameworks/CoreLocation.framework/CoreLocation">
+    <entities>
+        <entity managedNameSpace="CoreLocation" managedTypeName="CLLocationCoordinate2D">
+            <typedeclaration kind="struct" name="CLLocationCoordinate2D" module="CoreLocation" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <!-- CLLocationDegrees, CLLocationDirection, CLLocationDistance are Swift typealiases
+             for Double with no standalone .NET type — intentionally excluded -->
+        <entity managedNameSpace="CoreLocation" managedTypeName="CLAuthorizationStatus">
+            <typedeclaration kind="enum" name="CLAuthorizationStatus" module="CoreLocation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="CoreLocation" managedTypeName="CLAccuracyAuthorization">
+            <typedeclaration kind="enum" name="CLAccuracyAuthorization" module="CoreLocation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+    </entities>
+</swifttypedatabase>

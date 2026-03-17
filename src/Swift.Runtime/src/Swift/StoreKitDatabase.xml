@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="StoreKit" modulePath="/System/Library/Frameworks/StoreKit.framework/StoreKit">
+    <entities>
+        <entity managedNameSpace="StoreKit" managedTypeName="SKPaymentTransactionState">
+            <typedeclaration kind="enum" name="SKPaymentTransactionState" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="StoreKit" managedTypeName="SKError">
+            <typedeclaration kind="enum" name="SKError.Code" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="StoreKit" managedTypeName="SKProductPeriodUnit">
+            <typedeclaration kind="enum" name="SKProduct.PeriodUnit" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+        <entity managedNameSpace="StoreKit" managedTypeName="SKProductDiscountPaymentMode">
+            <typedeclaration kind="enum" name="SKProductDiscount.PaymentMode" module="StoreKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+    </entities>
+</swifttypedatabase>

@@ -1479,4 +1479,176 @@ public class TypeDatabaseExtensionsTests
     }
 
     #endregion
+
+    #region NewAppleFrameworkDatabaseEntries
+
+    // --- UIKit new enum entries resolve correctly when XML is loaded ---
+
+    [Theory]
+    [InlineData("UIKit.NSTextAlignment", "UIKit.UITextAlignment", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.NSLineBreakMode", "UIKit.UILineBreakMode", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.NSWritingDirection", "Foundation.NSWritingDirection", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UICollectionView.ScrollDirection", "UIKit.UICollectionViewScrollDirection", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UIGestureRecognizer.State", "UIKit.UIGestureRecognizerState", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UITableView.RowAnimation", "UIKit.UITableViewRowAnimation", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UITableViewCell.CellStyle", "UIKit.UITableViewCellStyle", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UIAlertAction.Style", "UIKit.UIAlertActionStyle", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UIBarButtonItem.SystemItem", "UIKit.UIBarButtonSystemItem", TypeRecordKind.Enum, "UInt")]
+    [InlineData("UIKit.UITabBarItem.SystemItem", "UIKit.UITabBarSystemItem", TypeRecordKind.Enum, "UInt")]
+    [InlineData("UIKit.UIImage.ResizingMode", "UIKit.UIImageResizingMode", TypeRecordKind.Enum, "Int")]
+    [InlineData("UIKit.UIView.AnimationCurve", "UIKit.UIViewAnimationCurve", TypeRecordKind.Enum, "Int")]
+    public async Task TryGetTypeRecord_NewUIKitEnum_ResolvesCorrectly(
+        string swiftType, string expectedCSharp, TypeRecordKind expectedKind, string expectedRawType)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from UIKitDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal(expectedKind, record.Kind);
+        Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(expectedRawType, record.RawValueTypeName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- UIKit new struct/options entries resolve correctly ---
+
+    [Theory]
+    [InlineData("UIKit.NSDirectionalEdgeInsets", "UIKit.NSDirectionalEdgeInsets")]
+    [InlineData("UIKit.UIAccessibilityTraits", "UIKit.UIAccessibilityTraits")]
+    [InlineData("UIKit.UIRectCorner", "UIKit.UIRectCorner")]
+    [InlineData("UIKit.UIRectEdge", "UIKit.UIRectEdge")]
+    [InlineData("UIKit.UIDataDetectorTypes", "UIKit.UIDataDetectorType")]
+    [InlineData("UIKit.UISwipeGestureRecognizer.Direction", "UIKit.UISwipeGestureRecognizerDirection")]
+    [InlineData("UIKit.UIStackView.Alignment", "UIKit.UIStackViewAlignment")]
+    [InlineData("UIKit.UIView.AutoresizingMask", "UIKit.UIViewAutoresizing")]
+    [InlineData("UIKit.UIFont.Weight", "UIKit.UIFontWeight")]
+    [InlineData("UIKit.UIContentSizeCategory", "UIKit.UIContentSizeCategory")]
+    [InlineData("UIKit.UIOffset", "UIKit.UIOffset")]
+    public async Task TryGetTypeRecord_NewUIKitStruct_ResolvesCorrectly(
+        string swiftType, string expectedCSharp)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from UIKitDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- AVFoundation new entries resolve correctly ---
+
+    [Theory]
+    [InlineData("AVFoundation.AVCaptureDevice.FlashMode", "AVFoundation.AVCaptureFlashMode")]
+    [InlineData("AVFoundation.AVPlayer.Status", "AVFoundation.AVPlayerStatus")]
+    [InlineData("AVFoundation.AVMediaType", "AVFoundation.AVMediaTypes")]
+    public async Task TryGetTypeRecord_NewAVFoundation_ResolvesCorrectly(
+        string swiftType, string expectedCSharp)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("AVFoundationDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from AVFoundationDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
+    // --- Photos new entries resolve correctly ---
+
+    [Theory]
+    [InlineData("Photos.PHAccessLevel", "Photos.PHAccessLevel")]
+    [InlineData("Photos.PHAssetMediaType", "Photos.PHAssetMediaType")]
+    [InlineData("Photos.PHAssetCollectionType", "Photos.PHAssetCollectionType")]
+    public async Task TryGetTypeRecord_NewPhotos_ResolvesCorrectly(
+        string swiftType, string expectedCSharp)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("PhotosDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from PhotosDatabase.xml");
+        Assert.NotNull(record);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    // --- New framework databases load and resolve correctly ---
+
+    [Theory]
+    [InlineData("CoreBluetoothDatabase.xml", "CoreBluetooth.CBManagerState", "CoreBluetooth.CBManagerState", TypeRecordKind.Enum)]
+    [InlineData("CoreBluetoothDatabase.xml", "CoreBluetooth.CBCharacteristicProperties", "CoreBluetooth.CBCharacteristicProperties", TypeRecordKind.Struct)]
+    [InlineData("CoreLocationDatabase.xml", "CoreLocation.CLLocationCoordinate2D", "CoreLocation.CLLocationCoordinate2D", TypeRecordKind.Struct)]    [InlineData("CoreLocationDatabase.xml", "CoreLocation.CLAuthorizationStatus", "CoreLocation.CLAuthorizationStatus", TypeRecordKind.Enum)]
+    [InlineData("CoreLocationDatabase.xml", "CoreLocation.CLAccuracyAuthorization", "CoreLocation.CLAccuracyAuthorization", TypeRecordKind.Enum)]
+    [InlineData("MapKitDatabase.xml", "MapKit.MKCoordinateRegion", "MapKit.MKCoordinateRegion", TypeRecordKind.Struct)]
+    [InlineData("MapKitDatabase.xml", "MapKit.MKDirectionsTransportType", "MapKit.MKDirectionsTransportType", TypeRecordKind.Struct)]
+    [InlineData("MetalDatabase.xml", "Metal.MTLPixelFormat", "Metal.MTLPixelFormat", TypeRecordKind.Enum)]
+    [InlineData("MetalDatabase.xml", "Metal.MTLSize", "Metal.MTLSize", TypeRecordKind.Struct)]
+    [InlineData("CoreMLDatabase.xml", "CoreML.MLComputeUnits", "CoreML.MLComputeUnits", TypeRecordKind.Enum)]
+    [InlineData("StoreKitDatabase.xml", "StoreKit.SKPaymentTransactionState", "StoreKit.SKPaymentTransactionState", TypeRecordKind.Enum)]
+    [InlineData("StoreKitDatabase.xml", "StoreKit.SKError.Code", "StoreKit.SKError", TypeRecordKind.Enum)]
+    [InlineData("SceneKitDatabase.xml", "SceneKit.SCNVector3", "SceneKit.SCNVector3", TypeRecordKind.Struct)]
+    [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLLanguage", "NaturalLanguage.NLLanguage", TypeRecordKind.Struct)]
+    [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTagScheme", "NaturalLanguage.NLTagScheme", TypeRecordKind.Struct)]
+    [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTokenUnit", "NaturalLanguage.NLTokenUnit", TypeRecordKind.Struct)]
+    public async Task TryGetTypeRecord_NewFrameworkDatabase_ResolvesCorrectly(
+        string xmlFile, string swiftType, string expectedCSharp, TypeRecordKind expectedKind)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync(xmlFile);
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from {xmlFile}");
+        Assert.NotNull(record);
+        Assert.Equal(expectedKind, record.Kind);
+        Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- Types that previously returned AnyType now resolve when XML is loaded ---
+
+    [Theory]
+    [InlineData("Metal.MTLOrigin")]
+    [InlineData("CoreLocation.CLLocationCoordinate2D")]
+    [InlineData("MapKit.MKCoordinateRegion")]
+    public async Task GetTypeRecordOrAnyType_PreviouslyExcludedModuleType_ResolvesWithXml(string swiftType)
+    {
+        // These types used to return AnyType because their modules had no XML databases.
+        // With the new databases loaded, they should resolve to proper type records.
+        var typeDatabase = await CreateDbWithXmlAsync(
+            "MetalDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml");
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    // --- Intentional AnyType types still return AnyType even with XML loaded ---
+
+    [Theory]
+    [InlineData("Foundation.JSONEncoder")]
+    [InlineData("Foundation.JSONDecoder")]
+    [InlineData("Foundation.XMLParser")]
+    [InlineData("Foundation.NSNotification.Name")]
+    [InlineData("Foundation.objc_AssociationPolicy")]
+    public async Task GetTypeRecordOrAnyType_IntentionalAnyType_StillReturnsAnyType(string swiftType)
+    {
+        // These types are in valueTypes to prevent ObjC auto-bridging but have no
+        // .NET equivalent. They should STILL return AnyType even with Foundation XML loaded.
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    #endregion
 }
