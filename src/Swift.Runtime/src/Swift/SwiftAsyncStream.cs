@@ -26,7 +26,6 @@ namespace Swift;
 /// </summary>
 /// <typeparam name="TElement">The element type in the stream.</typeparam>
 public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposable
-    where TElement : ISwiftObject
 {
     private readonly Channel<TElement> _channel;
     private readonly CancellationTokenSource _cts;

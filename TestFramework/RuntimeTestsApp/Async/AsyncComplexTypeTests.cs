@@ -120,4 +120,19 @@ public class AsyncComplexTypeTests : TestBase
     }
 
     #endregion
+
+    #region X1: AsyncStream<Int32> (primitive element type)
+    // The real coverage for this fix is the compile-check step: generated code references
+    // SwiftAsyncStream<int> which wouldn't compile without removing the ISwiftObject constraint.
+    // Runtime testing is blocked by the class-level [Skip] (async DllImport targets wrong module).
+
+    [MonoJitCrash]
+    public async void TestAsyncValueSourceCreation()
+    {
+        var source = new AsyncValueSource();
+        AssertNotNull(source, "AsyncValueSource created");
+        TestLogger.Info("AsyncValueSource creation passed");
+    }
+
+    #endregion
 }

@@ -256,14 +256,31 @@ namespace BindingsGeneration
                         var wrapperLibPath = typeDatabase.AsyncLibraryName
                             ?? typeDatabase.GetLibraryPath(moduleName);
                         var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-                        csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-                        csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
-                        csWriter.WriteLine();
+                        if (context.PInvokeHelperContext != null)
+                        {
+                            context.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                            {
+                                LibraryPath = wrapperLibPath,
+                                EntryPoint = freeSymbol,
+                                MethodName = "SBW_Free",
+                                ReturnType = "void",
+                                ParametersString = "IntPtr ptr",
+                                OmitCallingConvention = true,
+                                UsePrivateVisibility = false,
+                            });
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                            csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                            csWriter.WriteLine();
+                        }
                     }
                 }
 
                 // Emit indexer declaration
-                EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos);
+                var subscriptHelperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
+                EmitIndexer(csWriter, subscriptDecl, typeDatabase, returnTypeName, paramInfos, subscriptHelperPrefix);
 
                 // Collect candidate for convenience int/uint overload (deferred to second pass)
                 convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
@@ -288,7 +305,8 @@ namespace BindingsGeneration
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
             string returnTypeName,
-            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string helperPrefix = "")
         {
             var paramList = string.Join(", ", paramInfos.Select(p => $"{p.typeName} {p.paramName}"));
 
@@ -307,7 +325,7 @@ namespace BindingsGeneration
             var getter = subscriptDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             if (getter != null)
             {
-                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos);
+                EmitIndexerGetter(csWriter, getter, subscriptDecl, typeDatabase, paramInfos, helperPrefix);
             }
 
             var setter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
@@ -326,7 +344,8 @@ namespace BindingsGeneration
             GetAccessorDecl getter,
             SubscriptDecl subscriptDecl,
             ITypeDatabase typeDatabase,
-            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos)
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string helperPrefix = "")
         {
             var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
             bool isCdecl = getter.Method.UsesCdeclPropertyWrapper;
@@ -338,7 +357,7 @@ namespace BindingsGeneration
             if (isCdecl && WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec))
             {
                 EmitCdeclGetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
-                    paramInfos, hasStringIndexParam, returnProjection: null, isStringReturn: true);
+                    paramInfos, hasStringIndexParam, returnProjection: null, isStringReturn: true, helperPrefix: helperPrefix);
                 return;
             }
 
@@ -350,7 +369,7 @@ namespace BindingsGeneration
             if (hasStringIndexParam)
             {
                 EmitCdeclGetterWithFixedBlock(csWriter, methodName, args, setupLines, usingLines,
-                    paramInfos, hasStringIndexParam, returnProjection: retProjection, isStringReturn: false);
+                    paramInfos, hasStringIndexParam, returnProjection: retProjection, isStringReturn: false, helperPrefix: helperPrefix);
                 return;
             }
 
@@ -532,7 +551,8 @@ namespace BindingsGeneration
             CSharpWriter csWriter, string methodName, string args,
             List<string> setupLines, List<string> usingLines,
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
-            bool hasStringIndexParam, ITypeProjection? returnProjection, bool isStringReturn)
+            bool hasStringIndexParam, ITypeProjection? returnProjection, bool isStringReturn,
+            string helperPrefix = "")
         {
             csWriter.WriteLine("get {");
             csWriter.Indent++;
@@ -556,7 +576,7 @@ namespace BindingsGeneration
                 // Empty string: _sbw_emptyBuffer is a static Swift buffer — do NOT free it.
                 csWriter.WriteLine("if (__slice.Len == 0) return string.Empty;");
                 csWriter.WriteLine("try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }");
-                csWriter.WriteLine("finally { SBW_Free(__slice.Ptr); }");
+                csWriter.WriteLine($"finally {{ {helperPrefix}SBW_Free(__slice.Ptr); }}");
             }
             else
             {

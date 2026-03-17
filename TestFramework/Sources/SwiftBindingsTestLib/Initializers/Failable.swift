@@ -23,8 +23,19 @@ public struct SafeDiv {
     }
 }
 
-// NonEmptyString removed — non-frozen struct generates `class` in C#,
-// and TryCreate emits `result = default` which is null for a non-nullable class (CS8625).
+/// Non-frozen struct with a failable initializer.
+/// Tests TryCreate with `result = default!` for class-projected structs (CS8625 fix).
+public struct NonEmptyString {
+    public let value: String
+    public let length: Int32
+
+    /// Failable init: returns nil if the string is empty.
+    public init?(_ string: String) {
+        guard !string.isEmpty else { return nil }
+        self.value = string
+        self.length = Int32(string.count)
+    }
+}
 
 /// Struct with a range-validated initializer.
 @frozen

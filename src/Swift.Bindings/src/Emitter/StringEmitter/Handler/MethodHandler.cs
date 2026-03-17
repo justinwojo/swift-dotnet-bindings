@@ -887,9 +887,27 @@ namespace BindingsGeneration
                     var wrapperLibPath = methodEnv.TypeDatabase.AsyncLibraryName
                         ?? methodEnv.TypeDatabase.GetLibraryPath(moduleName);
                     var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-                    csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
-                    csWriter.WriteLine();
+                    if (methodEnv.PInvokeHelperContext != null)
+                    {
+                        // CS7042: LibraryImport cannot appear inside generic types.
+                        // Collect into PInvokeHelperContext for emission in non-generic helper class.
+                        methodEnv.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = freeSymbol,
+                            MethodName = "SBW_Free",
+                            ReturnType = "void",
+                            ParametersString = "IntPtr ptr",
+                            OmitCallingConvention = true,
+                            UsePrivateVisibility = false,
+                        });
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                        csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                        csWriter.WriteLine();
+                    }
                 }
             }
 

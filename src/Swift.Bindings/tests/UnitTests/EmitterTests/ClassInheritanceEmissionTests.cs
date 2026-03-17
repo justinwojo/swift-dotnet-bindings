@@ -451,6 +451,71 @@ public class ClassInheritanceEmissionTests
         Assert.DoesNotContain("SwiftSafeHandle<GenericBase", body);
     }
 
+    [Fact]
+    public void SkippedBaseClass_EmitsNewModifierOnHandleAndPayload()
+    {
+        // When IsEffectivelyDerived returns false but DirectSuperclassName is set
+        // (base class has unsupported constraints), the emitter emits _handle/Payload/Dispose
+        // with `new` modifiers to avoid CS0108 (hides inherited member).
+        var baseClass = CreateClassDecl("SwiftUIBase");
+        baseClass.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "V",
+                SugaredTypeName: "V",
+                GenericConformances: new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        Path: Array.Empty<string>(),
+                        ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                        Kind: ConformanceKind.Protocol)
+                },
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var derived = CreateClassDecl("ConcreteView");
+        derived.ResolvedSuperclass = baseClass;
+        derived.SuperclassNames = new List<string> { "SwiftUIBase" };
+
+        var output = EmitSingleClass(derived);
+        var body = GetClassBody(output, "ConcreteView");
+
+        // `new` modifier on _handle, Payload, and Dispose to avoid CS0108
+        Assert.Contains("new protected SwiftClassHandle<ConcreteView> _handle", body);
+        Assert.Contains("new public SwiftClassHandle<ConcreteView> Payload", body);
+        Assert.Contains("new void Dispose()", body);
+    }
+
+    [Fact]
+    public void UnresolvedSuperclass_EmitsNewModifierOnHandle()
+    {
+        // When a class has DirectSuperclassName but ResolvedSuperclass is null
+        // (cross-module base class), emitter should use `new` modifiers.
+        var child = CreateClassDecl("ChildClass");
+        child.SuperclassNames = new List<string> { "ExternalBase" };
+        // ResolvedSuperclass intentionally left null
+
+        var output = EmitSingleClass(child);
+        var body = GetClassBody(output, "ChildClass");
+
+        Assert.Contains("new protected SwiftClassHandle<ChildClass> _handle", body);
+        Assert.Contains("new public SwiftClassHandle<ChildClass> Payload", body);
+    }
+
+    [Fact]
+    public void RootClass_NoNewModifier()
+    {
+        // Root class (no superclass) should NOT have `new` modifiers.
+        var root = CreateClassDecl("StandaloneClass");
+
+        var output = EmitSingleClass(root);
+        var body = GetClassBody(output, "StandaloneClass");
+
+        Assert.Contains("protected SwiftClassHandle<StandaloneClass> _handle", body);
+        Assert.DoesNotContain("new protected", body);
+        Assert.DoesNotContain("new public", body);
+    }
+
     #endregion
 
     #region Disposal Remarks Tests

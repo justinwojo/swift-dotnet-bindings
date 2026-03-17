@@ -96,8 +96,18 @@ public class GenericClass<T> {
 }
 
 // MARK: - M3: Generic Class Implementing Protocol (Quick AsyncBehavior pattern)
-// NOTE: Removed — generic class with String property causes SBW_Free to be emitted inside
-// the generic class body, triggering CS7042 (DllImport in generic type). Known generator bug.
+
+/// Generic class implementing the Named protocol with a String property.
+/// Tests SBW_Free routing to PInvokeHelper for generic types (CS7042 fix).
+public class GenericNamedBox<T>: Named {
+    public let value: T
+    public let name: String
+
+    public init(value: T, name: String) {
+        self.value = value
+        self.name = name
+    }
+}
 
 // MARK: - M4: Generic Struct with Optional Generic Property (Quick TestState pattern)
 
@@ -114,5 +124,27 @@ public struct OptionalWrapper<T> {
 }
 
 // MARK: - Q2: Generic Class Inheriting Non-Generic Class (GRDB TableAlias pattern)
-// NOTE: Removed — TypedEntity<T> : BaseEntity causes CS7042 (DllImport in generic type)
-// and CS0108 (Payload property collision). Known generator limitation with generic class inheritance.
+
+/// Non-generic base class for entity hierarchy.
+public class BaseEntity {
+    public let entityId: Int32
+
+    public init(entityId: Int32) {
+        self.entityId = entityId
+    }
+
+    public func getEntityId() -> Int32 {
+        return entityId
+    }
+}
+
+/// Generic class inheriting from a non-generic base class.
+/// Tests SBW_Free routing + Payload `new` modifier for generic class inheritance.
+public class TypedEntity<T>: BaseEntity {
+    public let content: T
+
+    public init(entityId: Int32, content: T) {
+        self.content = content
+        super.init(entityId: entityId)
+    }
+}

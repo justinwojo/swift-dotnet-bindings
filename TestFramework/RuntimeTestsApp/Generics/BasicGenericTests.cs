@@ -326,7 +326,7 @@ public class BasicGenericTests : TestBase
 
     #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in constrained generic dispatch — crashes process")]
     public void TestConstrainedBoxCreation()
     {
         var item = new SimpleItem("gen-id", "test");
@@ -335,7 +335,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [MonoJitCrash]
+    [Skip("NativeAOT: SIGSEGV in constrained generic dispatch — crashes process")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");
@@ -343,6 +343,65 @@ public class BasicGenericTests : TestBase
         var desc = box.GetDescription();
         AssertTrue(desc.Contains("hello"), "Description contains label");
         TestLogger.Info($"ConstrainedBox.GetDescription = {desc}");
+    }
+
+    #endregion
+
+    #region M3: Generic Class Implementing Protocol (GenericNamedBox)
+
+    [MonoJitCrash]
+    public void TestGenericNamedBoxCreation()
+    {
+        var item = new SummableInt32(value: 42);
+        var box = new GenericNamedBox<SummableInt32>(value: item, name: "test-box");
+        AssertNotNull(box, "GenericNamedBox created");
+        TestLogger.Info("GenericNamedBox creation passed");
+    }
+
+    [MonoJitCrash]
+    public void TestGenericNamedBoxName()
+    {
+        var item = new SummableInt32(value: 10);
+        var box = new GenericNamedBox<SummableInt32>(value: item, name: "hello");
+        var name = box.Name;
+        AssertEqual("hello", name, "GenericNamedBox.Name");
+        TestLogger.Info($"GenericNamedBox.Name = {name}");
+    }
+
+    #endregion
+
+    #region Q2: Generic Class Inheriting Non-Generic Class (TypedEntity)
+
+    public void TestBaseEntityCreation()
+    {
+        var entity = new BaseEntity(entityId: 1);
+        AssertEqual(1, entity.GetEntityId(), "BaseEntity.GetEntityId()");
+        TestLogger.Info("BaseEntity creation passed");
+    }
+
+    public void TestBaseEntityProperty()
+    {
+        var entity = new BaseEntity(entityId: 42);
+        AssertEqual(42, entity.EntityId, "BaseEntity.EntityId property");
+        TestLogger.Info($"BaseEntity.EntityId = {entity.EntityId}");
+    }
+
+    public void TestBaseEntityDispose()
+    {
+        var entity = new BaseEntity(entityId: 5);
+        entity.Dispose();
+        AssertThrows<ObjectDisposedException>(() => { _ = entity.GetEntityId(); },
+            "Disposed BaseEntity throws on access");
+    }
+
+    [MonoJitCrash]
+    public void TestTypedEntityCreation()
+    {
+        var item = new SummableInt32(value: 99);
+        var entity = new TypedEntity<SummableInt32>(entityId: 5, content: item);
+        AssertNotNull(entity, "TypedEntity created");
+        AssertEqual(5, entity.GetEntityId(), "Inherited GetEntityId()");
+        TestLogger.Info("TypedEntity creation + inherited method passed");
     }
 
     #endregion

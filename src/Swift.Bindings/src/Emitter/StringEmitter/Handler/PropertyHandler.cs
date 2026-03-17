@@ -560,9 +560,27 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 var wrapperLibPath = propertyEnv.TypeDatabase.AsyncLibraryName
                     ?? propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
                 var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-                csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-                csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
-                csWriter.WriteLine();
+                if (context.PInvokeHelperContext != null)
+                {
+                    // CS7042: LibraryImport cannot appear inside generic types.
+                    // Collect into PInvokeHelperContext for emission in non-generic helper class.
+                    context.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = freeSymbol,
+                        MethodName = "SBW_Free",
+                        ReturnType = "void",
+                        ParametersString = "IntPtr ptr",
+                        OmitCallingConvention = true,
+                        UsePrivateVisibility = false,
+                    });
+                }
+                else
+                {
+                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
+                    csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                    csWriter.WriteLine();
+                }
             }
         }
 
@@ -604,8 +622,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter != null)
         {
+            var helperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
             EmitGetter(csWriter, getter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,
-                isNarrowedNint, csTypeName);
+                isNarrowedNint, csTypeName, helperPrefix);
         }
 
         var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
@@ -717,7 +736,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// </summary>
     private void EmitGetter(CSharpWriter csWriter, GetAccessorDecl getter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
         bool isExistential = false, bool isOptionalExistential = false, GenericContext? genericContext = null,
-        bool isNarrowedNint = false, string? narrowedTypeName = null)
+        bool isNarrowedNint = false, string? narrowedTypeName = null, string helperPrefix = "")
     {
         var methodName = NameProvider.GetMethodName(getter.Method.Name, null);
 
@@ -735,7 +754,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             csWriter.WriteLine($"get {{ var __slice = {methodName}(); " +
                 $"if (__slice.Len == 0) return string.Empty; " +
                 $"try {{ return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }} " +
-                $"finally {{ SBW_Free(__slice.Ptr); }} }}");
+                $"finally {{ {helperPrefix}SBW_Free(__slice.Ptr); }} }}");
             return;
         }
 

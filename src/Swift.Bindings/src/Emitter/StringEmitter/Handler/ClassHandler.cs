@@ -256,8 +256,12 @@ namespace BindingsGeneration
                     // No generated finalizer needed — SafeHandle's built-in finalizer calls ReleaseHandle.
                     if (!isDerived)
                     {
-                        WriteClassHandleField(csWriter, typeNameWithGenerics);
-                        WriteClassHandleAccessors(csWriter, typeNameWithGenerics);
+                        // If the class has a declared superclass but IsEffectivelyDerived returned false
+                        // (e.g., superclass has unsupported generic constraints), we still emit _handle/Payload
+                        // but with `new` modifiers to avoid CS0108 (hides inherited member).
+                        bool needsNewModifier = classDecl.DirectSuperclassName != null;
+                        WriteClassHandleField(csWriter, typeNameWithGenerics, needsNewModifier);
+                        WriteClassHandleAccessors(csWriter, typeNameWithGenerics, needsNewModifier);
                     }
                 }
 
@@ -354,10 +358,11 @@ namespace BindingsGeneration
         /// Writes the _handle instance field (root classes only — derived classes inherit).
         /// Uses SwiftClassHandle&lt;T&gt; which directly holds the Swift object pointer (no buffer).
         /// </summary>
-        private static void WriteClassHandleField(CSharpWriter csWriter, string typeNameWithGenerics)
+        private static void WriteClassHandleField(CSharpWriter csWriter, string typeNameWithGenerics, bool needsNewModifier = false)
         {
+            var newKeyword = needsNewModifier ? "new " : "";
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"protected SwiftClassHandle<{typeNameWithGenerics}> _handle = SwiftClassHandle<{typeNameWithGenerics}>.Zero;");
+            csWriter.WriteLine($"{newKeyword}protected SwiftClassHandle<{typeNameWithGenerics}> _handle = SwiftClassHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();
         }
 
@@ -366,20 +371,22 @@ namespace BindingsGeneration
         /// No generated finalizer needed — SwiftClassHandle's built-in SafeHandle finalizer
         /// calls ReleaseHandle → Arc.Release, which is safe on both Mono and NativeAOT.
         /// </summary>
-        private static void WriteClassHandleAccessors(CSharpWriter csWriter, string typeNameWithGenerics)
+        private static void WriteClassHandleAccessors(CSharpWriter csWriter, string typeNameWithGenerics, bool needsNewModifier = false)
         {
+            var newKeyword = needsNewModifier ? "new " : "";
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"public SwiftClassHandle<{typeNameWithGenerics}> Payload => _handle;");
+            csWriter.WriteLine($"{newKeyword}public SwiftClassHandle<{typeNameWithGenerics}> Payload => _handle;");
             csWriter.WriteLine($"IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();");
-            csWriter.WriteLine($"internal IntPtr GetSwiftHandle() => _handle.DangerousGetHandle();");
+            csWriter.WriteLine($"internal {newKeyword}IntPtr GetSwiftHandle() => _handle.DangerousGetHandle();");
             csWriter.WriteLine();
+            var newDispose = needsNewModifier ? "new " : "";
             var disposeMethods = $$"""
             /// <summary>
             /// Releases the underlying Swift ARC reference. Safe to call multiple times.
             /// Not required for correctness — the finalizer handles ARC cleanup automatically.
             /// Use for deterministic cleanup of scarce resources.
             /// </summary>
-            public void Dispose()
+            public {{newDispose}}void Dispose()
             {
                 _handle.Dispose();
                 GC.SuppressFinalize(this);

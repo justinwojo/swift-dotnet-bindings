@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: March 16, 2026
+**Updated**: March 17, 2026
 
 ---
 
@@ -27,39 +27,9 @@ Of the 9,521 emitted members:
 
 ## Prioritized Sessions
 
-### Session 0: TestFramework Generator Bug Fixes
+### ~~Session 0: TestFramework Generator Bug Fixes~~ (Complete)
 
-**Coverage impact**: Minimal skip recovery — unblocks already-written test patterns (M3, Q2, X1, S1).
-**Effort**: Small (targeted fixes, not architectural)
-
-Generator bugs discovered during TestFramework Pass 2 testing. Swift source and C# tests are already written — these fixes turn them green.
-
-| Sub-task | Affects | Effort | Notes |
-|----------|---------|--------|-------|
-| **SBW_Free in generic classes** (CS7042) | M3, Q2 patterns | Small | `SBW_Free` `[LibraryImport]` is emitted inside the generic class body. The .NET `LibraryImportGenerator` generates `[DllImport]` inside the generic type, which is illegal. Fix: move `SBW_Free` to the `_PInvoke` companion class (non-generic static class). Unlocks generic class + protocol conformance and generic class inheritance. |
-| **Payload property collision on generic subclass** (CS0108) | Q2 pattern | Small | When generic `TypedEntity<T> : BaseEntity`, both emit `public ... Payload => _handle;`. The child's `Payload` type is `SwiftClassHandle<TypedEntity<T>>` while parent's is `SwiftClassHandle<BaseEntity>`, causing CS0108 hide warning treated as error. Fix: emit `new` keyword on derived class `Payload`, or suppress. Non-generic inheritance (`Dog : Animal`) correctly skips re-emission. |
-| **Failable init on non-frozen struct** (CS8625) | S1 patterns | Small | `TryCreate` emits `result = default;` for the `None` case. For non-frozen structs (emitted as `class` in C#), `default` is null, violating the non-nullable `out` parameter. Fix: use `default!` or `Unsafe.NullRef<T>()`. Frozen structs (emitted as `struct`) are unaffected — `default` is valid for value types. |
-| **SwiftAsyncStream\<int\> ISwiftObject constraint** (CS0315) | X1 pattern | Small | `int` doesn't satisfy `where TElement : ISwiftObject` on `SwiftAsyncStream<T>`. Fix: relax constraint or add blittable primitive specializations. Unlocks `AsyncStream` with primitive element types (e.g., Nuke `ImageTask.progress`). |
-
-**Key source locations for each fix:**
-- SBW_Free emission: `PropertyHandler.cs:564`, `MethodHandler.cs:891` — emits inside class body for string-returning members
-- TryCreate `result = default`: `WrapperEmitter.FailableFactory.cs:108`
-- SwiftAsyncStream constraint: `src/Swift.Runtime/src/Swift/SwiftAsyncStream.cs:28`
-- Payload emission: `ClassHandler.cs:372`
-
-**Reproduction**: Run `cd TestFramework && ./build-and-test.sh` after re-enabling the commented-out Swift source in `Generics/Types.swift` (search for "NOTE: Removed" comments for M3 and Q2) or `Initializers/Failable.swift` (re-add `NonEmptyString`). The CS errors appear at the compile-check step.
-
-**After fixing, re-enable:**
-
-| Fix | Swift source to restore | C# tests to write/update |
-|-----|------------------------|--------------------------|
-| SBW_Free (M3) | `Generics/Types.swift:99` — uncomment `GenericNamedBox<T>: Named` class (~10 lines) | Write tests in `Generics/BasicGenericTests.cs` for GenericNamedBox construction + Name property. Likely `[MonoJitCrash]` (CallConvSwift on generic class). |
-| SBW_Free + Payload (Q2) | `Generics/Types.swift:117` — uncomment `BaseEntity` + `TypedEntity<T>: BaseEntity` (~20 lines). Rename `payload` → anything except `payload` to avoid Payload collision. | Write tests in `Generics/BasicGenericTests.cs` for TypedEntity construction + inherited property access. Likely `[MonoJitCrash]`. |
-| Failable init (S1) | `Initializers/Failable.swift:26` — re-add `NonEmptyString` struct with `init?(_ string: String)` | Write tests in `ErrorHandling/ThrowingMethodTests.cs` for `NonEmptyString.TryCreate("hello")` success + `TryCreate("")` failure. Likely `[MonoJitCrash]` (CallConvSwift TryCreate). |
-| AsyncStream (X1) | `Async/AsyncProperties.swift:79` — change `AsyncStream<String>` back to `AsyncStream<Int32>` (or add a second `Int32` property alongside). | Write test in `Async/` for `AsyncValueSource` int stream iteration. Likely `[MonoJitCrash]` (async). |
-
-**Not a generator bug** (Mono JIT issue, not fixable):
-- SwiftArray in enum payload (L1) — `MediaSource.Playlist()` crashes Mono JIT. Works on NativeAOT. Test is marked `[MonoJitCrash]`.
+Completed March 17, 2026. All 4 generator bugs fixed, Swift source restored, C# tests written. 90/90 validation, 480 runtime tests pass (477→480).
 
 ---
 
@@ -268,6 +238,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
+| Session 0: TestFramework generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
 | Apple framework XML database expansion | `ac39a4f7` (Mar 16) | ~473 skips resolved (nested + unresolvable Apple types). 90/90 validation. |
 | NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries. See `Completed/nativeaot-stability-sessions.md`. |
 | C# keyword escaping in enum case labels | `51efaeec` (Mar 14) | FilterScope.swift fixture enabled. |

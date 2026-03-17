@@ -515,6 +515,27 @@ public class BasicThrowingTests : TestBase
 
     #endregion
 
+    #region S1: NonEmptyString Failable Init (non-frozen struct projected as class)
+
+    [MonoJitCrash]
+    public void TestNonEmptyStringSuccess()
+    {
+        var success = NonEmptyString.TryCreate("hello", out var result);
+        AssertTrue(success, "NonEmptyString.TryCreate succeeds for non-empty string");
+        AssertEqual(5, result!.Length, "Length = 5");
+        TestLogger.Info("NonEmptyString.TryCreate success passed");
+    }
+
+    [MonoJitCrash]
+    public void TestNonEmptyStringFailure()
+    {
+        var success = NonEmptyString.TryCreate("", out var result);
+        AssertFalse(success, "NonEmptyString.TryCreate fails for empty string");
+        TestLogger.Info("NonEmptyString.TryCreate failure passed");
+    }
+
+    #endregion
+
     #region Pass 2 — S2: Traditional Throws with Typed Error (SecureStore)
 
     public void TestLoadFromStorageSuccess()

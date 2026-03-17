@@ -105,7 +105,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("if (tag == 1) // None");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("result = default;");
+            csWriter.WriteLine("result = default!;");
             csWriter.WriteLine("return false;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
