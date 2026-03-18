@@ -87,7 +87,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// but may still trigger other Mono finalizer issues with Swift runtime calls.
     /// On NativeAOT (production), both paths are safe from the finalizer thread.
     /// </summary>
-    private static readonly bool s_isMonoRuntime = Type.GetType("Mono.Runtime") != null;
+    private static readonly bool s_isMonoRuntime = SwiftRuntimeInfo.IsMonoRuntime;
 
     /// <summary>
     /// Tracks whether Dispose() was explicitly called.

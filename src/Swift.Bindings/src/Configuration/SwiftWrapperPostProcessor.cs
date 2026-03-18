@@ -277,13 +277,15 @@ namespace BindingsGeneration
         {
             // (a) EveryProtocol() — strip wrapper functions that use EveryProtocol() as a
             // placeholder for unimplemented conformances. But PRESERVE witness table getter
-            // functions (Get_EveryProtocol_*) and SetVtable functions — these are valid code
-            // that uses EveryProtocol() to extract the witness table pointer.
+            // functions (Get_EveryProtocol_*), SetVtable functions, and EveryProtocol lifecycle
+            // helpers (SBW_CreateEveryProtocol, etc.) — these are valid code.
             if (body.Contains("EveryProtocol()"))
             {
                 // Check if this is a valid EveryProtocol system function
                 if (body.Contains("Get_EveryProtocol_") || body.Contains("SetVtable") ||
-                    body.Contains("Set_vtable") || body.Contains("_vtable"))
+                    body.Contains("Set_vtable") || body.Contains("_vtable") ||
+                    body.Contains("SBW_CreateEveryProtocol") || body.Contains("SBW_ReleaseEveryProtocol") ||
+                    body.Contains("SBW_GetMetadata_EveryProtocol"))
                     return false;
                 return true;
             }

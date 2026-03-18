@@ -711,17 +711,34 @@ public partial class ProtocolProxyEmitter
             public {{proxyClassName}}({{interfaceName}} implementation)
             {
                 _csharpImpl = implementation ?? throw new ArgumentNullException(nameof(implementation));
-                _everyProtocol = new EveryProtocol();
 
-                // Create existential container manually
-                // The container holds: payload (EveryProtocol pointer), metadata, and witness table
-                _swiftContainer = new ExistentialContainer1();
-                _swiftContainer.Payload0 = _everyProtocol.Handle;
-                _swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();
-                _swiftContainer[0] = ProtocolWitnessTableHandle;
+                // Create a real Swift EveryProtocol instance via @_cdecl factory.
+                // This produces a valid ARC-managed object that Swift can retain/release
+                // when copying/destroying the existential container.
+                var everyProtocolPtr = NativeMethods.CreateEveryProtocol();
+                _everyProtocol = new EveryProtocol(everyProtocolPtr);
 
-                // Register this proxy so Swift callbacks can find us
-                SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+                try
+                {
+                    // Initialize EveryProtocol metadata from Swift (once per process)
+                    if (EveryProtocol.GetTypeMetadata().Handle == IntPtr.Zero)
+                        EveryProtocol.SetTypeMetadata(NativeMethods.GetEveryProtocolMetadata());
+
+                    // Create existential container manually
+                    // The container holds: payload (EveryProtocol pointer), metadata, and witness table
+                    _swiftContainer = new ExistentialContainer1();
+                    _swiftContainer.Payload0 = _everyProtocol.Handle;
+                    _swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();
+                    _swiftContainer[0] = ProtocolWitnessTableHandle;
+
+                    // Register this proxy so Swift callbacks can find us
+                    SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
+                }
+                catch
+                {
+                    _everyProtocol.Dispose();
+                    throw;
+                }
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 

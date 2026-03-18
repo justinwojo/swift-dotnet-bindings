@@ -160,6 +160,28 @@ public partial class ProtocolProxyEmitter
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Public
         });
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = "SBW_CreateEveryProtocol",
+            MethodName = "CreateEveryProtocol",
+            ReturnType = "IntPtr",
+            ParametersString = "",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = "SBW_GetMetadata_EveryProtocol",
+            MethodName = "GetEveryProtocolMetadata",
+            ReturnType = "IntPtr",
+            ParametersString = "",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
 
         // Emit P/Invoke declarations for witness dispatch accessors
         EmitWitnessDispatchPInvokes(writer, protocolDecl, dispatchEmitter, wrapperLibPath);

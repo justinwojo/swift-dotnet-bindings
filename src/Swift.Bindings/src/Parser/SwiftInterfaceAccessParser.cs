@@ -112,7 +112,7 @@ public static class SwiftInterfaceAccessParser
 
     // Broader regex for public init — handles convenience and other prefixes.
     private static readonly Regex BroadPublicInitRegex = new(
-        @"(?:^|\s)(?:public|open)\s+(?:(?:convenience|required|override)\s+)*init\s*(?:<[^>]*>\s*)?\(",
+        @"(?:^|\s)(?:public|open)\s+(?:(?:convenience|required|override)\s+)*init\??\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     /// <summary>
@@ -1759,6 +1759,9 @@ public static class SwiftInterfaceAccessParser
         var funcNameIdx = line.IndexOf($" {funcName}(", StringComparison.Ordinal);
         if (funcNameIdx < 0)
             funcNameIdx = line.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        // Handle failable inits: "init?(" — ABI JSON uses "init(" without "?"
+        if (funcNameIdx < 0 && funcName == "init")
+            funcNameIdx = line.IndexOf(" init?(", StringComparison.Ordinal);
         // Handle generic funcs: "func name<T>("
         if (funcNameIdx < 0)
             funcNameIdx = line.IndexOf($" {funcName}<", StringComparison.Ordinal);

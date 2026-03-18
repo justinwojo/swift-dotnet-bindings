@@ -64,6 +64,28 @@ public class EveryProtocolEmitter
                 }
             }
 
+            // Creates a real Swift EveryProtocol instance (retained +1).
+            // C# proxy code calls this instead of raw NativeMemory.Alloc to ensure the
+            // existential container payload is a valid ARC-managed Swift object.
+            @_cdecl("SBW_CreateEveryProtocol")
+            public func _sbw_createEveryProtocol() -> UnsafeMutableRawPointer {
+                let instance = EveryProtocol()
+                return Unmanaged.passRetained(instance).toOpaque()
+            }
+
+            // Releases an EveryProtocol instance created by SBW_CreateEveryProtocol.
+            @_cdecl("SBW_ReleaseEveryProtocol")
+            public func _sbw_releaseEveryProtocol(_ ptr: UnsafeMutableRawPointer) {
+                Unmanaged<EveryProtocol>.fromOpaque(ptr).release()
+            }
+
+            // Returns the Swift type metadata pointer for EveryProtocol.
+            // Used by C# proxy classes to populate existential container metadata.
+            @_cdecl("SBW_GetMetadata_EveryProtocol")
+            public func _sbw_getEveryProtocolMetadata() -> UnsafeRawPointer {
+                return unsafeBitCast(EveryProtocol.self, to: UnsafeRawPointer.self)
+            }
+
             """);
     }
 

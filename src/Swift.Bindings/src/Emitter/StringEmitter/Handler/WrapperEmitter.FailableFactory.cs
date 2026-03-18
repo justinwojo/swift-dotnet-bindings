@@ -140,7 +140,12 @@ namespace BindingsGeneration
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
+            // VWT->Destroy uses a CallConvSwift function pointer.
+            // For frozen value types with @_cdecl wrappers, the Destroy is a no-op
+            // (no ARC reference counting needed), so skip it to avoid Mono JIT issues.
+            // Non-frozen structs need Destroy for proper reference cleanup.
+            if (!(_env.MethodDecl.UsesCdeclConstructorWrapper && isFrozenValue))
+                csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
             csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
             // Clean up generic payloads and closure GCHandles
             EmitSafeHandleRelease(csWriter);

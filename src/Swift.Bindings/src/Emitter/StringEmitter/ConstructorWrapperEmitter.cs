@@ -35,6 +35,15 @@ public static class ConstructorWrapperEmitter
         if (env.MethodDecl.IsModuleInternal)
             return false;
 
+        // Skip failable inits on non-frozen struct types.
+        // Non-frozen struct failable inits already work through CallConvSwift on Mono
+        // (the VWT operations in TryCreate are compatible). Routing them through @_cdecl
+        // can cause memory corruption because the Optional<T>.initialize(to:) in the
+        // Swift wrapper interacts poorly with the VWT-based tag/copy operations in TryCreate.
+        if (env.MethodDecl.IsFailable && env.ParentDecl is StructDecl failableStruct &&
+            !failableStruct.IsFrozen)
+            return false;
+
         // Generic parent type — allow class constructors with concrete (non-T-referencing) signatures
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
         {

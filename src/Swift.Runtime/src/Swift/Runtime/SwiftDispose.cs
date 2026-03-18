@@ -22,7 +22,7 @@ namespace Swift.Runtime
     /// </remarks>
     public static class SwiftDispose
     {
-        private static readonly bool s_isMonoRuntime = Type.GetType("Mono.Runtime") != null;
+        private static readonly bool s_isMonoRuntime = SwiftRuntimeInfo.IsMonoRuntime;
 
         /// <summary>
         /// Called from generated struct finalizers to ensure Swift ARC cleanup.

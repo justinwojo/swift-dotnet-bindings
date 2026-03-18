@@ -21,6 +21,10 @@ namespace Swift.Runtime;
 /// 3. C# side: Proxy classes wrap either a C# implementation or a Swift existential container
 /// 4. When C# implementation is wrapped, it registers with SwiftObjectRegistry
 /// 5. Swift callbacks use the registry to find the C# proxy and invoke the implementation
+///
+/// EveryProtocol instances must be created from Swift (via SBW_CreateEveryProtocol) to ensure
+/// they are valid ARC-managed objects. Raw C# allocations produce fake pointers that crash
+/// when Swift tries to retain/release them during existential container operations.
 /// </remarks>
 [DebuggerDisplay("{DebugDisplay}")]
 public sealed class EveryProtocol : ISwiftObject
@@ -32,39 +36,25 @@ public sealed class EveryProtocol : ISwiftObject
     private static IntPtr _typeMetadataHandle;
     private static readonly object _metadataLock = new object();
 
-    private readonly SwiftSafeHandle<EveryProtocol> _handle;
+    private readonly SwiftClassHandle<EveryProtocol> _handle;
 
     /// <summary>
-    /// Creates a new EveryProtocol instance.
-    /// This allocates a Swift object that can be placed into existential containers.
+    /// Creates an EveryProtocol from a retained Swift object pointer.
+    /// The pointer must carry a +1 ARC retain count (from Unmanaged.passRetained).
+    /// This constructor takes ownership of the retain and releases it on Dispose/finalize.
     /// </summary>
-    public unsafe EveryProtocol()
+    /// <param name="swiftPointer">
+    /// A retained Swift EveryProtocol pointer from SBW_CreateEveryProtocol.
+    /// </param>
+    public EveryProtocol(IntPtr swiftPointer)
     {
-        // Allocate Swift object storage
-        // For now, use a minimal allocation since the actual Swift object
-        // will be created when we have the metadata available
-        var ptr = (IntPtr)NativeMemory.Alloc((nuint)IntPtr.Size);
-        _handle = new SwiftSafeHandle<EveryProtocol>(ptr);
-    }
-
-    /// <summary>
-    /// Creates an EveryProtocol from an existing payload pointer.
-    /// Used when receiving EveryProtocol instances from Swift.
-    /// </summary>
-    private EveryProtocol(IntPtr payload)
-    {
-        _handle = new SwiftSafeHandle<EveryProtocol>(payload);
+        _handle = new SwiftClassHandle<EveryProtocol>(swiftPointer);
     }
 
     /// <summary>
     /// Gets the native handle for this EveryProtocol instance.
     /// </summary>
     public IntPtr Handle => _handle.DangerousGetHandle();
-
-    /// <summary>
-    /// Gets the SwiftSafeHandle for this instance.
-    /// </summary>
-    public SwiftSafeHandle<EveryProtocol> Payload => _handle;
 
     IntPtr ISwiftObject.SwiftHandle => _handle.DangerousGetHandle();
 
