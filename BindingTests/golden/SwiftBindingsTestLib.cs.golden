@@ -1940,7 +1940,7 @@ namespace SwiftBindingsTestLib
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                             SBW_ReleaseError(errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     
                     return result;
@@ -1992,7 +1992,7 @@ namespace SwiftBindingsTestLib
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                             SBW_ReleaseError(errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     
                     unsafe {
@@ -2054,7 +2054,7 @@ namespace SwiftBindingsTestLib
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                             SBW_ReleaseError(errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     
                     unsafe {
@@ -5022,7 +5022,7 @@ namespace SwiftBindingsTestLib
                             if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                             SBW_ReleaseError(errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     
                     return result;
@@ -30235,7 +30235,7 @@ public partial class ThrowingStruct : ISwiftObject, ISwiftStruct, IDisposable
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                         SBW_ReleaseError(errorPtr);
                     }
-                    throw new SwiftRuntimeException(_errorMessage);
+                    throw new SwiftException(_errorMessage);
                 }
                 
                 return result;
@@ -30285,7 +30285,7 @@ public partial class ThrowingStruct : ISwiftObject, ISwiftStruct, IDisposable
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                         SBW_ReleaseError(errorPtr);
                     }
-                    throw new SwiftRuntimeException(_errorMessage);
+                    throw new SwiftException(_errorMessage);
                 }
                 
                 return result;
@@ -30333,7 +30333,7 @@ public partial class ThrowingStruct : ISwiftObject, ISwiftStruct, IDisposable
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                         SBW_ReleaseError(errorPtr);
                     }
-                    throw new SwiftRuntimeException(_errorMessage);
+                    throw new SwiftException(_errorMessage);
                 }
                 
                 return result;
@@ -30536,7 +30536,7 @@ public partial class SecureStore : ISwiftObject, ISwiftStruct, IDisposable
                         if (_descPtr != IntPtr.Zero) SBW_Free(_descPtr);
                         SBW_ReleaseError(errorPtr);
                     }
-                    throw new SwiftRuntimeException(_errorMessage);
+                    throw new SwiftException(_errorMessage);
                 }
                 
                 unsafe {

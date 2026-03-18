@@ -54,7 +54,7 @@ public class ConstructorHandlerOutputTests
         Assert.Contains("if (swiftError.Value != null)", csOutput);
         Assert.Contains("SBW_GetErrorDescription", csOutput);
         Assert.Contains("SBW_ReleaseError", csOutput);
-        Assert.Contains("throw new SwiftRuntimeException(_errorMessage)", csOutput);
+        Assert.Contains("throw new SwiftException(_errorMessage)", csOutput);
     }
 
     [Fact]

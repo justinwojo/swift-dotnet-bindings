@@ -565,7 +565,7 @@ public class WitnessDispatchEmitter
                 publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
                 return false;
 
-            // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size mismatches
+            // ObjC filtering guard: if ObjC filtering drops protocols, proxy expects fewer witness tables than ABI
             var filteredCount = innerProtocolList.Protocols.Keys
                 .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
             if (filteredCount != innerProtocolList.Protocols.Count)

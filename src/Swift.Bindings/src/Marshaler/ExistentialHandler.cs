@@ -46,6 +46,40 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Returns true if the protocol is a marker protocol (no witness table, no C# representation).
+    /// Marker protocols: Sendable, Escapable, Copyable, SendableMetatype.
+    /// </summary>
+    public static bool IsMarkerProtocol(NamedTypeSpec protocol)
+    {
+        var simpleName = protocol.NameWithoutModule;
+        return simpleName is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype";
+    }
+
+    /// <summary>
+    /// Returns the non-marker protocols in a composition — excluding only marker protocols.
+    /// Used for ABI-sensitive logic (EC container type, container size) where ObjC protocols
+    /// DO contribute witness tables. Only markers are excluded (they have no witness tables).
+    /// </summary>
+    public static IReadOnlyList<NamedTypeSpec> GetNonMarkerProtocols(ProtocolListTypeSpec protocolList)
+    {
+        return protocolList.Protocols.Keys
+            .Where(p => !IsMarkerProtocol(p))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns the effective protocols in a composition — excluding both marker protocols and ObjC module types.
+    /// Used for public API naming (proxy classes, interface names) where ObjC module types have no
+    /// emitted interfaces and markers have no C# representation. NOT for ABI/container size computation.
+    /// </summary>
+    public static IReadOnlyList<NamedTypeSpec> GetEffectiveProtocols(ProtocolListTypeSpec protocolList)
+    {
+        return protocolList.Protocols.Keys
+            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .ToList();
+    }
+
+    /// <summary>
     /// Determines whether the specified argument declaration represents an existential type
     /// (a protocol type or protocol composition).
     /// </summary>
@@ -158,7 +192,7 @@ public class ExistentialHandler
     /// <returns>The C# existential container type name.</returns>
     public string GetCSharpExistentialType(ProtocolListTypeSpec protocolList)
     {
-        var count = protocolList.Protocols.Count;
+        var count = GetNonMarkerProtocols(protocolList).Count;
         return $"Swift.Runtime.ExistentialContainer{count}";
     }
 
@@ -183,7 +217,8 @@ public class ExistentialHandler
     public int GetExistentialContainerSizeInWords(ProtocolListTypeSpec protocolList)
     {
         // 3 words for payload + 1 word for metadata + N words for witness tables
-        return 4 + protocolList.Protocols.Count;
+        // Marker protocols have no witness tables; ObjC protocols DO have witness tables.
+        return 4 + GetNonMarkerProtocols(protocolList).Count;
     }
 
     /// <summary>
@@ -310,16 +345,21 @@ public class ExistentialHandler
     /// <returns>The public-facing interface type name.</returns>
     public string GetPublicExistentialType(ProtocolListTypeSpec protocolList)
     {
-        if (protocolList.Protocols.Count == 0)
-            return "object"; // 'any' with no protocols → object
+        // Filter markers and ObjC before dispatching on count.
+        // Marker protocols (Sendable, Escapable, etc.) have no C# representation;
+        // ObjC module types have no emitted interfaces.
+        var effective = GetEffectiveProtocols(protocolList);
 
-        // Well-known stdlib protocols → direct runtime type (no proxy needed)
-        if (TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
-            return wellKnownType;
+        if (effective.Count == 0)
+            return "object"; // 'Any', pure-marker (e.g., 'any Sendable'), or pure-ObjC → object
 
-        if (protocolList.Protocols.Count == 1)
+        if (effective.Count == 1)
         {
-            var firstProtocol = protocolList.Protocols.Keys.First();
+            var firstProtocol = effective[0];
+
+            // Well-known stdlib protocols → direct runtime type (no proxy needed)
+            if (firstProtocol.Name == "Swift.Error")
+                return "Swift.AnyError";
 
             // Validate that the protocol has a TypeRecord in the database with Kind=Protocol.
             // This handles multiple cases:
@@ -481,9 +521,13 @@ public class ExistentialHandler
     public bool AllProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList)
     {
         if (protocolList.Protocols.Count == 0)
-            return false;
+            return false; // 'Any' (no protocols) → false
 
-        foreach (var protocol in protocolList.Protocols.Keys)
+        var nonMarker = GetNonMarkerProtocols(protocolList);
+        if (nonMarker.Count == 0)
+            return true; // Pure-marker (e.g., 'any Sendable') → vacuously true
+
+        foreach (var protocol in nonMarker)
         {
             try
             {
@@ -508,8 +552,7 @@ public class ExistentialHandler
     public bool TryGetFilteredProxyClassName(ProtocolListTypeSpec protocolList, out string proxyClassName)
     {
         proxyClassName = "";
-        var protocols = protocolList.Protocols.Keys
-            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+        var protocols = GetEffectiveProtocols(protocolList)
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
         if (protocols.Count == 0) return false;
@@ -526,10 +569,8 @@ public class ExistentialHandler
     /// <returns>The combined interface name (e.g., "IDescribableAndTestIdentifiable").</returns>
     public string GetCompositionInterfaceName(ProtocolListTypeSpec protocolList)
     {
-        // B17: Filter out protocols from ObjC root modules (Foundation, ObjectiveC, UIKit, etc.)
-        // No interface is emitted for these types, so including them would produce invalid C# references.
-        var protocols = protocolList.Protocols.Keys
-            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+        // Filter out ObjC module types (no emitted interfaces) and marker protocols (no C# representation).
+        var protocols = GetEffectiveProtocols(protocolList)
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
 

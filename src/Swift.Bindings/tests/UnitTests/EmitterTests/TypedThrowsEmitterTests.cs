@@ -38,20 +38,20 @@ public class TypedThrowsEmitterTests
     }
 
     [Fact]
-    public void SyncMethod_WithoutTypedThrows_EmitsSwiftRuntimeException()
+    public void SyncMethod_WithoutTypedThrows_EmitsSwiftException()
     {
         var (csOutput, swiftOutput) = GenerateThrowingMethod(
             isAsync: false,
             hasTypedThrows: false);
 
-        Assert.Contains("SwiftRuntimeException", csOutput);
+        Assert.Contains("SwiftException", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
     }
 
     [Fact]
-    public void SyncMethod_WithUnresolvableErrorType_FallsBackToSwiftRuntimeException()
+    public void SyncMethod_WithUnresolvableErrorType_FallsBackToSwiftException()
     {
         // When error type is not in TypeDatabase, fall back to untyped
         var (csOutput, _) = GenerateThrowingMethod(
@@ -60,7 +60,7 @@ public class TypedThrowsEmitterTests
             errorTypeName: "UnknownModule.UnknownError",
             registerErrorType: false);
 
-        Assert.Contains("SwiftRuntimeException", csOutput);
+        Assert.Contains("SwiftException", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
     }
 
@@ -110,7 +110,7 @@ public class TypedThrowsEmitterTests
 
         Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
-        Assert.Contains("SwiftRuntimeException", csOutput);
+        Assert.Contains("SwiftException", csOutput);
     }
 
     #endregion

@@ -86,26 +86,22 @@ Completed March 17, 2026. Lifted the `@MainActor` skip gate so `@MainActor`-isol
 
 ---
 
-### Session 3: Existential Types & Error Ergonomics
+### ~~Session 3: Existential Types & Error Ergonomics~~ (Complete)
 
-**Coverage impact**: ~300 skips recovered + ergonomics → ~76% → ~78%
-**Libraries affected**: 33+
+Completed March 17, 2026. Scoped to Sub-tasks 1 (`any Sendable`) and 4 (SwiftException). Sub-tasks 2 (`[String: Any]` dictionary) and 3 (ExistentialContainer API cleanup) deferred post-release.
 
-The broadest gap by library count (33 libs). Post-Swift 6, `any Sendable` is pervasive. This session tackles the tractable subset: `any Sendable` as opaque pass-through, `[String: Any]` as dictionary, ExistentialContainer API cleanup, and wrapping `AnyError` in a proper `Exception` type.
+**What shipped:**
+- **`any Sendable` marker protocol visibility** — Marker protocols (Sendable, Escapable, Copyable, SendableMetatype) excluded from witness table count and proxy/interface naming via `GetNonMarkerProtocols()` (ABI) and `GetEffectiveProtocols()` (naming). `any Sendable` → EC0 / `object`. `any Sendable & Codable` → EC1 / `ICodable`. Members with marker protocol existentials stop being skipped, appear in generated bindings, and compile. 6 Stripe dependency-gate improvements (StripePayments, StripeIssuing, StripePaymentSheet, StripePaymentsUI, Stripe, StripeCryptoOnramp).
+- **SwiftException for sync untyped throws** — Unified exception hierarchy: sync untyped `throws` now emits `SwiftException` (was `SwiftRuntimeException`). Matches async path. `SwiftRuntimeException` retained for infrastructure errors (conformance lookup, protocol dispatch, closure bridge).
+- **Duplicate `[Obsolete]` attribute fix** — `AvailabilityAttributeEmitter` now deduplicates `[Obsolete]` (C# allows only one per declaration). Exposed by marker changes enabling more deprecated members.
 
-| Sub-task | Skips | Effort | Notes |
-|----------|------:|--------|-------|
-| **`any Sendable` as opaque** | subset of 593 | Medium | Most common existential pattern. Pass as `UnsafeRawPointer`. |
-| **`[String: Any]` as dictionary** | subset of 593 | Medium | JSON-like config patterns (Alamofire, Mixpanel). |
-| **ExistentialContainer API cleanup** | — | Medium | Remove internal marshalling types from public API surfaces (IntelliSense pollution). See `Future/binding-api-future-work.md` R6. Gated on `AllProtocolsHaveTypeRecords()`. |
-| **AnyError → SwiftException** | — | Medium | `SwiftException : Exception` wrapping `AnyError`. C# consumers get standard try/catch instead of opaque error handles. |
+**What this does NOT deliver:** Generally callable `any Sendable` APIs from C#. Parameters require `ISwiftExistentialConvertible<ExistentialContainer0>`. Return values are visible but the returned EC0 cannot be re-passed to `any Sendable` parameter APIs. Full callability requires a future projection rework.
 
-**Affected libraries:** StripePayments (236), RxSwift (100), Alamofire (43), GRDB (39), ObjectMapper (25), Mixpanel (22), Lottie (18)
+**Deferred post-release:**
+- `[String: Any]` dictionary projection (Alamofire, Mixpanel JSON-like config patterns)
+- ExistentialContainer API cleanup (remove internal marshalling types from public API surfaces)
 
-**Example APIs unlocked:**
-- `URLEncoding.encode(urlRequest, with: [String: any Sendable]?)` (Alamofire)
-- `MixpanelInstance.track(properties: [String: any MixpanelType]?)` (Mixpanel)
-- Nearly all ObjectMapper transformation methods
+**Validation**: 90/90 compile gate, 7818 unit tests, 48/56 swift wrapper. No regressions.
 
 ---
 
@@ -235,6 +231,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
+| Session 3: Existential types & error ergonomics | Mar 17 | `any Sendable` marker protocol visibility (members stop being skipped, compile as `object`/EC0). SwiftException for sync untyped throws. Duplicate `[Obsolete]` dedup. 6 Stripe improvements. 90/90 validation, 7818 unit tests. Deferred: `[String: Any]` dictionary, ExistentialContainer API cleanup. |
 | Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. Synchronous C# APIs following Xamarin.iOS precedent. Also fixed OptionSet XML misclassification (UIControl.State/Event) and ObjC-bridged struct Unmanaged reconstruction. 2 wrapper regressions remain (Parchment return-side Unmanaged, BlinkIDUX missing module). 40/56 swift wrapper, 90/90 compile gate, 481 runtime tests. |
 | Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |
 | Session 0: BindingTests generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |

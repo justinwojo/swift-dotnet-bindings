@@ -677,7 +677,7 @@ internal class MethodMarshalPlanBuilder
                             if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
                             {{hp}}SBW_ReleaseError(errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     """;
             }
@@ -701,7 +701,7 @@ internal class MethodMarshalPlanBuilder
                             if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
                             {{hp}}SBW_ReleaseError(_errorPtr);
                         }
-                        throw new SwiftRuntimeException(_errorMessage);
+                        throw new SwiftException(_errorMessage);
                     }
                     """;
             }

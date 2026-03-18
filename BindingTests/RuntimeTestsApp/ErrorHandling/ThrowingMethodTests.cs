@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.ErrorHandling;
 /// <summary>
 /// Tests for Swift error handling: throwing free functions, struct throwing methods,
 /// typed throws (Swift 6.0), and error propagation across the interop boundary.
-/// All throwing Swift methods surface as SwiftRuntimeException in C#.
+/// All throwing Swift methods surface as SwiftException in C#.
 /// Named with "Basic" prefix to sort alphabetically before crash-prone tests
 /// (EnumMarshallingTests.TestOrderContainerCreation triggers Mono JIT crash).
 ///
@@ -60,7 +60,7 @@ public class BasicThrowingTests : TestBase
             TestLibFunctions.Divide(10, 0);
             throw new AssertionException("Divide by zero should throw");
         }
-        catch (SwiftRuntimeException ex)
+        catch (SwiftException ex)
         {
             // Error message should be the Swift String(describing:) output, not a hardcoded message
             AssertTrue(ex.Message.Contains("divisionByZero"),
@@ -114,7 +114,7 @@ public class BasicThrowingTests : TestBase
             ts.DivideBy(0);
             throw new AssertionException("DivideBy(0) should throw");
         }
-        catch (SwiftRuntimeException ex)
+        catch (SwiftException ex)
         {
             AssertTrue(ex.Message.Contains("divisionByZero"),
                 $"Error message should contain Swift error description, got: {ex.Message}");
@@ -125,7 +125,7 @@ public class BasicThrowingTests : TestBase
     public void TestThrowingStructValidatePositiveNegativeThrows()
     {
         var ts = new ThrowingStruct(-5);
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException>(() =>
         {
             ts.ValidatePositive();
         }, "ValidatePositive on negative should throw");
@@ -135,7 +135,7 @@ public class BasicThrowingTests : TestBase
     public void TestThrowingStructValidatePositiveZeroThrows()
     {
         var ts = new ThrowingStruct(0);
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException>(() =>
         {
             ts.ValidatePositive();
         }, "ValidatePositive on zero should throw");
@@ -144,7 +144,7 @@ public class BasicThrowingTests : TestBase
 
     public void TestThrowingStructStaticSafeDivideByZeroThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException>(() =>
         {
             ThrowingStruct.SafeDivide(10, 0);
         }, "SafeDivide by zero should throw");
@@ -390,7 +390,7 @@ public class BasicThrowingTests : TestBase
     [MonoJitCrash] // GC finalizer crash: ValidationError VWT destructor on Mono finalizer thread
     public void TestValidateEmptyStringThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException>(() =>
         {
             TestLibFunctions.Validate("", 100);
         }, "Validate empty string should throw");
@@ -400,7 +400,7 @@ public class BasicThrowingTests : TestBase
     [MonoJitCrash] // GC finalizer crash: ValidationError VWT destructor on Mono finalizer thread
     public void TestValidateTooLongThrows()
     {
-        AssertThrows<SwiftRuntimeException>(() =>
+        AssertThrows<SwiftException>(() =>
         {
             TestLibFunctions.Validate("hello world", 5);
         }, "Validate too long should throw");
@@ -550,9 +550,9 @@ public class BasicThrowingTests : TestBase
             TestLibFunctions.LoadFromStorage("");
             AssertTrue(false, "Should have thrown");
         }
-        catch (Swift.Runtime.SwiftRuntimeException ex)
+        catch (Swift.Runtime.SwiftException ex)
         {
-            // Traditional `throws` — generator emits SwiftRuntimeException (not SwiftException<StorageError>).
+            // Traditional `throws` — generator emits SwiftException (not SwiftException<StorageError>).
             // StorageError.notFound has rawValue -1, surfaced as "code -1" in the message.
             AssertTrue(ex.Message.Contains("code -1"), "Error message contains notFound raw value (code -1)");
             AssertTrue(ex.Message.Contains("StorageError"), "Error message identifies StorageError type");
@@ -567,7 +567,7 @@ public class BasicThrowingTests : TestBase
             TestLibFunctions.LoadFromStorage("restricted");
             AssertTrue(false, "Should have thrown");
         }
-        catch (Swift.Runtime.SwiftRuntimeException ex)
+        catch (Swift.Runtime.SwiftException ex)
         {
             // StorageError.accessDenied has rawValue -2, distinct from notFound's -1.
             AssertTrue(ex.Message.Contains("code -2"), "Error message contains accessDenied raw value (code -2)");

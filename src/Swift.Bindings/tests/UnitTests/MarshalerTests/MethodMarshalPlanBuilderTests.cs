@@ -109,7 +109,7 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void SwiftError_UntypedThrows_ContainsSwiftRuntimeException()
+    public void SwiftError_UntypedThrows_ContainsSwiftException()
     {
         var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
             "parse", parentKind: ParentKind.Class, throws: true);
@@ -121,7 +121,7 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_Free", plan.SwiftError.ErrorCheckCode);
-        Assert.Contains("SwiftRuntimeException", plan.SwiftError.ErrorCheckCode);
+        Assert.Contains("SwiftException", plan.SwiftError.ErrorCheckCode);
     }
 
     [Fact]

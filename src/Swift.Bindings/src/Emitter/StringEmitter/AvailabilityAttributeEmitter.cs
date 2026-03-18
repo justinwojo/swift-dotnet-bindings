@@ -40,6 +40,7 @@ internal static class AvailabilityAttributeEmitter
             }
         }
 
+        bool obsoleteEmitted = false;
         foreach (var annotation in decl.AvailabilityAnnotations)
         {
             // Skip visionOS (no .NET equivalent yet)
@@ -83,9 +84,10 @@ internal static class AvailabilityAttributeEmitter
                 }
             }
 
-            // Unconditional deprecation → [Obsolete]
-            if (emitObsolete && annotation.IsUnconditionallyDeprecated)
+            // Unconditional deprecation → [Obsolete] (C# allows only one per declaration)
+            if (emitObsolete && !obsoleteEmitted && annotation.IsUnconditionallyDeprecated)
             {
+                obsoleteEmitted = true;
                 var message = BuildDeprecationMessage(annotation);
                 if (message != null)
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");

@@ -900,6 +900,279 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region Marker Protocol Tests
+
+    [Theory]
+    [InlineData("Swift.Sendable", true)]
+    [InlineData("Swift.Escapable", true)]
+    [InlineData("Swift.Copyable", true)]
+    [InlineData("Swift.SendableMetatype", true)]
+    [InlineData("SomeModule.Sendable", true)]
+    [InlineData("Swift.Equatable", false)]
+    [InlineData("Swift.Codable", false)]
+    [InlineData("Nuke.DataLoading", false)]
+    public void IsMarkerProtocol_IdentifiesMarkers(string protocolName, bool expected)
+    {
+        var protocol = new NamedTypeSpec(protocolName);
+        Assert.Equal(expected, ExistentialHandler.IsMarkerProtocol(protocol));
+    }
+
+    [Fact]
+    public void GetEffectiveProtocols_FiltersMarkers()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("Swift.Codable")
+        });
+
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+
+        Assert.Single(effective);
+        Assert.Equal("Swift.Codable", effective[0].Name);
+    }
+
+    [Fact]
+    public void GetEffectiveProtocols_PureMarker_ReturnsEmpty()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+
+        Assert.Empty(effective);
+    }
+
+    [Fact]
+    public void GetEffectiveProtocols_FiltersObjCAndMarkers()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+
+        Assert.Single(effective);
+        Assert.Equal("StripeCore.STPAnalyticsClientProtocol", effective[0].Name);
+    }
+
+    [Fact]
+    public void GetCSharpExistentialType_AnySendable_ReturnsEC0()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        var result = _handler.GetCSharpExistentialType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer0", result);
+    }
+
+    [Fact]
+    public void GetCSharpExistentialType_SendableAndCodable_ReturnsEC1()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("Swift.Codable")
+        });
+
+        var result = _handler.GetCSharpExistentialType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", result);
+    }
+
+    [Fact]
+    public void GetExistentialContainerSizeInWords_AnySendable_Returns4()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        // 3 payload + 1 metadata + 0 witness tables = 4 words
+        Assert.Equal(4, _handler.GetExistentialContainerSizeInWords(protocolList));
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_AnySendable_ReturnsObject()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        var result = _handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_SendableAndKnownProtocol_ReturnsSingleProtocolInterface()
+    {
+        // any Sendable & STPAnalyticsClientProtocol → ISTPAnalyticsClientProtocol
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void AllProtocolsHaveTypeRecords_PureMarker_ReturnsTrue()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        Assert.True(_handler.AllProtocolsHaveTypeRecords(protocolList));
+    }
+
+    [Fact]
+    public void AllProtocolsHaveTypeRecords_MarkerAndKnownProtocol_ReturnsTrue()
+    {
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        Assert.True(handler.AllProtocolsHaveTypeRecords(protocolList));
+    }
+
+    [Fact]
+    public void TryGetFilteredProxyClassName_SendableAndCodable_ReturnsCodableProxy()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = _handler.TryGetFilteredProxyClassName(protocolList, out var proxyClassName);
+
+        Assert.True(result);
+        Assert.Equal("STPAnalyticsClientProtocolProxy", proxyClassName);
+    }
+
+    [Fact]
+    public void GetCompositionInterfaceName_MarkersFiltered_ReturnsSingleInterface()
+    {
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.GetCompositionInterfaceName(protocolList);
+
+        Assert.Equal("ISTPAnalyticsClientProtocol", result);
+    }
+
+    [Fact]
+    public void GetNonMarkerProtocols_KeepsObjC_FiltersMarkers()
+    {
+        // ObjC protocols have witness tables — must be kept for ABI
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var nonMarker = ExistentialHandler.GetNonMarkerProtocols(protocolList);
+
+        Assert.Equal(2, nonMarker.Count); // NSObjectProtocol + STPAnalyticsClientProtocol
+        Assert.Contains(nonMarker, p => p.Name == "Foundation.NSObjectProtocol");
+        Assert.Contains(nonMarker, p => p.Name == "StripeCore.STPAnalyticsClientProtocol");
+    }
+
+    [Fact]
+    public void GetCSharpExistentialType_ObjCAndMarker_IncludesObjCInCount()
+    {
+        // any NSObjectProtocol & Sendable → EC1 (NSObjectProtocol has a witness table)
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        var result = _handler.GetCSharpExistentialType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", result);
+    }
+
+    [Fact]
+    public void GetCSharpExistentialType_ObjCAndSwift_IncludesBothInCount()
+    {
+        // any NSObjectProtocol & MyProtocol → EC2 (both have witness tables)
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = _handler.GetCSharpExistentialType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainer2", result);
+    }
+
+    [Fact]
+    public void GetExistentialContainerSizeInWords_ObjCProtocol_IncludesWitnessTable()
+    {
+        // any NSObjectProtocol → 4 + 1 = 5 words (ObjC has witness table)
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol")
+        });
+
+        Assert.Equal(5, _handler.GetExistentialContainerSizeInWords(protocolList));
+    }
+
+    [Fact]
+    public void AllProtocolsHaveTypeRecords_ObjCOnly_ReturnsFalse()
+    {
+        // ObjC-only existentials don't have TypeRecords — must NOT vacuously succeed
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol")
+        });
+
+        Assert.False(_handler.AllProtocolsHaveTypeRecords(protocolList));
+    }
+
+    [Fact]
+    public void AllProtocolsHaveTypeRecords_ObjCAndMarker_ReturnsFalse()
+    {
+        // ObjC + marker: marker is skipped, but ObjC still checked → false
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObjectProtocol"),
+            new NamedTypeSpec("Swift.Sendable")
+        });
+
+        Assert.False(_handler.AllProtocolsHaveTypeRecords(protocolList));
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase
