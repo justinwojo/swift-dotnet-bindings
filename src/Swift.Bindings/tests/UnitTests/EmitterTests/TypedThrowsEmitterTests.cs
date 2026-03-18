@@ -192,6 +192,38 @@ public class TypedThrowsEmitterTests
 
     #endregion
 
+    #region Error Ownership — SBW_Free Behavior
+
+    [Fact]
+    public void SyncMethod_ComplexEnumError_UsesCatchNotFinally()
+    {
+        // Complex enums (non-SimpleEnum) are projected as C# classes with SafeHandle.
+        // MarshalFromSwift takes ownership of the buffer — SBW_Free must only run on exception,
+        // not in finally (which would double-free when SafeHandle finalizes).
+        var (csOutput, _) = GenerateThrowingMethod(
+            isAsync: false,
+            hasTypedThrows: true,
+            errorTypeName: "TestModule.ParseError");
+
+        // The error type is registered as complex enum (Kind=Enum, no SimpleEnum flag).
+        // Should use catch block, not finally, for SBW_Free.
+        Assert.Contains("catch { SBW_Free(_typedErrorPtr); throw; }", csOutput);
+        Assert.DoesNotContain("finally\n", csOutput.Split("_typedErrorPtr")[2]);
+    }
+
+    [Fact]
+    public void SyncMethod_SimpleEnumError_UsesFinallyForFree()
+    {
+        // Simple enums are projected as C# value types — MarshalFromSwift copies the value,
+        // does NOT take ownership. SBW_Free should be in finally (always free the buffer).
+        var (csOutput, _) = GenerateThrowingMethodWithSimpleEnum();
+
+        Assert.Contains("SBW_Free(_typedErrorPtr)", csOutput);
+        Assert.Contains("finally", csOutput);
+    }
+
+    #endregion
+
     #region MethodDecl Properties
 
     [Fact]
@@ -574,6 +606,139 @@ public class TypedThrowsEmitterTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
+    }
+
+    /// <summary>
+    /// Generates a throwing method with a simple enum error type (has SimpleEnum flag).
+    /// Simple enums are projected as C# value types — MarshalFromSwift copies, no ownership transfer.
+    /// </summary>
+    private static (string CsOutput, string SwiftOutput) GenerateThrowingMethodWithSimpleEnum()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = "Parser",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Parser"),
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6ParserVMa",
+            MangledName = "$s10TestModule6ParserV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(structDecl);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = structDecl,
+                ModuleDecl = moduleDecl
+            },
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                Name = "input",
+                PrivateName = "input",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = structDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "parse",
+            MangledName = "$s10TestModule6ParserV5parse_s5Int32VSSF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            ThrownErrorType = TypeSpecParser.Parse("TestModule.SimpleError")
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        module.RegisterType(
+            structDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Parser"),
+                SwiftTypeName = structDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule6ParserVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+
+        // Register as SIMPLE enum (SimpleEnum flag) — no ownership transfer
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleError"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SimpleError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SimpleError"),
+                MetadataAccessor = "$s10TestModule11SimpleErrorOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum
+            });
+
+        typeDatabase.AddModuleDatabase(module);
+        typeDatabase.LoadModuleDatabaseFromFile(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml")).Wait();
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
 
     #endregion

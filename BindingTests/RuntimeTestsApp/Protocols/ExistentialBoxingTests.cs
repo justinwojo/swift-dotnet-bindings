@@ -127,7 +127,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("ModeProcessor with strict impl passed");
     }
 
-    [MonoJitCrash] // String return via witness dispatch callback: MarshalToSwiftBuffer<SwiftString> crashes
+    // String return now uses Utf8Slice encoding (avoids ARC issues with SwiftString)
     public void TestModeProcessorGetModeName()
     {
         var impl = new TestSimpleProcessingMode();
@@ -162,7 +162,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"Pipeline.GetStepCount() = {pipeline.GetStepCount()}");
     }
 
-    [MonoJitCrash] // String return via witness dispatch callback: MarshalToSwiftBuffer<SwiftString> crashes
+    // String return now uses Utf8Slice encoding (avoids ARC issues with SwiftString)
     public void TestPipelineGetModeName()
     {
         var impl = new TestStrictProcessingMode();

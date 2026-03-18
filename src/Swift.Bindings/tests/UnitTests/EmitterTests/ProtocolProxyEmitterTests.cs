@@ -217,20 +217,19 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_GetterReceiver_String_ConvertsToSwiftString()
+    public void EmitProxyClass_GetterReceiver_String_UsesUtf8Slice()
     {
-        // Regression (P0 #1): Getter receiver returns idiomatic C# value (string) from
-        // _csharpImpl but MarshalToSwiftBuffer expects Swift ABI type (SwiftString).
-        // Without reverse conversion, Unsafe.Write writes a managed reference instead of
-        // SwiftString layout → garbage across the Swift boundary.
+        // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString.
+        // MarshalToSwiftBuffer<SwiftString> does Unsafe.Write which doesn't retain ARC references,
+        // causing crashes when Swift reads the result. Utf8Slice passes raw bytes safely.
         var typeSpec = new NamedTypeSpec("Swift.String");
         var protocolDecl = CreateProtocolWithProperty("StringProto", "name", hasGetter: true, hasSetter: false, typeSpec);
         var output = EmitProxyClass(protocolDecl);
 
-        // Getter should convert string → SwiftString before marshalling
+        // Getter should use Utf8Slice encoding instead of SwiftString
         Assert.Contains("Receive_name_get", output);
-        Assert.Contains("new SwiftString(result)", output);
-        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+        Assert.Contains("MarshalStringToUtf8Slice(result)", output);
+        Assert.DoesNotContain("new SwiftString(result)", output);
     }
 
     [Fact]

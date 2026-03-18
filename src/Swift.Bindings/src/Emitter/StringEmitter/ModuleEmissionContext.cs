@@ -345,6 +345,13 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddEqualityWrapperSymbol(string symbol) => _equalityWrapperSymbols.Add(symbol);
 
+    // ==================== Optional Tag Helper ====================
+
+    private readonly HashSet<string> _optionalTagHelperSymbols = new();
+
+    /// <summary>Adds an Optional tag helper @_cdecl symbol. Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddOptionalTagHelperSymbol(string symbol) => _optionalTagHelperSymbols.Add(symbol);
+
     // ==================== Emission Report Accumulators ====================
 
     private readonly Dictionary<string, int> _wrapperStrategyCounts = new();

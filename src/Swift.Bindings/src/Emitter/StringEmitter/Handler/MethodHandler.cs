@@ -309,6 +309,14 @@ namespace BindingsGeneration
             {
                 ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
                     swiftWriter, methodEnv, context.GetEmissionContext());
+
+                // For failable frozen struct inits, emit a tag helper that extracts the
+                // Optional tag via @_cdecl, replacing VWT->GetEnumTag which crashes on Mono.
+                if (methodEnv.MethodDecl.IsFailable && methodEnv.ParentDecl is StructDecl tagStruct && tagStruct.IsFrozen)
+                {
+                    ConstructorWrapperEmitter.EmitOptionalTagHelper(
+                        swiftWriter, methodEnv, context.GetEmissionContext());
+                }
             }
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, emissionContext: context.GetEmissionContext());
@@ -327,6 +335,14 @@ namespace BindingsGeneration
                 if (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey))
                 {
                     wrapperEmitter.EmitOptionalMetadataAccessorPInvoke(csWriter);
+                }
+
+                // Emit the Optional tag helper P/Invoke for @_cdecl frozen struct failable inits.
+                // Uses @_cdecl instead of VWT->GetEnumTag to avoid Mono JIT crashes.
+                if (methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                    methodEnv.ParentDecl is StructDecl tagPInvokeStruct && tagPInvokeStruct.IsFrozen)
+                {
+                    wrapperEmitter.EmitOptionalTagHelperPInvoke(csWriter);
                 }
             }
             else

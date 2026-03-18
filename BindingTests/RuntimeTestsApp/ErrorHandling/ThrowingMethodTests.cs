@@ -417,7 +417,6 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [MonoJitCrash] // Typed throws error enum: GC finalizer crashes freeing Swift-allocated error payload
     public void TestValidateRangeTypedCatchWithError()
     {
         // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
@@ -476,7 +475,6 @@ public class BasicThrowingTests : TestBase
 
     #region Pass 2 — S1: Failable Init (SafeDiv, RangedInt)
 
-    [MonoJitCrash] // TODO: verify failable init @_cdecl fix doesn't cause GC finalization crashes
     public void TestSafeDivSuccess()
     {
         var success = SafeDiv.TryCreate(10, 2, out var div);
@@ -486,7 +484,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("SafeDiv.TryCreate success passed");
     }
 
-    [MonoJitCrash] // TODO: verify failable init @_cdecl fix doesn't cause GC finalization crashes
     public void TestSafeDivFailure()
     {
         var success = SafeDiv.TryCreate(10, 0, out var div);
@@ -494,7 +491,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("SafeDiv.TryCreate failure passed");
     }
 
-    [MonoJitCrash] // TODO: verify failable init @_cdecl fix doesn't cause GC finalization crashes
     public void TestRangedIntSuccess()
     {
         var success = RangedInt.TryCreate(5, 1, 10, out var val);
@@ -505,7 +501,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("RangedInt.TryCreate success passed");
     }
 
-    [MonoJitCrash] // TODO: verify failable init @_cdecl fix doesn't cause GC finalization crashes
     public void TestRangedIntFailure()
     {
         var success = RangedInt.TryCreate(15, 1, 10, out var val);

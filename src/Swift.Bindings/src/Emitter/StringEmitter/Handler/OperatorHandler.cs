@@ -126,7 +126,10 @@ namespace BindingsGeneration
         /// <param name="operatorDecl">The operator declaration.</param>
         /// <param name="typeDatabase">The type database.</param>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        public bool EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null)
+        /// <param name="swiftWriter">Optional Swift writer for generating @_cdecl wrappers (xcframework mode).</param>
+        /// <param name="emissionContext">Optional emission context for dedup tracking.</param>
+        public bool EmitOperator(CSharpWriter csWriter, OperatorDecl operatorDecl, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext = null,
+            SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionContext = null)
         {
             var symbol = operatorDecl.OperatorSymbol;
             if (!IsSupportedOperator(symbol))
@@ -162,6 +165,25 @@ namespace BindingsGeneration
 
             // Create a MethodEnvironment for signature handling, passing the P/Invoke helper context
             var methodEnv = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeHelperContext);
+
+            // Check if this operator should use a @_cdecl wrapper.
+            // Frozen struct operators need wrappers because Mono's CallConvSwift can't handle
+            // non-blittable types (e.g., Bool in struct fields) → InvalidProgramException.
+            bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter);
+            if (usesCdeclWrapper && swiftWriter != null && emissionContext != null)
+            {
+                var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
+                if (cdeclSymbol != null)
+                {
+                    methodDecl.MangledName = cdeclSymbol;
+                    methodDecl.UsesWrapperLibrary = true;
+                }
+                else
+                {
+                    usesCdeclWrapper = false;
+                }
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             // Check if signature is supported
@@ -501,7 +523,10 @@ namespace BindingsGeneration
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
             var pinvokeName = GetPInvokeMethodName(operatorDecl.OperatorSymbol);
-            var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
+            // Use wrapper library path when operator has @_cdecl wrapper
+            var libPath = methodDecl.UsesWrapperLibrary
+                ? typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name)
+                : typeDatabase.GetLibraryPath(moduleDecl.Name);
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
             if (pinvokeHelperContext != null)
@@ -693,5 +718,118 @@ namespace BindingsGeneration
         /// <returns>True if != operator will be present in the generated code.</returns>
         public static bool WillHaveInequalityOperator(List<OperatorDecl> operators) =>
             HasExplicitInequalityOperator(operators) || HasExplicitEqualityOperator(operators);
+
+        // ==================== Operator @_cdecl Wrapper ====================
+
+        /// <summary>
+        /// Determines if an operator should use a @_cdecl wrapper.
+        /// Frozen struct operators need wrappers because Mono's CallConvSwift can't handle
+        /// certain field types (Bool) in struct parameters → InvalidProgramException.
+        /// </summary>
+        private static bool ShouldEmitOperatorWrapper(OperatorDecl operatorDecl, ITypeDatabase typeDatabase, SwiftWriter? swiftWriter)
+        {
+            if (swiftWriter == null) return false;
+            if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return false;
+
+            // Only frozen structs projected as C# value types need operator wrappers.
+            // Non-frozen structs, classes, and enums use different P/Invoke strategies.
+            var parentDecl = operatorDecl.ParentDecl as StructDecl;
+            if (parentDecl == null || !parentDecl.IsFrozen) return false;
+
+            // Skip frozen structs projected as classes (they use SafeHandle, different issue)
+            if (typeDatabase.TryGetTypeRecord(parentDecl.SwiftTypeName, out var record) &&
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(record))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Gets the @_cdecl symbol name for an operator wrapper.
+        /// </summary>
+        private static string GetOperatorCdeclSymbol(string moduleName, string typeName, string operatorSymbol, string originalMangledName)
+        {
+            var safeTypeName = typeName.Replace(".", "_");
+            var opName = _pinvokeMethodNames.TryGetValue(operatorSymbol, out var name) ? name : "op";
+            var hash = EmitterUtility.DeterministicHash8(originalMangledName);
+            return $"SBW_{moduleName}_{safeTypeName}_{opName}_{hash}";
+        }
+
+        /// <summary>
+        /// Emits a Swift @_cdecl wrapper for an operator P/Invoke.
+        /// The wrapper forwards the call using C calling convention, avoiding CallConvSwift
+        /// issues with non-blittable frozen struct parameters on Mono.
+        /// </summary>
+        /// <returns>The @_cdecl symbol name, or null if emission was skipped.</returns>
+        private static string? EmitOperatorSwiftWrapper(
+            SwiftWriter swiftWriter,
+            OperatorDecl operatorDecl,
+            TypeDecl parentDecl,
+            ModuleEmissionContext ctx)
+        {
+            var methodDecl = operatorDecl.UnderlyingMethod;
+            var moduleName = parentDecl.SwiftTypeName.Module;
+            var symbolName = GetOperatorCdeclSymbol(moduleName, parentDecl.Name, operatorDecl.OperatorSymbol, methodDecl.MangledName);
+
+            if (!ctx.TryAddMethodWrapperSymbol(symbolName))
+                return symbolName; // Already emitted, but still use it
+
+            var moduleQualifiedSwiftName = parentDecl.SwiftTypeName.ModuleQualifiedName;
+            var funcHash = EmitterUtility.DeterministicHash8(symbolName);
+            var symbol = operatorDecl.OperatorSymbol;
+            bool isUnary = operatorDecl.Kind == OperatorKind.Unary;
+
+            // Determine return type in Swift
+            var returnArg = methodDecl.CSSignature.FirstOrDefault();
+            bool returnsParentType = returnArg?.SwiftTypeSpec is NamedTypeSpec retNts &&
+                retNts.Name == parentDecl.SwiftTypeName.ToString();
+            bool returnsBool = returnArg != null && MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec);
+
+            // Build params and call
+            var paramArgs = methodDecl.CSSignature.Skip(1).ToList();
+
+            swiftWriter.WriteLine();
+            swiftWriter.WriteLines($$"""
+                // Operator @_cdecl wrapper for {{moduleQualifiedSwiftName}}.{{symbol}}.
+                // Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+                @_cdecl("{{symbolName}}")
+                """);
+
+            if (isUnary)
+            {
+                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}(_ operand: {moduleQualifiedSwiftName}) -> {GetSwiftReturnType(returnArg, moduleQualifiedSwiftName)} {{");
+                swiftWriter.Indent++;
+                swiftWriter.WriteLine($"return {symbol}operand");
+                swiftWriter.Indent--;
+            }
+            else
+            {
+                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}(_ lhs: {moduleQualifiedSwiftName}, _ rhs: {moduleQualifiedSwiftName}) -> {GetSwiftReturnType(returnArg, moduleQualifiedSwiftName)} {{");
+                swiftWriter.Indent++;
+                swiftWriter.WriteLine($"return lhs {symbol} rhs");
+                swiftWriter.Indent--;
+            }
+
+            swiftWriter.WriteLine("}");
+            return symbolName;
+        }
+
+        /// <summary>
+        /// Gets the Swift return type string for an operator @_cdecl wrapper.
+        /// </summary>
+        private static string GetSwiftReturnType(ArgumentDecl? returnArg, string moduleQualifiedParentName)
+        {
+            if (returnArg == null) return "Void";
+            if (MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec)) return "Bool";
+
+            // Check common Swift types
+            var typeSpec = returnArg.SwiftTypeSpec;
+            if (typeSpec is NamedTypeSpec nts)
+            {
+                return nts.HasModule() ? nts.Name : moduleQualifiedParentName;
+            }
+
+            return moduleQualifiedParentName;
+        }
     }
 }

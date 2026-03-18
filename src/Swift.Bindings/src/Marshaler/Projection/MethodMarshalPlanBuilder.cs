@@ -549,12 +549,33 @@ internal class MethodMarshalPlanBuilder
         string? syncTypedErrorType = null;
         string? swiftErrorTypeName = null;
         string? typedErrorSafeSuffix = null;
+        // Determine if the typed error type transfers ownership to SafeHandle during MarshalFromSwift.
+        // Complex enums and non-frozen structs are projected as C# classes — MarshalFromSwift
+        // creates a SafeHandle wrapping the buffer pointer, taking ownership. SBW_Free must NOT
+        // be called afterward (double-free → SIGSEGV on GC finalizer thread).
+        bool typedErrorTransfersOwnership = false;
         if (_env.MethodDecl.HasTypedThrows &&
             _env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var syncErrorTypeRecord))
         {
             syncTypedErrorType = syncErrorTypeRecord.CSharpTypeName.FullyQualifiedName;
             swiftErrorTypeName = _env.MethodDecl.ThrownErrorType!.ToString();
             typedErrorSafeSuffix = ErrorDescriptionEmitter.MakeSafeSymbolSuffix(swiftErrorTypeName);
+
+            // MarshalFromSwift<T> takes ownership of the buffer for any type projected as a
+            // C# class (SafeHandle wraps the pointer). This includes:
+            // - Complex enums (non-SimpleEnum) → EnumSafeHandle
+            // - Non-frozen structs → ClassWithOpaquePayload / SafeHandle
+            // - Frozen structs with RequiresMemoryManagement → FrozenStructProjectedAsClass / SafeHandle
+            // - Swift classes → SwiftClassHandle
+            // For these, SBW_Free must NOT be called (double-free when SafeHandle finalizes).
+            bool isComplexEnum = syncErrorTypeRecord.Kind == TypeRecordKind.Enum &&
+                !syncErrorTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+            bool isNonFrozenStruct = syncErrorTypeRecord.Kind == TypeRecordKind.Struct &&
+                !MarshallingHelpers.IsTypeFrozen(syncErrorTypeRecord);
+            bool isFrozenStructAsClass = syncErrorTypeRecord.Kind == TypeRecordKind.Struct &&
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(syncErrorTypeRecord);
+            bool isClass = syncErrorTypeRecord.Kind == TypeRecordKind.Class;
+            typedErrorTransfersOwnership = isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass || isClass;
         }
 
         // When inside a generic type, error helper P/Invokes are in the PInvoke helper class.
@@ -572,6 +593,11 @@ internal class MethodMarshalPlanBuilder
             if (isCdeclConstructor)
             {
                 // C2: Typed throws via @_cdecl out-pointer
+                // For complex enums/non-frozen structs, MarshalFromSwift takes ownership of the buffer
+                // (SafeHandle wraps the pointer). Only free on exception to avoid double-free on GC.
+                var typedErrorFreeBlock = typedErrorTransfersOwnership
+                    ? $"catch {{ {hp}SBW_Free(_typedErrorPtr); throw; }}"
+                    : $"finally {{ {hp}SBW_Free(_typedErrorPtr); }}";
                 errorCheckCode = $$"""
                     if (errorPtr != IntPtr.Zero)
                     {
@@ -597,10 +623,7 @@ internal class MethodMarshalPlanBuilder
                                     var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
                                     throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
                                 }
-                                finally
-                                {
-                                    {{hp}}SBW_Free(_typedErrorPtr);
-                                }
+                                {{typedErrorFreeBlock}}
                             }
                             throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
                         }
@@ -615,6 +638,10 @@ internal class MethodMarshalPlanBuilder
             {
                 // C2: Typed throws — extract error value with nil-check fallback.
                 // SBW_ReleaseError is in the outermost finally, guaranteeing exactly-once release.
+                // For complex enums/non-frozen structs, MarshalFromSwift takes ownership of the buffer.
+                var typedErrorFreeBlock2 = typedErrorTransfersOwnership
+                    ? $"catch {{ {hp}SBW_Free(_typedErrorPtr); throw; }}"
+                    : $"finally {{ {hp}SBW_Free(_typedErrorPtr); }}";
                 errorCheckCode = $$"""
                     if (swiftError.Value != null)
                     {
@@ -641,10 +668,7 @@ internal class MethodMarshalPlanBuilder
                                     var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
                                     throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
                                 }
-                                finally
-                                {
-                                    {{hp}}SBW_Free(_typedErrorPtr);
-                                }
+                                {{typedErrorFreeBlock2}}
                             }
                             throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
                         }

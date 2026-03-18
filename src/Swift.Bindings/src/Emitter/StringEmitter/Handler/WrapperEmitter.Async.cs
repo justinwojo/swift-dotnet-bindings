@@ -1374,6 +1374,13 @@ namespace BindingsGeneration
 
             if (useTypedErrorCallback)
             {
+                // For error types that transfer ownership (complex enums, non-frozen structs,
+                // frozen-with-memory structs, classes): MarshalFromSwift creates a SafeHandle
+                // wrapping the buffer. SBW_Free must only run on exception (otherwise double-free
+                // when SafeHandle finalizes). Same pattern as sync typed-throws path.
+                var asyncErrorFreeBlock = typedErrorTransfersOwnershipAsync
+                    ? "catch { SBW_Free(errorPtr); throw; }"
+                    : "finally { SBW_Free(errorPtr); }";
                 holderErrorBody = $$"""
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         {{typedThrowsCSharpErrorType}} typedError;
@@ -1381,10 +1388,7 @@ namespace BindingsGeneration
                                         {
                                             typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
                                         }
-                                        finally
-                                        {
-                                            SBW_Free(errorPtr);
-                                        }
+                                        {{asyncErrorFreeBlock}}
                                         var exception = new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
@@ -1397,10 +1401,7 @@ namespace BindingsGeneration
                                     {
                                         typedError = ({{typedThrowsCSharpErrorType}})SwiftMarshal.MarshalFromSwift<{{typedThrowsCSharpErrorType}}>(errorPtr);
                                     }
-                                    finally
-                                    {
-                                        SBW_Free(errorPtr);
-                                    }
+                                    {{asyncErrorFreeBlock}}
                                     directTcs.TrySetException(new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage));
                 """;
             }

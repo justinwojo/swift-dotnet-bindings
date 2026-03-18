@@ -914,14 +914,40 @@ public class EveryProtocolEmitter
 
         if (hasGetter)
         {
-            writer.WriteLines($$"""
-                get {
-                    var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                    let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto)
-                    return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
-                }
-                """);
+            // String returns use Utf8Slice encoding from C# to avoid ARC issues.
+            // The C# receiver returns a pointer to SBW_Utf8Slice (ptr + len),
+            // and Swift decodes it into a proper String with correct ARC management.
+            bool isStringGetter = property.SwiftTypeSpec is NamedTypeSpec getterNts && getterNts.Name == "Swift.String";
+            if (isStringGetter)
+            {
+                writer.WriteLines($$"""
+                    get {
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto)
+                        let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+                        var str: Swift.String = ""
+                        if slice.len > 0 {
+                            let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                            str = String(decoding: buffer, as: UTF8.self)
+                        }
+                        slice.ptr.deallocate()
+                        resultPtr.deallocate()
+                        return str
+                    }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    get {
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto)
+                        return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
+                    }
+                    """);
+            }
         }
 
         if (hasSetter)
@@ -1070,12 +1096,34 @@ public class EveryProtocolEmitter
 
         if (hasReturn)
         {
-            writer.WriteLines($$"""
-                    var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                    {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                    return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
-                """);
+            // String returns use Utf8Slice encoding from C# to avoid ARC issues
+            bool isStringMethodReturn = returnType is NamedTypeSpec retNts && retNts.Name == "Swift.String";
+            if (isStringMethodReturn)
+            {
+                writer.WriteLines($$"""
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
+                        let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+                        var str: Swift.String = ""
+                        if slice.len > 0 {
+                            let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                            str = String(decoding: buffer, as: UTF8.self)
+                        }
+                        slice.ptr.deallocate()
+                        resultPtr.deallocate()
+                        return str
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
+                        return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
+                    """);
+            }
         }
         else
         {

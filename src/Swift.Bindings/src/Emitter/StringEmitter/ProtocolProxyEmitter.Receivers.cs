@@ -97,6 +97,11 @@ public partial class ProtocolProxyEmitter
                 if (getterConversion == null && NativeIntOverloadEmitter.TryGetAbiWideningType(property.SwiftTypeSpec, out var abiType))
                     getterConversion = $"({abiType})result";
 
+                // String returns use Utf8Slice encoding to avoid ARC issues with MarshalToSwiftBuffer<SwiftString>.
+                // SwiftString contains ARC-managed references that Unsafe.Write can't retain properly,
+                // causing crashes when Swift reads the result. Utf8Slice passes raw bytes safely.
+                bool isStringReturn = IsStringTypeSpec(property.SwiftTypeSpec);
+
                 writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
                 writer.WriteLine("{");
@@ -104,7 +109,11 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
                 writer.WriteLine($"var result = proxy._csharpImpl!.{pascalPropertyName};");
-                if (getterConversion != null)
+                if (isStringReturn)
+                {
+                    writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+                }
+                else if (getterConversion != null)
                 {
                     writer.WriteLine($"var swiftResult = {getterConversion};");
                     writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
@@ -350,9 +359,16 @@ public partial class ProtocolProxyEmitter
 
         if (hasReturn)
         {
+            // String returns use Utf8Slice encoding to avoid ARC issues with SwiftString.
+            // Skip async methods — their C# return is Task<string>, not string.
+            bool isStringMethodReturn = !method.IsAsync && IsStringTypeSpec(returnType!);
             var existentialReturnConv = GetReceiverExistentialGetterConversion("result", returnType!);
             writer.WriteLine($"var result = proxy._csharpImpl!.{pascalMethodName}({argsString});");
-            if (existentialReturnConv != null)
+            if (isStringMethodReturn)
+            {
+                writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+            }
+            else if (existentialReturnConv != null)
             {
                 writer.WriteLine($"var swiftResult = {existentialReturnConv};");
                 writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
@@ -696,6 +712,16 @@ public partial class ProtocolProxyEmitter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a TypeSpec represents Swift.String.
+    /// String returns from proxy receivers use Utf8Slice encoding instead of MarshalToSwiftBuffer,
+    /// because SwiftString contains ARC-managed references that Unsafe.Write can't retain.
+    /// </summary>
+    private static bool IsStringTypeSpec(TypeSpec typeSpec)
+    {
+        return typeSpec is NamedTypeSpec nts && nts.Name == "Swift.String";
     }
 
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)

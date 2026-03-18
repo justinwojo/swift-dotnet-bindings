@@ -1183,4 +1183,54 @@ public static class ConstructorWrapperEmitter
                 """);
         }
     }
+
+    // ==================== Optional Tag Helper ====================
+
+    /// <summary>
+    /// Gets the @_cdecl symbol name for an Optional tag helper function.
+    /// One per type, shared across all failable inits on that type.
+    /// </summary>
+    public static string GetOptionalTagSymbolName(string moduleName, string typeName)
+    {
+        var safeTypeName = typeName.Replace(".", "_");
+        return $"SBW_GetOptionalTag_{moduleName}_{safeTypeName}";
+    }
+
+    /// <summary>
+    /// Emits a @_cdecl helper function that extracts the Optional tag from a buffer.
+    /// Returns 0 (Some) or 1 (None), matching Swift Optional enum tag semantics.
+    /// Replaces VWT->GetEnumTag function pointer calls which crash on Mono.
+    /// Deduped per type via ModuleEmissionContext.
+    /// </summary>
+    public static void EmitOptionalTagHelper(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ModuleEmissionContext ctx)
+    {
+        var parentTypeDecl = env.ParentDecl as TypeDecl;
+        if (parentTypeDecl == null) return;
+
+        var moduleName = parentTypeDecl.SwiftTypeName.Module;
+        var symbolName = GetOptionalTagSymbolName(moduleName, parentTypeDecl.Name);
+
+        if (!ctx.TryAddOptionalTagHelperSymbol(symbolName))
+            return; // Already emitted for this type
+
+        var moduleQualifiedSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var funcHash = EmitterUtility.DeterministicHash8(symbolName);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Optional tag helper for {{moduleQualifiedSwiftName}}.
+            // Returns 0 (Some) or 1 (None) — matches Swift Optional enum tag layout.
+            // Avoids VWT->GetEnumTag function pointer call which crashes on Mono.
+            @_cdecl("{{symbolName}}")
+            """);
+        swiftWriter.WriteLine($"public func _sbw_getOptionalTag_{funcHash}(_ ptr: UnsafeRawPointer) -> UInt32 {{");
+        swiftWriter.Indent++;
+        swiftWriter.WriteLine($"let optional = ptr.load(as: Optional<{moduleQualifiedSwiftName}>.self)");
+        swiftWriter.WriteLine("return optional == nil ? 1 : 0");
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+    }
 }

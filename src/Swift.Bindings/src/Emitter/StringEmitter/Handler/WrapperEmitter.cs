@@ -30,6 +30,7 @@ namespace BindingsGeneration
         private readonly bool useTypedErrorCallback;
         private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
         private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
+        private readonly bool typedErrorTransfersOwnershipAsync; // true when MarshalFromSwift takes ownership of error buffer
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
@@ -73,6 +74,17 @@ namespace BindingsGeneration
                     typedThrowsSwiftErrorType = _env.MethodDecl.ThrownErrorType!.ToString();
                     typedThrowsCSharpErrorType = errorTypeRecord.CSharpTypeName.FullyQualifiedName;
                     useTypedErrorCallback = true;
+
+                    // Same ownership check as sync path: complex enums, non-frozen structs,
+                    // frozen-with-memory structs, and classes all transfer buffer ownership to SafeHandle.
+                    bool isComplexEnum = errorTypeRecord.Kind == TypeRecordKind.Enum &&
+                        !errorTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                    bool isNonFrozenStruct = errorTypeRecord.Kind == TypeRecordKind.Struct &&
+                        !MarshallingHelpers.IsTypeFrozen(errorTypeRecord);
+                    bool isFrozenStructAsClass = errorTypeRecord.Kind == TypeRecordKind.Struct &&
+                        MarshallingHelpers.IsFrozenStructProjectedAsClass(errorTypeRecord);
+                    bool isClassError = errorTypeRecord.Kind == TypeRecordKind.Class;
+                    typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass || isClassError;
                 }
             }
 

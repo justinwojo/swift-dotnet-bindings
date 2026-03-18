@@ -325,7 +325,8 @@ namespace BindingsGeneration
                         if (deferEqualityToWrapper &&
                             (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!="))
                             continue;
-                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext))
+                        if (operatorHandler.EmitOperator(csWriter, operatorDecl, env.TypeDatabase, pinvokeHelperContext,
+                            swiftWriter: swiftWriter, emissionContext: context.GetEmissionContext()))
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
                         }

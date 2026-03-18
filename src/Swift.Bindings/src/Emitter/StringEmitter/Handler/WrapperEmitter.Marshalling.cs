@@ -246,22 +246,48 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
-                    // For @convention(c) closures, convert delegate to function pointer
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-                    if (isOptional)
+                    if (closureTypeSpec.IsEscaping)
                     {
-                        // Optional @convention(c) closure - handle null case
-                        csWriter.WriteLines($"""
-                            var {csName}FuncPtr = {csName} != null
-                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName})
-                                : ({funcPtrType})IntPtr.Zero;
-                            """);
+                        // Escaping @convention(c) closures may be stored and called later on any thread.
+                        // ThreadStatic is unsound for this case — fall back to Marshal.GetFunctionPointerForDelegate.
+                        // This works on NativeAOT (device); on Mono AOT (simulator) it requires JIT trampolines
+                        // which may not be available. Escaping @convention(c) closures are rare in practice.
+                        if (isOptional)
+                        {
+                            csWriter.WriteLines($"""
+                                var {csName}FuncPtr = {csName} != null
+                                    ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName})
+                                    : ({funcPtrType})IntPtr.Zero;
+                                """);
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName});");
+                        }
                     }
                     else
                     {
-                        // Marshal.GetFunctionPointerForDelegate returns IntPtr, cast to the proper function pointer type
-                        csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName});");
+                        // Non-escaping @convention(c) closures are called synchronously during the P/Invoke
+                        // and cannot be stored by Swift. Use [UnmanagedCallersOnly] callback + [ThreadStatic]
+                        // delegate to avoid Marshal.GetFunctionPointerForDelegate which requires JIT on Mono.
+                        var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+
+                        if (isOptional)
+                        {
+                            csWriter.WriteLines($"""
+                                {baseName}_del = {csName};
+                                var {csName}FuncPtr = {csName} != null
+                                    ? ({funcPtrType}){baseName}_ptr
+                                    : ({funcPtrType})IntPtr.Zero;
+                                """);
+                        }
+                        else
+                        {
+                            csWriter.WriteLine($"{baseName}_del = {csName};");
+                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
+                        }
                     }
                 }
                 else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
@@ -645,6 +671,18 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
+                // Non-escaping @convention(c) closures: emit [UnmanagedCallersOnly(CallConvCdecl)] callback +
+                // [ThreadStatic] delegate storage. Replaces Marshal.GetFunctionPointerForDelegate which
+                // requires JIT (crashes on iOS AOT/Mono). Escaping @convention(c) closures skip this —
+                // they use Marshal.GetFunctionPointerForDelegate (works on NativeAOT, Mono limitation accepted).
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount)
+                    && !closureTypeSpec.IsEscaping)
+                {
+                    EmitConventionCCallback(csWriter, argumentDecl, closureTypeSpec);
+                    csWriter.WriteLine();
+                    continue;
+                }
+
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
                     // Check if this is an async+throwing closure (must check before throwing-only)
@@ -677,6 +715,84 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
                 }
             }
+        }
+
+        /// <summary>
+        /// Gets the convention-c callback field name for a parameter.
+        /// </summary>
+        private static string GetConventionCCallbackName(string methodName, string paramName) =>
+            $"_convC_{methodName}_{NameProvider.StripVerbatimPrefix(paramName)}";
+
+        /// <summary>
+        /// Emits a [ThreadStatic] delegate field, [UnmanagedCallersOnly(CallConvCdecl)] callback,
+        /// and function pointer field for an @convention(c) closure parameter.
+        /// This replaces Marshal.GetFunctionPointerForDelegate which requires JIT on iOS AOT/Mono.
+        ///
+        /// Thread safety: @convention(c) closures are non-escaping by Swift language definition —
+        /// they carry no context and must be called synchronously during the function's execution.
+        /// Swift cannot store them for later or cross-thread invocation. The [ThreadStatic] field
+        /// is therefore safe: each thread has its own slot, and the closure is invoked and completed
+        /// within the same P/Invoke call before the field could be overwritten.
+        /// </summary>
+        private void EmitConventionCCallback(CSharpWriter csWriter, ArgumentDecl argumentDecl, ClosureTypeSpec closureTypeSpec)
+        {
+            var csName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(argumentDecl));
+            var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+            var delegateType = _env.ClosureHandler.GetCSharpDelegateType(closureTypeSpec);
+
+            // Build parameter list and return type using ClosureHandler's type translation
+            var closureReturn = closureTypeSpec.ReturnType;
+            bool returnsVoid = closureReturn.IsEmptyTuple;
+            bool returnsBool = !returnsVoid && MarshallingHelpers.IsBoolType(closureReturn);
+
+            var paramDecls = new List<string>();
+            var paramCalls = new List<string>();
+            int argIdx = 0;
+            foreach (var elem in closureTypeSpec.EachArgument())
+            {
+                var pinvokeType = _env.ClosureHandler.TranslateTypeSpecToPInvokeType(elem);
+                paramDecls.Add($"{pinvokeType} arg{argIdx}");
+                // @convention(c) closures use primitive types — P/Invoke type matches delegate type
+                paramCalls.Add($"arg{argIdx}");
+                argIdx++;
+            }
+
+            var callbackReturnType = returnsVoid ? "void" : (returnsBool ? "byte" : _env.ClosureHandler.TranslateTypeSpecToPInvokeType(closureReturn));
+            var callbackParams = string.Join(", ", paramDecls);
+            var callArgs = string.Join(", ", paramCalls);
+
+            // Build the Cdecl function pointer type (not Swift calling convention)
+            var cdeclFuncPtrType = paramDecls.Count == 0
+                ? $"delegate* unmanaged[Cdecl]<{callbackReturnType}>"
+                : $"delegate* unmanaged[Cdecl]<{string.Join(", ", paramDecls.Select(p => p.Split(' ')[0]))}, {callbackReturnType}>";
+
+            // Emit [ThreadStatic] delegate storage
+            csWriter.WriteLine($"[ThreadStatic] private static {delegateType}? {baseName}_del;");
+            csWriter.WriteLine();
+
+            // Emit [UnmanagedCallersOnly] callback
+            csWriter.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            csWriter.WriteLine($"private static unsafe {callbackReturnType} {baseName}_impl({callbackParams})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            if (returnsVoid)
+            {
+                csWriter.WriteLine($"{baseName}_del!({callArgs});");
+            }
+            else if (returnsBool)
+            {
+                csWriter.WriteLine($"return (byte)({baseName}_del!({callArgs}) ? 1 : 0);");
+            }
+            else
+            {
+                csWriter.WriteLine($"return ({callbackReturnType}){baseName}_del!({callArgs});");
+            }
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            // Emit function pointer field
+            csWriter.WriteLine($"private static unsafe readonly {cdeclFuncPtrType} {baseName}_ptr = &{baseName}_impl;");
         }
 
         /// <summary>
@@ -841,7 +957,15 @@ namespace BindingsGeneration
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                     var cleanupClosureCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
-                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+
+                    // Clear non-escaping @convention(c) ThreadStatic delegate to release references.
+                    if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount)
+                        && !closureTypeSpec.IsEscaping)
+                    {
+                        var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
+                        csWriter.WriteLine($"{baseName}_del = null;");
+                    }
+                    else if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                         _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
                         !closureTypeSpec.IsEscaping)

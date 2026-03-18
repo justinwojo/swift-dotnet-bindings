@@ -101,7 +101,19 @@ namespace BindingsGeneration
             EmitSwiftError(csWriter);
 
             // Check tag: 0 = Some, 1 = None
-            csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+            // For @_cdecl frozen structs, use the @_cdecl tag helper instead of VWT->GetEnumTag.
+            // VWT function pointer calls through CallConvSwift corrupt memory on Mono.
+            if (_env.MethodDecl.UsesCdeclConstructorWrapper && isFrozenValue)
+            {
+                var tagHelperCall = _env.PInvokeHelperContext != null
+                    ? $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_GetOptionalTag"
+                    : "PInvoke_GetOptionalTag";
+                csWriter.WriteLine($"uint tag = {tagHelperCall}((IntPtr)resultBuffer);");
+            }
+            else
+            {
+                csWriter.WriteLine("uint tag = optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultBuffer, optionalMetadata);");
+            }
             csWriter.WriteLine();
             csWriter.WriteLine("if (tag == 1) // None");
             csWriter.WriteLine("{");
@@ -154,6 +166,45 @@ namespace BindingsGeneration
 
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Emits the P/Invoke for the Optional tag helper @_cdecl function.
+        /// Used by TryCreate to avoid VWT->GetEnumTag on Mono.
+        /// Called once per type that has @_cdecl failable initializers on frozen structs.
+        /// </summary>
+        internal void EmitOptionalTagHelperPInvoke(CSharpWriter csWriter)
+        {
+            var parentTypeDecl = _env.ParentDecl as TypeDecl;
+            if (parentTypeDecl == null) return;
+
+            var entryPoint = ConstructorWrapperEmitter.GetOptionalTagSymbolName(
+                parentTypeDecl.SwiftTypeName.Module, parentTypeDecl.Name);
+
+            if (_env.PInvokeHelperContext != null)
+            {
+                _env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = "SwiftBindings",
+                    EntryPoint = entryPoint,
+                    MethodName = "PInvoke_GetOptionalTag",
+                    ReturnType = "uint",
+                    ParametersString = "IntPtr optionalBuffer",
+                    IsAsync = false
+                });
+            }
+            else
+            {
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = "SwiftBindings",
+                    EntryPoint = entryPoint,
+                    MethodName = "PInvoke_GetOptionalTag",
+                    ReturnType = "uint",
+                    ParametersString = "IntPtr optionalBuffer"
+                });
+                csWriter.WriteLine();
+            }
         }
 
         /// <summary>

@@ -72,7 +72,7 @@ public class ClosureTests : TestBase
     // @convention(c) closures: C# callbacks still use CallConvSwift (Strategy B excludes them)
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
-    [MonoJitCrash] // Marshal.GetFunctionPointerForDelegate requires JIT on iOS AOT
+    // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
     public void TestConventionCFunction()
     {
         var result = TestLibFunctions.CallCFunction(x => x + 8);
@@ -80,7 +80,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCFunction(x => x + 8) = {result}");
     }
 
-    [MonoJitCrash] // Marshal.GetFunctionPointerForDelegate requires JIT on iOS AOT
+    // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
     public void TestCBinaryFunction()
     {
         var result = TestLibFunctions.CallCBinaryFunction((a, b) => a * b);

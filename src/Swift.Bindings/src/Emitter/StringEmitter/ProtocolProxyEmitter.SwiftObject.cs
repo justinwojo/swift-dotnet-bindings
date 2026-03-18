@@ -126,6 +126,28 @@ public partial class ProtocolProxyEmitter
                 return Unsafe.Read<T>((void*)ptr);
             }
 
+            /// <summary>
+            /// Marshals a C# string to a heap-allocated SBW_Utf8Slice struct (ptr + len).
+            /// Used for string returns from proxy receiver callbacks to avoid ARC issues
+            /// with SwiftString (which contains managed references that Unsafe.Write can't retain).
+            /// The Swift side reads the Utf8Slice, creates a String, and frees the buffers.
+            /// </summary>
+            private static unsafe IntPtr MarshalStringToUtf8Slice(string value)
+            {
+                var utf8 = System.Text.Encoding.UTF8.GetBytes(value);
+                var dataPtr = (byte*)NativeMemory.Alloc((nuint)Math.Max(utf8.Length, 1));
+                if (utf8.Length > 0)
+                {
+                    fixed (byte* src = utf8)
+                        System.Buffer.MemoryCopy(src, dataPtr, utf8.Length, utf8.Length);
+                }
+                // SBW_Utf8Slice layout: { ptr: UnsafeMutablePointer<UInt8>, len: Int }
+                var slicePtr = (byte*)NativeMemory.Alloc((nuint)(2 * sizeof(nint)));
+                *(IntPtr*)slicePtr = (IntPtr)dataPtr;
+                *(nint*)(slicePtr + sizeof(nint)) = utf8.Length;
+                return (IntPtr)slicePtr;
+            }
+
             #endregion
 
             """);
