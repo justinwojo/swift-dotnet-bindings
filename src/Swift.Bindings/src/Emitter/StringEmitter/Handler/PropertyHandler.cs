@@ -471,34 +471,47 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (needsCdeclWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl3 && parentTypeDecl3.SwiftTypeName != null)
                 {
                     bool isGetter = accessor is GetAccessorDecl;
-                    // Use nested type name (e.g., "OrderContainer.Status") not just leaf name ("Status")
-                    // to avoid @_cdecl collisions between nested types with the same name.
-                    var nestedTypeName = parentTypeDecl3.SwiftTypeName.ModuleQualifiedName
-                        .Substring(parentTypeDecl3.SwiftTypeName.Module.Length + 1);
-                    var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
-                        parentTypeDecl3.SwiftTypeName.Module,
-                        nestedTypeName,
-                        propertyDecl.Name,
-                        isGetter);
 
-                    accessor.Method.UsesCdeclPropertyWrapper = true;
-                    accessor.Method.UsesWrapperLibrary = true;
-                    accessor.Method.UsesFreeFunctionWrapper = true;
-                    accessor.Method.MangledName = symbol;
-
-                    // Get the accessor env for emission
-                    var cdeclCheckEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-
-                    // Emit the Swift @_cdecl wrapper function
-                    if (isGetter)
+                    // Optional<closure> properties: only wrap the getter (IndirectResult buffer).
+                    // The setter uses callback thunks that require direct SwiftClosureData passing,
+                    // not the UnsafeRawPointer buffer transport used by @_cdecl param mapping.
+                    if (!isGetter && propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosureNts &&
+                        optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
+                        optClosureNts.GenericParameters[0] is ClosureTypeSpec)
                     {
-                        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
-                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                        // Leave setter on CallConvSwift — skip @_cdecl wrapping
                     }
                     else
                     {
-                        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
-                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                        // Use nested type name (e.g., "OrderContainer.Status") not just leaf name ("Status")
+                        // to avoid @_cdecl collisions between nested types with the same name.
+                        var nestedTypeName = parentTypeDecl3.SwiftTypeName.ModuleQualifiedName
+                            .Substring(parentTypeDecl3.SwiftTypeName.Module.Length + 1);
+                        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
+                            parentTypeDecl3.SwiftTypeName.Module,
+                            nestedTypeName,
+                            propertyDecl.Name,
+                            isGetter);
+
+                        accessor.Method.UsesCdeclPropertyWrapper = true;
+                        accessor.Method.UsesWrapperLibrary = true;
+                        accessor.Method.UsesFreeFunctionWrapper = true;
+                        accessor.Method.MangledName = symbol;
+
+                        // Get the accessor env for emission
+                        var cdeclCheckEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+
+                        // Emit the Swift @_cdecl wrapper function
+                        if (isGetter)
+                        {
+                            PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+                                swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                        }
+                        else
+                        {
+                            PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+                                swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+                        }
                     }
                 }
                 // ObjC override property wrapper: set flags BEFORE Marshal/Emit so that

@@ -260,7 +260,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("EventHandler with closure works");
     }
 
-    [MonoJitCrash] // Optional closure property returns non-null default on Mono
     public void TestEventHandlerOnCompleteProperty()
     {
         var handler = SwiftEventHandler.CreateDefault();

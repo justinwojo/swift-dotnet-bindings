@@ -386,8 +386,11 @@ internal class MethodMarshalPlanBuilder
                 var returnArg = _env.MethodDecl.CSSignature.First();
                 var allocTypeName = _wrapperSignature.ReturnType;
 
-                // Closure returns: fixed 2-pointer size (funcPtr + context = SwiftClosureData)
-                if (returnArg.SwiftTypeSpec is ClosureTypeSpec)
+                // Closure returns: fixed 2-pointer size (funcPtr + context = SwiftClosureData).
+                // Optional<Closure> uses extra-inhabitant encoding (nil = zero funcPtr),
+                // so it has the same 2-pointer layout.
+                if (returnArg.SwiftTypeSpec is ClosureTypeSpec ||
+                    _env.ClosureHandler.IsOptionalClosure(returnArg.SwiftTypeSpec))
                 {
                     return new IndirectResultSetup
                     {

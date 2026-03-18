@@ -48,8 +48,9 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return false;
 
-        // 3. Skip closure properties
-        if (accessorEnv.ClosureHandler.IsClosure(propertyDecl))
+        // 3. Skip direct closure properties (callback thunks not supported in property wrappers).
+        // Optional<closure> getter allowed — routes through IndirectResult buffer with null check.
+        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
             return false;
 
         // 4. Skip async properties (own wrapper pattern)
@@ -109,7 +110,7 @@ public static class PropertyWrapperEmitter
             return "spi_protected";
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return "metatype_property";
-        if (accessorEnv.ClosureHandler.IsClosure(propertyDecl))
+        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
             return "closure_property";
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return "async_property";
@@ -275,8 +276,11 @@ public static class PropertyWrapperEmitter
         }
         else if (needsResultPtr)
         {
-            // Non-frozen struct or complex enum: write to result buffer
+            // Non-frozen struct, complex enum, or Optional<closure>: write to result buffer
             var qualifiedPropertyType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+            // Strip @escaping/@Sendable — parameter attributes, not valid in metatype position.
+            // No-op for non-closure types.
+            qualifiedPropertyType = qualifiedPropertyType.Replace("@escaping ", "").Replace("@Sendable ", "");
             var metatype = qualifiedPropertyType.StartsWith("any ") ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
             swiftWriter.WriteLine($"let result = {propAccess}");
             swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");

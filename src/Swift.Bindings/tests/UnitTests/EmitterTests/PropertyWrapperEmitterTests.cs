@@ -121,6 +121,83 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_OptionalClosureProperty_ReturnsTrue()
+    {
+        // Optional<Closure> properties ARE allowed — getter routes through IndirectResult buffer
+        // with null check via FunctionPointer == IntPtr.Zero (extra-inhabitant encoding).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        var (propertyDecl, env) = CreatePropertyAndEnv("onComplete", optionalClosureType, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void GetCdeclReturnMapping_OptionalClosure_IndirectResult()
+    {
+        // Optional<Closure> returns must use IndirectResult — written to resultPtr buffer
+        var (_, typeDb) = CreateTestEnvironment("MyType");
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            new NamedTypeSpec("Swift.Bool"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalClosureType, typeDb);
+
+        Assert.Equal("Void", mapping.cdeclReturnType);
+        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.True(needsResultPtr);
+    }
+
+    [Fact]
+    public void GetRejectionReason_DirectClosure_ReturnsClosureProperty()
+    {
+        // Direct closure properties should still be rejected
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
+
+        Assert.Equal("closure_property", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_OptionalClosure_ReturnsNull()
+    {
+        // Optional<Closure> properties should pass all gates (no rejection)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            new NamedTypeSpec("Swift.Bool"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        var (propertyDecl, env) = CreatePropertyAndEnv("onComplete", optionalClosureType, parentDecl, moduleDecl, typeDb);
+
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_AsyncProperty_ReturnsFalse()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");

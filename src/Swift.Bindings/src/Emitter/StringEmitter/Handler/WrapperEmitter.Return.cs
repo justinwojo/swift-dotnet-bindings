@@ -144,6 +144,36 @@ namespace BindingsGeneration
                 // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult
                 var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
 
+                // @_cdecl Optional<closure> return: read SwiftClosureData from resultPtr buffer,
+                // null-check via FunctionPointer == IntPtr.Zero (extra-inhabitant encoding).
+                // Must come before the generic Optional<value-type> path which would return
+                // SwiftOptional<SwiftClosureData>.ToNullable() — wrong type (need Func<>?, not SwiftClosureData?).
+                if (_env.MethodDecl.UsesCdeclWrapper &&
+                    _env.ClosureHandler.IsOptionalClosure(returnArg.SwiftTypeSpec))
+                {
+                    var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
+                    if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
+                    {
+                        csWriter.WriteLines("""
+                            unsafe {
+                                var result = *(SwiftClosureData*)resultPtr;
+                                if (result.FunctionPointer == IntPtr.Zero) return null;
+                            """);
+                        csWriter.Indent++;
+                        if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        else
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        csWriter.Indent--;
+                        csWriter.WriteLine("}");
+                        return;
+                    }
+                }
+
                 // @_cdecl Optional<value-type>: marshal via SwiftOptional<T>.ToNullable()
                 if (_env.MethodDecl.UsesCdeclWrapper &&
                     MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
