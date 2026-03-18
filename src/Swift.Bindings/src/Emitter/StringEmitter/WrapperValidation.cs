@@ -631,6 +631,21 @@ public static class WrapperValidation
     /// </summary>
     public static bool RequiresCdeclForAbiSafety(MethodEnvironment env)
     {
+        // Class methods need @_cdecl in two cases:
+        // 1. Static methods: Swift's @convention(method) passes @thick Self.Type (metatype)
+        //    as a hidden parameter. The C# P/Invoke doesn't include this parameter, so the
+        //    direct call reads garbage from the metatype register → SIGSEGV.
+        // 2. Non-final instance methods: use Tj dispatch thunks (vtable indirection).
+        //    Direct CallConvSwift against Tj symbols crashes on both Mono and NativeAOT.
+        // Final class instance methods use direct symbols with SwiftSelf — safe for CallConvSwift.
+        if (env.ParentDecl is ClassDecl classDecl)
+        {
+            if (env.MethodDecl.MethodType == MethodType.Static)
+                return true;  // Hidden metatype parameter
+            if (!classDecl.IsFinal && !env.MethodDecl.IsFinal)
+                return true;  // Tj dispatch thunk
+        }
+
         // Check self type for instance methods on frozen structs.
         // SwiftSelf<T> passes the struct by value in registers — if the struct has
         // float fields, Mono/NativeAOT may put them in wrong registers (GPR vs FPR).
@@ -669,6 +684,12 @@ public static class WrapperValidation
     /// </summary>
     public static bool RequiresCdeclForAbiSafety(MethodEnvironment env, PropertyDecl propertyDecl)
     {
+        // Non-final class property accessors use Tj dispatch thunks (vtable indirection).
+        // Same as method path — direct CallConvSwift crashes on both runtimes.
+        if (env.ParentDecl is ClassDecl classDecl &&
+            !classDecl.IsFinal && !propertyDecl.IsFinal)
+            return true;
+
         // Check self type for properties on frozen structs (SwiftSelf<T> passes struct by value)
         if (IsSelfTypeCdeclRequired(env))
             return true;

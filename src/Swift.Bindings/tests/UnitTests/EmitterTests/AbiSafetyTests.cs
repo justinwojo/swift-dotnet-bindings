@@ -406,6 +406,80 @@ public class AbiSafetyTests
         Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonFinalClassInstanceMethod_ReturnsTrue()
+    {
+        // Non-final class instance method → Tj dispatch thunk → @_cdecl required
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: false);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FinalClassInstanceMethod_ReturnsFalse()
+    {
+        // Final class instance method → direct symbol (no Tj) → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: true);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_ClassStaticMethod_ReturnsTrue()
+    {
+        // Static method on class → Swift's @convention(method) passes hidden @thick Self.Type
+        // metatype parameter. C# P/Invoke doesn't include it → @_cdecl required.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: false);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FinalClassStaticMethod_ReturnsTrue()
+    {
+        // Static method on final class → still needs hidden metatype → @_cdecl required.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: true);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FinalMethodOnNonFinalClass_ReturnsFalse()
+    {
+        // Final method on non-final class → direct symbol (no Tj) → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: false);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        method.IsFinal = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
     #endregion
 
     #region Property RequiresCdeclForAbiSafety Tests
@@ -691,7 +765,7 @@ public class AbiSafetyTests
     [Fact]
     public void RequiresCdeclForAbiSafety_Method_OnClassParent_ReturnsFalse()
     {
-        // Instance method on class → IntPtr self (not by-value) → self type is always safe
+        // Instance method on final class → IntPtr self (not by-value) → self type is always safe
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -700,6 +774,62 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_OnNonFinalClass_ReturnsTrue()
+    {
+        // Property on non-final class → Tj dispatch thunk for accessor → @_cdecl required
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, isFinal: false);
+        var getterMethod = CreateMethod("name_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_OnFinalClass_ReturnsFalse()
+    {
+        // Property on final class → direct accessor symbol (no Tj) → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, isFinal: true);
+        var getterMethod = CreateMethod("name_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
     }
 
     #endregion
@@ -1093,13 +1223,14 @@ public class AbiSafetyTests
         };
     }
 
-    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl)
+    private static ClassDecl CreateClassDecl(string name, ModuleDecl moduleDecl, bool isFinal = true)
     {
         var decl = new ClassDecl
         {
             Name = name,
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
             MangledName = $"$s10TestModule{name.Length}{name}CN",
+            IsFinal = isFinal,
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
