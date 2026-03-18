@@ -369,15 +369,7 @@ namespace BindingsGeneration
             // Skip proxy class if protocol has members with unsupported module types (SwiftUI, Combine).
             // The Swift EveryProtocol conformance is also skipped (in ModuleHandler), so emitting the
             // C# proxy would produce calls to non-existent Swift symbols (SetVtable, WitnessTableGetter).
-            if (!ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, env.TypeDatabase))
-            {
-                // Intentionally nullable — null triggers direct-emit fallback in EmitProtocolProxy
-                // (used by unit tests without ModuleEmissionContext). GetEmissionContext() would
-                // always return non-null and route all proxies through the deferred path.
-                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.EmissionContext);
-            }
-            else
+            if (ModuleHandler.HasMembersReferencingUnsupportedModule(protocolDecl, env.TypeDatabase))
             {
                 // Use RecordMemberSkipped (not RecordTypeSkipped) because RecordTypeEmitted was
                 // already called for the interface at line 70. RecordTypeSkipped silently drops
@@ -385,6 +377,22 @@ namespace BindingsGeneration
                 ReportCollector.RecordMemberSkipped(BindingItemKind.Type, $"{protocolDecl.Name}Proxy",
                     protocolDecl, SkipReason.SwiftUIConstraint,
                     "Protocol proxy skipped: required members reference unsupported module types.");
+            }
+            // NOTE: When EveryProtocol conformance is skipped (class-bound, genericSig constraint,
+            // method type conflict, etc.), the proxy's NativeMethods still reference
+            // Set{Protocol}_vtable / Get_EveryProtocol_{Protocol}_WitnessTable symbols that
+            // don't exist in the Swift wrapper. This is a pre-existing latent issue that manifests
+            // as a runtime P/Invoke failure when the proxy is first used. Gating the proxy here
+            // would fix the runtime issue but causes C# compile regressions — method bodies that
+            // reference the proxy (e.g., optional property unwrappers) aren't co-gated.
+            // TODO: Gate proxy emission AND co-gate all method bodies that reference the proxy.
+            else
+            {
+                // Intentionally nullable — null triggers direct-emit fallback in EmitProtocolProxy
+                // (used by unit tests without ModuleEmissionContext). GetEmissionContext() would
+                // always return non-null and route all proxies through the deferred path.
+                EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.EmissionContext);
             }
         }
 

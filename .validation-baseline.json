@@ -1,11 +1,11 @@
 {
-  "git_sha": "e4213469",
+  "git_sha": "2ce7973a",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50752,
+        "lines": 50435,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -21,7 +21,7 @@
         "errors": 0,
         "lines": 12308,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BRLMPrinterKit": {
         "compile": "ok",
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 92592,
+        "lines": 92590,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,21 +54,21 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55934,
+        "lines": 55920,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31958,
+        "lines": 31851,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51294,
+        "lines": 51219,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22337,
+        "lines": 22336,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22337,
+        "lines": 22336,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22337,
+        "lines": 22336,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -138,16 +138,16 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15416,
+        "lines": 15401,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Stripe": {
         "compile": "ok",
         "errors": 0,
         "lines": 318,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripeApplePay": {
         "compile": "ok",
@@ -173,7 +173,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7434,
+        "lines": 7430,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32896,
+        "lines": 32885,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -264,14 +264,14 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5056,
+        "lines": 4968,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16099,
+        "lines": 16097,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8163,
+        "lines": 8158,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,14 +313,14 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14348,
+        "lines": 14346,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17243,
+        "lines": 17242,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -376,7 +376,7 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4390,
+        "lines": 4386,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -397,7 +397,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12732,
+        "lines": 12721,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

@@ -80,7 +80,7 @@ Completed March 17, 2026. Lifted the `@MainActor` skip gate so `@MainActor`-isol
 | Library | Root Cause | Fix Area |
 |---------|-----------|----------|
 | **Parchment** | `Unmanaged.passRetained(indexPath)` on return side — `IndexPath` is ObjC-bridged struct, `Unmanaged` requires class. Parameter side fixed but return marshalling in `MethodWrapperEmitter` still uses `Unmanaged<T>` for ObjC-bridged returns. | `MethodWrapperEmitter.cs` return mapping — needs `Unmanaged<AnyObject>` pattern for ObjC-bridged struct returns |
-| **BlinkIDUX** | `missing required module 'BlinkID'` — wrapper compilation needs `-F` for BlinkID dependency framework. Pre-existing inter-module gap, not actor-related. | `SwiftWrapperCompiler.cs` — propagate framework dependencies to wrapper compilation |
+| ~~**BlinkIDUX**~~ | ~~Fixed post-session: AsyncStream @MainActor annotation + async method parameter naming bug (`at: at` → `at: point`).~~ | ~~`AsyncStreamEmitter.cs`, `WrapperEmitter.Async.cs`~~ |
 
 **Custom actors stay deferred**: `actor Counter`-style types require async dispatch through the actor's serial executor — fundamentally different from `@MainActor`. These remain blocked via `ClassDecl { IsActor: true }` and per-member custom actor detection (`IsActorIsolated && !IsMainActorIsolated`).
 
@@ -133,6 +133,7 @@ NativeAOT device target is met (373 pass, 0 fail, 14/15 libraries). These items 
 | `ConfigurationValue` property name collision | Nuke readability | Small | Alternative disambiguation strategy. |
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque. |
 | Stripe validation config fixes | StripeCryptoOnramp, StripeIssuing | Small | Config-only: add `StripeCameraCore` transitive dep, add `Stripe3DS2` as `--framework-dependency`. |
+| Protocol proxy co-gating | Correctness (runtime) | Medium | When EveryProtocol conformance is skipped (class-bound, genericSig constraint, static methods, etc.), the C# proxy still emits `NativeMethods` referencing non-existent Swift symbols (`SetVtable`, `GetWitnessTable`). Causes runtime P/Invoke crash on first proxy use. Fix requires co-gating proxy emission AND all method bodies that reference the proxy (existential return unwrappers, optional property getters). Pre-existing issue exposed during validation wrapper fix work. See `ProtocolHandler.cs` TODO comment. |
 
 ---
 

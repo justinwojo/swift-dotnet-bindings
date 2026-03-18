@@ -1581,7 +1581,12 @@ public static class ProtocolExtensionEmitter
             ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
         var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
 
-        ctx.AddProtocolExtWrapperLine($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{ {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in");
+        // For zero-parameter closures, omit the parameter list and `in` keyword.
+        // `{ in ... }` is a syntax error; `{ ... }` is correct for parameterless closures.
+        var closureParamList = closureArgs.Count > 0
+            ? $" {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in"
+            : "";
+        ctx.AddProtocolExtWrapperLine($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{{closureParamList}");
 
         // For each arg: allocate buffer, copy, pass to cdecl
         for (int i = 0; i < closureArgs.Count; i++)

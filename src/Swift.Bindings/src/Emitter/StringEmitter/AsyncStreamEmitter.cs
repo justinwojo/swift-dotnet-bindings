@@ -103,9 +103,14 @@ public static class AsyncStreamEmitter
         // the actor's serial executor. @MainActor properties are allowed — under
         // -strict-concurrency=minimal, nonisolated wrappers can access them.
         bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true;
-        // Custom actor properties need `await` to access from within a Task
-        var awaitPrefix = isOnCustomActor ? "await " : "";
-        var taskOpen = "Task {";
+        // @MainActor properties need Task { @MainActor in } and await to access the
+        // actor-isolated member. Unmanaged<T> strips isolation from the reference, so
+        // even inside a @MainActor context, the compiler requires explicit `await`.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated);
+        // Custom actor and @MainActor properties need `await` for actor-isolated access
+        var awaitPrefix = (isOnCustomActor || needsMainActor) ? "await " : "";
+        var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
 
         // Self reconstruction for instance properties
         var selfReconstruction = "";
@@ -114,8 +119,9 @@ public static class AsyncStreamEmitter
             selfReconstruction = $"    let __self = Unmanaged<{parentTypeName}>.fromOpaque(self_).takeUnretainedValue()\n";
         }
 
+        var mainActorAnnotation = needsMainActor ? "@MainActor\n" : "";
         swiftWriter.WriteLines($$"""
-            @_cdecl("{{swiftWrapperName}}")
+            {{mainActorAnnotation}}@_cdecl("{{swiftWrapperName}}")
             public func {{swiftWrapperName}}(
                 {{selfParam}}_ elementCallback: @convention(c) (UnsafeRawPointer, Int64) -> Bool,
                 _ completionCallback: @convention(c) (Int64) -> Void,

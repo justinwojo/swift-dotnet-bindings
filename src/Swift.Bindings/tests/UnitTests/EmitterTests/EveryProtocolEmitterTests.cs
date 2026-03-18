@@ -1247,6 +1247,196 @@ public class EveryProtocolEmitterTests
 
     #endregion
 
+    #region GenericSig Constraint Gate Tests
+
+    [Fact]
+    public void EmitProtocolConformance_ObjCModuleConstraint_SkipsConformance()
+    {
+        // Protocol with genericSig "<τ_0_0 : UIKit.UICollectionViewDataSource>"
+        // should be skipped because UIKit is an ObjC module
+        var protocol = CreateProtocolWithMethod("SkeletonDataSource", "numSections");
+        protocol.GenericSignature = "<τ_0_0 : UIKit.UICollectionViewDataSource>";
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_UnderscorePrefixedExternalConstraint_SkipsConformance()
+    {
+        // Protocol with constraint to underscore-prefixed protocol from external module
+        // (e.g., StripeApplePay._stpinternal_STPApplePayContextDelegateBase)
+        var protocol = CreateProtocolWithMethod("MyDelegate", "didComplete");
+        protocol.GenericSignature = "<τ_0_0 : ExternalModule._internalBase>";
+
+        // Module name for emitter is "TestModule", so "ExternalModule" is external
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameModuleSkippedConstraint_SkipsConformance()
+    {
+        // If ParentProtocol is skipped (has static method requirements)
+        // then ChildProtocol with genericSig "<τ_0_0 : TestModule.ParentProtocol>" should also be skipped
+        var parentProtocol = CreateSimpleProtocol("ParentProtocol");
+        parentProtocol.Methods.Add(CreateMethodDecl("doStuff"));
+        parentProtocol.Methods.Add(CreateStaticMethodDecl("staticReq")); // causes skip
+
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.GenericSignature = "<τ_0_0 : TestModule.ParentProtocol>";
+
+        var globalSignatures = new HashSet<string>();
+
+        // First, emit parent — it will be skipped due to static method requirements
+        var parentOutput = EmitFullConformance(parentProtocol, globalSignatures);
+        Assert.DoesNotContain("extension EveryProtocol", parentOutput);
+
+        // Now emit child — should be skipped because parent was skipped
+        var childOutput = EmitFullConformance(childProtocol, globalSignatures);
+        Assert.DoesNotContain("extension EveryProtocol", childOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_TrivialConstraints_DoesNotSkip()
+    {
+        // Protocol with only trivial constraints (Sendable, Copyable) should not be skipped
+        var protocol = CreateProtocolWithMethod("SimpleProto", "doSomething");
+        protocol.GenericSignature = "<τ_0_0 : Swift.Sendable>";
+
+        var output = EmitConformance(protocol);
+        Assert.Contains("extension EveryProtocol: TestModule.SimpleProto", output);
+    }
+
+    [Fact]
+    public void PreScan_ChildBeforeParent_StillSkipsChild()
+    {
+        // If ChildProtocol (with genericSig referencing ParentProtocol) appears BEFORE
+        // ParentProtocol in the list, PreScanProtocols should still detect the dependency.
+        var parentProtocol = CreateSimpleProtocol("ParentProtocol");
+        parentProtocol.Methods.Add(CreateMethodDecl("doStuff"));
+        parentProtocol.Methods.Add(CreateStaticMethodDecl("staticReq")); // causes skip
+
+        var childProtocol = CreateProtocolWithMethod("ChildProtocol", "childMethod");
+        childProtocol.GenericSignature = "<τ_0_0 : TestModule.ParentProtocol>";
+
+        // Child appears BEFORE parent in the list (reverse order)
+        var protocols = new List<ProtocolDecl> { childProtocol, parentProtocol };
+
+        // Create a fresh emitter to test PreScan
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.PreScanProtocols(protocols);
+
+        var globalSignatures = new HashSet<string>();
+
+        // Child should be skipped even though it appeared first
+        var childOutput = new StringWriter();
+        var childWriter = new SwiftWriter(childOutput);
+        emitter.EmitProtocolConformance(childWriter, childProtocol, globalSignatures);
+        Assert.DoesNotContain("extension EveryProtocol", childOutput.ToString());
+    }
+
+    #endregion
+
+    #region Method Type Conflict Gate Tests
+
+    [Fact]
+    public void EmitProtocolConformance_MethodTypeConflict_SkipsConformance()
+    {
+        // Two protocols with same method label but different parameter types
+        // The second protocol should be skipped because its register(delegate:)
+        // has a different type than the first protocol's register(delegate:)
+        var firstProtocol = CreateSimpleProtocol("FirstHandler");
+        firstProtocol.Methods.Add(CreateMethodDeclWithParam("register", "delegate", "FirstDelegate"));
+        firstProtocol.Methods.Add(CreateMethodDeclWithParam("parse", "data", "Foundation.Data"));
+
+        var secondProtocol = CreateSimpleProtocol("SecondHandler");
+        secondProtocol.Methods.Add(CreateMethodDeclWithParam("register", "delegate", "SecondDelegate"));
+        secondProtocol.Methods.Add(CreateMethodDecl("createResponse"));
+
+        var globalSignatures = new HashSet<string>();
+
+        // First protocol emits normally
+        var firstOutput = EmitFullConformance(firstProtocol, globalSignatures);
+        Assert.Contains("extension EveryProtocol: TestModule.FirstHandler", firstOutput);
+        Assert.Contains("public func register", firstOutput);
+
+        // Second protocol skipped due to type conflict on register(delegate:)
+        var secondOutput = EmitFullConformance(secondProtocol, globalSignatures);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.SecondHandler", secondOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameSignatureNoConflict_EmitsConformance()
+    {
+        // Two protocols with same method (same name, same types) — no conflict
+        var firstProtocol = CreateProtocolWithMethod("ProtoA", "update");
+        var secondProtocol = CreateSimpleProtocol("ProtoB");
+        secondProtocol.Methods.Add(CreateMethodDecl("update"));
+        secondProtocol.Methods.Add(CreateMethodDecl("finish"));
+
+        var globalSignatures = new HashSet<string>();
+        EmitFullConformance(firstProtocol, globalSignatures);
+
+        // Second protocol should still emit (update is satisfied by first, finish is new)
+        var output = EmitFullConformance(secondProtocol, globalSignatures);
+        Assert.Contains("extension EveryProtocol: TestModule.ProtoB", output);
+        Assert.Contains("public func finish", output);
+    }
+
+    #endregion
+
+    #region Method Type Conflict Helper Methods
+
+    private static MethodDecl CreateMethodDeclWithParam(string name, string label, string typeName)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (void)
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                // Parameter
+                new ArgumentDecl
+                {
+                    Name = label,
+                    SwiftTypeSpec = new NamedTypeSpec(typeName),
+                    PrivateName = label,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateStaticMethodDecl(string name)
+    {
+        return CreateMethodDecl(name, MethodType.Static);
+    }
+
+    #endregion
+
     #region Codable/Composition Helper Methods
 
     private static ProtocolDecl CreateProtocolWithInheritance(string name, params string[] inheritedNames)

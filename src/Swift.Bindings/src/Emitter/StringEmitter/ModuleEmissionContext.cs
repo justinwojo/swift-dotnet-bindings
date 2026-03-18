@@ -386,6 +386,13 @@ public sealed class ModuleEmissionContext
         return _conformanceDecisions.TryGetValue(protocolName, out var decision) && decision.Emitted;
     }
 
+    /// <summary>Returns the skip reason for a protocol whose conformance was not emitted, or null if emitted/unknown.</summary>
+    public string? GetConformanceSkipReason(string protocolName)
+    {
+        return _conformanceDecisions.TryGetValue(protocolName, out var decision) && !decision.Emitted
+            ? decision.SkipReason : null;
+    }
+
     /// <summary>Returns all recorded conformance decisions.</summary>
     public IReadOnlyDictionary<string, ProtocolConformanceDecision> ConformanceDecisions => _conformanceDecisions;
 }

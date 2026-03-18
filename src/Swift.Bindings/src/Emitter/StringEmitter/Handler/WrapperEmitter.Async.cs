@@ -617,11 +617,14 @@ namespace BindingsGeneration
             var methodCallArgs = string.Join(", ", _env.MethodDecl.CSSignature.Skip(1)
                 .Select(p =>
                 {
+                    // In @_cdecl mode, the function parameter uses PrivateName (Swift internal name)
+                    // while Name is the Swift external label. Use the correct variable name.
+                    var varName = (usesCdecl && !string.IsNullOrEmpty(p.PrivateName)) ? p.PrivateName : p.Name;
                     var argName = p.Name switch
                     {
-                        var n when n.StartsWith("arg") => n,
-                        var n when n.StartsWith("_") => $"{n.Substring(1)}: {n}",
-                        var n => $"{n}: {n}"
+                        var n when n.StartsWith("arg") => varName,
+                        var n when n.StartsWith("_") => $"{n.Substring(1)}: {varName}",
+                        var n => $"{n}: {varName}"
                     };
 
                     // For non-frozen params, use the captured value

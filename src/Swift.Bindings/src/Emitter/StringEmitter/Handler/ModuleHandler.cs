@@ -607,6 +607,10 @@ namespace BindingsGeneration
             // requirements when conforming to protocols that inherit Decodable/Encodable/Error.
             emitter.EmitCodableStubsIfNeeded(swiftWriter, suitableProtocols, protocols, typeDatabase);
 
+            // Pre-scan: identify protocols that will be skipped by structural gates.
+            // This makes genericSig constraint checks order-independent.
+            emitter.PreScanProtocols(suitableProtocols);
+
             // Track emitted method signatures globally to detect conflicts across protocols
             // Key is the Swift method signature (e.g., "removeAll()")
             var globalEmittedSignatures = new HashSet<string>();

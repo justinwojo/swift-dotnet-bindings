@@ -20,6 +20,18 @@ public class EveryProtocolEmitter
     private readonly string _moduleName;
     private readonly ModuleEmissionContext? _emissionContext;
 
+    /// <summary>
+    /// Tracks full method signatures (name + param types + return type) across all protocols.
+    /// Populated in parallel with globalEmittedSignatures (label-only) to detect type-level conflicts.
+    /// </summary>
+    private HashSet<string>? _globalFullSignatures;
+
+    /// <summary>
+    /// Tracks protocols whose EveryProtocol conformance was skipped.
+    /// Used to detect genericSig constraints that reference unsatisfied protocols.
+    /// </summary>
+    private readonly HashSet<string> _skippedProtocols = new(StringComparer.Ordinal);
+
     public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
         _typeDatabase = typeDatabase;
@@ -338,6 +350,9 @@ public class EveryProtocolEmitter
                 continue;
             }
 
+            // Track full signature (including param types) for type-level conflict detection
+            _globalFullSignatures?.Add(GetSwiftMethodFullSignature(method));
+
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
@@ -370,6 +385,26 @@ public class EveryProtocolEmitter
             paramLabels.Add(label == "_" ? "_" : label);
         }
         return $"{method.Name}({string.Join(":", paramLabels)}{(paramLabels.Count > 0 ? ":" : "")})";
+    }
+
+    /// <summary>
+    /// Gets a full Swift method signature including parameter types and return type.
+    /// Used for conflict detection — two methods with the same label signature but different
+    /// types are incompatible for a single EveryProtocol class method.
+    /// </summary>
+    private string GetSwiftMethodFullSignature(MethodDecl method)
+    {
+        var parts = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var label = GetSwiftParameterLabel(param, i);
+            var typeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            parts.Add($"{label}:{typeName}");
+        }
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var returnStr = returnType != null && !returnType.IsEmptyTuple ? GetSwiftTypeName(returnType) : "Void";
+        return $"{method.Name}({string.Join(",", parts)})->{returnStr}";
     }
 
     /// <summary>
@@ -450,6 +485,105 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Pre-scans all protocols to populate _skippedProtocols BEFORE any emission.
+    /// This makes genericSig constraint checks order-independent: even if ChildProtocol
+    /// appears before ParentProtocol in the list, the pre-scan will have already identified
+    /// ParentProtocol as unsatisfied if it has static method requirements, etc.
+    /// </summary>
+    public void PreScanProtocols(IReadOnlyList<ProtocolDecl> protocols)
+    {
+        // Pass 1: identify protocols that will be skipped by structural gates
+        foreach (var protocolDecl in protocols)
+        {
+            if (WillSkipConformance(protocolDecl))
+            {
+                _skippedProtocols.Add(protocolDecl.Name);
+                if (protocolDecl.SwiftTypeName != null)
+                    _skippedProtocols.Add(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+            }
+        }
+
+        // Pass 2: propagate skips through genericSig constraints.
+        // Protocols whose genericSig references a skipped protocol must also be skipped.
+        // Repeat until no new skips are found (handles transitive chains).
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var protocolDecl in protocols)
+            {
+                if (_skippedProtocols.Contains(protocolDecl.Name))
+                    continue;
+                if (HasUnsatisfiedProtocolConstraintInGenericSig(protocolDecl))
+                {
+                    _skippedProtocols.Add(protocolDecl.Name);
+                    if (protocolDecl.SwiftTypeName != null)
+                        _skippedProtocols.Add(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks whether a protocol's EveryProtocol conformance would be skipped by the structural gates.
+    /// Does NOT check order-dependent gates (method type conflicts) — those are checked at emission time.
+    /// </summary>
+    private bool WillSkipConformance(ProtocolDecl protocolDecl)
+    {
+        if (protocolDecl.HasSelfRequirement)
+            return true;
+
+        bool hasSelfTypedMembers = protocolDecl.Methods
+            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+            .Any(m => HasGenericTypeParamInSignature(m));
+        bool hasSelfTypedProperties = protocolDecl.Properties
+            .Where(p => !p.IsStatic)
+            .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
+        bool hasSelfTypedSubscripts = protocolDecl.Subscripts
+            .Where(s => !s.IsStatic)
+            .Any(s => ContainsGenericTypeParam(s.ReturnTypeSpec) ||
+                      s.IndexParameters.Any(ip => ContainsGenericTypeParam(ip.SwiftTypeSpec)));
+        if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
+            return true;
+
+        if (IsClassBoundProtocol(protocolDecl))
+            return true;
+
+        if (InheritsCaseIterable(protocolDecl))
+            return true;
+
+        if (ModuleHandler.InheritsProtocolWithAssociatedTypes(protocolDecl))
+            return true;
+
+        if (InheritsUnsatisfiedStdlibProtocol(protocolDecl))
+            return true;
+
+        if (protocolDecl.Methods.Any(m => m.IsConstructor))
+            return true;
+
+        var hasImplementableMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
+                                      protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+                                      protocolDecl.Subscripts.Any(s => !s.IsStatic);
+        var hasStaticRequirements = protocolDecl.Properties.Any(p => p.IsStatic) ||
+                                    protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static);
+        bool hasNonTrivialInheritance = protocolDecl.InheritedProtocols.Any(inh =>
+                inh.NameWithoutModule != "AnyObject" &&
+                inh.NameWithoutModule != "Escapable" &&
+                inh.NameWithoutModule != "Copyable" &&
+                inh.NameWithoutModule != "Sendable" &&
+                inh.NameWithoutModule != "SendableMetatype");
+
+        if (!hasImplementableMembers && !hasStaticRequirements && !hasNonTrivialInheritance)
+            return true;
+
+        if (protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
     /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
     /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track method signatures globally across protocols.
@@ -469,12 +603,25 @@ public class EveryProtocolEmitter
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
     {
+        // Lazily initialize the full-signature tracker when global dedup is active
+        if (globalEmittedSignatures != null && _globalFullSignatures == null)
+            _globalFullSignatures = new HashSet<string>(StringComparer.Ordinal);
+
+        // Helper to record a skip decision and track the protocol for genericSig constraint checks
+        void RecordSkip(string reason)
+        {
+            _skippedProtocols.Add(protocolDecl.Name);
+            if (protocolDecl.SwiftTypeName != null)
+                _skippedProtocols.Add(protocolDecl.SwiftTypeName.ModuleQualifiedName);
+            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, reason);
+        }
+
         // Skip protocols with Self requirements - these require special handling
         // that can't be done with simple type erasure to Any
         if (protocolDecl.HasSelfRequirement)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self requirement");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "HasSelfRequirement");
+            RecordSkip("HasSelfRequirement");
             return;
         }
 
@@ -497,7 +644,7 @@ public class EveryProtocolEmitter
         if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self-typed members (generic type params in signature)");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "SelfTypedMembers");
+            RecordSkip("SelfTypedMembers");
             return;
         }
 
@@ -507,7 +654,17 @@ public class EveryProtocolEmitter
         if (IsClassBoundProtocol(protocolDecl))
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: class-bound protocol (NSObjectProtocol/AnyObject)");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "ClassBound");
+            RecordSkip("ClassBound");
+            return;
+        }
+
+        // Skip protocols whose genericSig constrains Self (τ_0_0) to conform to a protocol
+        // that EveryProtocol can't satisfy — either from a known ObjC module or a previously
+        // skipped protocol from the same module.
+        if (HasUnsatisfiedProtocolConstraintInGenericSig(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: genericSig constrains Self to unsatisfied protocol");
+            RecordSkip("UnsatisfiedProtocolConstraint");
             return;
         }
 
@@ -516,7 +673,7 @@ public class EveryProtocolEmitter
         if (InheritsCaseIterable(protocolDecl))
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: CaseIterable requires compiler synthesis");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "CaseIterable");
+            RecordSkip("CaseIterable");
             return;
         }
 
@@ -525,7 +682,7 @@ public class EveryProtocolEmitter
         if (ModuleHandler.InheritsProtocolWithAssociatedTypes(protocolDecl))
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherits protocol with associated types");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "InheritedAssociatedTypes");
+            RecordSkip("InheritedAssociatedTypes");
             return;
         }
 
@@ -534,7 +691,7 @@ public class EveryProtocolEmitter
         if (InheritsUnsatisfiedStdlibProtocol(protocolDecl))
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: inherits unsatisfied stdlib protocol");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "UnsatisfiedStdlibProtocol");
+            RecordSkip("UnsatisfiedStdlibProtocol");
             return;
         }
 
@@ -543,7 +700,7 @@ public class EveryProtocolEmitter
         if (protocolDecl.Methods.Any(m => m.IsConstructor))
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has constructor requirements");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "ConstructorRequirements");
+            RecordSkip("ConstructorRequirements");
             return;
         }
 
@@ -570,7 +727,7 @@ public class EveryProtocolEmitter
         if (!hasImplementableMembers && !hasStaticRequirements && !hasNonTrivialInheritance)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members and no static requirements");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "NoImplementableMembers");
+            RecordSkip("NoImplementableMembers");
             return;
         }
 
@@ -581,8 +738,38 @@ public class EveryProtocolEmitter
         if (hasStaticMethodRequirements)
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has static method requirements (can't generate correct stub signatures)");
-            _emissionContext?.RecordConformanceDecision(protocolDecl.Name, false, "StaticMethodRequirements");
+            RecordSkip("StaticMethodRequirements");
             return;
+        }
+
+        // Pre-scan: if any required method's label signature conflicts with an already-emitted
+        // method but has DIFFERENT parameter/return types, the existing implementation won't
+        // satisfy this protocol. Skip the entire conformance to avoid partial extension errors.
+        // Example: HTTPHandler.register(delegate: HTTPHandlerDelegate) blocks
+        // HTTPServerHandler.register(delegate: HTTPServerDelegate) — different param types.
+        // But if both protocols have update() with identical signatures, one impl satisfies both.
+        if (hasImplementableMembers && _globalFullSignatures != null && globalEmittedSignatures != null)
+        {
+            var requiredMethods = protocolDecl.Methods
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional)
+                .ToList();
+            bool hasTypeConflict = false;
+            foreach (var method in requiredMethods)
+            {
+                var labelSig = GetSwiftMethodSignature(method);
+                var fullSig = GetSwiftMethodFullSignature(method);
+                // If the label signature conflicts AND the full signature is different,
+                // this protocol can't be satisfied — the existing method has wrong types.
+                if (globalEmittedSignatures.Contains(labelSig) && !_globalFullSignatures.Contains(fullSig))
+                {
+                    _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: method '{labelSig}' conflicts with different parameter types");
+                    RecordSkip("MethodTypeConflict");
+                    hasTypeConflict = true;
+                    break;
+                }
+            }
+            if (hasTypeConflict)
+                return;
         }
 
         if (hasImplementableMembers)
@@ -1137,6 +1324,93 @@ public class EveryProtocolEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a protocol's genericSig constrains Self (τ_0_0) to conform to a protocol
+    /// that EveryProtocol can't satisfy. Covers three cases:
+    /// 1. Constraint from a known ObjC module (UIKit, AppKit, Foundation) — requires NSObject
+    /// 2. Constraint referencing a protocol whose conformance was already skipped (same module)
+    /// 3. Constraint referencing an underscore-prefixed internal protocol from another module
+    /// </summary>
+    internal bool HasUnsatisfiedProtocolConstraintInGenericSig(ProtocolDecl protocolDecl)
+    {
+        if (string.IsNullOrEmpty(protocolDecl.GenericSignature))
+            return false;
+
+        var sig = protocolDecl.GenericSignature;
+
+        // Trivial protocols that don't imply unsatisfied conformance
+        var trivialProtocols = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Copyable", "Escapable", "Sendable", "SendableMetatype",
+            "AnyObject", "Error", "NSObjectProtocol"
+        };
+
+        foreach (var constraint in ParseGenericSigConstraints(sig))
+        {
+            // Check unqualified names
+            if (trivialProtocols.Contains(constraint))
+                continue;
+
+            var dotIdx = constraint.IndexOf('.');
+            if (dotIdx < 0)
+            {
+                // Unqualified name — check if it's a skipped same-module protocol
+                if (_skippedProtocols.Contains(constraint))
+                    return true;
+                continue;
+            }
+
+            var moduleName = constraint.Substring(0, dotIdx);
+            var typeName = constraint.Substring(dotIdx + 1);
+
+            // Case 1: Known ObjC/Apple framework module
+            if (AppleFrameworkRegistry.IsAutoBridgeModule(moduleName) ||
+                AppleFrameworkRegistry.IsOptionalFallbackModule(moduleName) ||
+                moduleName == "ObjectiveC" || moduleName == "Foundation")
+            {
+                return true;
+            }
+
+            // Case 2: Same-module protocol that was already skipped
+            if (_skippedProtocols.Contains(constraint) || _skippedProtocols.Contains(typeName))
+                return true;
+
+            // Case 3: Underscore-prefixed internal protocol from external module.
+            // These are often ObjC protocol backing types (e.g., StripeApplePay._stpinternal_STPApplePayContextDelegateBase)
+            // that we can't inspect. Conservative: skip rather than emit broken conformance.
+            if (moduleName != _moduleName && typeName.StartsWith("_"))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Parses constraint protocol names from a genericSig string.
+    /// Extracts types after "τ_0_0 : " markers (Self constraints).
+    /// </summary>
+    private static IEnumerable<string> ParseGenericSigConstraints(string sig)
+    {
+        var marker = "τ_0_0 : ";
+        int idx = 0;
+        while (idx < sig.Length)
+        {
+            var pos = sig.IndexOf(marker, idx, StringComparison.Ordinal);
+            if (pos < 0)
+                break;
+
+            pos += marker.Length;
+            var end = pos;
+            while (end < sig.Length && sig[end] != ',' && sig[end] != '>')
+                end++;
+            var constraint = sig.Substring(pos, end - pos).Trim();
+            idx = end;
+
+            if (!string.IsNullOrEmpty(constraint))
+                yield return constraint;
+        }
     }
 
     /// <summary>
