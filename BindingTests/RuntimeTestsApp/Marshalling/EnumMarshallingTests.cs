@@ -363,7 +363,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info($"MediaSource.Single: {result}");
     }
 
-    [MonoJitCrash]
     public void TestMediaSourcePlaylist()
     {
         using var source = MediaSource.Playlist(new[] { "a", "b", "c" });
@@ -391,7 +390,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info($"TryGetSingle: {name}");
     }
 
-    [MonoJitCrash]
     public void TestMediaSourceTryGetPlaylist()
     {
         using var source = MediaSource.Playlist(new[] { "x", "y" });

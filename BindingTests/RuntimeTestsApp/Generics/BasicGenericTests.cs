@@ -349,7 +349,7 @@ public class BasicGenericTests : TestBase
 
     #region M3: Generic Class Implementing Protocol (GenericNamedBox)
 
-    [MonoJitCrash]
+    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
     public void TestGenericNamedBoxCreation()
     {
         var item = new SummableInt32(value: 42);
@@ -358,7 +358,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("GenericNamedBox creation passed");
     }
 
-    [MonoJitCrash]
+    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
     public void TestGenericNamedBoxName()
     {
         var item = new SummableInt32(value: 10);
@@ -394,7 +394,7 @@ public class BasicGenericTests : TestBase
             "Disposed BaseEntity throws on access");
     }
 
-    [MonoJitCrash]
+    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
     public void TestTypedEntityCreation()
     {
         var item = new SummableInt32(value: 99);

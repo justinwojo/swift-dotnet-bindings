@@ -280,11 +280,33 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             try
             {
                 SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
+
+                // For true Swift class types (not ISwiftStruct), the element IS a class
+                // pointer stored in the buffer. Read the pointer and pass it directly —
+                // MarshalFromSwift/NewFromPayload for classes expects the pointer value,
+                // not a buffer containing it. Always free the temp buffer afterward.
+                if (typeof(ISwiftObject).IsAssignableFrom(typeof(Element))
+                    && !typeof(Element).IsValueType
+                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element)))
+                {
+                    IntPtr classPointer = *(IntPtr*)payload;
+                    NativeMemory.Free(payload);
+                    payload = null;
+                    return SwiftMarshal.MarshalFromSwift<Element>(classPointer);
+                }
+
                 return SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
             }
             finally
             {
-                NativeMemory.Free(payload);
+                // ISwiftStruct.NewFromPayload takes ownership of the buffer
+                // (stores it in SwiftSafeHandle which frees on dispose).
+                // Only free for non-ISwiftStruct types (primitives, classes, tuples).
+                // Note: class types are handled above and null out payload.
+                if (payload != null && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element)))
+                {
+                    NativeMemory.Free(payload);
+                }
             }
         }
         set

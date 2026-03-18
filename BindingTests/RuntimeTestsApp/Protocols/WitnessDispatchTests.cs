@@ -33,7 +33,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region Protocol Conformance Checks (Tier 1)
 
-    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestSimpleItemConformance()
     {
         var item = new SimpleItem(id: "c1", label: "Check");
@@ -49,7 +48,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("MutableItem conforms to IHasValue");
     }
 
-    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestDisplayItemConformance()
     {
         var item = new DisplayItem(text: "Hi");
@@ -73,7 +71,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info("MultiConformingValue conforms to 4 arithmetic protocols");
     }
 
-    [MonoJitCrash] // Class constructor with string params: non-blittable through CallConvSwift
     public void TestPersonConformance()
     {
         var person = new Person(name: "Alice", age: 30);
@@ -164,7 +161,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region String Method Dispatch Through Interface (Tier 2)
 
-    [MonoJitCrash] // class constructor with SwiftString.Buffer params: Mono JIT crash (works on NativeAOT) // Class constructor with string params: InvalidCastException at runtime
     public void TestDescribeMethodThroughInterface()
     {
         var item = new SimpleItem(id: "s1", label: "Widget");
@@ -183,7 +179,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"((IDisplayable)DisplayItem).GetDisplay() = \"{iface.GetDisplay()}\"");
     }
 
-    [MonoJitCrash] // class constructor with SwiftString.Buffer params: Mono JIT crash (works on NativeAOT) // Class constructor with string params: InvalidCastException at runtime
     public void TestInheritedDescribeThroughDisplayable()
     {
         var item = new DisplayItem(text: "World");
@@ -309,7 +304,6 @@ public class BasicProtocolDispatchTests : TestBase
 
     #region SwiftString Property Access Through Interface (Tier 3 — Mono JIT risk)
 
-    [MonoJitCrash]
     public void TestDescriptionPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "p1", label: "Proto");
@@ -319,7 +313,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"IDescribable.Description = \"{desc}\"");
     }
 
-    [MonoJitCrash]
     public void TestIdPropertyThroughInterface()
     {
         var item = new SimpleItem(id: "id-42", label: "Test");
@@ -329,7 +322,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"ITestIdentifiable.Id = \"{id}\"");
     }
 
-    [MonoJitCrash]
     public void TestNameablePropertyThroughInterface()
     {
         var person = new Person(name: "Charlie", age: 40);
@@ -339,7 +331,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"INameable.Name = \"{name}\"");
     }
 
-    [MonoJitCrash]
     public void TestNamedPropertyGetThroughInterface()
     {
         var item = new NamedItem(name: "TestItem");
@@ -349,7 +340,6 @@ public class BasicProtocolDispatchTests : TestBase
         TestLogger.Info($"INamed.Name = \"{name}\"");
     }
 
-    [MonoJitCrash]
     public void TestMutableNamedPropertySetThroughInterface()
     {
         var item = new MutableNamedItem(name: "Original");

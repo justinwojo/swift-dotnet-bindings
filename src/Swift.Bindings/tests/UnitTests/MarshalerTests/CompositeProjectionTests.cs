@@ -494,4 +494,45 @@ public class CompositeProjectionTests
     }
 
     #endregion
+
+    #region Bug fix regression tests
+
+    [Fact]
+    public void OptionalClass_UsesNullablePointerABI_NotSwiftOptional()
+    {
+        // Bug #1: Optional<SwiftClass> should use nullable pointer ABI (IntPtr.Zero for None,
+        // handle for Some) instead of SwiftOptional<IntPtr> which creates Optional<Swift.Int>
+        // metadata (9 bytes) triggering PayloadBuffer assert on Mono.
+        var classProj = new ClassProjection("TreeNode");
+        var optProj = new OptionalProjection(classProj);
+
+        var plan = optProj.GetParameterPlan("parent");
+
+        // Should NOT use SwiftOptional — should use direct IntPtr with null check
+        Assert.Equal("parentBuffer", plan.PInvokeExpression);
+        var setupCode = string.Join("\n", plan.SetupStatements
+            .OfType<MarshalStatement.Line>().Select(l => l.Code));
+        Assert.Contains("IntPtr.Zero", setupCode);
+        Assert.Contains("DangerousGetHandle()", setupCode);
+        Assert.DoesNotContain("SwiftOptional", setupCode);
+    }
+
+    [Fact]
+    public void OptionalBlittable_WithDangerousGetHandle_ForCdeclWrapper()
+    {
+        // Bug #2/#6: Optional<Int32> in @_cdecl wrappers must use DangerousGetHandle()
+        // (pointer to buffer) not PayloadBuffer.Buffer (dereferenced value).
+        var blittableProj = new BlittableProjection("Int32");
+        var optProj = new OptionalProjection(blittableProj, useDangerousGetHandle: true);
+
+        var plan = optProj.GetParameterPlan("count");
+        var setupCode = string.Join("\n", plan.SetupStatements
+            .OfType<MarshalStatement.Line>().Select(l => l.Code));
+
+        // Should use DangerousGetHandle, NOT PayloadBuffer
+        Assert.Contains("DangerousGetHandle()", setupCode);
+        Assert.DoesNotContain("PayloadBuffer", setupCode);
+    }
+
+    #endregion
 }

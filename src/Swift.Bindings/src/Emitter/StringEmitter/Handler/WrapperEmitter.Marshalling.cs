@@ -232,7 +232,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitClosureMarshalling(CSharpWriter csWriter)
         {
-            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            var closureParams = _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure).ToList();
+            int closureParamCount = closureParams.Count;
+
+            foreach (var argumentDecl in closureParams)
             {
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
@@ -241,7 +244,7 @@ namespace BindingsGeneration
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                 bool isOptional = _env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec);
 
-                if (_env.ClosureHandler.IsConventionC(closureTypeSpec))
+                if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
                     // For @convention(c) closures, convert delegate to function pointer
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
@@ -273,7 +276,7 @@ namespace BindingsGeneration
                         _env.ClosureHandler,
                         _env.MethodDecl.MangledName);
                 }
-                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
                     if (_env.MethodDecl.HasCdeclClosureMarshalling)
                     {
@@ -385,10 +388,15 @@ namespace BindingsGeneration
                 }
             }
 
-            // Check if large Optional param needs DangerousGetHandle override.
-            // This covers both regular large Optionals (String, URL, structs ≥ 8B) and
-            // Optional<Protocol> where ExistentialContainer (40+ bytes) would be truncated
-            // to 8 bytes via PayloadBuffer<IntPtr>.Buffer → SIGSEGV.
+            // Check if Optional param needs DangerousGetHandle override.
+            // @_cdecl wrappers receive all Optional value-type params as UnsafeRawPointer
+            // and call .load(as: Optional<T>.self) — they need a POINTER to the buffer,
+            // not the dereferenced value. PayloadBuffer<IntPtr>.Buffer dereferences, giving
+            // the raw value bytes which Swift misinterprets as a pointer → misaligned crash.
+            // Exception: Optional<Class/ObjC> uses nullable pointer ABI (nil/pointer value).
+            //
+            // Also covers large Optionals (String, URL, structs ≥ 8B) and Optional<Protocol>
+            // where ExistentialContainer (40+ bytes) would be truncated to 8 bytes.
             if (projection is OptionalProjection optProjForHandle)
             {
                 bool isLargeOpt = _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec);
@@ -396,7 +404,13 @@ namespace BindingsGeneration
                 bool needsLargeOptOverride = (isLargeOpt || isOptProtocol) &&
                     (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary ||
                      _env.MethodDecl.IsAsync || _requiresOpaqueReturnWrapper);
-                if (needsLargeOptOverride)
+
+                // @_cdecl wrapper: ALL non-reference Optional params need DangerousGetHandle
+                // because Swift receives UnsafeRawPointer and calls .load(as: Optional<T>.self).
+                bool needsCdeclOptOverride = _env.MethodDecl.UsesCdeclWrapper &&
+                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(argumentDecl.SwiftTypeSpec, _env.TypeDatabase);
+
+                if (needsLargeOptOverride || needsCdeclOptOverride)
                 {
                     projection = new OptionalProjection(optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, useDangerousGetHandle: true);
                 }
@@ -623,6 +637,7 @@ namespace BindingsGeneration
             // Determine if callbacks should use Cdecl calling convention.
             // Async+throwing closures always use their own Cdecl pattern regardless.
             var useCdecl = _env.MethodDecl.HasCdeclClosureMarshalling;
+            var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
 
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
             {
@@ -630,7 +645,7 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
-                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
                     // Check if this is an async+throwing closure (must check before throwing-only)
                     if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
@@ -825,8 +840,9 @@ namespace BindingsGeneration
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                    var cleanupClosureCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                        _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
                         !closureTypeSpec.IsEscaping)
                     {

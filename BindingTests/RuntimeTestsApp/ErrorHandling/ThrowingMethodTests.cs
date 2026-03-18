@@ -228,7 +228,7 @@ public class BasicThrowingTests : TestBase
     }
 
     // ParseError.Overflow(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ParseError VWT destructor on Mono finalizer thread
     public void TestParseErrorOverflowCase()
     {
         using var val = new SwiftString("99999999999");
@@ -238,7 +238,7 @@ public class BasicThrowingTests : TestBase
     }
 
     // ValidationError.InvalidFormat(SwiftString) — SwiftIndirectResult + SwiftString (non-blittable P/Invoke)
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: error enum VWT destructor on Mono finalizer thread
     public void TestValidationErrorInvalidFormatCase()
     {
         using var val = new SwiftString("bad format");
@@ -249,7 +249,7 @@ public class BasicThrowingTests : TestBase
 
     // RangeError.BelowMinimum/AboveMaximum take tuple (Int32, Int32) associated values
     // InvalidProgramException: non-blittable types with Swift calling convention
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: error enum VWT destructor on Mono finalizer thread
     public void TestRangeErrorCases()
     {
         var below = RangeError.BelowMinimum(5, 10);
@@ -300,7 +300,7 @@ public class BasicThrowingTests : TestBase
     // TypedThrowingParser is a non-frozen struct — constructor uses SwiftIndirectResult
     // InvalidProgramException: non-blittable types with Swift calling convention
     // Factory methods (CreateStrictParser/CreateLenientParser) work because they return via register
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: error enum VWT destructor on Mono finalizer thread
     public void TestTypedThrowingParserConstructor()
     {
         var parser = new TypedThrowingParser(true);
@@ -355,7 +355,7 @@ public class BasicThrowingTests : TestBase
 
     #region SwiftString Throwing — Error Paths (Tier 3, crash-prone)
 
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ParseError VWT destructor on Mono finalizer thread
     public void TestParseNumberThrowsOnInvalidInput()
     {
         AssertThrows<SwiftException<ParseError>>(() =>
@@ -365,7 +365,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ParseNumber(\"abc\") correctly threw SwiftException<ParseError>");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ParseError VWT destructor on Mono finalizer thread
     public void TestTypedThrowingParserParseInvalidThrows()
     {
         var parser = TestLibFunctions.CreateLenientParser();
@@ -376,7 +376,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("Parser.Parse(\"not_a_number\") correctly threw SwiftException<ParseError>");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ParseError VWT destructor on Mono finalizer thread
     public void TestStrictParserRejectsWhitespace()
     {
         var parser = TestLibFunctions.CreateStrictParser();
@@ -387,7 +387,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("StrictParser.Parse(\" 42 \") correctly threw SwiftException<ParseError>");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ValidationError VWT destructor on Mono finalizer thread
     public void TestValidateEmptyStringThrows()
     {
         AssertThrows<SwiftRuntimeException>(() =>
@@ -397,7 +397,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("Validate(\"\", 100) correctly threw");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // GC finalizer crash: ValidationError VWT destructor on Mono finalizer thread
     public void TestValidateTooLongThrows()
     {
         AssertThrows<SwiftRuntimeException>(() =>
@@ -417,7 +417,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [MonoJitCrash] // Typed throws via direct P/Invoke: swifterror ABI mismatch on Mono
+    [MonoJitCrash] // GC finalizer crash: RangeError VWT destructor on Mono finalizer thread
     public void TestValidateRangeTypedCatchWithError()
     {
         // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
@@ -476,7 +476,7 @@ public class BasicThrowingTests : TestBase
 
     #region Pass 2 — S1: Failable Init (SafeDiv, RangedInt)
 
-    [MonoJitCrash]
+    [MonoJitCrash] // Failable init returns zero instead of constructed value; GC finalizer crash risk
     public void TestSafeDivSuccess()
     {
         var success = SafeDiv.TryCreate(10, 2, out var div);
@@ -486,7 +486,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("SafeDiv.TryCreate success passed");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // Failable init returns false instead of true on Mono
     public void TestSafeDivFailure()
     {
         var success = SafeDiv.TryCreate(10, 0, out var div);
@@ -494,7 +494,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("SafeDiv.TryCreate failure passed");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // Failable init returns zero instead of constructed value; GC finalizer crash risk
     public void TestRangedIntSuccess()
     {
         var success = RangedInt.TryCreate(5, 1, 10, out var val);
@@ -505,7 +505,7 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("RangedInt.TryCreate success passed");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // Failable init returns false instead of true on Mono
     public void TestRangedIntFailure()
     {
         var success = RangedInt.TryCreate(15, 1, 10, out var val);
@@ -517,7 +517,6 @@ public class BasicThrowingTests : TestBase
 
     #region S1: NonEmptyString Failable Init (non-frozen struct projected as class)
 
-    [MonoJitCrash]
     public void TestNonEmptyStringSuccess()
     {
         var success = NonEmptyString.TryCreate("hello", out var result);
@@ -526,7 +525,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("NonEmptyString.TryCreate success passed");
     }
 
-    [MonoJitCrash]
     public void TestNonEmptyStringFailure()
     {
         var success = NonEmptyString.TryCreate("", out var result);

@@ -368,6 +368,7 @@ public static class ConstructorWrapperEmitter
                     break;
 
                 case CdeclPhase.Arguments:
+                    var closureParamCount = keptArgs.Count(env.ClosureHandler.IsClosure);
                     for (int i = 0; i < keptArgs.Count; i++)
                     {
                         var arg = keptArgs[i];
@@ -380,7 +381,7 @@ public static class ConstructorWrapperEmitter
                         var closureTypeSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
                         if (closureTypeSpec != null &&
                             env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                            env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                            env.ClosureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
                             !env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                         {
                             var csName = NameProvider.StripVerbatimPrefix(

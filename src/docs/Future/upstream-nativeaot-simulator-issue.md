@@ -1,5 +1,7 @@
 # Upstream Issue Draft: NativeAOT Simulator Support for iOS
 
+> **Consolidated into `upstream-bug-reports-draft.md` (Issue 5).** This file is kept for reference but the canonical version is in the main draft.
+
 _Draft for filing on [dotnet/runtime](https://github.com/dotnet/runtime)_
 
 ---

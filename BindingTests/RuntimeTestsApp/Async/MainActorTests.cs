@@ -22,7 +22,6 @@ public class MainActorTests : TestBase
 
     #region MainActorViewModel (class) — MonoJitCrash
 
-    [MonoJitCrash]
     public void TestMainActorViewModel_Constructor()
     {
         var vm = new MainActorViewModel("Test");
@@ -30,7 +29,6 @@ public class MainActorTests : TestBase
         vm.Dispose();
     }
 
-    [MonoJitCrash]
     public void TestMainActorViewModel_Increment()
     {
         var vm = new MainActorViewModel("Test");
@@ -39,7 +37,6 @@ public class MainActorTests : TestBase
         vm.Dispose();
     }
 
-    [MonoJitCrash]
     public void TestMainActorViewModel_SummaryProperty()
     {
         var vm = new MainActorViewModel("Hello");
@@ -48,7 +45,6 @@ public class MainActorTests : TestBase
         vm.Dispose();
     }
 
-    [MonoJitCrash]
     public void TestMainActorViewModel_TitleProperty()
     {
         var vm = new MainActorViewModel("MyTitle");
@@ -57,7 +53,6 @@ public class MainActorTests : TestBase
         vm.Dispose();
     }
 
-    [MonoJitCrash]
     public void TestMainActorViewModel_CountProperty()
     {
         var vm = new MainActorViewModel("Test");
@@ -70,7 +65,6 @@ public class MainActorTests : TestBase
 
     #region MainActorMethods (struct) — MonoJitCrash
 
-    [MonoJitCrash]
     public void TestMainActorMethods_MainActorMethod()
     {
         var methods = new MainActorMethods(42);
@@ -79,7 +73,6 @@ public class MainActorTests : TestBase
         methods.Dispose();
     }
 
-    [MonoJitCrash]
     public void TestMainActorMethods_RegularMethod()
     {
         var methods = new MainActorMethods(42);

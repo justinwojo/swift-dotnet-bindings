@@ -82,6 +82,22 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
+        // Swift class types also use nullable pointer ABI (nil pointer = None, object pointer = Some).
+        // Using SwiftOptional<IntPtr> would create Optional<Swift.Int> metadata (9 bytes) instead of
+        // Optional<ClassName> (8 bytes), causing a PayloadBuffer assert on Mono.
+        if (_innerProjection is ClassProjection)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;")
+                },
+                PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
         var optTypeParam = OptionalTypeParam;
         var innerParamConv = _innerProjection.GetParameterElementConversion($"{paramName}Value");
         var containerPlan = _innerProjection.GetContainerCreationPlan($"{paramName}Value");

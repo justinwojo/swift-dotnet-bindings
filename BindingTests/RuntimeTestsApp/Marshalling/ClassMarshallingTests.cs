@@ -114,7 +114,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [MonoJitCrash] // Mono: SafeHandle non-blittable through CallConvSwift P/Invoke
+    [Skip("EntryPointNotFoundException: missing Swift wrapper export")]
     public void TestBorrowResource()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);

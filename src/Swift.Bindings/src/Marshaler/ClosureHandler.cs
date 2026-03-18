@@ -122,6 +122,37 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Determines whether the closure has @convention(c) attribute, using the method's mangled
+    /// name as a fallback. ABI JSON does not include @convention(c) in ClosureTypeSpec attributes,
+    /// but the mangled name encodes it as 'XC' (CFunctionPointer in the demangling grammar).
+    /// </summary>
+    /// <remarks>
+    /// The mangled name fallback is only safe when the method has a single closure parameter.
+    /// For methods with multiple closures, XC in the mangled name could belong to a different
+    /// closure parameter. In that case, we fall back to the attribute-based check (which returns
+    /// false, treating all closures as @convention(swift) — the safe default that generates
+    /// correct thunks). Mixed @convention(c) + @convention(swift) methods are rare in practice.
+    /// </remarks>
+    /// <param name="closureTypeSpec">The closure type specification.</param>
+    /// <param name="methodMangledName">The mangled name of the containing method.</param>
+    /// <param name="closureParamCount">Number of closure parameters in the method (default 1).</param>
+    /// <returns><c>true</c> if the closure is @convention(c); otherwise, <c>false</c>.</returns>
+    public bool IsConventionC(ClosureTypeSpec closureTypeSpec, string methodMangledName, int closureParamCount = 1)
+    {
+        if (IsConventionC(closureTypeSpec))
+            return true;
+
+        // Fallback: ABI JSON doesn't include @convention(c) attributes.
+        // Detect via mangled name encoding 'XC' (Swift's convention(c) marker).
+        // Only safe for single-closure methods — for multi-closure methods, XC could
+        // belong to a different parameter, misclassifying this one.
+        if (closureParamCount > 1)
+            return false;
+
+        return ClosureEmitter.HasConventionCInMangledName(methodMangledName);
+    }
+
+    /// <summary>
     /// Determines whether the closure has @MainActor attribute.
     /// @MainActor closures must be called on the main thread/actor.
     /// </summary>
@@ -405,6 +436,15 @@ public class ClosureHandler
     public bool RequiresThunk(ClosureTypeSpec closureTypeSpec)
     {
         return !IsConventionC(closureTypeSpec);
+    }
+
+    /// <summary>
+    /// Determines whether the closure requires a thunk, using the method's mangled name
+    /// as fallback for @convention(c) detection.
+    /// </summary>
+    public bool RequiresThunk(ClosureTypeSpec closureTypeSpec, string methodMangledName, int closureParamCount = 1)
+    {
+        return !IsConventionC(closureTypeSpec, methodMangledName, closureParamCount);
     }
 
     /// <summary>

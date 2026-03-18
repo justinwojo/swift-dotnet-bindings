@@ -74,25 +74,15 @@ public sealed class EveryProtocol : ISwiftObject
     /// </summary>
     public static TypeMetadata GetTypeMetadata()
     {
-        if (_typeMetadataHandle == IntPtr.Zero)
+        if (_typeMetadataHandle != IntPtr.Zero)
         {
-            lock (_metadataLock)
-            {
-                if (_typeMetadataHandle == IntPtr.Zero)
-                {
-                    // The type metadata will be registered by the generated bindings
-                    // For now, return a minimal metadata
-                    // This will be set by the first protocol proxy that uses EveryProtocol
-                }
-            }
+            return TypeMetadata.Cache.GetOrAdd(typeof(EveryProtocol), _ =>
+                TypeMetadata.FromHandle(_typeMetadataHandle));
         }
-        // Use reflection to create TypeMetadata since constructor is internal
-        return TypeMetadata.Cache.GetOrAdd(typeof(EveryProtocol), _ =>
-        {
-            // If we have a registered handle, use it; otherwise return zero metadata
-            // which will trigger proper initialization later
-            return default;
-        });
+
+        // Metadata not yet registered — will be set by the first protocol proxy
+        // that calls SetTypeMetadata() during static initialization.
+        return default;
     }
 
     /// <summary>

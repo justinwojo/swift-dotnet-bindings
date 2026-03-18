@@ -92,9 +92,10 @@ public class MemberValidationPipeline
         if (context?.PInvokeHelperContext != null)
         {
             var closureHandler = new ClosureHandler(_typeDatabase);
+            var closureParamCount = methodDecl.CSSignature.Skip(1).Count(closureHandler.IsClosure);
             bool hasThunkClosure = methodDecl.CSSignature.Skip(1)
                 .Where(arg => closureHandler.IsClosure(arg))
-                .Any(arg => closureHandler.RequiresThunk(closureHandler.GetClosureTypeSpec(arg)!));
+                .Any(arg => closureHandler.RequiresThunk(closureHandler.GetClosureTypeSpec(arg)!, methodDecl.MangledName, closureParamCount));
 
             if (methodDecl.IsConstructor)
             {

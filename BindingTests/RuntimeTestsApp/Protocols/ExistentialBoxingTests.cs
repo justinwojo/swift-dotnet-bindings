@@ -106,7 +106,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region ModeProcessor — Existential Boxing (Tier 3 — ProcessingModeProxy triggers Mono JIT crash)
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion in existential container path
     public void TestModeProcessorWithSimpleImpl()
     {
         var impl = new TestSimpleProcessingMode();
@@ -116,7 +116,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("ModeProcessor with simple impl passed");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestModeProcessorWithStrictImpl()
     {
         var impl = new TestStrictProcessingMode();
@@ -127,7 +127,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("ModeProcessor with strict impl passed");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestModeProcessorGetModeName()
     {
         var impl = new TestSimpleProcessingMode();
@@ -142,7 +142,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Pipeline — Array + Existential Constructor (Tier 3)
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestPipelineConstruction()
     {
         var impl = new TestSimpleProcessingMode();
@@ -152,7 +152,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("Pipeline construction passed");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestPipelineGetStepCount()
     {
         var impl = new TestSimpleProcessingMode();
@@ -162,7 +162,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"Pipeline.GetStepCount() = {pipeline.GetStepCount()}");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestPipelineGetModeName()
     {
         var impl = new TestStrictProcessingMode();
@@ -177,7 +177,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Free Functions — Existential Parameters (Tier 3)
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestRunWithModeSimple()
     {
         var impl = new TestSimpleProcessingMode();
@@ -187,7 +187,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunWithMode(simple, 42) = {result}");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestRunWithModeStrict()
     {
         var impl = new TestStrictProcessingMode();
@@ -197,7 +197,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info("RunWithMode with strict impl passed");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestCompareResultsSameMode()
     {
         var a = new ProcessingModeProxy(new TestSimpleProcessingMode());
@@ -207,7 +207,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"CompareResults(simple, simple, 42) = {result}");
     }
 
-    [MonoJitCrash] // ProcessingModeProxy(impl) calls EveryProtocol.GetTypeMetadata() → Mono JIT assertion
+    [MonoJitCrash] // ProcessingModeProxy construction triggers Mono JIT assertion
     public void TestCompareResultsDifferentModes()
     {
         var simple = new ProcessingModeProxy(new TestSimpleProcessingMode());

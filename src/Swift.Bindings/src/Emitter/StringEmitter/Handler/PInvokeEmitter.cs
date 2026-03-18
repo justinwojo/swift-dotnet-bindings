@@ -261,6 +261,8 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleArguments()
         {
+            var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
+
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
                 // Strip Swift compiler-injected debug params (#file, #line, #column, #function)
@@ -302,7 +304,7 @@ namespace BindingsGeneration
                             AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
                             AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName), csName + "StartFunc");
                         }
-                        else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec))
+                        else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                         {
                             if (_env.MethodDecl.HasCdeclClosureMarshalling)
                             {

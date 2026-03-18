@@ -132,7 +132,6 @@ public class ArrayMarshallingTests : TestBase
         TestLogger.Info("TeamRoster creation passed");
     }
 
-    [MonoJitCrash]
     public void TestTeamRosterMembersPropertyGet()
     {
         var animals = new List<Animal>

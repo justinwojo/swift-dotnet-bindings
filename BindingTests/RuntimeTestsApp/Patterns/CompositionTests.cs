@@ -43,10 +43,6 @@ public class BasicCompositionTests : TestBase
 
     #region Tier 3 — Construction + Blittable Property Access (Mono JIT crash)
 
-    [MonoJitCrash] // Mono JIT assertion (jit-info.c:918): BatchConfig ctor calls
-    // SwiftObjectHelper<T>.GetTypeMetadata() which crashes all Mono JIT (simulator).
-    // Works on NativeAOT (device). This was the first Tier 1 test alphabetically,
-    // so it killed the entire process before any other test class could run.
     public void TestBatchConfigMaxRetries()
     {
         var config = new BatchConfig(name: "test", maxRetries: 5, tags: null);
@@ -54,7 +50,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.MaxRetries = {config.MaxRetries}");
     }
 
-    [MonoJitCrash] // Mono JIT crash: BatchConfig ctor above kills process before this runs
     public void TestRegistrySharedAccess()
     {
         var registry = Registry.Shared;
@@ -62,7 +57,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("Registry.Shared access OK");
     }
 
-    [MonoJitCrash]
     public void TestValueAnimalHasValueConformance()
     {
         var va = new ValueAnimal(name: "Wolf", sound: "Howl", value: 7);
@@ -70,7 +64,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("ValueAnimal conforms to IHasValue");
     }
 
-    [MonoJitCrash] // Transformer is frozen struct — same GetTypeMetadata crash
     public void TestTransformerOffset()
     {
         var t = new Transformer(offset: 10);
@@ -86,7 +79,6 @@ public class BasicCompositionTests : TestBase
     // Registry.Clear/Register use SafeHandle through CallConvSwift,
     // and ValueAnimal.Summary returns SwiftString through CallConvSwift
 
-    [MonoJitCrash]
     public void TestValueAnimalSummary()
     {
         var va = new ValueAnimal(name: "Eagle", sound: "Screech", value: 100);
@@ -97,7 +89,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"ValueAnimal.Summary = {summary}");
     }
 
-    [MonoJitCrash]
     public void TestRegistryLookupFound()
     {
         var registry = Registry.Shared;
@@ -111,7 +102,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Registry.Lookup found: {speak}");
     }
 
-    [MonoJitCrash]
     public void TestRegistryLookupNotFound()
     {
         var registry = Registry.Shared;
@@ -133,7 +123,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig nil tags: TagCount = {config.GetTagCount()}");
     }
 
-    [MonoJitCrash]
     public void TestBatchConfigTagCountWithTags()
     {
         var tags = new SwiftArray<int>();
@@ -147,7 +136,6 @@ public class BasicCompositionTests : TestBase
 
     // EffectiveName/DescribeConfig crash: SwiftString return on frozen struct
     // through CallConvSwift triggers Mono JIT assertion (jit-info.c:918)
-    [MonoJitCrash]
     public void TestBatchConfigEffectiveName()
     {
         var config = new BatchConfig(name: "Upload", maxRetries: 3, tags: null);
@@ -213,7 +201,6 @@ public class BasicCompositionTests : TestBase
 
     // Register/Clear/ProcessRegistry: "Passing non-blittable types to P/Invoke
     // with Swift calling convention" — SafeHandle as arg through CallConvSwift
-    [MonoJitCrash]
     public void TestRegistryRegisterAndCount()
     {
         var registry = Registry.Shared;
@@ -225,7 +212,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Registry: registered id={id}, count={registry.GetCount()}");
     }
 
-    [MonoJitCrash]
     public void TestRegistryClear()
     {
         var registry = Registry.Shared;
@@ -238,7 +224,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("Registry.Clear works");
     }
 
-    [MonoJitCrash]
     public void TestProcessRegistryFreeFunction()
     {
         var registry = Registry.Shared;
@@ -275,7 +260,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info("EventHandler with closure works");
     }
 
-    [MonoJitCrash]
+    [MonoJitCrash] // Optional closure property returns non-null default on Mono
     public void TestEventHandlerOnCompleteProperty()
     {
         var handler = SwiftEventHandler.CreateDefault();
@@ -289,7 +274,6 @@ public class BasicCompositionTests : TestBase
     // Strategy B: Apply uses CallConvCdecl callback + _cdecl wrapper
     // NOTE: Transformer constructor calls GetTypeMetadata which crashes Mono JIT,
     // so this test only passes on NativeAOT (device) despite the Apply method being Cdecl-safe.
-    [MonoJitCrash]
     public void TestTransformerApply()
     {
         var t = new Transformer(offset: 5);

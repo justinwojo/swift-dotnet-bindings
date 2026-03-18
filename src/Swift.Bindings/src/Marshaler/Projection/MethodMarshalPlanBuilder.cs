@@ -154,11 +154,12 @@ internal class MethodMarshalPlanBuilder
         }
 
         // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
+        var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
         {
             var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
             if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
-                _env.ClosureHandler.RequiresThunk(closureTypeSpec) &&
+                _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) &&
                 !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
             {
                 var csName = NameProvider.GetCSharpParameterName(argument);

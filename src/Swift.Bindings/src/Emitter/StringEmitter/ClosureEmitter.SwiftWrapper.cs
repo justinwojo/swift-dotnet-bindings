@@ -546,6 +546,7 @@ public static partial class ClosureEmitter
         var swiftParams = new List<string>();
         var callArgs = new List<string>();
         var adapterCode = new List<string>();
+        var closureParamCount = methodDecl.CSSignature.Skip(1).Count(closureHandler.IsClosure);
 
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -556,7 +557,7 @@ public static partial class ClosureEmitter
 
             if (closureTypeSpec != null &&
                 closureHandler.IsSupportedClosure(closureTypeSpec) &&
-                closureHandler.RequiresThunk(closureTypeSpec) &&
+                closureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
                 !closureHandler.IsAsyncThrowingClosure(closureTypeSpec))
             {
                 // Replace closure param with (funcPtr, context) pair
@@ -859,6 +860,7 @@ public static partial class ClosureEmitter
         if (hasAsyncThrowingClosure) return false;
 
         // Find all escaping closures that need thunks (candidates for Cdecl wrapping)
+        var closureParamCount = methodDecl.CSSignature.Skip(1).Count(closureHandler.IsClosure);
         var thunkClosures = methodDecl.CSSignature.Skip(1)
             .Where(closureHandler.IsClosure)
             .Where(arg =>
@@ -866,7 +868,7 @@ public static partial class ClosureEmitter
                 var spec = closureHandler.GetClosureTypeSpec(arg);
                 return spec != null
                     && closureHandler.IsSupportedClosure(spec)
-                    && closureHandler.RequiresThunk(spec)
+                    && closureHandler.RequiresThunk(spec, methodDecl.MangledName, closureParamCount)
                     && !closureHandler.IsAsyncThrowingClosure(spec);
             })
             .ToList();

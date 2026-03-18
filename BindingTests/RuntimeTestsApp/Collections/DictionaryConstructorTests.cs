@@ -119,7 +119,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info("Empty PropertyBag passed");
     }
 
-    [MonoJitCrash]
     public void TestPropertyBagPropertyGet()
     {
         var bag = new PropertyBag(new Dictionary<string, string>
@@ -134,7 +133,6 @@ public class DictionaryConstructorTests : TestBase
         TestLogger.Info("PropertyBag.Properties getter passed");
     }
 
-    [MonoJitCrash]
     public void TestPropertyBagPropertySet()
     {
         var bag = new PropertyBag();

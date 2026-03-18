@@ -223,19 +223,32 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 - NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
 - Test files are organized by domain, not by milestone/session/SDK version. Place tests in their respective domain test files (e.g., closure tests go in closure test files, not in a "phase-15" file).
 
-### Final Validation Gates (required before signing off)
+### Final Validation Gates (only when code changes warrant it)
 
-After ALL sub-tasks are complete and unit tests pass (`run-tests.sh`), run these as the very last step. **Both must pass before the session's work is considered done.** Do not run these between sub-tasks — batch all work first, validate once at the end.
+These gates are for sessions that make **code changes to the generator, runtime, emitter, or test infrastructure**. Skip them entirely for research-only sessions, documentation updates, investigation tasks, or work on external projects (e.g., repro projects).
 
-1. **Library validation**: `./validate-libraries.sh 2>&1 | tee /tmp/validate-results.txt`
-2. **BindingTests** (pick the fastest option that covers your changes):
+**When to run each gate:**
+
+| What changed | `run-tests.sh` | `validate-libraries.sh` | `build-and-test.sh` / `run-runtime-tests.sh` |
+|---|---|---|---|
+| Generator/emitter/parser | Yes | Yes | Yes (`build-and-test.sh`) |
+| Runtime (`Swift.Runtime`) | Yes | No (unless marshalling changed) | Yes (`run-runtime-tests.sh --skip-regen`) |
+| Test infrastructure only | No | No | Yes (the specific test script) |
+| Documentation / research | No | No | No |
+| Repro project / external | No | No | No |
+
+**How to run (when needed):**
+
+1. **Unit tests**: `./run-tests.sh 2>&1 | tee /tmp/run-tests-results.txt`
+2. **Library validation**: `./validate-libraries.sh 2>&1 | tee /tmp/validate-results.txt`
+3. **BindingTests** (pick the fastest option that covers your changes):
    - Generator/emitter changes → full rebuild: `cd BindingTests && ./build-and-test.sh 2>&1 | tee /tmp/build-and-test-results.txt`
    - Runtime-only changes → skip regen: `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90 2>&1 | tee /tmp/runtime-tests-results.txt`
    - If unsure, run `build-and-test.sh` (it includes runtime tests)
 
 **ALWAYS output to temp files.** These commands are slow. Pipe to `/tmp/` as shown above, then use the Read tool to inspect. NEVER re-run a slow command just to see a different slice of output — read further back in the temp file instead.
 
-If either gate fails, fix the regressions before signing off. A passing `run-tests.sh` alone is NOT sufficient — the BindingTests exercises real generated bindings on iOS Simulator and catches regressions that unit tests miss.
+If a gate fails, fix the regressions before signing off. Do not run gates that aren't relevant to the changes made.
 
 ## Known Issues
 

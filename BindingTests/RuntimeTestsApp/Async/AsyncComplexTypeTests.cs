@@ -126,7 +126,6 @@ public class AsyncComplexTypeTests : TestBase
     // SwiftAsyncStream<int> which wouldn't compile without removing the ISwiftObject constraint.
     // Runtime testing is blocked by the class-level [Skip] (async DllImport targets wrong module).
 
-    [MonoJitCrash]
     public async void TestAsyncValueSourceCreation()
     {
         var source = new AsyncValueSource();
