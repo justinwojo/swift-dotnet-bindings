@@ -92,6 +92,25 @@ public final class EveryProtocol {
         self.handle = handle
     }
 }
+// Creates a real Swift EveryProtocol instance (retained +1).
+// C# proxy code calls this instead of raw NativeMemory.Alloc to ensure the
+// existential container payload is a valid ARC-managed Swift object.
+@_cdecl("SBW_CreateEveryProtocol")
+public func _sbw_createEveryProtocol() -> UnsafeMutableRawPointer {
+    let instance = EveryProtocol()
+    return Unmanaged.passRetained(instance).toOpaque()
+}
+// Releases an EveryProtocol instance created by SBW_CreateEveryProtocol.
+@_cdecl("SBW_ReleaseEveryProtocol")
+public func _sbw_releaseEveryProtocol(_ ptr: UnsafeMutableRawPointer) {
+    Unmanaged<EveryProtocol>.fromOpaque(ptr).release()
+}
+// Returns the Swift type metadata pointer for EveryProtocol.
+// Used by C# proxy classes to populate existential container metadata.
+@_cdecl("SBW_GetMetadata_EveryProtocol")
+public func _sbw_getEveryProtocolMetadata() -> UnsafeRawPointer {
+    return unsafeBitCast(EveryProtocol.self, to: UnsafeRawPointer.self)
+}
 // Vtable for ProcessingMode protocol - stores function pointers to C# implementations
 fileprivate struct ProcessingMode_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -108,7 +127,15 @@ extension EveryProtocol: SwiftBindingsTestLib.ProcessingMode {
             var selfProto: SwiftBindingsTestLib.ProcessingMode = self
             let resultPtr = _processingMode_vtable.func_modeName_get!(
                 _processingMode_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -199,7 +226,15 @@ extension EveryProtocol: SwiftBindingsTestLib.ModeConsumer {
             var modeCopy = mode
                 let resultPtr = _modeConsumer_vtable.func_consume_0!(
                 _modeConsumer_vtable.csVTHandle, &selfProto, &modeCopy)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
 }
@@ -243,7 +278,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Describable {
             var selfProto: SwiftBindingsTestLib.Describable = self
             let resultPtr = _describable_vtable.func_description_get!(
                 _describable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -251,7 +294,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Describable {
             var selfProto: SwiftBindingsTestLib.Describable = self
             let resultPtr = _describable_vtable.func_describe_0!(
                 _describable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
 }
@@ -341,7 +392,15 @@ extension EveryProtocol: SwiftBindingsTestLib.TestIdentifiable {
             var selfProto: SwiftBindingsTestLib.TestIdentifiable = self
             let resultPtr = _testIdentifiable_vtable.func_id_get!(
                 _testIdentifiable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -408,7 +467,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Displayable {
             var selfProto: SwiftBindingsTestLib.Displayable = self
             let resultPtr = _displayable_vtable.func_display_0!(
                 _displayable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
 }
@@ -587,7 +654,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Configurable {
             var selfProto: SwiftBindingsTestLib.Configurable = self
             let resultPtr = _configurable_vtable.func_configName_get!(
                 _configurable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -595,7 +670,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Configurable {
             var selfProto: SwiftBindingsTestLib.Configurable = self
             let resultPtr = _configurable_vtable.func_configure_0!(
                 _configurable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
 }
@@ -685,7 +768,15 @@ extension EveryProtocol: SwiftBindingsTestLib.BaseRule {
             var selfProto: SwiftBindingsTestLib.BaseRule = self
             let resultPtr = _baseRule_vtable.func_ruleName_get!(
                 _baseRule_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -738,126 +829,6 @@ public func SBW_BaseRule_free_get_ruleName_0(_ ptr: UnsafeMutableRawPointer) {
     slicePtr.deallocate()
 }
 
-// Vtable for InputValidation protocol - stores function pointers to C# implementations
-fileprivate struct InputValidation_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_validate_0: (@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _inputValidation_vtable = InputValidation_vtable()
-
-// EveryProtocol conformance to InputValidation
-extension EveryProtocol: SwiftBindingsTestLib.InputValidation {
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetInputValidation_vtable")
-public func setInputValidation_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<InputValidation_vtable> = uvt.assumingMemoryBound(to: InputValidation_vtable.self)
-    _inputValidation_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to InputValidation.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_InputValidation_WitnessTable")
-public func getEveryProtocolInputValidationWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any SwiftBindingsTestLib.InputValidation = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
-// Witness dispatch accessors for InputValidation
-@_silgen_name("SBW_InputValidation_method_validate_0")
-public func SBW_InputValidation_method_validate_0(_ containerPtr: UnsafeRawPointer, _ arg0Ptr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-    var existential = containerPtr.load(as: (any SwiftBindingsTestLib.InputValidation).self)
-    let arg0Slice = arg0Ptr.load(as: SBW_Utf8Slice.self)
-    let arg0: String
-    if arg0Slice.len > 0 {
-        arg0 = String(unsafeUninitializedCapacity: arg0Slice.len) { buf in
-            UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: arg0Slice.ptr, byteCount: arg0Slice.len)
-            return arg0Slice.len
-        }
-    } else {
-        arg0 = ""
-    }
-    let result = existential.validate(input: arg0)
-    let ptr = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-    ptr.initialize(to: result)
-    return UnsafeMutableRawPointer(ptr)
-}
-
-@_silgen_name("SBW_InputValidation_free_method_validate_0")
-public func SBW_InputValidation_free_method_validate_0(_ ptr: UnsafeMutableRawPointer) {
-    ptr.assumingMemoryBound(to: Bool.self).deinitialize(count: 1)
-    ptr.deallocate()
-}
-
-// Vtable for StrictInputValidation protocol - stores function pointers to C# implementations
-fileprivate struct StrictInputValidation_vtable {
-    var csVTHandle: OpaquePointer? = nil
-    var func_strictLevel_get: (@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?
-}
-
-private var _strictInputValidation_vtable = StrictInputValidation_vtable()
-
-// EveryProtocol conformance to StrictInputValidation
-extension EveryProtocol: SwiftBindingsTestLib.StrictInputValidation {
-    public var strictLevel: Swift.Int32 {
-        get {
-            var selfProto: SwiftBindingsTestLib.StrictInputValidation = self
-            let resultPtr = _strictInputValidation_vtable.func_strictLevel_get!(
-                _strictInputValidation_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.Int32.self).pointee
-        }
-    }
-    
-}
-
-// Called by C# to register the protocol vtable
-@_silgen_name("SetStrictInputValidation_vtable")
-public func setStrictInputValidation_vtable(uvt: UnsafeRawPointer) {
-    let vt: UnsafePointer<StrictInputValidation_vtable> = uvt.assumingMemoryBound(to: StrictInputValidation_vtable.self)
-    _strictInputValidation_vtable = vt.pointee
-}
-// Returns the protocol witness table pointer for EveryProtocol conforming to StrictInputValidation.
-// C# calls this via P/Invoke to obtain the witness table for existential container construction.
-@_silgen_name("Get_EveryProtocol_StrictInputValidation_WitnessTable")
-public func getEveryProtocolStrictInputValidationWitnessTable() -> UnsafeRawPointer {
-    let instance = EveryProtocol()
-    return withExtendedLifetime(instance) {
-        var proto: any SwiftBindingsTestLib.StrictInputValidation = instance
-        return withUnsafeBytes(of: &proto) { buffer in
-            // Existential layout for class-bound protocols:
-            // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-            // For a single-protocol existential, witness table is at offset 4 * pointer size
-            let witnessTableOffset = 4 * MemoryLayout<Int>.size
-            return buffer.baseAddress!.advanced(by: witnessTableOffset)
-                .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
-        }
-    }
-}
-// Witness dispatch accessors for StrictInputValidation
-@_silgen_name("SBW_StrictInputValidation_get_strictLevel_0")
-public func SBW_StrictInputValidation_get_strictLevel_0(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-    var existential = containerPtr.load(as: (any SwiftBindingsTestLib.StrictInputValidation).self)
-    let result = existential.strictLevel
-    let ptr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
-    ptr.initialize(to: result)
-    return UnsafeMutableRawPointer(ptr)
-}
-@_silgen_name("SBW_StrictInputValidation_free_get_strictLevel_0")
-public func SBW_StrictInputValidation_free_get_strictLevel_0(_ ptr: UnsafeMutableRawPointer) {
-    ptr.assumingMemoryBound(to: Int32.self).deinitialize(count: 1)
-    ptr.deallocate()
-}
-
 // Vtable for Nameable protocol - stores function pointers to C# implementations
 fileprivate struct Nameable_vtable {
     var csVTHandle: OpaquePointer? = nil
@@ -873,7 +844,15 @@ extension EveryProtocol: SwiftBindingsTestLib.Nameable {
             var selfProto: SwiftBindingsTestLib.Nameable = self
             let resultPtr = _nameable_vtable.func_name_get!(
                 _nameable_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -1458,7 +1437,15 @@ extension EveryProtocol: SwiftBindingsTestLib.TaskDescriptor {
             var selfProto: SwiftBindingsTestLib.TaskDescriptor = self
             let resultPtr = _taskDescriptor_vtable.func_taskName_get!(
                 _taskDescriptor_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
         }
     }
     
@@ -1536,14 +1523,30 @@ extension EveryProtocol: SwiftBindingsTestLib.StringProcessor {
             var inputCopy = input
                 let resultPtr = _stringProcessor_vtable.func_process_0!(
                 _stringProcessor_vtable.csVTHandle, &selfProto, &inputCopy)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
     public func getOutput() -> Swift.String {
             var selfProto: SwiftBindingsTestLib.StringProcessor = self
             let resultPtr = _stringProcessor_vtable.func_getOutput_1!(
                 _stringProcessor_vtable.csVTHandle, &selfProto)
-            return resultPtr.assumingMemoryBound(to: Swift.String.self).pointee
+            let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+            var str: Swift.String = ""
+            if slice.len > 0 {
+                let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                str = String(decoding: buffer, as: UTF8.self)
+            }
+            slice.ptr.deallocate()
+            resultPtr.deallocate()
+            return str
     }
     
 }
@@ -3319,12 +3322,6 @@ public func _sbw_get_count_B92872B8(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.IntContainer.self).pointee
     return obj.count
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.IntContainer.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_IntContainer")
-public func SBW_Destroy_SwiftBindingsTestLib_IntContainer(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.IntContainer.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.IntContainer.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_IntContainer_80FD510D")
@@ -3378,12 +3375,6 @@ extension SwiftBindingsTestLib.OpaqueProvider {
     public var _sb_opaqueItem: any SwiftBindingsTestLib.Describable {
         return self.opaqueItem
     }
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.OpaqueProvider.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_OpaqueProvider")
-public func SBW_Destroy_SwiftBindingsTestLib_OpaqueProvider(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.OpaqueProvider.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.OpaqueProvider.
@@ -3576,12 +3567,6 @@ public func _sbw_get_second_1AEA1C92(_ resultPtr: UnsafeMutableRawPointer, _ sel
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.BoundStringPair.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_BoundStringPair")
-public func SBW_Destroy_SwiftBindingsTestLib_BoundStringPair(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.BoundStringPair.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.BoundStringPair.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_BoundStringPair_0F21D47E")
@@ -3671,12 +3656,6 @@ public func _sbw_method_6B094322(_ self_: UnsafeMutableRawPointer) -> Int32 {
 public func _sbw_getMetadata_70A89FDA() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.Codec.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.Codec.Encoding.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Codec_Encoding")
-public func SBW_Destroy_SwiftBindingsTestLib_Codec_Encoding(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Codec.Encoding.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_Codec_Encoding_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_Codec_Encoding_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -3732,12 +3711,6 @@ public func _sbw_get_rawValue_AA049608(_ resultPtr: UnsafeMutableRawPointer, _ s
 public func _sbw_getMetadata_C74FA339() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.Codec.Encoding.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.Codec.CompressionLevel.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Codec_CompressionLevel")
-public func SBW_Destroy_SwiftBindingsTestLib_Codec_CompressionLevel(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Codec.CompressionLevel.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.Codec.CompressionLevel.custom.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -3751,12 +3724,6 @@ public func _sbw_case_custom_C3354DDD(_ level: Int32, _ resultPtr: UnsafeMutable
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_Codec_CompressionLevel_1F1B93F9")
 public func _sbw_getMetadata_9D708D63() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.Codec.CompressionLevel.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.Codec.Alignment.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Codec_Alignment")
-public func SBW_Destroy_SwiftBindingsTestLib_Codec_Alignment(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Codec.Alignment.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_Codec_Alignment_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_Codec_Alignment_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -3847,12 +3814,6 @@ public func _sbw_method_9447E8DC(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.HashAlgorithm.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_HashAlgorithm")
-public func SBW_Destroy_SwiftBindingsTestLib_HashAlgorithm(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.HashAlgorithm.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.HashAlgorithm.sha2.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -3875,12 +3836,6 @@ public func _sbw_case_custom_6606AD52(_ rounds: Int32, _ resultPtr: UnsafeMutabl
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_HashAlgorithm_935A1D16")
 public func _sbw_getMetadata_6EA33400() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.HashAlgorithm.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.PlaybackMode.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PlaybackMode")
-public func SBW_Destroy_SwiftBindingsTestLib_PlaybackMode(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PlaybackMode.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.PlaybackMode.playing.
@@ -3905,12 +3860,6 @@ public func _sbw_case_paused_9A3C9FA6(_ reason: UnsafeRawPointer, _ resultPtr: U
 public func _sbw_getMetadata_7944B59C() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.PlaybackMode.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.PlaybackMode.PauseReason.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PlaybackMode_PauseReason")
-public func SBW_Destroy_SwiftBindingsTestLib_PlaybackMode_PauseReason(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PlaybackMode.PauseReason.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.PlaybackMode.PauseReason.buffering.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -3933,23 +3882,11 @@ public func _sbw_case_error_4AE9A916(_ code: Int32, _ resultPtr: UnsafeMutableRa
 public func _sbw_getMetadata_5D28D48C() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.PlaybackMode.PauseReason.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.UniqueResource.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_UniqueResource")
-public func SBW_Destroy_SwiftBindingsTestLib_UniqueResource(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.UniqueResource.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.UniqueResource.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_UniqueResource_CCA19EFE")
 public func _sbw_getMetadata_A4710061() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.UniqueResource.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.FileHandle.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_FileHandle")
-public func SBW_Destroy_SwiftBindingsTestLib_FileHandle(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.FileHandle.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.FileHandle.
@@ -3997,12 +3934,6 @@ public func _sbw_get_strikethrough_2203EA04(_ resultPtr: UnsafeMutableRawPointer
     let result = SwiftBindingsTestLib.TextStyle.strikethrough
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.TextStyle.self, repeating: result, count: 1)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.TextStyle.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_TextStyle")
-public func SBW_Destroy_SwiftBindingsTestLib_TextStyle(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.TextStyle.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_TextStyle_eq_04B03807")
 public func SBW_SwiftBindingsTestLib_TextStyle_eq_04B03807(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
     let l = lhs.assumingMemoryBound(to: SwiftBindingsTestLib.TextStyle.self).pointee
@@ -4036,12 +3967,6 @@ public func _sbw_getMetadata_1FD81CA6() -> UnsafeMutableRawPointer {
 public func _sbw_get_rawValue_E93E19DB(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.ImageRequest.Options.self).pointee
     return obj.rawValue
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.ImageRequest.Options.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ImageRequest_Options")
-public func SBW_Destroy_SwiftBindingsTestLib_ImageRequest_Options(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ImageRequest.Options.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_Options_eq_2613F1FD")
 public func SBW_SwiftBindingsTestLib_Options_eq_2613F1FD(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
@@ -4132,12 +4057,6 @@ public func _sbw_Color_getHexDescription(_ tag: Int32) -> UnsafeMutableRawPointe
     return UnsafeMutableRawPointer(slicePtr)
 }
 
-// Per-type destroy wrapper for SwiftBindingsTestLib.StatusCode.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_StatusCode")
-public func SBW_Destroy_SwiftBindingsTestLib_StatusCode(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StatusCode.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_StatusCode_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_StatusCode_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -4225,12 +4144,6 @@ public func _sbw_Priority_get_maxValue() -> Int32 {
     return SwiftBindingsTestLib.Priority.maxValue
 }
 
-// Per-type destroy wrapper for SwiftBindingsTestLib.Shape.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Shape")
-public func SBW_Destroy_SwiftBindingsTestLib_Shape(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Shape.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.Shape.circle.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -4346,12 +4259,6 @@ public func _sbw_method_4956076B(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     let result = obj.getShape()
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.Shape.self, repeating: result, count: 1)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.MediaSource.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MediaSource")
-public func SBW_Destroy_SwiftBindingsTestLib_MediaSource(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MediaSource.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.MediaSource.single.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -4376,12 +4283,6 @@ public func _sbw_case_playlist_D41951DC(_ names: UnsafeRawPointer, _ resultPtr: 
 public func _sbw_getMetadata_D3D81C93() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.MediaSource.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.AnimationSource.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AnimationSource")
-public func SBW_Destroy_SwiftBindingsTestLib_AnimationSource(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AnimationSource.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.AnimationSource.local.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -4405,12 +4306,6 @@ public func _sbw_case_remote_E155A5B1(_ urlUtf8Ptr: UnsafePointer<UInt8>, _ urlU
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_AnimationSource_7BC0C7A0")
 public func _sbw_getMetadata_C8CEAE93() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.AnimationSource.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.DataValue.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_DataValue")
-public func SBW_Destroy_SwiftBindingsTestLib_DataValue(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.DataValue.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.DataValue.integer.
@@ -5128,12 +5023,6 @@ public func _sbw_get_spacing_A5255846(_ resultPtr: UnsafeMutableRawPointer, _ se
 public func _sbw_set_spacing_25F0E832(_ newValue: CGFloat, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.LayoutConfig.self).pointee.spacing = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.LayoutConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_LayoutConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_LayoutConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.LayoutConfig.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.LayoutConfig.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_LayoutConfig_03B4FB0D")
@@ -5234,12 +5123,6 @@ public func _sbw_method_A43E7FBA(_ resultPtr: UnsafeMutableRawPointer, _ other: 
     let obj = self_.load(as: SwiftBindingsTestLib.FrozenPoint.self)
     let result = obj.midpoint(to: otherVal)
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.FrozenPoint.self, repeating: result, count: 1)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.FrozenStructWithProperties.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_FrozenStructWithProperties")
-public func SBW_Destroy_SwiftBindingsTestLib_FrozenStructWithProperties(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.FrozenStructWithProperties.self).deinitialize(count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.FrozenStructWithProperties.constantValue.
@@ -5379,12 +5262,6 @@ public func _sbw_get_y_E6DAE2F9(_ self_: UnsafeRawPointer) -> Double {
 public func _sbw_set_y_A14E8105(_ newValue: Double, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenPoint.self).pointee.y = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonFrozenPoint.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonFrozenPoint")
-public func SBW_Destroy_SwiftBindingsTestLib_NonFrozenPoint(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenPoint.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonFrozenPoint.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NonFrozenPoint_82669658")
@@ -5438,12 +5315,6 @@ public func _sbw_get_doubled_EDE4E8CD(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenStructWithProperties.self).pointee
     return obj.doubled
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonFrozenStructWithProperties.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonFrozenStructWithProperties")
-public func SBW_Destroy_SwiftBindingsTestLib_NonFrozenStructWithProperties(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenStructWithProperties.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonFrozenStructWithProperties.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NonFrozenStructWithProperties_DC65FBB2")
@@ -5457,12 +5328,6 @@ public func _sbw_getMetadata_8BAF7C04() -> UnsafeMutableRawPointer {
 public func _sbw_init_FF3A6E61(_ resultPtr: UnsafeMutableRawPointer, _ constantValue: Int32, _ mutableValue: Int32) {
     let result = SwiftBindingsTestLib.NonFrozenStructWithProperties(constantValue: constantValue, mutableValue: mutableValue)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenStructWithProperties.self).initialize(to: result)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NestedOuter.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NestedOuter")
-public func SBW_Destroy_SwiftBindingsTestLib_NestedOuter(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NestedOuter.self).deinitialize(count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.NestedOuter.label.
@@ -5546,12 +5411,6 @@ public func _sbw_get_value_E33D48F6(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_set_value_6BD20CE2(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.StructBuilder.self).pointee.value = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.StructBuilder.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_StructBuilder")
-public func SBW_Destroy_SwiftBindingsTestLib_StructBuilder(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StructBuilder.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.StructBuilder.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_StructBuilder_A5ECE2B7")
@@ -5581,12 +5440,6 @@ public func _sbw_method_264A33F4(_ resultPtr: UnsafeMutableRawPointer, _ value: 
 public func _sbw_method_B243FDE0(_ resultPtr: UnsafeMutableRawPointer) {
     let result = SwiftBindingsTestLib.StructBuilder.makeDefault()
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.StructBuilder.self, repeating: result, count: 1)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.Converter.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Converter")
-public func SBW_Destroy_SwiftBindingsTestLib_Converter(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Converter.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.Converter.
@@ -5684,12 +5537,6 @@ public func _sbw_get_name_BD248DF7(_ resultPtr: UnsafeMutableRawPointer, _ self_
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.ModernFeature.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ModernFeature")
-public func SBW_Destroy_SwiftBindingsTestLib_ModernFeature(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ModernFeature.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.ModernFeature.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_ModernFeature_37267EEC")
@@ -5781,12 +5628,6 @@ public func _sbw_method_1086925B(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.DeviceModel.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_DeviceModel")
-public func SBW_Destroy_SwiftBindingsTestLib_DeviceModel(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.DeviceModel.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.DeviceModel.unknown.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -5810,12 +5651,6 @@ public func _sbw_case_custom_C5A637E4(_ nameUtf8Ptr: UnsafePointer<UInt8>, _ nam
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_DeviceModel_BEB1CB10")
 public func _sbw_getMetadata_BAD76A92() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.DeviceModel.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.FetchError.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_FetchError")
-public func SBW_Destroy_SwiftBindingsTestLib_FetchError(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.FetchError.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FetchError.networkError.
@@ -5928,12 +5763,6 @@ public static func _sb_staticFetch(
 }
 }
 
-// Per-type destroy wrapper for SwiftBindingsTestLib.BatchConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_BatchConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_BatchConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.BatchConfig.self).deinitialize(count: 1)
-}
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.BatchConfig.name.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -6139,6 +5968,15 @@ public func _sbw_method_B9C44F14(_ self_: UnsafeMutableRawPointer) -> Int32 {
 public func _sbw_method_75E3A897(_ self_: UnsafeMutableRawPointer) {
     let obj = Unmanaged<SwiftBindingsTestLib.Registry>.fromOpaque(self_).takeUnretainedValue()
     obj.clear()
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.EventHandler.onComplete.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Get_SwiftBindingsTestLib_EventHandler_onComplete")
+public func _sbw_get_onComplete_3D5AF6D3(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeMutableRawPointer) {
+    let obj = Unmanaged<SwiftBindingsTestLib.EventHandler>.fromOpaque(self_).takeUnretainedValue()
+    let result = obj.onComplete
+    resultPtr.initializeMemory(as: Swift.Optional<(Swift.Int32) -> Swift.Bool>.self, repeating: result, count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.EventHandler.label.
@@ -6523,12 +6361,6 @@ public func _sbw_get_patch_4238A624(_ resultPtr: UnsafeMutableRawPointer) {
     let result = SwiftBindingsTestLib.HttpVerb.patch
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.HttpVerb.self, repeating: result, count: 1)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.HttpVerb.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_HttpVerb")
-public func SBW_Destroy_SwiftBindingsTestLib_HttpVerb(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.HttpVerb.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_HttpVerb_eq_3A44B007")
 public func SBW_SwiftBindingsTestLib_HttpVerb_eq_3A44B007(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
     let l = lhs.assumingMemoryBound(to: SwiftBindingsTestLib.HttpVerb.self).pointee
@@ -6559,6 +6391,41 @@ public func _sbw_get_value_28FB89CF(_ self_: UnsafeRawPointer) -> Int32 {
     return obj.value
 }
 
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue.+.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ArithmeticValue_op_Addition_3926FA96")
+public func _sbw_op_A4669436(_ lhs: SwiftBindingsTestLib.ArithmeticValue, _ rhs: SwiftBindingsTestLib.ArithmeticValue) -> SwiftBindingsTestLib.ArithmeticValue {
+    return lhs + rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue.-.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ArithmeticValue_op_Subtraction_A9057EAF")
+public func _sbw_op_17BD767A(_ lhs: SwiftBindingsTestLib.ArithmeticValue, _ rhs: SwiftBindingsTestLib.ArithmeticValue) -> SwiftBindingsTestLib.ArithmeticValue {
+    return lhs - rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue.*.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ArithmeticValue_op_Multiply_976A7DA9")
+public func _sbw_op_0F0E32BC(_ lhs: SwiftBindingsTestLib.ArithmeticValue, _ rhs: SwiftBindingsTestLib.ArithmeticValue) -> SwiftBindingsTestLib.ArithmeticValue {
+    return lhs * rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue./.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ArithmeticValue_op_Division_7494AEA2")
+public func _sbw_op_8FAAD676(_ lhs: SwiftBindingsTestLib.ArithmeticValue, _ rhs: SwiftBindingsTestLib.ArithmeticValue) -> SwiftBindingsTestLib.ArithmeticValue {
+    return lhs / rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue.%.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ArithmeticValue_op_Modulus_A3C37C90")
+public func _sbw_op_94C5F394(_ lhs: SwiftBindingsTestLib.ArithmeticValue, _ rhs: SwiftBindingsTestLib.ArithmeticValue) -> SwiftBindingsTestLib.ArithmeticValue {
+    return lhs % rhs
+}
+
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.ArithmeticValue.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_ArithmeticValue_4B55504E")
 public func _sbw_getMetadata_5D0C80AA() -> UnsafeMutableRawPointer {
@@ -6581,6 +6448,41 @@ public func _sbw_get_value_D0A42B7A(_ self_: UnsafeRawPointer) -> UInt32 {
     return obj.value
 }
 
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.&.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_BitwiseValue_op_BitwiseAnd_D659A4C1")
+public func _sbw_op_93058840(_ lhs: SwiftBindingsTestLib.BitwiseValue, _ rhs: SwiftBindingsTestLib.BitwiseValue) -> SwiftBindingsTestLib.BitwiseValue {
+    return lhs & rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.|.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_BitwiseValue_op_BitwiseOr_3FAC3D27")
+public func _sbw_op_03AC17DA(_ lhs: SwiftBindingsTestLib.BitwiseValue, _ rhs: SwiftBindingsTestLib.BitwiseValue) -> SwiftBindingsTestLib.BitwiseValue {
+    return lhs | rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.^.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_BitwiseValue_op_ExclusiveOr_3FB55BFA")
+public func _sbw_op_D1F50FA4(_ lhs: SwiftBindingsTestLib.BitwiseValue, _ rhs: SwiftBindingsTestLib.BitwiseValue) -> SwiftBindingsTestLib.BitwiseValue {
+    return lhs ^ rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.<<.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_BitwiseValue_op_LeftShift_48E9C483")
+public func _sbw_op_B55DBBE0(_ lhs: SwiftBindingsTestLib.BitwiseValue, _ rhs: SwiftBindingsTestLib.BitwiseValue) -> SwiftBindingsTestLib.BitwiseValue {
+    return lhs << rhs
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.>>.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_BitwiseValue_op_RightShift_E95C8A3D")
+public func _sbw_op_F330477D(_ lhs: SwiftBindingsTestLib.BitwiseValue, _ rhs: SwiftBindingsTestLib.BitwiseValue) -> SwiftBindingsTestLib.BitwiseValue {
+    return lhs >> rhs
+}
+
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.BitwiseValue.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_BitwiseValue_CD8F76E1")
 public func _sbw_getMetadata_6F97E481() -> UnsafeMutableRawPointer {
@@ -6601,6 +6503,13 @@ public func _sbw_init_432D6130(_ resultPtr: UnsafeMutableRawPointer, _ value: UI
 public func _sbw_get_value_7421219B(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.ComparableValue.self).pointee
     return obj.value
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.ComparableValue.<.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_ComparableValue_op_LessThan_D1919E05")
+public func _sbw_op_BB4A4FB2(_ lhs: SwiftBindingsTestLib.ComparableValue, _ rhs: SwiftBindingsTestLib.ComparableValue) -> Bool {
+    return lhs < rhs
 }
 @_cdecl("SBW_SwiftBindingsTestLib_ComparableValue_eq_D5EF1D9D")
 public func SBW_SwiftBindingsTestLib_ComparableValue_eq_D5EF1D9D(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
@@ -6698,12 +6607,6 @@ public func _sbw_set_value_72D2D4B6(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: 
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.Tag.self).pointee.value = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.Tag.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Tag")
-public func SBW_Destroy_SwiftBindingsTestLib_Tag(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Tag.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_Tag_eq_520E5DD9")
 public func SBW_SwiftBindingsTestLib_Tag_eq_520E5DD9(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
     let l = lhs.assumingMemoryBound(to: SwiftBindingsTestLib.Tag.self).pointee
@@ -6743,6 +6646,20 @@ public func _sbw_get_intValue_E36B7AFB(_ self_: UnsafeRawPointer) -> UInt32 {
     return obj.intValue
 }
 
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.UnaryValue.!.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_UnaryValue_op_LogicalNot_FDE6869B")
+public func _sbw_op_F5F752A5(_ operand: SwiftBindingsTestLib.UnaryValue) -> Bool {
+    return !operand
+}
+
+// Operator @_cdecl wrapper for SwiftBindingsTestLib.UnaryValue.~.
+// Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+@_cdecl("SBW_SwiftBindingsTestLib_UnaryValue_op_OnesComplement_EC185368")
+public func _sbw_op_7075F119(_ operand: SwiftBindingsTestLib.UnaryValue) -> SwiftBindingsTestLib.UnaryValue {
+    return ~operand
+}
+
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.UnaryValue.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_UnaryValue_16342101")
 public func _sbw_getMetadata_5396AB59() -> UnsafeMutableRawPointer {
@@ -6756,12 +6673,6 @@ public func _sbw_init_D7840950(_ resultPtr: UnsafeMutableRawPointer, _ boolValue
     let boolValueVal = boolValue != 0
     let result = SwiftBindingsTestLib.UnaryValue(boolValue: boolValueVal, intValue: intValue)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.UnaryValue.self).initialize(to: result)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.ParseError.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ParseError")
-public func SBW_Destroy_SwiftBindingsTestLib_ParseError(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ParseError.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.ParseError.overflow.
@@ -6777,12 +6688,6 @@ public func _sbw_case_overflow_4CE1D664(_ valueUtf8Ptr: UnsafePointer<UInt8>, _ 
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_ParseError_6FF49E9A")
 public func _sbw_getMetadata_13473964() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.ParseError.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.RangeError.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_RangeError")
-public func SBW_Destroy_SwiftBindingsTestLib_RangeError(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.RangeError.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.RangeError.belowMinimum.
@@ -6813,12 +6718,6 @@ public func _sbw_getMetadata_D1F6D386() -> UnsafeMutableRawPointer {
 public func _sbw_get_strict_ADFB5E71(_ self_: UnsafeRawPointer) -> Int8 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.TypedThrowingParser.self).pointee
     return obj.strict ? 1 : 0
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.TypedThrowingParser.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_TypedThrowingParser")
-public func SBW_Destroy_SwiftBindingsTestLib_TypedThrowingParser(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.TypedThrowingParser.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.TypedThrowingParser.
@@ -6883,12 +6782,6 @@ public func PInvoke_asyncParse_7A3172B4(_ callback: @convention(c) (Swift.Int32,
         }
     }
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.ValidationError.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ValidationError")
-public func SBW_Destroy_SwiftBindingsTestLib_ValidationError(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ValidationError.self).deinitialize(count: 1)
-}
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.ValidationError.tooLong.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -6919,12 +6812,6 @@ public func _sbw_getMetadata_97B9B625() -> UnsafeMutableRawPointer {
 public func _sbw_get_value_BACAAE1B(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.ThrowingStruct.self).pointee
     return obj.value
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.ThrowingStruct.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ThrowingStruct")
-public func SBW_Destroy_SwiftBindingsTestLib_ThrowingStruct(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ThrowingStruct.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.ThrowingStruct.
@@ -6977,12 +6864,6 @@ public func _sbw_method_4FE68FF9(_ a: Int32, _ b: Int32, _ errorOut: UnsafeMutab
         errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
         return 0
     }
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.SecureStore.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SecureStore")
-public func SBW_Destroy_SwiftBindingsTestLib_SecureStore(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SecureStore.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SecureStore.
@@ -7099,12 +6980,6 @@ public func _sbw_get_delay_0884CBE6(_ self_: UnsafeRawPointer) -> UInt64 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncConfig.self).pointee
     return obj.delay
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncConfig.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncConfig.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_AsyncConfig_86C9F99D")
@@ -7215,12 +7090,6 @@ public func _sbw_get_name_256B5EE4(_ resultPtr: UnsafeMutableRawPointer, _ self_
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncThrowingWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncThrowingWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncThrowingWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncThrowingWorker.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncThrowingWorker.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_AsyncThrowingWorker_CFCED6ED")
@@ -7320,12 +7189,6 @@ public func PInvoke_asyncStaticThrowing_5BD79233(_ callback: @convention(c) (Uns
         }
     }
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncResult.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncResult")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncResult(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncResult.self).deinitialize(count: 1)
-}
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.AsyncResult.id.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -7373,12 +7236,6 @@ public func _sbw_init_EAFC79F4(_ resultPtr: UnsafeMutableRawPointer, _ id: Int32
     let successVal = success != 0
     let result = SwiftBindingsTestLib.AsyncResult(id: id, message: messageVal, success: successVal)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncResult.self).initialize(to: result)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncStatus.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncStatus")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncStatus(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncStatus.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.AsyncStatus.inProgress.
@@ -7500,12 +7357,6 @@ public func _sbw_get_prefix_85BEC124(_ resultPtr: UnsafeMutableRawPointer, _ sel
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncStringWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncStringWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncStringWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncStringWorker.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncStringWorker.
@@ -7680,12 +7531,6 @@ public func _sbw_get_identifier_BA84AF17(_ resultPtr: UnsafeMutableRawPointer, _
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncArrayWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncArrayWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncArrayWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncArrayWorker.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncArrayWorker.
@@ -7998,12 +7843,6 @@ public func _sbw_get_workerId_1D020BF4(_ resultPtr: UnsafeMutableRawPointer, _ s
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncComplexWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncComplexWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncComplexWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncComplexWorker.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncComplexWorker.
@@ -8408,12 +8247,6 @@ public func _sbw_get_value_92C090DE(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_set_value_53850B62(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.MainActorMethods.self).pointee.value = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.MainActorMethods.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MainActorMethods")
-public func SBW_Destroy_SwiftBindingsTestLib_MainActorMethods(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MainActorMethods.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.MainActorMethods.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_MainActorMethods_6EB1AC4D")
@@ -8477,12 +8310,6 @@ public func _sbw_get_name_198D019C(_ resultPtr: UnsafeMutableRawPointer, _ self_
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.AsyncWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_AsyncWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_AsyncWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.AsyncWorker.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.AsyncWorker.
@@ -8836,12 +8663,6 @@ public func _sbw_get_y_B9F544E8(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_set_y_6738A72C(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.SendablePoint.self).pointee.y = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SendablePoint.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SendablePoint")
-public func SBW_Destroy_SwiftBindingsTestLib_SendablePoint(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SendablePoint.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SendablePoint.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SendablePoint_56955CC3")
@@ -8935,23 +8756,11 @@ public func _sbw_get_url_6A152796(_ resultPtr: UnsafeMutableRawPointer, _ self_:
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NetworkConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NetworkConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_NetworkConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkConfig.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NetworkConfig.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NetworkConfig_2D294F27")
 public func _sbw_getMetadata_1CD8A0AD() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.NetworkConfig.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NetworkConfig.HttpMethod.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_HttpMethod")
-public func SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_HttpMethod(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkConfig.HttpMethod.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_NetworkConfig_HttpMethod_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_NetworkConfig_HttpMethod_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -9009,12 +8818,6 @@ public func _sbw_get_rawValue_F369FFAE(_ resultPtr: UnsafeMutableRawPointer, _ s
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NetworkConfig_HttpMethod_4F483EAA")
 public func _sbw_getMetadata_98E5EB0B() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.NetworkConfig.HttpMethod.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NetworkConfig.ContentType.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_ContentType")
-public func SBW_Destroy_SwiftBindingsTestLib_NetworkConfig_ContentType(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkConfig.ContentType.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_NetworkConfig_ContentType_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_NetworkConfig_ContentType_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -9099,23 +8902,11 @@ public func _sbw_get_orderId_039DFF05(_ resultPtr: UnsafeMutableRawPointer, _ se
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.OrderContainer.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_OrderContainer")
-public func SBW_Destroy_SwiftBindingsTestLib_OrderContainer(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.OrderContainer.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.OrderContainer.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_OrderContainer_26DE7782")
 public func _sbw_getMetadata_5F1ED7E1() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.OrderContainer.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.OrderContainer.Status.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_OrderContainer_Status")
-public func SBW_Destroy_SwiftBindingsTestLib_OrderContainer_Status(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.OrderContainer.Status.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_OrderContainer_Status_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_OrderContainer_Status_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -9200,23 +8991,11 @@ public func _sbw_get_paymentId_C94F5F09(_ resultPtr: UnsafeMutableRawPointer, _ 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.PaymentContainer.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PaymentContainer")
-public func SBW_Destroy_SwiftBindingsTestLib_PaymentContainer(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PaymentContainer.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.PaymentContainer.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_PaymentContainer_4CD8CC74")
 public func _sbw_getMetadata_4EDEB194() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.PaymentContainer.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.PaymentContainer.Status.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PaymentContainer_Status")
-public func SBW_Destroy_SwiftBindingsTestLib_PaymentContainer_Status(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PaymentContainer.Status.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_PaymentContainer_Status_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_PaymentContainer_Status_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -9285,12 +9064,6 @@ public func _sbw_init_3B4F9A60(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_paym
     let result = SwiftBindingsTestLib.PaymentContainer(paymentId: paymentIdVal, status: statusVal)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PaymentContainer.self).initialize(to: result)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.LogLevel.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_LogLevel")
-public func SBW_Destroy_SwiftBindingsTestLib_LogLevel(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.LogLevel.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_LogLevel_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_LogLevel_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -9348,12 +9121,6 @@ public func _sbw_get_rawValue_7B2F0196(_ resultPtr: UnsafeMutableRawPointer, _ s
 public func _sbw_getMetadata_8DBEB52C() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.LogLevel.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.Greeting.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Greeting")
-public func SBW_Destroy_SwiftBindingsTestLib_Greeting(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Greeting.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_Greeting_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_Greeting_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -9410,12 +9177,6 @@ public func _sbw_get_rawValue_B9B39E97(_ resultPtr: UnsafeMutableRawPointer, _ s
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_Greeting_873F3FF6")
 public func _sbw_getMetadata_1260BE5F() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.Greeting.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.EdgeCaseStrings.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_EdgeCaseStrings")
-public func SBW_Destroy_SwiftBindingsTestLib_EdgeCaseStrings(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.EdgeCaseStrings.self).deinitialize(count: 1)
 }
 @_cdecl("SBW_SwiftBindingsTestLib_EdgeCaseStrings_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_EdgeCaseStrings_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -9475,12 +9236,6 @@ public func _sbw_get_rawValue_885FCF71(_ resultPtr: UnsafeMutableRawPointer, _ s
 public func _sbw_getMetadata_ED2F1043() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.EdgeCaseStrings.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.CaseSensitiveEnum.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_CaseSensitiveEnum")
-public func SBW_Destroy_SwiftBindingsTestLib_CaseSensitiveEnum(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.CaseSensitiveEnum.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_CaseSensitiveEnum_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_CaseSensitiveEnum_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -9537,12 +9292,6 @@ public func _sbw_get_rawValue_70533AFD(_ resultPtr: UnsafeMutableRawPointer, _ s
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_CaseSensitiveEnum_4478E6E2")
 public func _sbw_getMetadata_7B774B9B() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.CaseSensitiveEnum.self as Any.Type, to: UnsafeMutableRawPointer.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NetworkResponse.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NetworkResponse")
-public func SBW_Destroy_SwiftBindingsTestLib_NetworkResponse(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NetworkResponse.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.NetworkResponse.success.
@@ -9601,12 +9350,6 @@ public func _sbw_get_publicValue_A9F86861(_ self_: UnsafeRawPointer) -> Int32 {
 @_cdecl("SBW_Set_SwiftBindingsTestLib_VisibilityTest_publicValue")
 public func _sbw_set_publicValue_C37C00CD(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.VisibilityTest.self).pointee.publicValue = newValue
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.VisibilityTest.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_VisibilityTest")
-public func SBW_Destroy_SwiftBindingsTestLib_VisibilityTest(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.VisibilityTest.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.VisibilityTest.
@@ -9731,12 +9474,6 @@ public func _sbw_method_9DD2608B(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.FilterScope.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_FilterScope")
-public func SBW_Destroy_SwiftBindingsTestLib_FilterScope(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.FilterScope.self).deinitialize(count: 1)
 }
 
 // Enum case factory @_cdecl wrapper for SwiftBindingsTestLib.FilterScope.include.
@@ -9868,12 +9605,6 @@ public func _sbw_set_class_8CE101C4(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: 
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.KeywordTest.self).pointee.class = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.KeywordTest.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_KeywordTest")
-public func SBW_Destroy_SwiftBindingsTestLib_KeywordTest(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.KeywordTest.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.KeywordTest.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_KeywordTest_F24EA680")
@@ -9908,12 +9639,6 @@ public func _sbw_method_8375BDEE(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_na
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.MutableProps.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MutableProps")
-public func SBW_Destroy_SwiftBindingsTestLib_MutableProps(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MutableProps.self).deinitialize(count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.MutableProps.value.
@@ -10007,12 +9732,6 @@ public func _sbw_get_label_C9C0D374(_ resultPtr: UnsafeMutableRawPointer, _ self
 public func _sbw_set_label_DE436A48(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: Int, _ self_: UnsafeMutableRawPointer) {
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenMutableProps.self).pointee.label = newValue
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonFrozenMutableProps.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonFrozenMutableProps")
-public func SBW_Destroy_SwiftBindingsTestLib_NonFrozenMutableProps(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenMutableProps.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonFrozenMutableProps.
@@ -10189,12 +9908,6 @@ public func _sbw_get_currentValue_148DA396(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_set_currentValue_E854D1C2(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.NonMutatingView.self).pointee.currentValue = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonMutatingView.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonMutatingView")
-public func SBW_Destroy_SwiftBindingsTestLib_NonMutatingView(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonMutatingView.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonMutatingView.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NonMutatingView_EF545CFC")
@@ -10245,12 +9958,6 @@ public func _sbw_get_counterDescription_A8DD07AB(_ resultPtr: UnsafeMutableRawPo
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.StaticProps.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_StaticProps")
-public func SBW_Destroy_SwiftBindingsTestLib_StaticProps(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StaticProps.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.StaticProps.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_StaticProps_24A8E9FF")
@@ -10264,12 +9971,6 @@ public func _sbw_getMetadata_7B4E29A2() -> UnsafeMutableRawPointer {
 public func _sbw_init_858A8AA7(_ resultPtr: UnsafeMutableRawPointer) {
     let result = SwiftBindingsTestLib.StaticProps()
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StaticProps.self).initialize(to: result)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.StaticMethods.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_StaticMethods")
-public func SBW_Destroy_SwiftBindingsTestLib_StaticMethods(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StaticMethods.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.StaticMethods.
@@ -10349,12 +10050,6 @@ public func _sbw_get_maxRetries_AADC0512() -> Int32 {
 @_cdecl("SBW_Get_SwiftBindingsTestLib_Constants_timeoutSeconds")
 public func _sbw_get_timeoutSeconds_BB298B26() -> Double {
     return SwiftBindingsTestLib.Constants.timeoutSeconds
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.Constants.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Constants")
-public func SBW_Destroy_SwiftBindingsTestLib_Constants(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Constants.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.Constants.
@@ -10624,12 +10319,6 @@ public func _sbw_init_16A6665E(_ resultPtr: UnsafeMutableRawPointer, _ width: Do
     let result = SwiftBindingsTestLib.ComputedProps(width: width, height: height)
     resultPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ComputedProps.self).initialize(to: result)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.ReadOnlyProps.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ReadOnlyProps")
-public func SBW_Destroy_SwiftBindingsTestLib_ReadOnlyProps(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ReadOnlyProps.self).deinitialize(count: 1)
-}
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.ReadOnlyProps.storedInt.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
@@ -10740,12 +10429,6 @@ public func _sbw_get_uppercased_52FFD0E8(_ resultPtr: UnsafeMutableRawPointer, _
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonFrozenReadOnlyProps.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonFrozenReadOnlyProps")
-public func SBW_Destroy_SwiftBindingsTestLib_NonFrozenReadOnlyProps(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonFrozenReadOnlyProps.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonFrozenReadOnlyProps.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NonFrozenReadOnlyProps_B1FA957E")
@@ -10824,12 +10507,6 @@ public func _sbw_get_minimal_D3B7B76B(_ resultPtr: UnsafeMutableRawPointer) {
     let result = SwiftBindingsTestLib.EncodingConfig.minimal
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.EncodingConfig.self, repeating: result, count: 1)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.EncodingConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_EncodingConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_EncodingConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.EncodingConfig.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.EncodingConfig.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_EncodingConfig_925519BE")
@@ -10852,12 +10529,6 @@ public func _sbw_init_84CD17AF(_ resultPtr: UnsafeMutableRawPointer, _ _sW0_form
 public func _sbw_method_947EA055(_ length: Int32, _ self_: UnsafeRawPointer) -> Int8 {
     let obj = self_.load(as: SwiftBindingsTestLib.EncodingConfig.self)
     return (obj.isWithinLimit(length)) ? 1 : 0
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.OptionalConfig.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_OptionalConfig")
-public func SBW_Destroy_SwiftBindingsTestLib_OptionalConfig(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.OptionalConfig.self).deinitialize(count: 1)
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.OptionalConfig.label.
@@ -10974,12 +10645,6 @@ public func _sbw_set_label_EF993BFE(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: 
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.PointerWorker.self).pointee.label = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.PointerWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PointerWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_PointerWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PointerWorker.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.PointerWorker.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_PointerWorker_C2D59844")
@@ -11034,12 +10699,6 @@ public func _sbw_get_alignment_8EE85E41(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_set_alignment_64A07A3D(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.RawMemoryWorker.self).pointee.alignment = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.RawMemoryWorker.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_RawMemoryWorker")
-public func SBW_Destroy_SwiftBindingsTestLib_RawMemoryWorker(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.RawMemoryWorker.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.RawMemoryWorker.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_RawMemoryWorker_B37A8284")
@@ -11093,12 +10752,6 @@ public func _sbw_get_name_BEAA5EB1(_ resultPtr: UnsafeMutableRawPointer, _ self_
 public func _sbw_set_name_58D569F5(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: Int, _ self_: UnsafeMutableRawPointer) {
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.HandleWrapper.self).pointee.name = newValue
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.HandleWrapper.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_HandleWrapper")
-public func SBW_Destroy_SwiftBindingsTestLib_HandleWrapper(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.HandleWrapper.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.HandleWrapper.
@@ -11177,6 +10830,15 @@ public func _sbw_method_E7C3B6B4(_ value: Int32, _ closureFuncPtr: UnsafeMutable
     return SwiftBindingsTestLib.ClosureConsumer.processWithClosure(value, closure: _adapted_closure)
 }
 
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.ClosureHolder.onValueChanged.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Get_SwiftBindingsTestLib_ClosureHolder_onValueChanged")
+public func _sbw_get_onValueChanged_5FAA8EA2(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeMutableRawPointer) {
+    let obj = Unmanaged<SwiftBindingsTestLib.ClosureHolder>.fromOpaque(self_).takeUnretainedValue()
+    let result = obj.onValueChanged
+    resultPtr.initializeMemory(as: Swift.Optional<(Swift.Int32) -> ()>.self, repeating: result, count: 1)
+}
+
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.ClosureHolder.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_ClosureHolder_06790B38")
 public func _sbw_getMetadata_F83BD73D() -> UnsafeMutableRawPointer {
@@ -11197,6 +10859,14 @@ public func _sbw_init_456D4DB6() -> UnsafeMutableRawPointer {
 public func _sbw_method_D619D03E(_ value: Int32, _ self_: UnsafeMutableRawPointer) {
     let obj = Unmanaged<SwiftBindingsTestLib.ClosureHolder>.fromOpaque(self_).takeUnretainedValue()
     obj.triggerChange(value: value)
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.LogRouter.logHandler.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Get_SwiftBindingsTestLib_LogRouter_logHandler")
+public func _sbw_get_logHandler_BA5111A6(_ resultPtr: UnsafeMutableRawPointer) {
+    let result = SwiftBindingsTestLib.LogRouter.logHandler
+    resultPtr.initializeMemory(as: Swift.Optional<(Swift.String) -> ()>.self, repeating: result, count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.LogRouter.
@@ -11586,12 +11256,6 @@ public func _sbw_get_modeName_E14A877A(_ resultPtr: UnsafeMutableRawPointer, _ s
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimpleMode.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimpleMode")
-public func SBW_Destroy_SwiftBindingsTestLib_SimpleMode(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimpleMode.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleMode.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleMode_668257D8")
@@ -11629,12 +11293,6 @@ public func _sbw_get_modeName_A619F573(_ resultPtr: UnsafeMutableRawPointer, _ s
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.StrictMode.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_StrictMode")
-public func SBW_Destroy_SwiftBindingsTestLib_StrictMode(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.StrictMode.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.StrictMode.
@@ -11737,12 +11395,6 @@ public func _sbw_method_E1DF0542(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimpleModeConsumer.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimpleModeConsumer")
-public func SBW_Destroy_SwiftBindingsTestLib_SimpleModeConsumer(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimpleModeConsumer.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleModeConsumer.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleModeConsumer_B44B9054")
@@ -11773,6 +11425,34 @@ public func _sbw_method_A1CF1E21(_ resultPtr: UnsafeMutableRawPointer, _ mode: U
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
+}
+
+// Property getter @_cdecl wrapper for SwiftBindingsTestLib.SimpleDefault.defaultValue.
+// Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_Get_SwiftBindingsTestLib_SimpleDefault_defaultValue")
+public func _sbw_get_defaultValue_7D83C7CA() -> Int32 {
+    return SwiftBindingsTestLib.SimpleDefault.defaultValue
+}
+
+// Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleDefault.
+@_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleDefault_D0FD85C8")
+public func _sbw_getMetadata_3E4E931C() -> UnsafeMutableRawPointer {
+    unsafeBitCast(SwiftBindingsTestLib.SimpleDefault.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.SimpleDefault.create.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_SimpleDefault_create_9AC766A8")
+public func _sbw_method_F1BF8179(_ value: Int32) -> Int32 {
+    return SwiftBindingsTestLib.SimpleDefault.create(withValue: value)
+}
+
+// Method @_cdecl wrapper for SwiftBindingsTestLib.SimpleDefault.getValue.
+// Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_SimpleDefault_getValue_0A528957")
+public func _sbw_method_2B31F678(_ self_: UnsafeRawPointer) -> Int32 {
+    let obj = self_.load(as: SwiftBindingsTestLib.SimpleDefault.self)
+    return obj.getValue()
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.SimpleItem.id.
@@ -11822,12 +11502,6 @@ public func _sbw_get_description_5909872C(_ resultPtr: UnsafeMutableRawPointer, 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimpleItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimpleItem")
-public func SBW_Destroy_SwiftBindingsTestLib_SimpleItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimpleItem.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleItem.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleItem_BD71CA58")
@@ -11874,12 +11548,6 @@ public func _sbw_get_value_99A27CA3(_ self_: UnsafeRawPointer) -> Int32 {
 @_cdecl("SBW_Set_SwiftBindingsTestLib_MutableItem_value")
 public func _sbw_set_value_38E8AC57(_ newValue: Int32, _ self_: UnsafeMutableRawPointer) {
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.MutableItem.self).pointee.value = newValue
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.MutableItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MutableItem")
-public func SBW_Destroy_SwiftBindingsTestLib_MutableItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MutableItem.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.MutableItem.
@@ -11941,12 +11609,6 @@ public func _sbw_get_description_ECFFA778(_ resultPtr: UnsafeMutableRawPointer, 
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.DisplayItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_DisplayItem")
-public func SBW_Destroy_SwiftBindingsTestLib_DisplayItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.DisplayItem.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.DisplayItem.
@@ -12018,12 +11680,6 @@ public func _sbw_get_name_D6148C3D(_ resultPtr: UnsafeMutableRawPointer, _ self_
 public func _sbw_get_age_B2B90401(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.Person.self).pointee
     return obj.age
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.Person.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_Person")
-public func SBW_Destroy_SwiftBindingsTestLib_Person(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.Person.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.Person.
@@ -12136,12 +11792,6 @@ public func _sbw_get_configName_5935C226(_ resultPtr: UnsafeMutableRawPointer, _
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.ConfigurableItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_ConfigurableItem")
-public func SBW_Destroy_SwiftBindingsTestLib_ConfigurableItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.ConfigurableItem.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.ConfigurableItem.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_ConfigurableItem_A6AAECEB")
@@ -12172,12 +11822,6 @@ public func _sbw_get_configName_3F1E65F6(_ resultPtr: UnsafeMutableRawPointer, _
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.CustomConfigItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_CustomConfigItem")
-public func SBW_Destroy_SwiftBindingsTestLib_CustomConfigItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.CustomConfigItem.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.CustomConfigItem.
@@ -12226,12 +11870,6 @@ public func _sbw_get_tag_84F6112C(_ resultPtr: UnsafeMutableRawPointer, _ self_:
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.TaggedItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_TaggedItem")
-public func SBW_Destroy_SwiftBindingsTestLib_TaggedItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.TaggedItem.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.TaggedItem.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_TaggedItem_AE525B6E")
@@ -12278,12 +11916,6 @@ public func _sbw_get_strictLevel_160D7480(_ self_: UnsafeRawPointer) -> Int32 {
 public func _sbw_get_maxLength_064FCB0F(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.LengthRule.self).pointee
     return obj.maxLength
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.LengthRule.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_LengthRule")
-public func SBW_Destroy_SwiftBindingsTestLib_LengthRule(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.LengthRule.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.LengthRule.
@@ -12370,12 +12002,6 @@ public func _sbw_method_CA6CF776(_ other: Int32, _ self_: UnsafeRawPointer) -> I
     let obj = self_.load(as: SwiftBindingsTestLib.MultiConformingValue.self)
     return obj.divide(other)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.TaskPriority.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_TaskPriority")
-public func SBW_Destroy_SwiftBindingsTestLib_TaskPriority(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.TaskPriority.self).deinitialize(count: 1)
-}
 @_cdecl("SBW_SwiftBindingsTestLib_TaskPriority_InitWithRawValue")
 public func SBW_SwiftBindingsTestLib_TaskPriority_InitWithRawValue(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
     let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -12448,12 +12074,6 @@ public func _sbw_get_name_82085E70(_ resultPtr: UnsafeMutableRawPointer, _ self_
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.NamedItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NamedItem")
-public func SBW_Destroy_SwiftBindingsTestLib_NamedItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NamedItem.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NamedItem.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_NamedItem_109AB4E5")
@@ -12493,12 +12113,6 @@ public func _sbw_set_name_D0B0B1E2(_ utf8Ptr: UnsafePointer<UInt8>, _ utf8Len: I
     let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.MutableNamedItem.self).pointee.name = newValue
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.MutableNamedItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MutableNamedItem")
-public func SBW_Destroy_SwiftBindingsTestLib_MutableNamedItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MutableNamedItem.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.MutableNamedItem.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_MutableNamedItem_2398BE89")
@@ -12522,12 +12136,6 @@ public func _sbw_get_priority_7D3453B1(_ resultPtr: UnsafeMutableRawPointer, _ s
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.PrioritizedItem.self).pointee
     let result = obj.priority
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.TaskPriority.self, repeating: result, count: 1)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.PrioritizedItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_PrioritizedItem")
-public func SBW_Destroy_SwiftBindingsTestLib_PrioritizedItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.PrioritizedItem.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.PrioritizedItem.
@@ -12560,12 +12168,6 @@ public func _sbw_get_priority_930E1A0B(_ resultPtr: UnsafeMutableRawPointer, _ s
 public func _sbw_set_priority_52A8650F(_ newValue: UnsafeRawPointer, _ self_: UnsafeMutableRawPointer) {
     let newValueVal = newValue.load(as: SwiftBindingsTestLib.TaskPriority.self)
     self_.assumingMemoryBound(to: SwiftBindingsTestLib.MutablePrioritizedItem.self).pointee.priority = newValueVal
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.MutablePrioritizedItem.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_MutablePrioritizedItem")
-public func SBW_Destroy_SwiftBindingsTestLib_MutablePrioritizedItem(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.MutablePrioritizedItem.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.MutablePrioritizedItem.
@@ -12615,12 +12217,6 @@ public func _sbw_get_priority_300F4490(_ resultPtr: UnsafeMutableRawPointer, _ s
     let result = obj.priority
     resultPtr.initializeMemory(as: SwiftBindingsTestLib.TaskPriority.self, repeating: result, count: 1)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimpleTask.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimpleTask")
-public func SBW_Destroy_SwiftBindingsTestLib_SimpleTask(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimpleTask.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleTask.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleTask_B2257DD6")
@@ -12653,12 +12249,6 @@ public func _sbw_get_prefix_BC5C5BD0(_ resultPtr: UnsafeMutableRawPointer, _ sel
     let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.EchoProcessor.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_EchoProcessor")
-public func SBW_Destroy_SwiftBindingsTestLib_EchoProcessor(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.EchoProcessor.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.EchoProcessor.
@@ -12708,12 +12298,6 @@ public func _sbw_method_6ACC7A66(_ resultPtr: UnsafeMutableRawPointer, _ self_: 
     ptr.initialize(from: utf8, count: utf8.count)
     resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
 }
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimpleStatusHandler.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimpleStatusHandler")
-public func SBW_Destroy_SwiftBindingsTestLib_SimpleStatusHandler(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimpleStatusHandler.self).deinitialize(count: 1)
-}
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimpleStatusHandler.
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_SimpleStatusHandler_7660E08F")
@@ -12753,12 +12337,6 @@ public func _sbw_method_F1B08D55(_ from: Int32, _ self_: UnsafeRawPointer) -> In
     guard let fromVal = SwiftBindingsTestLib.TaskStatus(rawValue: from) else { preconditionFailure("Invalid raw value \(from) for SwiftBindingsTestLib.TaskStatus") }
     let obj = self_.load(as: SwiftBindingsTestLib.SimpleStatusHandler.self)
     return Int32((obj.transitionStatus(from: fromVal)).rawValue)
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.SimplePriorityHandler.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_SimplePriorityHandler")
-public func SBW_Destroy_SwiftBindingsTestLib_SimplePriorityHandler(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.SimplePriorityHandler.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.SimplePriorityHandler.
@@ -12847,6 +12425,23 @@ public func _sbw_getMetadata_14F07E18() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.SafeDiv.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
 
+// Constructor @_cdecl wrapper for SwiftBindingsTestLib.SafeDiv.
+// Routes constructor through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_SafeDiv_init_BBD33B9F")
+public func _sbw_init_C75BEA6E(_ resultPtr: UnsafeMutableRawPointer, _ numerator: Int32, _ denominator: Int32) {
+    let result: SwiftBindingsTestLib.SafeDiv? = SwiftBindingsTestLib.SafeDiv(numerator: numerator, denominator: denominator)
+    resultPtr.assumingMemoryBound(to: Optional<SwiftBindingsTestLib.SafeDiv>.self).initialize(to: result)
+}
+
+// Optional tag helper for SwiftBindingsTestLib.SafeDiv.
+// Returns 0 (Some) or 1 (None) — matches Swift Optional enum tag layout.
+// Avoids VWT->GetEnumTag function pointer call which crashes on Mono.
+@_cdecl("SBW_GetOptionalTag_SwiftBindingsTestLib_SafeDiv")
+public func _sbw_getOptionalTag_03215310(_ ptr: UnsafeRawPointer) -> UInt32 {
+    let optional = ptr.load(as: Optional<SwiftBindingsTestLib.SafeDiv>.self)
+    return optional == nil ? 1 : 0
+}
+
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.NonEmptyString.value.
 // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
 @_cdecl("SBW_Get_SwiftBindingsTestLib_NonEmptyString_value")
@@ -12869,12 +12464,6 @@ public func _sbw_get_value_A976F42B(_ resultPtr: UnsafeMutableRawPointer, _ self
 public func _sbw_get_length_B249FAF6(_ self_: UnsafeRawPointer) -> Int32 {
     let obj = self_.assumingMemoryBound(to: SwiftBindingsTestLib.NonEmptyString.self).pointee
     return obj.length
-}
-// Per-type destroy wrapper for SwiftBindingsTestLib.NonEmptyString.
-// Routes Dispose() through @_cdecl to avoid CallConvSwift crash on NativeAOT.
-@_cdecl("SBW_Destroy_SwiftBindingsTestLib_NonEmptyString")
-public func SBW_Destroy_SwiftBindingsTestLib_NonEmptyString(_ bufferPtr: UnsafeMutableRawPointer) {
-    bufferPtr.assumingMemoryBound(to: SwiftBindingsTestLib.NonEmptyString.self).deinitialize(count: 1)
 }
 
 // Metadata accessor @_cdecl wrapper for SwiftBindingsTestLib.NonEmptyString.
@@ -12911,6 +12500,23 @@ public func _sbw_get_max_08B17BCD(_ self_: UnsafeRawPointer) -> Int32 {
 @_cdecl("SBW_GetMetadata_SwiftBindingsTestLib_SwiftBindingsTestLib_RangedInt_EAF9DF9B")
 public func _sbw_getMetadata_451FE77D() -> UnsafeMutableRawPointer {
     unsafeBitCast(SwiftBindingsTestLib.RangedInt.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+// Constructor @_cdecl wrapper for SwiftBindingsTestLib.RangedInt.
+// Routes constructor through C calling convention to avoid CallConvSwift crash on NativeAOT.
+@_cdecl("SBW_SwiftBindingsTestLib_RangedInt_init_9D6F22FE")
+public func _sbw_init_BAF52AB5(_ resultPtr: UnsafeMutableRawPointer, _ value: Int32, _ min: Int32, _ max: Int32) {
+    let result: SwiftBindingsTestLib.RangedInt? = SwiftBindingsTestLib.RangedInt(value: value, min: min, max: max)
+    resultPtr.assumingMemoryBound(to: Optional<SwiftBindingsTestLib.RangedInt>.self).initialize(to: result)
+}
+
+// Optional tag helper for SwiftBindingsTestLib.RangedInt.
+// Returns 0 (Some) or 1 (None) — matches Swift Optional enum tag layout.
+// Avoids VWT->GetEnumTag function pointer call which crashes on Mono.
+@_cdecl("SBW_GetOptionalTag_SwiftBindingsTestLib_RangedInt")
+public func _sbw_getOptionalTag_A73D298C(_ ptr: UnsafeRawPointer) -> UInt32 {
+    let optional = ptr.load(as: Optional<SwiftBindingsTestLib.RangedInt>.self)
+    return optional == nil ? 1 : 0
 }
 
 // Property getter @_cdecl wrapper for SwiftBindingsTestLib.SimpleModel.deinitCount.

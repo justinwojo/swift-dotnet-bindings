@@ -365,14 +365,13 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         }
 
         // Handle existential container types (ExistentialContainer0 through ExistentialContainer8)
-        // NOTE: swift_getExistentialTypeMetadata triggers a Mono JIT assertion failure
-        // (condition `!ji->async' not met at jit-info.c:918). This is a known interop issue
-        // between Mono and Swift's existential type metadata function.
+        // Direct CallConvSwift P/Invoke to swift_getExistentialTypeMetadata is preferred,
+        // with fallback to SwiftBindingsRuntime @_cdecl wrapper.
         if (typeof(IExistentialContainer).IsAssignableFrom(type))
         {
             var numProtocols = GetProtocolCountFromExistentialType(type);
 
-            // Use SwiftBindingsRuntime wrapper (avoids CallConvSwift entirely)
+            // Try direct CallConvSwift P/Invoke first, then fall back to @_cdecl wrapper
             if (TryGetExistentialTypeMetadataViaWrapper(numProtocols, out var existentialMetadata))
             {
                 cache.GetOrAdd(type, _ => existentialMetadata);
@@ -439,8 +438,19 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
-    /// P/Invoke declarations for the SwiftBindingsRuntime library.
-    /// Uses CallingConvention.Cdecl to avoid the Mono JIT CallConvSwift assertion.
+    /// Direct CallConvSwift P/Invoke to the Swift runtime's existential metadata function.
+    /// Proven safe on both Mono and NativeAOT (NativeAOT investigation, March 2026).
+    /// </summary>
+    private static class SwiftCoreNativeMethods
+    {
+        [UnmanagedCallConv(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvSwift)])]
+        [DllImport("libswiftCore", EntryPoint = "swift_getExistentialTypeMetadata")]
+        public static extern IntPtr GetExistentialTypeMetadata(
+            nint request, IntPtr superclass, nint numProtocols, IntPtr protocols);
+    }
+
+    /// <summary>
+    /// P/Invoke declarations for the SwiftBindingsRuntime library (legacy fallback).
     /// </summary>
     private static class RuntimeNativeMethods
     {
@@ -452,13 +462,32 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
-    /// Attempts to get existential type metadata via the SwiftBindingsRuntime wrapper.
-    /// This avoids the Mono JIT CallConvSwift assertion by performing the metadata
-    /// lookup entirely on the Swift side.
+    /// Gets existential type metadata, preferring the direct CallConvSwift P/Invoke
+    /// to the Swift runtime. Falls back to the SwiftBindingsRuntime @_cdecl wrapper
+    /// if the direct call fails (e.g., libswiftCore not found).
     /// </summary>
     private static bool TryGetExistentialTypeMetadataViaWrapper(int numProtocols, out TypeMetadata result)
     {
         result = Zero;
+
+        // Direct call to swift_getExistentialTypeMetadata via CallConvSwift.
+        // request=0 is MetadataRequest.Complete, superclass=nil, protocols=nil.
+        // Returns MetadataResponse (2 words: metadata ptr + state) — we capture
+        // only the metadata pointer (x0) by declaring IntPtr return.
+        try
+        {
+            var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
+                0, IntPtr.Zero, (nint)numProtocols, IntPtr.Zero);
+            if (handle != IntPtr.Zero)
+            {
+                result = new TypeMetadata(handle);
+                return true;
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
+        // Fallback to @_cdecl wrapper in SwiftBindingsRuntime
         try
         {
             var handle = RuntimeNativeMethods.GetExistentialTypeMetadata((nint)numProtocols);
@@ -468,8 +497,9 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 return true;
             }
         }
-        catch (DllNotFoundException) { }     // Runtime lib not deployed
-        catch (EntryPointNotFoundException) { } // Older lib version
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
         return false;
     }
 

@@ -129,17 +129,22 @@ Completed March 18, 2026. Sub-task 1 (static protocol members) shipped. Sub-task
 
 ---
 
-### Session 5: NativeAOT Device Polish & Misc Fixes
+### Sessions 5–7: NativeAOT & CallConvSwift Migration (3 sessions)
 
-**Coverage impact**: Minimal skip recovery — this is stability and ergonomics work.
+**Detailed plan**: `nativeaot-callconvswift-sessions.md`
 
-NativeAOT device target is met (373 pass, 0 fail, 14/15 libraries). These items increase per-library test coverage within already-passing libraries, plus small generator quality-of-life fixes.
+NativeAOT investigation revealed 4 of 6 original @_cdecl architecture motivations were our bugs, not upstream runtime issues. These sessions fix the bugs, remove unnecessary wrappers, and migrate proven-safe patterns to direct CallConvSwift.
+
+| Session | Focus | Skip Recovery | Key Impact |
+|---------|-------|--------------|------------|
+| **5** | Runtime & infrastructure cleanup | 0 | VWT Destroy wrapper elimination, ReleaseHandle simplification, upstream bug report updates |
+| **6** | Generator bug fixes | up to 30 | Generic metadata, closure marshalling, enum lifecycle, struct ARC, composition |
+| **7** | CallConvSwift architecture migration | 0 | @_cdecl reduction from ~78.5% to ~55% (~3,000–4,000 fewer wrapper functions) |
+
+### Remaining Misc Fixes (not in NativeAOT sessions)
 
 | Sub-task | Affects | Effort | Notes |
 |----------|---------|--------|-------|
-| Struct singleton second-access crash | Alamofire `URLEncoding.Default` | Unknown | SIGBUS on second access. `initializeMemory` + `deinitialize` may corrupt ARC reference counts. Needs investigation. |
-| Enum case dispose crash (cumulative) | Starscream `WebSocketEvent.ViabilityChanged` | Unknown | SIGSEGV after ~3 enum cases created/destroyed. May relate to struct singleton issue. |
-| CallConvSwift `URL.init(string:)` wrapper | Starscream WebSocket construction | Small | `MarshalDirectiveException` on NativeAOT. Needs `@_cdecl` wrapper. |
 | `ConfigurationValue` property name collision | Nuke readability | Small | Alternative disambiguation strategy. |
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque. |
 | Stripe validation config fixes | StripeCryptoOnramp, StripeIssuing | Small | Config-only: add `StripeCameraCore` transitive dep, add `Stripe3DS2` as `--framework-dependency`. |

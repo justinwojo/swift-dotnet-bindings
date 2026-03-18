@@ -13,7 +13,7 @@ namespace BindingsGeneration;
 /// - Returns the result via C ABI (class → retained pointer, struct → writes to result buffer)
 ///
 /// Handles failable (init?), throwing (init() throws), and combined (init?() throws) constructors.
-/// Follows the DestroyWrapperEmitter pattern. State tracked on <see cref="ModuleEmissionContext"/>.
+/// State tracked on <see cref="ModuleEmissionContext"/>.
 /// </summary>
 public static class ConstructorWrapperEmitter
 {

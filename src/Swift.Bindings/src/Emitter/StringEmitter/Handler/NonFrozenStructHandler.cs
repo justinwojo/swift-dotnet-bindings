@@ -174,20 +174,8 @@ namespace BindingsGeneration
                 WritePrivateFields(csWriter, typeNameWithGenerics);
                 WritePayload(csWriter, typeNameWithGenerics);
 
-                // Emit per-type @_cdecl destroy wrapper to avoid CallConvSwift crash on NativeAOT.
-                {
-                    var simpleName = typeNameWithGenerics.Contains('<')
-                        ? typeNameWithGenerics.Substring(0, typeNameWithGenerics.IndexOf('<'))
-                        : typeNameWithGenerics;
-                    DestroyWrapperEmitter.EmitIfNeeded(
-                        csWriter, swiftWriter,
-                        simpleName,
-                        typeNameWithGenerics,
-                        moduleDecl.Name,
-                        structDecl.SwiftTypeName.ToString(),
-                        env.TypeDatabase.AsyncLibraryName,
-                        context.GetEmissionContext());
-                }
+                // VWT Destroy via CallConvSwift is proven safe on both runtimes —
+                // no @_cdecl destroy wrapper needed.
 
                 // Emit operators (operators also have P/Invoke - need to handle for generic types)
                 // For Equatable types with @_cdecl wrapper support, skip == and != operators

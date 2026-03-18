@@ -252,7 +252,7 @@ namespace BindingsGeneration
                     // at class load time, which can return garbage or cause crashes (e.g., CryptoSwift SIGABRT).
 
                     // Only root classes emit _handle, Payload property, Dispose().
-                    // No DestroyWrapper needed — SwiftClassHandle calls Arc.Release directly.
+                    // SwiftClassHandle calls Arc.Release directly (no VWT Destroy wrapper needed).
                     // No generated finalizer needed — SafeHandle's built-in finalizer calls ReleaseHandle.
                     if (!isDerived)
                     {

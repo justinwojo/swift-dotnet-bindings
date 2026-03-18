@@ -277,16 +277,6 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an enum extension class source block for deferred namespace-level emission.</summary>
     public void AddDeferredEnumExtensionClass(string extensionSource) => _deferredEnumExtensionClasses.Add(extensionSource);
 
-    // ==================== Destroy Wrapper ====================
-
-    private readonly HashSet<string> _destroyWrapperSymbols = new();
-
-    /// <summary>Checks if a destroy wrapper Swift symbol was already emitted for this type.</summary>
-    public bool HasDestroyWrapperSymbol(string symbol) => _destroyWrapperSymbols.Contains(symbol);
-
-    /// <summary>Adds a destroy wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddDestroyWrapperSymbol(string symbol) => _destroyWrapperSymbols.Add(symbol);
-
     // ==================== Constructor Wrapper ====================
 
     private readonly HashSet<string> _constructorWrapperSymbols = new();
