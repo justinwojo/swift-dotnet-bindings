@@ -64,3 +64,19 @@ public protocol InputValidation: BaseRule {
 public protocol StrictInputValidation: InputValidation {
     var strictLevel: Int32 { get }
 }
+
+// MARK: - Static Protocol Members (static abstract emission)
+
+/// Protocol with static members for testing static abstract emission.
+public protocol DefaultInitializableValue {
+    static var defaultValue: Int32 { get }
+    static func create(withValue value: Int32) -> Int32
+    func getValue() -> Int32  // instance method for mixed testing
+}
+
+/// Concrete type implementing DefaultInitializableValue.
+public struct SimpleDefault: DefaultInitializableValue {
+    public static var defaultValue: Int32 { return 42 }
+    public static func create(withValue value: Int32) -> Int32 { return value }
+    public func getValue() -> Int32 { return Self.defaultValue }
+}

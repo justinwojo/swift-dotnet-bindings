@@ -2087,4 +2087,237 @@ public class ProtocolConformanceValidatorTests
     }
 
     #endregion
+
+    #region Static Abstract Member Conformance
+
+    [Fact]
+    public void CanFullyImplementProtocol_MatchingStaticPropertyAndMethod_ReturnsTrue()
+    {
+        // Concrete type with matching static members → conformance passes with validation.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "HasStatic",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.HasStatic"),
+            MangledName = "$s10TestModule9HasStaticP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("defaultValue", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticVoidMethod("reset", moduleDecl),
+                CreateVoidMethod("doWork", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type with ALL required members (instance + static)
+        var concreteType = CreateStructDecl("MyType", moduleDecl);
+        concreteType.Properties.Add(CreateStaticPropertyDecl("defaultValue", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false, accessorParent: concreteType));
+        var staticMethod = CreateStaticVoidMethod("reset", moduleDecl);
+        staticMethod.ParentDecl = concreteType;
+        concreteType.Methods.Add(staticMethod);
+        var instanceMethod = CreateVoidMethod("doWork", moduleDecl);
+        instanceMethod.ParentDecl = concreteType;
+        concreteType.Methods.Add(instanceMethod);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_MissingStaticMethod_StillPasses()
+    {
+        // Static members are emitted as static virtual (with throw body default).
+        // Missing static members don't break conformance — the C# default satisfies the
+        // interface contract. Swift guarantees the implementation exists (on the type or
+        // via extension default). Lenient validation avoids false drops when our extension
+        // default index has coverage gaps.
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "HasStaticMethod",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.HasStaticMethod"),
+            MangledName = "$s10TestModule15HasStaticMethodP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticVoidMethod("reset", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type WITHOUT the static method — still passes (static virtual default)
+        var concreteType = CreateStructDecl("MyType", moduleDecl);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasEmittableInterfaceMembers_OnlyStaticMembers_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticOnly",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticOnly"),
+            MangledName = "$s10TestModule10StaticOnlyP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("value", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.HasEmittableInterfaceMembers(protocolDecl);
+
+        Assert.True(result);
+    }
+
+    private static PropertyDecl CreateStaticPropertyDecl(string name, TypeSpec typeSpec, ModuleDecl moduleDecl, bool hasGetter, bool hasSetter, BaseDecl? accessorParent = null)
+    {
+        var accessors = new List<AccessorDecl>();
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Get",
+                    MangledName = $"$s10TestModule{name}SivgZ",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = accessorParent,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Set",
+                    MangledName = $"$s10TestModule{name}SivsZ",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("newValue", typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = accessorParent,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = typeSpec,
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = accessorParent,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateStaticVoidMethod(string name, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}yyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static void RegisterSwiftInt32(TypeDatabase typeDatabase)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Int32"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    #endregion
 }

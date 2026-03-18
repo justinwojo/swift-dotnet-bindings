@@ -82,12 +82,13 @@ namespace BindingsGeneration
             var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);
             var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
 
-            // Count total declared members that are candidates for interface emission
-            // (non-static, non-constructor). Used for SB0004 diagnostic.
+            // Count total declared members that are candidates for interface emission.
+            // Includes static properties and static methods (emitted as static abstract).
+            // Excludes: constructors (need factory synthesis), static subscripts (no C# mapping), operators.
             int totalDeclaredMembers =
-                protocolDecl.Properties.Count(p => !p.IsStatic) +
+                protocolDecl.Properties.Count +
                 protocolDecl.Subscripts.Count(s => !s.IsStatic) +
-                protocolDecl.Methods.Count(m => !m.IsConstructor && m.MethodType != MethodType.Static);
+                protocolDecl.Methods.Count(m => !m.IsConstructor);
 
             // Buffer the interface body so we can decide whether to emit SB0004
             // (empty interface with skipped members) before the declaration.
@@ -112,14 +113,34 @@ namespace BindingsGeneration
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
             var closureSkippedPropertyNames = new HashSet<string>(); // Closure properties: in interface, proxy needs stub
+            var staticAbstractPropertyNames = new HashSet<string>(); // Static properties emitted as static abstract
             foreach (var propertyDecl in protocolDecl.Properties)
             {
-                // Skip static properties - C# interfaces cannot have static members as requirements
-                // Note: Static properties are still emitted on conforming types, just not in the interface
+                // Static properties: evaluate gates, emit as static abstract if passes
                 if (propertyDecl.IsStatic)
                 {
-                    _logger.LogDebug($"Skipping static property '{propertyDecl.Name}' in interface {protocolDecl.Name} - static interface members are not supported.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    var staticPropertyKey = propertyDecl.Name;
+                    if (emittedProperties.Contains(staticPropertyKey))
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
+                        continue;
+                    }
+                    emittedProperties.Add(staticPropertyKey);
+
+                    var staticGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
+                    var staticPropertyGate = staticGateEvaluator.EvaluateProperty(propertyDecl, protocolDecl.ModuleDecl, protocolDecl);
+                    if (staticPropertyGate.IsSkipped)
+                    {
+                        _logger.LogDebug($"Skipping static property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {staticPropertyGate.Details}");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, staticPropertyGate.Reason!.Value, staticPropertyGate.Details!);
+                        continue;
+                    }
+
+                    // Emit as static abstract (no DIM — static abstract members can't have default implementations)
+                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true);
+                    staticAbstractPropertyNames.Add(propertyDecl.Name);
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
                     continue;
                 }
 
@@ -229,18 +250,48 @@ namespace BindingsGeneration
             // Emit methods as interface members
             var skippedMethodKeys = new HashSet<string>();
             var closureSkippedMethodKeys = new HashSet<string>(); // Closure methods: in interface, proxy needs stub
+            var staticAbstractMethodKeys = new HashSet<string>(); // Static methods emitted as static abstract
             foreach (var methodDecl in protocolDecl.Methods)
             {
-                // Skip constructors and static methods early (they can't be in C# interfaces)
+                // Constructors: still skipped (would need factory method synthesis on conforming types)
                 if (methodDecl.IsConstructor)
                 {
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
                     continue;
                 }
+
+                // Static methods: evaluate gates, emit as static abstract if passes
                 if (methodDecl.MethodType == MethodType.Static)
                 {
-                    _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolDecl.Name} - static interface members are not supported.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    var staticMethodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
+                    if (emittedMethods.Contains(staticMethodKey))
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
+                        continue;
+                    }
+                    emittedMethods.Add(staticMethodKey);
+
+                    var staticProjectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, protocolDecl);
+                    if (!emittedCSharpKeys.Add(staticProjectedKey))
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
+                        continue;
+                    }
+
+                    var staticMethodGateEvaluator = new MemberGateEvaluator(env.TypeDatabase);
+                    var staticMethodGate = staticMethodGateEvaluator.EvaluateMethod(methodDecl, protocolDecl.ModuleDecl, protocolDecl);
+                    if (staticMethodGate.IsSkipped)
+                    {
+                        _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolDecl.Name} - {staticMethodGate.Details}");
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, staticMethodGate.Reason!.Value, staticMethodGate.Details!);
+                        continue;
+                    }
+
+                    // Emit as static abstract (no DIM, no nint overload — static abstract members can't have default implementations)
+                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true);
+                    staticAbstractMethodKeys.Add(staticMethodKey);
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
                     continue;
                 }
 
@@ -392,7 +443,7 @@ namespace BindingsGeneration
                 // (used by unit tests without ModuleEmissionContext). GetEmissionContext() would
                 // always return non-null and route all proxies through the deferred path.
                 EmitProtocolProxy(csWriter, protocolDecl, env.TypeDatabase, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames, context.EmissionContext);
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys, context.EmissionContext);
             }
         }
 
@@ -403,6 +454,7 @@ namespace BindingsGeneration
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
             HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames,
+            HashSet<string> staticAbstractPropertyNames, HashSet<string> staticAbstractMethodKeys,
             ModuleEmissionContext? emissionCtx = null)
         {
             var moduleName = protocolDecl.ModuleDecl?.Name ?? "Swift";
@@ -415,14 +467,14 @@ namespace BindingsGeneration
                 var proxyWriter = new CSharpWriter(proxyStringWriter);
                 proxyWriter.Indent = 1; // One level of indent inside the sub-namespace
                 proxyEmitter.EmitProxyClass(proxyWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames);
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys);
                 emissionCtx.AddDeferredProxyClass(proxyStringWriter.ToString());
             }
             else
             {
                 // Fallback: emit directly (e.g., unit tests without ModuleEmissionContext)
                 proxyEmitter.EmitProxyClass(csWriter, protocolDecl, skippedMethodKeys, skippedPropertyNames, skippedSubscriptIndices,
-                    closureSkippedMethodKeys, closureSkippedPropertyNames);
+                    closureSkippedMethodKeys, closureSkippedPropertyNames, staticAbstractPropertyNames, staticAbstractMethodKeys);
             }
         }
 
@@ -463,7 +515,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -506,6 +558,40 @@ namespace BindingsGeneration
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, propertyDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, protocolContext, emitObsolete: true);
+            if (isStaticAbstract)
+            {
+                // Static virtual with throw body: provides interface-level default so the
+                // interface can be used as a type argument (avoids CS8920), while conforming
+                // types override with actual implementations. Our conformance validator
+                // ensures types have matching static members before emitting conformances.
+                if (hasGetter && hasSetter)
+                {
+                    csWriter.WriteLine($"static virtual {csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("get => throw new global::System.NotSupportedException(\"Static protocol members must be accessed on concrete types, not through the protocol interface.\");");
+                    csWriter.WriteLine("set => throw new global::System.NotSupportedException(\"Static protocol members must be accessed on concrete types, not through the protocol interface.\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else if (hasGetter)
+                {
+                    csWriter.WriteLine($"static virtual {csharpTypeName} {propertyName}");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("=> throw new global::System.NotSupportedException(\"Static protocol members must be accessed on concrete types, not through the protocol interface.\");");
+                    csWriter.Indent--;
+                }
+                else
+                {
+                    csWriter.WriteLine($"static virtual {csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("set => throw new global::System.NotSupportedException(\"Static protocol members must be accessed on concrete types, not through the protocol interface.\");");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                return;
+            }
             if (isExtensionDefault)
             {
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.
@@ -613,7 +699,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false, bool isStaticAbstract = false)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -702,7 +788,16 @@ namespace BindingsGeneration
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, methodDecl, protocolContext, emitObsolete: true);
-            if (isExtensionDefault)
+            if (isStaticAbstract)
+            {
+                // Static virtual with throw body: provides interface-level default so the
+                // interface can be used as a type argument (avoids CS8920).
+                csWriter.WriteLine($"static virtual {returnType} {methodName}({string.Join(", ", parameters)})");
+                csWriter.Indent++;
+                csWriter.WriteLine("=> throw new global::System.NotSupportedException(\"Static protocol members must be called on concrete types, not through the protocol interface.\");");
+                csWriter.Indent--;
+            }
+            else if (isExtensionDefault)
             {
                 // Emit as DIM (Default Interface Method) with NotSupportedException body.
                 // Types that implement directly → their implementation overrides the DIM.

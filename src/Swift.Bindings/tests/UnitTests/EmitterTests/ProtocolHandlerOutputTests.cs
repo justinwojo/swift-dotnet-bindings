@@ -3509,4 +3509,404 @@ public class ProtocolHandlerOutputTests
     }
 
     #endregion
+
+    #region Static Abstract Protocol Members
+
+    [Fact]
+    public void Emit_StaticProperty_EmitsStaticAbstractInInterface()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "HasDefault",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.HasDefault"),
+            MangledName = "$s10TestModule10HasDefaultP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("defaultValue", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("static virtual int DefaultValue", csOutput);
+        Assert.Contains("public interface IHasDefault", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticMethod_EmitsStaticAbstractInInterface()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Creatable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Creatable"),
+            MangledName = "$s10TestModule9CreatableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticMethodDecl("create", new NamedTypeSpec("Swift.Int32"), moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("static virtual int Create()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MixedProtocol_HasBothInstanceAndStaticAbstractMembers()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "MixedProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MixedProto"),
+            MangledName = "$s10TestModule10MixedProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("defaultValue", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("getValue", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Both should appear
+        Assert.Contains("static virtual int DefaultValue", csOutput);
+        Assert.Contains("void GetValue();", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StaticPropertyWithUnsupportedType_SkippedWithActualGateReason()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Static property with an unresolvable type — should be skipped with actual gate reason, not StaticProtocolMember
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "BadStaticProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BadStaticProto"),
+            MangledName = "$s10TestModule14BadStaticProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("badProp", new NamedTypeSpec("SwiftUI.View"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // The property should NOT appear (skipped by gate, not by StaticProtocolMember)
+        Assert.DoesNotContain("static virtual", csOutput);
+        Assert.DoesNotContain("BadProp", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithOnlyStaticMembers_NonEmptyInterface()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticOnly",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticOnly"),
+            MangledName = "$s10TestModule10StaticOnlyP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("value", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>
+            {
+                CreateStaticMethodDecl("make", new NamedTypeSpec("Swift.Int32"), moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Interface should not have SB0004 (empty interface) diagnostic attribute
+        Assert.DoesNotContain("DiagnosticId = \"SB0004\"", csOutput);
+        Assert.Contains("static virtual int Value", csOutput);
+        Assert.Contains("static virtual int Make()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProxyEmitsNotSupportedStubsForStaticAbstractMembers()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "StaticProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StaticProto"),
+            MangledName = "$s10TestModule11StaticProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreateStaticPropertyDecl("count", new NamedTypeSpec("Swift.Int32"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl>
+            {
+                // Include an instance method so the proxy has own members and gets emitted
+                CreateMethodDecl("doWork", moduleDecl),
+                CreateStaticVoidMethodDecl("reset", moduleDecl)
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Proxy should contain NotSupportedException stubs for static members
+        Assert.Contains("public static int Count => throw new NotSupportedException", csOutput);
+        Assert.Contains("public static void Reset() => throw new NotSupportedException", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ConstructorsStillSkippedAsStaticProtocolMember()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "InitProto",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.InitProto"),
+            MangledName = "$s10TestModule9InitProtoP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                new()
+                {
+                    Name = "init",
+                    MangledName = "$s10TestModule9InitProtoPxycfC",
+                    MethodType = MethodType.Static,
+                    IsConstructor = true,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Constructor should NOT appear in the interface
+        Assert.DoesNotContain("static virtual", csOutput);
+    }
+
+    private static PropertyDecl CreateStaticPropertyDecl(string name, TypeSpec typeSpec, ModuleDecl moduleDecl, bool hasGetter, bool hasSetter)
+    {
+        var accessors = new List<AccessorDecl>();
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Get",
+                    MangledName = $"$s10TestModule{name}Sivg",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{name}_Set",
+                    MangledName = $"$s10TestModule{name}Sivs",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                        CreateArgument("newValue", typeSpec, moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public
+                }
+            });
+        }
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = typeSpec,
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateStaticVoidMethodDecl(string name, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}yyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateStaticMethodDecl(string name, TypeSpec returnTypeSpec, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{name}yyFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnTypeSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static void RegisterSwiftInt32(TypeDatabase typeDatabase)
+    {
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Swift.Int32"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
+    #endregion
 }

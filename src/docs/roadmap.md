@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: March 17, 2026
+**Updated**: March 18, 2026
 
 ---
 
@@ -105,17 +105,27 @@ Completed March 17, 2026. Scoped to Sub-tasks 1 (`any Sendable`) and 4 (SwiftExc
 
 ---
 
-### Session 4: Protocol Emission Improvements
+### ~~Session 4: Protocol Emission Improvements~~ (Complete — Sub-task 1)
 
-**Coverage impact**: ~254 skips recovered → ~78% → ~80%
-**Libraries affected**: 16+
+Completed March 18, 2026. Sub-task 1 (static protocol members) shipped. Sub-task 2 (cross-module protocol conformances) deferred.
 
-Two related improvements to how protocols surface in C#: emitting static members (currently impossible in C# interfaces) and threading conformance declarations across module boundaries.
+**Design change from roadmap**: The roadmap said "companion static class" but investigation showed a companion class would be empty/uncallable — protocol static members are requirements, not implementations. `static virtual` interface members (C# 11+) are the correct mapping. Uses `static virtual` with `NotSupportedException` throw body (not `static abstract`) to avoid CS8920 when the interface is used as a generic type argument in `RegisterConformanceFactory<T, IProtocol>()`.
 
-| Sub-task | Skips | Effort | Notes |
-|----------|------:|--------|-------|
-| **Static protocol members** | 254 (16 libs) | Medium | Emit companion static class alongside the C# interface. Clear pattern, no unknowns. |
-| **Cross-module protocol conformances** | — | Medium | Thread conformance declarations across module boundaries. Enables polymorphic use of types through interfaces defined in other modules. |
+**What shipped:**
+- **Static properties** on protocols emitted as `static virtual` in the C# interface with throw body default. Conforming types that implement the property override the default.
+- **Static methods** on protocols emitted as `static virtual` in the C# interface with throw body default. Same override semantics.
+- **Proxy stubs** — Protocol proxy classes emit `static NotSupportedException` stubs for static virtual members (proxy dispatch doesn't support statics).
+- **Conformance validation** — Lenient: if concrete type HAS a matching static member, full validation (accessor parity, type compatibility, name parity, parameter compatibility). If missing, the `static virtual` default satisfies the C# interface contract. This avoids false conformance drops when extension default index has coverage gaps.
+- **`HasEmittableInterfaceMembers`** — Now includes static properties/methods. A protocol with only static members is not treated as an empty marker protocol.
+- **`StaticProtocolMember` skips reduced to 1** (only `init` constructors remain). Static subscripts (no C# mapping) and operators (signature parity concerns) remain deferred.
+
+**Remaining scope (deferred):**
+- **Constructors (`init`)** — Would need factory method synthesis on conforming types.
+- **Static subscripts** — C# has no static indexers.
+- **Operators** — C# `static abstract operator` exists but has signature parity concerns.
+- **Cross-module protocol conformances** (Sub-task 2) — Medium-high complexity. Needs dependency `ProtocolDecl` preservation in TypeDatabase, `ITypeDatabase` threading through `ShouldEmitConformance`, cross-module `FindProtocol` extension. Multi-module libraries (Stripe) would benefit.
+
+**Validation**: 90/90 compile gate, 7840 unit tests, 76/76 standalone. No regressions.
 
 ---
 
@@ -232,6 +242,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
+| Session 4: Static protocol members | Mar 18 | Static properties/methods emitted as `static virtual` in C# interfaces. `StaticProtocolMember` skips reduced from ~254 to 1 (only constructors). Proxy stubs, lenient conformance validation, `HasEmittableInterfaceMembers` includes statics. 90/90 validation, 7840 unit tests. Deferred: cross-module conformances, constructors, static subscripts, operators. |
 | Session 3: Existential types & error ergonomics | Mar 17 | `any Sendable` marker protocol visibility (members stop being skipped, compile as `object`/EC0). SwiftException for sync untyped throws. Duplicate `[Obsolete]` dedup. 6 Stripe improvements. 90/90 validation, 7818 unit tests. Deferred: `[String: Any]` dictionary, ExistentialContainer API cleanup. |
 | Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. Synchronous C# APIs following Xamarin.iOS precedent. Also fixed OptionSet XML misclassification (UIControl.State/Event) and ObjC-bridged struct Unmanaged reconstruction. 2 wrapper regressions remain (Parchment return-side Unmanaged, BlinkIDUX missing module). 40/56 swift wrapper, 90/90 compile gate, 481 runtime tests. |
 | Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |

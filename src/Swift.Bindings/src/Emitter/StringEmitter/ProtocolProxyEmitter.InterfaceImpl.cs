@@ -95,8 +95,125 @@ public partial class ProtocolProxyEmitter
             }
         }
 
+        // Static virtual members: emit NotSupportedException stubs to satisfy the interface contract.
+        // Proxy types can't dispatch static protocol requirements to Swift (no existential container
+        // for statics). NOTE: When EveryProtocol conformance is skipped for static method protocols,
+        // the proxy's SetVtable/WitnessTable P/Invoke symbols don't exist — this is a pre-existing
+        // latent issue (see ProtocolHandler.cs TODO). The static stubs here don't make it worse;
+        // the proxy was already emitted and runtime-broken for these protocols. Full fix requires
+        // co-gating proxy emission with EveryProtocol conformance (roadmap Session 5).
+        EmitStaticAbstractStubs(writer, protocolDecl);
+
         writer.WriteLine("#endregion");
         writer.WriteLine();
+    }
+
+    private void EmitStaticAbstractStubs(CSharpWriter writer, ProtocolDecl protocolDecl)
+    {
+        if (_staticAbstractPropertyNames.Count == 0 && _staticAbstractMethodKeys.Count == 0)
+            return;
+
+        writer.WriteLine();
+        writer.WriteLine("// Static abstract member stubs (protocol proxy cannot dispatch static requirements)");
+
+        // Static property stubs (dedup by name — protocols can have duplicate entries in ABI JSON)
+        var emittedStaticPropertyNames = new HashSet<string>();
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (!property.IsStatic || !_staticAbstractPropertyNames.Contains(property.Name))
+                continue;
+            if (!emittedStaticPropertyNames.Add(property.Name))
+                continue;
+
+            var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+            var propertyName = NameProvider.GetPropertyName(property.Name);
+            var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+            var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+
+            if (hasGetter && hasSetter)
+            {
+                writer.WriteLine($"public static {csharpTypeName} {propertyName}");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine("get => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
+                writer.WriteLine("set => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+            else if (hasSetter)
+            {
+                writer.WriteLine($"public static {csharpTypeName} {propertyName}");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine("set => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
+                writer.Indent--;
+                writer.WriteLine("}");
+            }
+            else
+            {
+                writer.WriteLine($"public static {csharpTypeName} {propertyName} => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
+            }
+        }
+
+        // Collect emitted static property names for method/property collision detection
+        // (mirrors ProtocolHandler.Emit() emittedCSharpPropertyNames logic for statics)
+        var staticPropertyNames = new HashSet<string>();
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (property.IsStatic && _staticAbstractPropertyNames.Contains(property.Name))
+                staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+        }
+        // Also include instance property names that are emitted in the interface
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (!property.IsStatic &&
+                (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
+                staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+        }
+
+        // Static method stubs
+        var emittedStaticMethodCSharpKeys = new HashSet<string>();
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.MethodType != MethodType.Static)
+                continue;
+            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocolDecl);
+            if (!_staticAbstractMethodKeys.Contains(methodKey))
+                continue;
+
+            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+            if (!emittedStaticMethodCSharpKeys.Add(projectedKey))
+                continue;
+
+            var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+            var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!, isParameter: false) : "void";
+
+            if (method.IsAsync)
+                returnTypeName = returnTypeName == "void" ? "Task" : $"Task<{returnTypeName}>";
+
+            var parameters = new List<string>();
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(param))
+                    continue;
+                if (param.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
+                var paramName = NameProvider.GetCSharpParameterName(param);
+                parameters.Add($"{paramTypeName} {paramName}");
+            }
+            if (method.IsAsync)
+                parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+
+            var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
+            var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+                propertyNames: staticPropertyNames,
+                isSelfReturning: isSelfReturning,
+                parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+            writer.WriteLine($"public static {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
+        }
     }
 
     private void EmitPropertyImplementation(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)

@@ -65,18 +65,18 @@ public class ProtocolConformanceValidator
 
     /// <summary>
     /// Checks if a protocol has any members that would appear in its generated C# interface.
-    /// If ALL non-static members are filtered out (e.g., UIKit dependencies), the protocol
+    /// If ALL members are filtered out (e.g., UIKit dependencies), the protocol
     /// handler won't generate the interface, and adding it to a class declaration would cause CS0246.
+    /// Includes static properties and static methods (emitted as static abstract).
     /// </summary>
     public bool HasEmittableInterfaceMembers(ProtocolDecl protocolDecl)
     {
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         var evaluator = new MemberGateEvaluator(_typeDatabase);
 
-        // Check if any non-static property would be emitted in the interface
+        // Check if any property (instance or static) would be emitted in the interface
         foreach (var prop in protocolDecl.Properties)
         {
-            if (prop.IsStatic) continue;
             if (MemberEmissionValidator.ReferencesUnsupportedModule(prop.SwiftTypeSpec, _typeDatabase))
                 continue;
             var result = evaluator.EvaluateProperty(prop, _moduleDecl, protocolDecl);
@@ -84,16 +84,17 @@ public class ProtocolConformanceValidator
                 return true;  // At least one property would appear in the interface
         }
 
-        // Check if any non-static, non-constructor method would be emitted
+        // Check if any non-constructor method (instance or static) would be emitted
         foreach (var method in protocolDecl.Methods)
         {
-            if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+            if (method.IsConstructor) continue;
             var result = evaluator.EvaluateMethod(method, _moduleDecl, protocolDecl);
             if (!result.IsSkipped)
                 return true;  // At least one method would appear in the interface
         }
 
         // Check if any non-static subscript would be emitted in the interface
+        // (static subscripts are still skipped — C# has no static indexers)
         foreach (var subscript in protocolDecl.Subscripts)
         {
             if (subscript.IsStatic) continue;
@@ -104,8 +105,8 @@ public class ProtocolConformanceValidator
 
         // Protocol has no emittable interface members — it's either empty (marker) or all-filtered.
         // Empty protocols (no members at all) still get generated → return true.
-        bool hasMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
-                         protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
+        bool hasMembers = protocolDecl.Properties.Any() ||
+                         protocolDecl.Methods.Any(m => !m.IsConstructor) ||
                          protocolDecl.Subscripts.Any(s => !s.IsStatic);
         return !hasMembers;  // true if empty protocol, false if all members were filtered
     }
@@ -150,11 +151,17 @@ public class ProtocolConformanceValidator
         // Lazy-init conformance names for extension default checks (reused for properties + methods)
         HashSet<string>? conformanceNames = null;
 
-        // For each INTERFACE PROPERTY requirement:
+        // For each INTERFACE PROPERTY requirement (instance + static):
+        // Static properties are emitted as static virtual (with throw body default) to
+        // avoid CS8920 when the interface is used as a type argument. If a conforming type
+        // has a matching static member, we validate type compatibility. If it doesn't, the
+        // static virtual default satisfies the C# interface contract, so we don't drop the
+        // conformance. This is conservative-safe: Swift guarantees the member exists (via
+        // the type or extension default), and the C# interface is satisfied by the default.
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         foreach (var protoProperty in protocolDecl.Properties)
         {
-            if (protoProperty.IsStatic) continue;
+            if (protoProperty.IsStatic) continue; // Static: validated below with lenient matching
             var propertyKey = protoProperty.Name;
             if (!requiredProperties.Add(propertyKey)) continue;
 
@@ -198,6 +205,44 @@ public class ProtocolConformanceValidator
                 return false;  // CS0738: types don't match
         }
 
+        // Static properties: lenient validation. If the concrete type HAS the static member,
+        // validate accessor parity and type compatibility (same checks as instance properties).
+        // If it doesn't, the static virtual default satisfies the interface — we don't drop
+        // conformances for missing statics because the C# compiler won't flag them (static
+        // virtual has a default body). This is a deliberate compromise: Swift guarantees the
+        // member exists (on the type or via extension default), so missing means our extension
+        // default index has a coverage gap, not that the conformance is wrong.
+        foreach (var protoProperty in protocolDecl.Properties)
+        {
+            if (!protoProperty.IsStatic) continue;
+            if (!requiredProperties.Add(protoProperty.Name)) continue;
+            if (IsPropertySkippedFromInterface(protoProperty, boundGenericsHandler, protocolDecl))
+                continue;
+
+            var concreteProperty = FindMatchingProperty(concreteType, protoProperty, isStatic: true);
+            if (concreteProperty == null)
+                continue; // Static virtual default satisfies the interface
+
+            // Validate accessor contract: protocol { get set } requires concrete { get set }
+            var protoHasGetter = protoProperty.Accessors.OfType<GetAccessorDecl>().Any();
+            var protoHasSetter = protoProperty.Accessors.OfType<SetAccessorDecl>().Any();
+            var concreteHasGetter = concreteProperty.Accessors.OfType<GetAccessorDecl>().Any();
+            var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
+            if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
+                return false;  // CS0535: missing accessor
+
+            // Validate CONCRETE property can be emitted
+            var skipReason = MemberEmissionValidator.CanEmitProperty(
+                concreteProperty, _typeDatabase, out _, out var concreteTypeProjected);
+            if (skipReason != null)
+                return false; // CS0535: member present but can't be emitted
+
+            // Check type compatibility (CS0738)
+            var staticInterfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
+            if (!AreTypesCompatible(staticInterfaceType, concreteTypeProjected, conformingTypeName))
+                return false; // CS0738: types don't match
+        }
+
         // For each INTERFACE SUBSCRIPT requirement:
         foreach (var protoSubscript in protocolDecl.Subscripts)
         {
@@ -229,7 +274,7 @@ public class ProtocolConformanceValidator
                 return false;
         }
 
-        // For each INTERFACE METHOD requirement:
+        // For each INTERFACE METHOD requirement (instance only):
         var emittedCSharpKeys = new HashSet<string>();
         var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var protoMethod in protocolDecl.Methods)
@@ -322,6 +367,70 @@ public class ProtocolConformanceValidator
                 return false;
         }
 
+        // Static methods: lenient validation. If the concrete type HAS a matching static method,
+        // validate emitted name parity, return type, and parameter compatibility (same checks
+        // as instance methods). If it doesn't, the static virtual default satisfies the
+        // interface. Same rationale as static property validation above.
+        foreach (var protoMethod in protocolDecl.Methods)
+        {
+            if (protoMethod.IsConstructor || protoMethod.MethodType != MethodType.Static) continue;
+            var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolDecl);
+            if (!requiredMethods.Add(methodKey)) continue;
+            if (IsMethodSkippedFromInterface(protoMethod, boundGenericsHandler, protocolDecl))
+                continue;
+
+            var concreteMethod = FindMatchingStaticMethod(concreteType, protoMethod, protocolDecl);
+            if (concreteMethod == null)
+                continue; // Static virtual default satisfies the interface
+
+            var skipReason = MemberEmissionValidator.CanEmitMethod(
+                concreteMethod, _typeDatabase, out _, out var concreteReturnType);
+            if (skipReason != null)
+                return false;
+
+            // Check C# name parity (same logic as instance methods)
+            var concreteProperties = concreteType switch
+            {
+                ClassDecl cd => cd.Properties,
+                StructDecl sd => sd.Properties,
+                EnumDecl ed => ed.Properties,
+                _ => Enumerable.Empty<PropertyDecl>()
+            };
+            var concretePropertyNames = new HashSet<string>(
+                concreteProperties.Select(p => NameProvider.GetPropertyName(p.Name)));
+            var concreteReturnTypeSpec = concreteMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool concreteHasReturn = concreteReturnTypeSpec != null && !concreteReturnTypeSpec.IsEmptyTuple;
+            var concreteIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(concreteMethod);
+            var concreteParentTypeName = NameProvider.ToPascalCase(concreteType.Name);
+            var concreteEmittedName = NameProvider.GetPublicMethodName(
+                concreteMethod.Name, concreteMethod.IsAsync,
+                hasReturnValue: concreteHasReturn,
+                propertyNames: concretePropertyNames,
+                isSelfReturning: concreteIsSelfReturning,
+                parentTypeName: concreteParentTypeName,
+                parameterCount: concreteMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+            var protoReturnTypeSpec = protoMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            bool protoHasReturn = protoReturnTypeSpec != null && !protoReturnTypeSpec.IsEmptyTuple;
+            var protoIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(protoMethod);
+            var interfaceMethodName = NameProvider.GetPublicMethodName(
+                protoMethod.Name, protoMethod.IsAsync,
+                hasReturnValue: protoHasReturn,
+                isSelfReturning: protoIsSelfReturning,
+                parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+            if (concreteEmittedName != interfaceMethodName)
+                return false;  // CS0535: method names diverge due to collision resolution
+
+            // Check return type compatibility (CS0738)
+            var interfaceReturnType = GetInterfaceMethodReturnType(protoMethod, protocolDecl, boundGenericsHandler);
+            if (!AreTypesCompatible(interfaceReturnType, concreteReturnType, conformingTypeName))
+                return false;
+
+            // Check parameter type compatibility (CS0535/CS0738)
+            if (!AreMethodParamsCompatible(protoMethod, concreteMethod, protocolDecl, conformingTypeName))
+                return false;
+        }
 
         // NOTE: Inherited protocol recursive check is intentionally disabled.
         // InheritedProtocols was recently populated (was always empty before), but
@@ -520,11 +629,11 @@ public class ProtocolConformanceValidator
     /// <summary>
     /// Finds matching property in concrete type or its emittable ancestors by name.
     /// </summary>
-    private static PropertyDecl? FindMatchingProperty(TypeDecl type, PropertyDecl protoProperty)
+    private static PropertyDecl? FindMatchingProperty(TypeDecl type, PropertyDecl protoProperty, bool isStatic = false)
     {
         foreach (var ancestor in GetEmittableAncestors(type))
         {
-            var match = ancestor.Properties.FirstOrDefault(p => p.Name == protoProperty.Name && !p.IsStatic);
+            var match = ancestor.Properties.FirstOrDefault(p => p.Name == protoProperty.Name && p.IsStatic == isStatic);
             if (match != null)
                 return match;
         }
@@ -590,6 +699,25 @@ public class ProtocolConformanceValidator
                         return match;
                 }
             }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Finds matching static method in concrete type or its emittable ancestors by signature.
+    /// </summary>
+    private MethodDecl? FindMatchingStaticMethod(TypeDecl type, MethodDecl protoMethod, ProtocolDecl protocolContext)
+    {
+        var protoKey = ProtocolSignatureHelper.GetMethodSignatureKey(protoMethod, _typeDatabase, protocolContext);
+
+        foreach (var ancestor in GetEmittableAncestors(type))
+        {
+            var match = ancestor.Methods.FirstOrDefault(m =>
+                !m.IsConstructor && m.MethodType == MethodType.Static &&
+                ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null) == protoKey);
+            if (match != null)
+                return match;
         }
 
         return null;
