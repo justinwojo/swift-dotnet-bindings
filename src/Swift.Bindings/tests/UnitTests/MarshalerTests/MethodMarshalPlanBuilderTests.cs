@@ -1084,11 +1084,11 @@ public class MethodMarshalPlanBuilderTests
         var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
         var plan = BuildPlan(env, wrapperSig, pInvokeSig);
 
-        // Must use SwiftObjectHelper<GenericCache<T>>.GetTypeMetadata() for _metadata0
-        // (routes through ISwiftObject to get specialized class metatype)
-        Assert.Contains("SwiftObjectHelper<GenericCache<T>>.GetTypeMetadata()", plan.PInvokeCallStatement);
-        // Must NOT use per-param SwiftObjectHelper<T>.GetTypeMetadata() (wrong metatype)
-        Assert.DoesNotContain("SwiftObjectHelper<T>.GetTypeMetadata()", plan.PInvokeCallStatement);
+        // Must use the helper class metadata accessor to get the specialized metatype
+        // (avoids SwiftObjectHelper<GenericCache<T>> which crashes Mono's generic sharing).
+        // GenericCache_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata())
+        // is functionally equivalent but Mono-safe.
+        Assert.Contains("GenericCache_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata())", plan.PInvokeCallStatement);
     }
 
     [Fact]

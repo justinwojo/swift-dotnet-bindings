@@ -61,7 +61,6 @@ public class ClassSingletonTests : TestBase
         TestLogger.Info("All Scope singletons have distinct names");
     }
 
-    [MonoJitCrash] // Mono: hangs on String-returning @_cdecl wrapper for class method
     public void TestScopeGetDescribe()
     {
         var desc = Scope.Transient.GetDescribe();

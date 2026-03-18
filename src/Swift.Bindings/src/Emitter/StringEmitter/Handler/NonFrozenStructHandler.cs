@@ -171,7 +171,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
                 }
 
-                WritePrivateFields(csWriter, typeNameWithGenerics);
+                WritePrivateFields(csWriter, typeNameWithGenerics, ownPInvokeContext);
                 WritePayload(csWriter, typeNameWithGenerics);
 
                 // VWT Destroy via CallConvSwift is proven safe on both runtimes —
@@ -263,10 +263,28 @@ namespace BindingsGeneration
         /// <summary>
         /// Writes the private fields for the class.
         /// </summary>
-        private static void WritePrivateFields(CSharpWriter csWriter, string typeNameWithGenerics)
+        /// <param name="csWriter">The C# code writer.</param>
+        /// <param name="typeNameWithGenerics">The type name including generic parameters.</param>
+        /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.
+        /// When present, _payloadSize uses the helper class metadata accessor instead of
+        /// SwiftObjectHelper&lt;GenericType&lt;T&gt;&gt; which crashes Mono's generic sharing.</param>
+        private static void WritePrivateFields(CSharpWriter csWriter, string typeNameWithGenerics,
+            PInvokeHelperContext? pinvokeHelperContext = null)
         {
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            if (pinvokeHelperContext != null)
+            {
+                // Generic types: call the helper class metadata accessor with per-param metadata.
+                // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes Mono JIT
+                // (mini-generic-sharing.c:2759) because the nested generic instantiation can't be
+                // compiled without the type argument's metadata.
+                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                csWriter.WriteLine($"static nuint _payloadSize = {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs}).Size;");
+            }
+            else
+            {
+                csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+            }
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
             csWriter.WriteLine();

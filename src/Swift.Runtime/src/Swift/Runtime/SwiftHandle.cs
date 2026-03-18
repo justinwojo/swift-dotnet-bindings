@@ -69,7 +69,6 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// The registered action is ignored — VWT Destroy is always used directly.
     /// </summary>
     /// <param name="action">The destroy action (ignored).</param>
-    [Obsolete("VWT Destroy via CallConvSwift works on both runtimes. @_cdecl destroy wrappers are no longer generated.")]
     public static void RegisterDestroyAction(Action<IntPtr>? action)
     {
         // No-op for backward compatibility. Previously-generated bindings may call this

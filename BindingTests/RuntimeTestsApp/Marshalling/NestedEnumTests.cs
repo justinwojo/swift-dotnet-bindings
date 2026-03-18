@@ -96,7 +96,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 3 — Codec Construction and Properties
 
-    [MonoJitCrash] // Mono: Codec.Encoding (non-frozen String enum) ARC copy triggers jit-info.c:918
+    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
     public void TestCodecConstructionJson()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -106,7 +106,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Json format passed");
     }
 
-    [MonoJitCrash] // Mono: Codec.Encoding (non-frozen String enum) ARC copy triggers jit-info.c:918
+    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
     public void TestCodecConstructionXml()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -116,7 +116,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
-    [MonoJitCrash] // Mono: Codec.Encoding (non-frozen String enum) ARC copy triggers jit-info.c:918
+    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
     public void TestCodecEncodingValueProperty()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -127,7 +127,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
-    [MonoJitCrash] // Mono: Codec.Encoding (non-frozen String enum) ARC copy triggers jit-info.c:918
+    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
     public void TestCodecGetDescribe()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -321,7 +321,7 @@ public class NestedEnumTests : TestBase
 
     #region Pass 2 — L6: Nested Enum with String RawValue + CaseIterable
 
-    [MonoJitCrash] // Mono: deferred Sys:Free of String-raw-value enum triggers jit-info.c:918
+    [SkipOnSimulator("String-raw-value enum deferred Sys:Free crashes Mono finalizer thread")]
     public void TestCodecAlignmentCases()
     {
         AssertEqual(Codec.Alignment.CaseTag.Left, Codec.Alignment.Left.Tag, "Left tag");
@@ -330,7 +330,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Alignment case tags passed");
     }
 
-    [MonoJitCrash] // Mono: deferred Sys:Free of String-raw-value enum triggers jit-info.c:918
+    [SkipOnSimulator("String-raw-value enum deferred Sys:Free crashes Mono finalizer thread")]
     public void TestCodecAlignmentRawValues()
     {
         AssertEqual("left", Codec.Alignment.Left.RawValue.ToString(), "Left raw value");

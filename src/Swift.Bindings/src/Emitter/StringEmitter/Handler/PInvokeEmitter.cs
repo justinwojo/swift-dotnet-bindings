@@ -797,11 +797,15 @@ namespace BindingsGeneration
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = methodDecl.IsAsync,
-                    // Protocol extension methods on generic types already have TypeMetadata
-                    // in the P/Invoke signature (via HandleGenericMetadata — explicit + implicit
-                    // for @_silgen_name ABI). Skip PInvokeHelperContext metadata to avoid triple params.
-                    MetadataParameters = methodDecl.IsProtocolExtensionMethod
-                        ? Array.Empty<string>()
+                    // Methods with GenericParameters already have per-param TypeMetadata in the
+                    // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
+                    // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).
+                    // Constructors additionally need ONE TypeMetadata for the allocating init's
+                    // Self.Type metatype (e.g., Wrapper<T>.Type).
+                    MetadataParameters = methodDecl.GenericParameters.Count > 0
+                        ? (methodDecl.IsConstructor
+                            ? new[] { "TypeMetadata metatype" }
+                            : Array.Empty<string>())
                         : methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
                 };
                 methodEnv.PInvokeHelperContext.AddDeclaration(declaration);

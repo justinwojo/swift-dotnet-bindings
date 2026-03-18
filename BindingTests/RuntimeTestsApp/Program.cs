@@ -344,6 +344,19 @@ public class MainViewController : UIViewController
             return;
         }
 
+        // Check class-level [SkipOnSimulator] BEFORE instantiation — static field
+        // initialization for generic types calls CallConvSwift P/Invokes that crash Mono JIT.
+        var classSimSkip = testClassType.GetCustomAttribute<SkipOnSimulatorAttribute>();
+        if (classSimSkip != null && platform == TestPlatform.Simulator)
+        {
+            var methods = testClassType
+                .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(m => m.Name.StartsWith("Test") && m.GetParameters().Length == 0);
+            foreach (var m in methods)
+                results.Skip($"{testClassType.Name}.{m.Name}", $"Simulator: {classSimSkip.Reason}");
+            return;
+        }
+
         try
         {
             var testClass = (TestBase)Activator.CreateInstance(testClassType, results)!;

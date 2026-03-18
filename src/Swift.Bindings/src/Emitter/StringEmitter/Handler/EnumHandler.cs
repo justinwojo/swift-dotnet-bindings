@@ -164,7 +164,17 @@ namespace BindingsGeneration
 
                 // Emit payload field and property - enums need this for property accessors
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-                csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+                if (ownPInvokeContext != null)
+                {
+                    // Generic enums: use helper class metadata accessor to avoid Mono JIT crash
+                    // (mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericEnum<T>>).
+                    var metadataArgs = string.Join(", ", ownPInvokeContext.GetMetadataArgumentList());
+                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata({metadataArgs}).Size;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"static nuint _payloadSize = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata().Size;");
+                }
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 csWriter.WriteLine($"SwiftSafeHandle<{typeNameWithGenerics}> _payload = SwiftSafeHandle<{typeNameWithGenerics}>.Zero;");
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");

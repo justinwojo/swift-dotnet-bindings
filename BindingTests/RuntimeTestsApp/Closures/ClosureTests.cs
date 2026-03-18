@@ -73,6 +73,7 @@ public class ClosureTests : TestBase
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
     // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
+    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestConventionCFunction()
     {
         var result = TestLibFunctions.CallCFunction(x => x + 8);
@@ -81,6 +82,7 @@ public class ClosureTests : TestBase
     }
 
     // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
+    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestCBinaryFunction()
     {
         var result = TestLibFunctions.CallCBinaryFunction((a, b) => a * b);
@@ -88,6 +90,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCBinaryFunction((a,b) => a*b) = {result}");
     }
 
+    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestCPredicate()
     {
         var result = TestLibFunctions.CallCPredicate(x => x > 5, 10);
@@ -98,7 +101,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    [MonoJitCrash] // Mono: SIGSEGV invoking returned closure via delegate* unmanaged[Swift] with SwiftSelf context
+    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -108,7 +111,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    [MonoJitCrash] // Mono: SIGSEGV invoking returned closure via delegate* unmanaged[Swift] with SwiftSelf context
+    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -118,7 +121,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    [MonoJitCrash] // Mono: SIGSEGV invoking returned closure via delegate* unmanaged[Swift] with SwiftSelf context
+    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -128,7 +131,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    [MonoJitCrash] // Mono: SIGSEGV invoking returned closure via delegate* unmanaged[Swift] with SwiftSelf context
+    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);

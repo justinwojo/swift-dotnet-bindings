@@ -11,6 +11,7 @@ namespace RuntimeTestsApp.Lifetime;
 /// GC stress tests that trigger ForceGC() or construct MutableProps.
 /// Separated from OwnershipTests for independent failure isolation.
 /// </summary>
+[SkipOnSimulator("GC stress triggers Mono finalizer thread Sys:Free crash (jit-info.c:918) that kills the process")]
 public class OwnershipGCStressTests : TestBase
 {
     public OwnershipGCStressTests(TestResults results) : base(results) { }

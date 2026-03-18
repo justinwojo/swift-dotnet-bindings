@@ -347,7 +347,7 @@ if [ "$PLATFORM" = "device" ]; then
     # Step 5: Run tests
     echo "--- Step 5: Run tests on device ---"
 
-    # Build launch arguments — device mode runs [MonoJitCrash] tests
+    # Build launch arguments — device mode
     LAUNCH_ARGS="--platform device"
     if [ "$FLAKE_DETECT" = true ]; then
         LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
@@ -603,7 +603,7 @@ BEFORE_CRASH_COUNT=$(ls -1 "$CRASH_LOG_DIR"/RuntimeTestsApp*.ips 2>/dev/null | w
 echo "Installing app..."
 xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
 
-# Build launch arguments — simulator mode skips [MonoJitCrash] tests
+# Build launch arguments — simulator mode
 LAUNCH_ARGS="--platform simulator"
 if [ "$FLAKE_DETECT" = true ]; then
     LAUNCH_ARGS="$LAUNCH_ARGS --flake-detect"
@@ -704,10 +704,8 @@ elif [ "$RESULT" = "crash" ]; then
         grep '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" | sed 's/.*\[FAIL\] /  /'
         exit 1
     fi
-    # On simulator, all [MonoJitCrash] tests are skipped, so any crash is a regression.
     echo ""
     echo "ERROR: Unexpected crash on simulator ($PASS_COUNT tests passed before crash)."
-    echo "All Mono JIT crash-prone tests are skipped via [MonoJitCrash]."
     echo "This crash is a regression — investigate the crash log."
     exit 1
 elif [ "$RESULT" = "failure" ]; then
@@ -741,7 +739,7 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
         PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
         echo ""
         echo "ERROR: Mono JIT crash on simulator ($PASS_COUNT tests passed before crash)."
-        echo "All Mono JIT crash-prone tests should be marked [MonoJitCrash]. This is a regression."
+        echo "This crash is a regression — diagnose the root cause."
         exit 1
     fi
     # Show device log for debugging if we still don't know what happened

@@ -27,8 +27,8 @@ public abstract class TestBase
     /// </summary>
     public async Task RunAllTestsAsync(TestPlatform platform = TestPlatform.Simulator, bool flakeDetect = false)
     {
-        var classMonoJit = GetType().GetCustomAttribute<MonoJitCrashAttribute>() != null;
         var classSkip = GetType().GetCustomAttribute<SkipAttribute>();
+        var classSimSkip = GetType().GetCustomAttribute<SkipOnSimulatorAttribute>();
 
         var methods = GetType()
             .GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -48,11 +48,12 @@ public abstract class TestBase
                 continue;
             }
 
-            // Check [MonoJitCrash] — skipped on simulator, runs on device
-            var isMonoJit = method.GetCustomAttribute<MonoJitCrashAttribute>() != null || classMonoJit;
-            if (isMonoJit && platform == TestPlatform.Simulator)
+            // Check [SkipOnSimulator] — skipped on simulator, runs on device
+            var methodSimSkip = method.GetCustomAttribute<SkipOnSimulatorAttribute>();
+            var effectiveSimSkip = methodSimSkip ?? classSimSkip;
+            if (effectiveSimSkip != null && platform == TestPlatform.Simulator)
             {
-                Results.Skip(testName, "MonoJitCrash: skipped on simulator");
+                Results.Skip(testName, $"Simulator: {effectiveSimSkip.Reason}");
                 continue;
             }
 

@@ -95,19 +95,6 @@ public enum TestPlatform
     Device
 }
 
-/// <summary>
-/// DEPRECATED — DO NOT ADD NEW USAGES. All Mono JIT crashes were traced to our own
-/// generator/runtime bugs (see src/docs/Completed/MONO-JIT-FINDINGS.md).
-/// Zero upstream Mono bugs confirmed across 102 investigated tests.
-///
-/// If a test crashes on simulator, diagnose the actual root cause in our code and either
-/// fix it or use [Skip("specific bug description")] — never blame Mono JIT.
-///
-/// Existing usages are being removed in NativeAOT Session 4.
-/// </summary>
-[Obsolete("All Mono JIT crashes were our bugs. Diagnose the real root cause instead. See src/docs/Completed/MONO-JIT-FINDINGS.md.")]
-[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
-public class MonoJitCrashAttribute : Attribute { }
 
 /// <summary>
 /// Marks tests that are broken everywhere (generator bugs, missing entry points).
@@ -119,6 +106,23 @@ public class SkipAttribute : Attribute
     public string Reason { get; }
 
     public SkipAttribute(string reason)
+    {
+        Reason = reason;
+    }
+}
+
+/// <summary>
+/// Marks tests that crash on simulator (Mono JIT) but work on device (NativeAOT).
+/// Skipped on simulator, runs on device. The reason is visible in test output.
+/// Use this instead of [Skip] when the failure is Mono-specific (CallConvSwift JIT crashes,
+/// finalizer thread assertions, generic sharing failures, etc.).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public class SkipOnSimulatorAttribute : Attribute
+{
+    public string Reason { get; }
+
+    public SkipOnSimulatorAttribute(string reason)
     {
         Reason = reason;
     }

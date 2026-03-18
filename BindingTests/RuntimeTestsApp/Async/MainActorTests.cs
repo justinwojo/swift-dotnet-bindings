@@ -20,7 +20,7 @@ public class MainActorTests : TestBase
 {
     public MainActorTests(TestResults results) : base(results) { }
 
-    #region MainActorViewModel (class) — MonoJitCrash
+    #region MainActorViewModel (class)
 
     public void TestMainActorViewModel_Constructor()
     {
@@ -63,7 +63,7 @@ public class MainActorTests : TestBase
 
     #endregion
 
-    #region MainActorMethods (struct) — MonoJitCrash
+    #region MainActorMethods (struct)
 
     public void TestMainActorMethods_MainActorMethod()
     {

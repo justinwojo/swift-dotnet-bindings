@@ -772,21 +772,17 @@ internal class MethodMarshalPlanBuilder
                 // specialized type metatype (e.g., GenericClass<T>.self, Wrapper<T>.self),
                 // not per-param T metadata.
                 // Swift allocating init ABI: (init_params, T_metadata..., Type<T>.Type metatype).
-                // For @_cdecl wrappers: the Swift wrapper does unsafeBitCast(_metadata0, to: Any.Type.self).
-                // For direct CallConvSwift: the last TypeMetadata param IS the type metatype.
-                // Use SwiftObjectHelper<TypeName<T>>.GetTypeMetadata() — this routes through the
-                // ISwiftObject constraint to the type's explicit interface implementation, returning
-                // the specialized metatype with all generic params baked in.
-                var metadataList = _env.PInvokeHelperContext.GetMetadataArgumentList().ToList();
-                if (metadataList.Count > 0)
-                {
-                    var parentType = (TypeDecl)_env.ParentDecl;
-                    // Use the resolved C# type name (Pascal-cased, with generic params) to match
-                    // the emitted class declaration — consistent with GenericTypeEmitter.
-                    var resolvedTypeName = GenericTypeEmitter.GetTypeNameWithGenerics(parentType);
-                    metadataList[0] = $"SwiftObjectHelper<{resolvedTypeName}>.GetTypeMetadata()";
-                }
-                metadataArgs = string.Join(", ", metadataList);
+                // Use the helper class metadata accessor to get the specialized metatype
+                // (avoids SwiftObjectHelper<Wrapper<T>> which crashes Mono's generic sharing).
+                var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+                metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata({perParamMetadata})";
+            }
+            else if (_env.MethodDecl.GenericParameters.Count > 0)
+            {
+                // Non-constructor methods with generic params: HandleGenericMetadata already
+                // added inline TypeMetadata to the P/Invoke signature. Skip trailing metadata
+                // from PInvokeHelperContext to avoid duplicate TypeMetadata params.
+                metadataArgs = "";
             }
             else
             {

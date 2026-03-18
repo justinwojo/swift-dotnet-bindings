@@ -417,7 +417,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [MonoJitCrash] // Mono: SIGSEGV on throwing path — swifterror register (x21) not correctly handled in CallConvSwift stub
+    [SkipOnSimulator("Typed throws: swifterror register mismatch crashes Mono JIT on throwing path")]
     public void TestValidateRangeTypedCatchWithError()
     {
         // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
