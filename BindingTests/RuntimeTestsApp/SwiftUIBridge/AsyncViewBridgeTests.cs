@@ -17,6 +17,7 @@ public class BridgeAsyncViewTests : TestBase
 {
     public BridgeAsyncViewTests(TestResults results) : base(results) { }
 
+    [MonoJitCrash] // Mono: finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle → Arc.Release (jit-info.c:918)
     public async Task TestAsyncServiceView()
     {
         var handle = await WithTimeout(CreateAsyncServiceView("test-key"), DefaultAsyncTimeout);
@@ -35,6 +36,7 @@ public class BridgeAsyncViewTests : TestBase
         TestLogger.Info("AsyncServiceView: create/validate/free cycle passed");
     }
 
+    [MonoJitCrash] // Mono: finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle → Arc.Release (jit-info.c:918)
     public async Task TestDeepChainView()
     {
         var handle = await WithTimeout(CreateDeepChainView("test-key", 42), DefaultAsyncTimeout);
@@ -47,6 +49,7 @@ public class BridgeAsyncViewTests : TestBase
         TestLogger.Info("DeepChainView: create/validate/free cycle passed");
     }
 
+    [MonoJitCrash] // Mono: finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle → Arc.Release (jit-info.c:918)
     public async Task TestMixedAsyncView()
     {
         var handle = await WithTimeout(CreateMixedAsyncView("test-key", 10, true), DefaultAsyncTimeout);

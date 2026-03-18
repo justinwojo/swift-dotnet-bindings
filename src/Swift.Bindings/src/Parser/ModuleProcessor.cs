@@ -290,6 +290,19 @@ namespace BindingsGeneration
                 // If any property is heap-allocated, set the RequiresMemoryManagement flag
                 if ((propertyRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 || propertyRecord.Kind == TypeRecordKind.Class)
                     flags |= TypeRecordFlags.RequiresMemoryManagement;
+
+                // Detect float/double fields for CallConvSwift ABI safety classification.
+                // Direct float/double primitives (Swift.Float, Swift.Double, CoreFoundation.CGFloat)
+                // and nested non-system structs that themselves contain float fields.
+                // System structs (CGRect, etc.) are NOT flagged — they have special runtime handling.
+                if (!flags.HasFlag(TypeRecordFlags.HasFloatFields))
+                {
+                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" or "CoreFoundation.CGFloat")
+                        flags |= TypeRecordFlags.HasFloatFields;
+                    else if (propertyRecord.Kind == TypeRecordKind.Struct &&
+                             propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+                        flags |= TypeRecordFlags.HasFloatFields;
+                }
             }
 
             return flags;

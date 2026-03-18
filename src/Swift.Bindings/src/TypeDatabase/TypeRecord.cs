@@ -63,6 +63,11 @@ public enum TypeRecordFlags
     // directly or transitively through inherited protocols. EveryProtocol can't synthesize
     // Codable conformance, so these protocols must be skipped during conformance emission.
     InheritsCodable = 1 << 11,
+    // This flag indicates a frozen struct contains float/double fields (directly or transitively
+    // through non-system nested structs). Such structs are ABI-unsafe for CallConvSwift on ARM64:
+    // NativeAOT places float fields in GPR instead of FPR (params), and Mono crashes on float
+    // struct returns. System structs (CGRect, etc.) are NOT flagged — they have special runtime handling.
+    HasFloatFields = 1 << 12,
 }
 
 /// <summary>

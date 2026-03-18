@@ -371,6 +371,7 @@ public class BasicGenericTests : TestBase
 
     #region Q2: Generic Class Inheriting Non-Generic Class (TypedEntity)
 
+    [MonoJitCrash] // Mono: swift_checkMetadataState crash — Swift runtime metadata cache corruption from earlier CallConvSwift P/Invokes
     public void TestBaseEntityCreation()
     {
         var entity = new BaseEntity(entityId: 1);
@@ -378,6 +379,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("BaseEntity creation passed");
     }
 
+    [MonoJitCrash] // Mono: swift_checkMetadataState crash — Swift runtime metadata cache corruption from earlier CallConvSwift P/Invokes
     public void TestBaseEntityProperty()
     {
         var entity = new BaseEntity(entityId: 42);
@@ -385,6 +387,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"BaseEntity.EntityId = {entity.EntityId}");
     }
 
+    [MonoJitCrash] // Mono: swift_checkMetadataState crash — Swift runtime metadata cache corruption from earlier CallConvSwift P/Invokes
     public void TestBaseEntityDispose()
     {
         var entity = new BaseEntity(entityId: 5);

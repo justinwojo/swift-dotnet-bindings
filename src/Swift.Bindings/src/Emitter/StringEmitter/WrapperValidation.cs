@@ -608,4 +608,244 @@ public static class WrapperValidation
                 return false;
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CallConvSwift ABI Safety — determines whether @_cdecl is REQUIRED
+    // for a method/constructor/property to avoid ABI mismatches.
+    // Orthogonal to ShouldEmitWrapper() validation gates.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Determines whether a method requires @_cdecl wrapping for ABI safety or functional reasons.
+    /// Returns true when any parameter or return type would cause an ABI mismatch
+    /// if used directly with CallConvSwift on ARM64, or when the method has closure params
+    /// that require the @_cdecl adapter mechanism.
+    ///
+    /// Decision framework (from NativeAOT investigation evidence matrix):
+    /// - Non-blittable param (SafeHandle: non-frozen struct, complex enum) → required
+    /// - ValueTuple param/return → required (StructLayout.Auto)
+    /// - Custom struct with float/double fields → required (param AND return)
+    /// - Custom integer struct > 16 bytes → required (param only)
+    /// - Closure params → required (adapter mechanism only works inside @_cdecl wrappers)
+    /// - Everything else → CallConvSwift safe
+    /// </summary>
+    public static bool RequiresCdeclForAbiSafety(MethodEnvironment env)
+    {
+        // Check self type for instance methods on frozen structs.
+        // SwiftSelf<T> passes the struct by value in registers — if the struct has
+        // float fields, Mono/NativeAOT may put them in wrong registers (GPR vs FPR).
+        if (IsSelfTypeCdeclRequired(env))
+            return true;
+
+        // Check return type
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (!returnSpec.IsEmptyTuple && IsReturnTypeCdeclRequired(returnSpec, env.TypeDatabase))
+            return true;
+
+        // Check parameters
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            // Closure params require @_cdecl for the adapter mechanism (converting C# delegates
+            // to Swift closures via function pointer + context pair). This is a functional
+            // requirement, not ABI safety, but the wrapper is still required.
+            if (env.ClosureHandler.IsClosure(arg))
+                return true;
+
+            if (IsParamTypeCdeclRequired(arg.SwiftTypeSpec, env))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Property-specific overload: checks the property type for ABI safety.
+    /// Getter return = property type, setter param = property type.
+    /// </summary>
+    public static bool RequiresCdeclForAbiSafety(MethodEnvironment env, PropertyDecl propertyDecl)
+    {
+        // Check self type for properties on frozen structs (SwiftSelf<T> passes struct by value)
+        if (IsSelfTypeCdeclRequired(env))
+            return true;
+
+        var typeSpec = propertyDecl.SwiftTypeSpec;
+
+        // Check as return type (getter)
+        if (IsReturnTypeCdeclRequired(typeSpec, env.TypeDatabase))
+            return true;
+
+        // Check as parameter type (setter)
+        if (propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
+        {
+            if (IsParamTypeCdeclRequired(typeSpec, env))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether the self/parent type requires @_cdecl for ABI safety.
+    /// For instance methods/properties on frozen structs, SwiftSelf&lt;T&gt; passes the struct
+    /// by value in registers. If the struct has float fields, the GPR/FPR register
+    /// assignment differs between Swift and Mono/NativeAOT CallConvSwift stubs.
+    /// </summary>
+    internal static bool IsSelfTypeCdeclRequired(MethodEnvironment env)
+    {
+        // Only applies to instance members on frozen structs (SwiftSelf<T> by-value self)
+        // Class/protocol instance methods use IntPtr self (always safe)
+        if (env.ParentDecl is not TypeDecl parentType)
+            return false;
+
+        var parentNamedSpec = new NamedTypeSpec(parentType.SwiftTypeName.ModuleQualifiedName);
+        if (!env.TypeDatabase.TryGetTypeRecord(parentNamedSpec, out var parentRecord))
+            return false;
+
+        // Only frozen structs pass self by value via SwiftSelf<T>
+        if (parentRecord.Kind != TypeRecordKind.Struct || !MarshallingHelpers.IsTypeFrozen(parentRecord))
+            return false;
+
+        // System frozen structs (CGRect, etc.) have special runtime handling — safe
+        if (ConstructorWrapperEmitter.IsSystemFrozenStruct(parentNamedSpec))
+            return false;
+
+        // Custom frozen struct with float fields → GPR/FPR mismatch on both runtimes
+        if (parentRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+            return true;
+
+        // Custom frozen struct > 8 bytes passed by value via SwiftSelf<T> → multi-register
+        // Mono JIT can't generate correct CallConvSwift stubs for multi-register self params.
+        // The 16-byte param threshold doesn't apply here — SwiftSelf<T> register layout is
+        // different from regular parameter passing.
+        if (parentRecord.InlineSize.HasValue && parentRecord.InlineSize.Value > 8)
+            return true;
+
+        // When InlineSize is unavailable (metadata couldn't be resolved, e.g. simulator dylib on macOS),
+        // use the parent struct's stored property count as a heuristic. Multiple stored properties
+        // means multiple fields → likely > 8 bytes → require @_cdecl for safety.
+        if (!parentRecord.InlineSize.HasValue && parentType is StructDecl structDecl)
+        {
+            var storedPropertyCount = structDecl.Properties.Count(p => p.HasStorage && !p.IsStatic);
+            if (storedPropertyCount > 1)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether a parameter type requires @_cdecl for ABI safety.
+    /// Checks: non-blittable (SafeHandle), ValueTuple, custom float struct, large integer struct.
+    /// </summary>
+    internal static bool IsParamTypeCdeclRequired(TypeSpec typeSpec, MethodEnvironment env)
+    {
+        // Primitives are always safe
+        if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
+            return false;
+
+        // ValueTuple → StructLayout.Auto → @_cdecl required
+        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
+            return true;
+
+        // Generic containers (Array, Dict, Set, Optional) → non-blittable in CallConvSwift
+        if (ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
+            return true;
+
+        // Look up TypeRecord for further classification
+        if (!env.TypeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
+            return false; // Unknown type, let existing gates handle
+
+        // Non-frozen struct → SafeHandle → non-blittable → @_cdecl required
+        if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return true;
+
+        // Complex enum → SafeHandle → non-blittable → @_cdecl required
+        if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return true;
+
+        // Frozen struct classification
+        if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
+        {
+            // System types ≤ 8 bytes (Int, Bool, UInt, etc.) → single register → safe
+            // System types > 8 bytes (String = 16 bytes) → multi-register → @_cdecl required
+            // Mono JIT can't generate correct CallConvSwift stubs for multi-register params
+            if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+                return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
+
+            // Custom struct with float/double fields → NativeAOT puts floats in GPR
+            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+                return true;
+
+            // Custom integer struct > 16 bytes → NativeAOT SIGSEGV
+            if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 16)
+                return true;
+
+            // Custom integer struct ≤ 16 bytes → safe
+            return false;
+        }
+
+        // Classes, ObjC bridged, simple enums → IntPtr → safe
+        return false;
+    }
+
+    /// <summary>
+    /// Determines whether a return type requires @_cdecl for ABI safety.
+    /// Only custom frozen structs with float fields returned by value need @_cdecl;
+    /// other return types use SwiftIndirectResult or IntPtr which are safe.
+    /// </summary>
+    internal static bool IsReturnTypeCdeclRequired(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        // Primitives are always safe
+        if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
+            return false;
+
+        // ValueTuple → StructLayout.Auto → @_cdecl required
+        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
+            return true;
+
+        // Generic containers → in CallConvSwift, returns use SwiftIndirectResult → safe
+        // (Array, Dict, Set, Optional all go through indirect result)
+        // But they use SafeHandle in the CallConvSwift param path, which is different from return.
+        // For returns, non-frozen types go through IntPtr/IndirectResult → safe.
+
+        // Look up TypeRecord for further classification
+        if (!typeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
+            return false;
+
+        // Non-frozen struct returns → IndirectResult/IntPtr in CallConvSwift → safe
+        // Complex enum returns → IntPtr in CallConvSwift → safe
+        // Class returns → IntPtr → safe
+
+        // Frozen struct with float fields returned BY VALUE → Mono SIGSEGV
+        // Only applies to pure frozen structs (no RequiresMemoryManagement) since
+        // those with memory management use IndirectResult.
+        if (typeRecord.Kind == TypeRecordKind.Struct &&
+            MarshallingHelpers.IsTypeFrozen(typeRecord) &&
+            !MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+        {
+            // System types ≤ 8 bytes → single register → safe
+            // System types > 8 bytes → multi-register → @_cdecl required (Mono JIT crash)
+            if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+                return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
+
+            // Custom struct with float/double fields → Mono SIGSEGV on by-value return
+            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+                return true;
+        }
+
+        // System frozen struct > 8 bytes with memory management (e.g., String = 16 bytes)
+        // returned by value as Buffer struct — Mono JIT can't handle multi-register CallConvSwift
+        if (typeRecord.Kind == TypeRecordKind.Struct &&
+            MarshallingHelpers.IsTypeFrozen(typeRecord) &&
+            typeSpec is NamedTypeSpec namedRet && ConstructorWrapperEmitter.IsSystemFrozenStruct(namedRet) &&
+            typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8)
+            return true;
+
+        return false;
+    }
 }

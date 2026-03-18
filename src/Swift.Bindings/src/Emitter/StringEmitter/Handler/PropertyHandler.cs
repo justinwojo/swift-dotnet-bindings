@@ -426,7 +426,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             if (conductor.TryGetMethodHandler(firstAccessor.Method, out var checkHandler))
             {
                 var checkEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
-                needsCdeclWrapper = PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+                needsCdeclWrapper = PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv) &&
+                    WrapperValidation.RequiresCdeclForAbiSafety(checkEnv, propertyDecl);
                 // Only check ObjC override if @_cdecl doesn't handle it
                 if (!needsCdeclWrapper)
                     needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);

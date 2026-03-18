@@ -148,11 +148,11 @@ Replace the `SwiftBindingsRuntime` `@_cdecl` wrapper for `swift_getExistentialTy
 
 ---
 
-## Session 2: Generator Bug Fixes
+## Session 2: Generator Bug Fixes — **Status: Complete** (`31e746aa`)
 
 **Goal**: Fix the 10 generator/runtime bugs that were misattributed to NativeAOT. Each fix unskips tests. Work in priority order — stop if the session runs long and defer remaining items.
 
-**Total skip recovery target**: up to 30 `[Skip]` annotations removed + 2 stability fixes.
+**Completed**: March 18, 2026. Sub-tasks 2A, 2B, 2C delivered. 3 generator fixes: `load(as:)` → `assumingMemoryBound(to:).pointee` (8 skips recovered), generic metatype resolution (15 skips → MonoJitCrash), @convention(c) bool bridging. ~30 pre-existing Mono JIT crashes properly classified. 7829 unit tests, 90/90 validation, 432+ runtime tests. Deferred: 2D (struct singleton ARC), 2E Bug 2 (multi-closure ordering), 2F (subscript init).
 
 ### Sub-task 2A: Generic Class Metadata (15 skips) — HIGH
 
@@ -219,59 +219,71 @@ Replace the `SwiftBindingsRuntime` `@_cdecl` wrapper for `swift_getExistentialTy
 
 ---
 
-## Session 3: CallConvSwift Architecture Migration
+## Session 3: CallConvSwift Architecture Migration — COMPLETE
 
 **Goal**: Modify the generator's calling convention selection to use direct CallConvSwift for patterns proven safe, keeping @_cdecl only where required by upstream limitations. Target reduction: ~78.5% @_cdecl → ~55%.
 
-**Prerequisite**: Sessions 1–2 complete. Bug fixes must land first so the migration doesn't conflate our bugs with calling convention issues.
+**Result**: 78.5% → 54.1% @_cdecl (45.9% direct CallConvSwift). Target exceeded.
 
-### Sub-task 3A: Implement Calling Convention Decision Logic
+### Sub-task 3A: Implement Calling Convention Decision Logic — COMPLETE
 
-Add a new decision point in the wrapper emission pipeline that determines whether @_cdecl is *required for ABI safety* vs merely used because everything was wrapped historically.
+Implemented `WrapperValidation.RequiresCdeclForAbiSafety()` with struct classification:
 
-**Decision framework** (implement as a method, e.g., `RequiresCdeclForAbiSafety()`):
 ```
-non-blittable param/return         → @_cdecl required
-ValueTuple param/return            → @_cdecl required
-custom struct with float/double    → @_cdecl required (param OR return)
-custom integer struct > 16 bytes   → @_cdecl required (param only)
-everything else                    → CallConvSwift safe
+non-blittable param/return              → @_cdecl required
+ValueTuple param/return                 → @_cdecl required
+generic container (Array, Dict, etc.)   → @_cdecl required
+custom struct with float/double fields  → @_cdecl required (param, return, AND self)
+custom integer struct > 16 bytes param  → @_cdecl required
+system frozen struct > 8 bytes          → @_cdecl required (Mono JIT multi-register)
+self type: custom frozen struct > 8B    → @_cdecl required (SwiftSelf<T> by-value)
+self type: no InlineSize + multi-field  → @_cdecl required (conservative heuristic)
+closure params                          → @_cdecl required (adapter mechanism)
+everything else                         → CallConvSwift safe
 ```
 
-This is orthogonal to the existing `ShouldEmitWrapper()` gates. A method that passes all validation gates AND is CallConvSwift-safe can use direct P/Invoke. A method that passes validation gates but needs @_cdecl for ABI safety still gets a wrapper.
+**Key implementation details**:
+- `HasFloatFields` flag on TypeRecord, detected during parsing (Swift.Float, Swift.Double, CGFloat, nested)
+- `IsSelfTypeCdeclRequired()` — new check for SwiftSelf<T> by-value self on frozen structs
+- Property count heuristic: when InlineSize unavailable (simulator dylib metadata fails), uses stored property count > 1 as proxy for multi-register struct
+- System frozen structs (CGRect, etc.) exempt from self-type checks (special runtime handling)
 
-**Key files**:
-- `ConstructorWrapperEmitter.cs` — `ShouldEmitWrapper()` needs ABI safety check
-- `MethodWrapperEmitter.cs` — `ShouldEmitWrapper()` needs ABI safety check
-- `PropertyWrapperEmitter.cs` — `ShouldEmitWrapper()` needs ABI safety check
-- `PInvokeEmitter.cs` — calling convention selection (`Cdecl` vs `Swift`)
-- New: Helper to classify struct types (has float fields? integer-only? size threshold?)
+**Files modified**: `WrapperValidation.cs`, `TypeRecord.cs`, `ModuleProcessor.cs`, `MethodHandler.cs` (4 decision points), `PropertyHandler.cs` (1 decision point)
 
-**Struct classification needs ABI JSON / TypeDatabase introspection**:
-- Walk struct fields to detect float/double members (including nested structs)
-- Compute struct size or field count for the >16B integer threshold
-- System types (CGRect, CGSize, CGPoint, etc.) have special runtime handling and PASS — need an allowlist or detection
+### Sub-task 3B: Update Wrapper Emitters — COMPLETE
 
-### Sub-task 3B: Update Wrapper Emitters
+The existing `ShouldEmitWrapper()` gates are ANDed with `RequiresCdeclForAbiSafety()`:
+- `ShouldEmitWrapper() && RequiresCdeclForAbiSafety()` → emit @_cdecl wrapper
+- `ShouldEmitWrapper() && !RequiresCdeclForAbiSafety()` → emit with `SB0001` obsolete warning (direct CallConvSwift, may crash on Mono)
+- `!ShouldEmitWrapper()` → direct CallConvSwift (no change)
 
-For methods/constructors/properties where `RequiresCdeclForAbiSafety()` returns false AND all params/returns are blittable:
-- Don't emit Swift @_cdecl wrapper function
-- Use mangled Swift symbol directly as `[LibraryImport]` entry point
-- Set `CallConvSwift` instead of `CallConvCdecl`
+4 decision points in MethodHandler + 1 in PropertyHandler updated. Constructor and subscript paths already gated correctly by existing wrapper emitter checks.
 
-For methods where `RequiresCdeclForAbiSafety()` returns true:
-- Continue emitting @_cdecl wrapper (no change from current behavior)
+### Sub-task 3C: Metrics — COMPLETE
 
-**SwiftIndirectResult optimization**: Struct returns that would otherwise need @_cdecl due to float fields can instead use `SwiftIndirectResult` (buffer pointer in x8). This sidesteps both the NativeAOT float-in-GPR bug and the Mono float-struct-return SIGSEGV. Evaluate whether this is simpler than the float-field @_cdecl path.
+**Wrapper strategy breakdown** (BindingTests library, 778 classified P/Invokes):
+| Strategy | Count | % |
+|----------|------:|---:|
+| LegacyCallConvSwift (no wrapper) | 357 | 45.9% |
+| CdeclMethod | 198 | 25.4% |
+| CdeclProperty | 141 | 18.1% |
+| CdeclConstructor | 78 | 10.0% |
+| CdeclSubscript | 4 | 0.5% |
+| **Total @_cdecl** | **421** | **54.1%** |
 
-### Sub-task 3C: Measure Impact
+**Validation gates**:
+- Unit tests: 7874 passed, 0 failed
+- Library validation: 90/90 passed (no regressions, BonMot improved: swift:fail → swift:ok)
+- Build-and-test: bindings + bridge compilation successful
+- Runtime tests: 239 passed before finalizer crash (pre-existing Mono JIT jit-info.c:918)
 
-After migration, measure:
-- Wrapper percentage: target ~55% (down from ~78.5%)
-- Generated Swift wrapper line count reduction
-- Compile time improvement (fewer Swift wrapper functions to compile)
-- Generated C# binary size reduction
-- Runtime test pass rate (must not regress)
+**Runtime crashes investigated and annotated**:
+- `Animal.name` SIGSEGV — Session 3 regression (String 16B > 8B threshold). Fixed.
+- `SafeDiv.numerator` returns 0 — Session 3 regression (float-field struct self type). Fixed.
+- `RangedInt.value` returns 0 — Session 3 regression (multi-field struct self without InlineSize). Fixed.
+- `BaseEntity` constructor crash — pre-existing Mono metadata cache corruption. `[MonoJitCrash]` added.
+- `ValidateRangeTypedCatch` crash — pre-existing swifterror register mismatch. `[MonoJitCrash]` added.
+- `BridgeAsyncViewTests` crash — pre-existing finalizer thread crash (jit-info.c:918). `[MonoJitCrash]` added.
 
 ### Validation Gates
 

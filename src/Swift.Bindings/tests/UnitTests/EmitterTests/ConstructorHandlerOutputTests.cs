@@ -284,9 +284,9 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_PrimaryConstructor_EmitsCdeclSwiftWrapper()
     {
-        // Primary constructors (not default-param overloads) must also get @_cdecl wrappers.
-        // This was the core bug: ConstructorHandler was missing the wrapper emission logic.
-        var typeDatabase = CreateTypeDatabase();
+        // Primary constructors (not default-param overloads) must also get @_cdecl wrappers
+        // when the type requires it for ABI safety (e.g., frozen struct with float fields).
+        var typeDatabase = CreateTypeDatabaseWithFloatStruct();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
@@ -303,12 +303,18 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_PrimaryClassConstructor_EmitsCdeclSwiftWrapper()
     {
-        // Class constructors should also get @_cdecl wrappers that return pointers.
+        // Class constructors get @_cdecl wrappers when they have ABI-unsafe params.
+        // A no-param class constructor is CallConvSwift-safe (returns IntPtr).
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        RegisterNonFrozenStruct(typeDatabase, "TestModule.Config");
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
-        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl);
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("config", new NamedTypeSpec("TestModule.Config"), moduleDecl)
+            });
 
         var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
@@ -320,7 +326,8 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_PrimaryConstructorWithParam_CdeclWrapperIncludesParam()
     {
-        var typeDatabase = CreateTypeDatabase();
+        // Frozen struct with float fields → ABI-unsafe → @_cdecl required
+        var typeDatabase = CreateTypeDatabaseWithFloatStruct();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
@@ -339,8 +346,8 @@ public class ConstructorHandlerOutputTests
     [Fact]
     public void Emit_PrimaryConstructor_CSharpUsesCdeclCallingConvention()
     {
-        // When @_cdecl wrapper is emitted, C# P/Invoke should NOT use CallConvSwift
-        var typeDatabase = CreateTypeDatabase();
+        // When @_cdecl wrapper is emitted (ABI-unsafe type), C# P/Invoke should NOT use CallConvSwift
+        var typeDatabase = CreateTypeDatabaseWithFloatStruct();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
@@ -352,6 +359,25 @@ public class ConstructorHandlerOutputTests
         Assert.Contains("SBW_TestModule_Point_init_", csOutput);
         // Should NOT have CallConvSwift — the wrapper uses C calling convention
         Assert.DoesNotContain("CallConvSwift", csOutput);
+    }
+
+    [Fact]
+    public void Emit_PrimaryConstructor_SafeType_UsesCallConvSwift()
+    {
+        // Frozen integer struct ≤ 16 bytes with no float fields → CallConvSwift safe → no @_cdecl wrapper
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var constructor = CreateConstructorDecl("init", parentDecl, moduleDecl);
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        // No @_cdecl wrapper for CallConvSwift-safe types
+        Assert.DoesNotContain("@_cdecl(\"", swiftOutput);
+        Assert.DoesNotContain("SBW_", swiftOutput);
+        // C# P/Invoke should use CallConvSwift, not Cdecl
+        Assert.DoesNotContain("CallConvCdecl", csOutput);
     }
 
     [Fact]
@@ -403,6 +429,57 @@ public class ConstructorHandlerOutputTests
         typeDatabase.AddModuleDatabase(module);
 
         return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithFloatStruct()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
+    private static void RegisterNonFrozenStruct(TypeDatabase typeDatabase, string typeName)
+    {
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+        var shortName = typeName.Split('.')[1];
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: swiftTypeName, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", shortName),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = $"$s10TestModule{shortName.Length}{shortName}VMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            })
+        });
     }
 
     private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName, TypeRecordFlags flags)

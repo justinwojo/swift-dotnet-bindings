@@ -239,7 +239,9 @@ namespace BindingsGeneration
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler creation.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
-            if (ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv))
+            // Only wrap if the constructor NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
+            if (ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
+                WrapperValidation.RequiresCdeclForAbiSafety(methodEnv))
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -605,8 +607,10 @@ namespace BindingsGeneration
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler creation.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
+            // Only wrap if the constructor NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
             string? originalMangledNameForCtor = null;
-            if (ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv))
+            if (ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
+                WrapperValidation.RequiresCdeclForAbiSafety(methodEnv))
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -634,7 +638,8 @@ namespace BindingsGeneration
                 !methodEnv.MethodDecl.UsesCdeclConstructorWrapper)
             {
                 methodEnv.MethodDecl.UsesWrapperLibrary = false;
-                bool debugCdeclEligible = MethodWrapperEmitter.ShouldEmitWrapper(methodEnv);
+                bool debugCdeclEligible = MethodWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
+                    WrapperValidation.RequiresCdeclForAbiSafety(methodEnv);
                 methodEnv.MethodDecl.UsesWrapperLibrary = true;
 
                 if (debugCdeclEligible)
@@ -657,11 +662,13 @@ namespace BindingsGeneration
 
             // Set @_cdecl method wrapper flags BEFORE SignatureHandler creation.
             // Must come after constructor wrapper check (mutually exclusive).
+            // Only wrap if the method NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
             if (!methodEnv.MethodDecl.IsConstructor &&
                 !methodEnv.MethodDecl.UsesCdeclPropertyWrapper &&
                 !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
                 !methodEnv.MethodDecl.UsesCdeclMethodWrapper && // Not already set by debug-param path
-                MethodWrapperEmitter.ShouldEmitWrapper(methodEnv))
+                MethodWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
+                WrapperValidation.RequiresCdeclForAbiSafety(methodEnv))
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var parentModule = methodEnv.ParentDecl as ModuleDecl;
