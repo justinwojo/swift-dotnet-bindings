@@ -1509,6 +1509,109 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void IsEffectivelyEscaping_OptionalClosure_ReturnsTrue()
+    {
+        // WrapperValidation.IsEffectivelyEscaping is the single decision point used by
+        // WrapperEmitter.Marshalling at three sites: setup (line ~247), callback emission
+        // (line ~697), and cleanup (line ~987). Optional closures in Swift are always
+        // escaping — freeing the GCHandle or using ThreadStatic callbacks causes crashes.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Non-escaping closure wrapped in Optional — simulates ((Int32) -> Bool)?
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Bool"));
+        Assert.False(innerClosure.IsEscaping, "Inner closure should not have escaping attribute");
+
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        // WrapperValidation.IsEffectivelyEscaping must return true for Optional closures.
+        // This drives three emitter behaviors:
+        // 1. Setup: uses Marshal.GetFunctionPointerForDelegate (not ThreadStatic) for @convention(c)
+        // 2. Callback: skips [UnmanagedCallersOnly] ThreadStatic emission for @convention(c)
+        // 3. Cleanup: skips GCHandle.Free() in finally block
+        Assert.True(WrapperValidation.IsEffectivelyEscaping(innerClosure, optionalClosure, handler),
+            "Optional closure must be effectively escaping");
+    }
+
+    [Fact]
+    public void IsEffectivelyEscaping_OptionalConventionCClosure_ReturnsTrue()
+    {
+        // Optional @convention(c) closures must also be treated as effectively escaping.
+        // Without this, WrapperEmitter.Marshalling would emit a [ThreadStatic] callback
+        // (non-escaping path) for an optional @convention(c) closure, which breaks callback
+        // lookup when Swift stores and invokes the closure later on a different thread.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Create a @convention(c) closure: no explicit escaping attribute, but wrapped in Optional.
+        // @convention(c) is detected via mangled name, not ClosureTypeSpec attributes.
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"), TupleTypeSpec.Empty);
+        // Inner closure is NOT marked @escaping (ABI parser doesn't propagate through Optional)
+        Assert.False(innerClosure.IsEscaping);
+
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        // IsEffectivelyEscaping returns true → WrapperEmitter.Marshalling will:
+        // - Use Marshal.GetFunctionPointerForDelegate (not ThreadStatic) at setup
+        // - Skip [UnmanagedCallersOnly] ThreadStatic callback emission
+        // - Skip GCHandle.Free() in cleanup
+        Assert.True(WrapperValidation.IsEffectivelyEscaping(innerClosure, optionalClosure, handler),
+            "Optional @convention(c) closure must be effectively escaping");
+    }
+
+    [Fact]
+    public void IsEffectivelyEscaping_DirectEscapingClosure_ReturnsTrue()
+    {
+        // Sanity: explicitly @escaping closure (not wrapped in Optional) is effectively escaping.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(WrapperValidation.IsEffectivelyEscaping(closure, closure, handler));
+    }
+
+    [Fact]
+    public void IsEffectivelyEscaping_DirectNonEscapingClosure_ReturnsFalse()
+    {
+        // Non-escaping, non-optional closure: GCHandle can be freed after P/Invoke returns.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32"));
+        Assert.False(closure.IsEscaping);
+
+        Assert.False(WrapperValidation.IsEffectivelyEscaping(closure, closure, handler),
+            "Non-optional non-escaping closure should not be effectively escaping");
+    }
+
+    [Fact]
+    public void OptionalClosure_Projection_NoCleanupStatements()
+    {
+        // Verify at the projection level that escaping closures (which optional closures
+        // effectively are) produce empty cleanup — no GCHandle.Free() in finally block.
+        var argProjections = new List<ITypeProjection> { new BlittableProjection("int") };
+        var returnProjection = new BlittableProjection("bool");
+
+        // isEscaping=true is what WrapperValidation.IsEffectivelyEscaping resolves for
+        // optional closures — ClosureProjection uses this to decide cleanup behavior.
+        var projection = new ClosureProjection(
+            argProjections, returnProjection,
+            isEscaping: true, throws: false, isAsync: false,
+            callbackName: "init_onComplete_callback");
+
+        var plan = projection.GetParameterPlan("onComplete");
+
+        // Cleanup must be EMPTY — escaping (and optional) closures intentionally leak the GCHandle.
+        Assert.Empty(plan.CleanupStatements);
+    }
+
+    [Fact]
     public void IsSupportedClosure_WithOptionalModuleLocalTypeParameter_ReturnsTrue()
     {
         // Closure: (Nuke.ImageResponse?, Int64, Int64) -> ()

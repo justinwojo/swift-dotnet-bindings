@@ -248,7 +248,7 @@ namespace BindingsGeneration
                 {
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-                    if (closureTypeSpec.IsEscaping)
+                    if (WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
                     {
                         // Escaping @convention(c) closures may be stored and called later on any thread.
                         // ThreadStatic is unsound for this case — fall back to Marshal.GetFunctionPointerForDelegate.
@@ -691,8 +691,9 @@ namespace BindingsGeneration
                 // [ThreadStatic] delegate storage. Replaces Marshal.GetFunctionPointerForDelegate which
                 // requires JIT (crashes on iOS AOT/Mono). Escaping @convention(c) closures skip this —
                 // they use Marshal.GetFunctionPointerForDelegate (works on NativeAOT, Mono limitation accepted).
+                // Optional closures are always escaping in Swift — ThreadStatic is unsound for them.
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount)
-                    && !closureTypeSpec.IsEscaping)
+                    && !WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
                 {
                     EmitConventionCCallback(csWriter, argumentDecl, closureTypeSpec);
                     csWriter.WriteLine();
@@ -969,14 +970,19 @@ namespace BindingsGeneration
                 // fire()). Freeing here would leave Swift with a stale GCHandle context.
                 // The callback thunk also does NOT free — escaping closures may fire multiple times.
                 // Async+throwing closures free their GCHandle inside Task.Run's finally block.
+                // Optional closures in Swift are always escaping by definition (no @noescape Optional<Closure>
+                // exists), but the inner ClosureTypeSpec may not have the escaping attribute because the ABI
+                // parser only propagates it to top-level closure nodes, not those inside Optional wrappers.
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
                     var cleanupClosureCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
+                    bool isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
+                        closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
                     // Clear non-escaping @convention(c) ThreadStatic delegate to release references.
                     if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount)
-                        && !closureTypeSpec.IsEscaping)
+                        && !isEffectivelyEscaping)
                     {
                         var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
                         csWriter.WriteLine($"{baseName}_del = null;");
@@ -984,7 +990,7 @@ namespace BindingsGeneration
                     else if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                         _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
                         !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
-                        !closureTypeSpec.IsEscaping)
+                        !isEffectivelyEscaping)
                     {
                         csWriter.WriteLine($"if ({csName}Handle.IsAllocated) {csName}Handle.Free();");
                     }

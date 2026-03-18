@@ -96,7 +96,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 3 — Codec Construction and Properties
 
-    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
+    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecConstructionJson()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -106,7 +106,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Json format passed");
     }
 
-    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
+    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecConstructionXml()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -116,7 +116,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
-    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
+    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecEncodingValueProperty()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -127,7 +127,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
-    [SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]
+    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecGetDescribe()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");

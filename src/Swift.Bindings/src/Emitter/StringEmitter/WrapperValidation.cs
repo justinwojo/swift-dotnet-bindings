@@ -711,6 +711,22 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Determines whether a closure parameter should be treated as effectively escaping.
+    /// Optional closures in Swift are always escaping by definition — there is no
+    /// <c>@noescape Optional&lt;Closure&gt;</c>. The ABI parser only propagates the escaping
+    /// attribute to top-level ClosureTypeSpec nodes, not those wrapped in Optional, so
+    /// callers must check both <c>IsEscaping</c> and <c>IsOptionalClosure</c>.
+    /// </summary>
+    /// <param name="closureTypeSpec">The inner ClosureTypeSpec (unwrapped from Optional if applicable).</param>
+    /// <param name="originalType">The original argument's SwiftTypeSpec (may be Optional&lt;Closure&gt;).</param>
+    /// <param name="closureHandler">The closure handler for Optional detection.</param>
+    /// <returns><c>true</c> if the closure is escaping or wrapped in Optional; otherwise <c>false</c>.</returns>
+    public static bool IsEffectivelyEscaping(ClosureTypeSpec closureTypeSpec, TypeSpec originalType, ClosureHandler closureHandler)
+    {
+        return closureTypeSpec.IsEscaping || closureHandler.IsOptionalClosure(originalType);
+    }
+
+    /// <summary>
     /// Determines whether the self/parent type requires @_cdecl for ABI safety.
     /// For instance methods/properties on frozen structs, SwiftSelf&lt;T&gt; passes the struct
     /// by value in registers. If the struct has float fields, the GPR/FPR register

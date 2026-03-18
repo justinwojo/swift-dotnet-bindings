@@ -249,7 +249,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"EventHandler.CreateDefault + Fire = {result}");
     }
 
-    [Skip("NativeAOT: NullReferenceException in closure callback — closure context not preserved on NativeAOT")]
     public void TestEventHandlerWithClosure()
     {
         var handler = new SwiftEventHandler(label: "test", onComplete: v => v > 10);
@@ -282,7 +281,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in static method with two closure parameters")]
+    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

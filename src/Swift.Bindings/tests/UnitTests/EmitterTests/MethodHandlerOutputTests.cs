@@ -1597,6 +1597,85 @@ public class MethodHandlerOutputTests
         };
     }
 
+    [Fact]
+    public void Emit_MethodWithOptionalClosure_DoesNotFreeGCHandle()
+    {
+        // Regression test for cleanup path (WrapperEmitter.Marshalling line ~980).
+        // Optional closures are always escaping in Swift. Before the fix, the cleanup
+        // code checked only closureTypeSpec.IsEscaping and emitted GCHandle.Free().
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        Assert.False(innerClosure.IsEscaping);
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var method = CreateMethodDecl(
+            name: "handle",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onComplete", optionalClosure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain(".Free()", csOutput);
+        Assert.Contains("GCHandle.Alloc", csOutput);
+    }
+
+    [Fact]
+    public void Emit_MethodWithOptionalConventionCClosure_SkipsThreadStaticAndUsesMarshalGetFunctionPointer()
+    {
+        // Regression test for the @convention(c) branches at WrapperEmitter.Marshalling
+        // lines ~248 (setup) and ~696 (callback emission). Before the fix, an optional
+        // @convention(c) closure was treated as non-escaping: the setup emitted a
+        // ThreadStatic callback variable, and the callback gate emitted an
+        // [UnmanagedCallersOnly] + [ThreadStatic] delegate. After the fix,
+        // IsEffectivelyEscaping returns true for Optional closures, routing to the
+        // escaping path: Marshal.GetFunctionPointerForDelegate (no ThreadStatic).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // Create Optional<@convention(c) (Int) -> Void>
+        var innerClosure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        // Mark as @convention(c) — this is what IsConventionC checks via attribute
+        var conventionAttr = new TypeSpecAttribute("convention");
+        conventionAttr.Parameters.Add("c");
+        innerClosure.Attributes.Add(conventionAttr);
+        Assert.False(innerClosure.IsEscaping, "Inner closure is not marked @escaping");
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", innerClosure);
+
+        var method = CreateMethodDecl(
+            name: "observe",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", optionalClosure, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Line ~696: callback emission should NOT use ThreadStatic for optional @convention(c)
+        Assert.DoesNotContain("[ThreadStatic]", csOutput);
+
+        // Line ~248: setup should use Marshal.GetFunctionPointerForDelegate (escaping path)
+        Assert.Contains("Marshal.GetFunctionPointerForDelegate", csOutput);
+
+        // Cleanup should NOT free the GCHandle
+        Assert.DoesNotContain(".Free()", csOutput);
+    }
+
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase,

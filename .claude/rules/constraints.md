@@ -7,7 +7,8 @@ paths:
 
 These are "trap" constraints — easy to accidentally violate, hard to discover from code alone.
 
-- **BitwiseCopyable in Swift 6+**: `storeBytes(of:as:)` requires it. Classes: `Unmanaged.passRetained().toOpaque()`. Structs/enums: `initializeMemory(as:repeating:count:)`.
+- **BitwiseCopyable in Swift 6+**: `storeBytes(of:as:)` requires it. Classes: `Unmanaged.passRetained().toOpaque()`. Structs/enums: `initializeMemory(as:repeating:count:)` — this properly handles ARC retain/release for non-trivial types (NOT a bitwise copy).
+- **Optional closures are always escaping**: In Swift, `Optional<Closure>` is always escaping (no `@noescape Optional<Closure>`). The ABI parser doesn't propagate `escaping` to closures inside Optional — check `IsOptionalClosure()` alongside `IsEscaping` for GCHandle lifetime decisions.
 - **ABI nested type naming**: ObjC enums in ABI JSON use nested forms (`AVCaptureSession.Preset`), NOT flattened ObjC names.
 - **ModuleEmissionContext threading**: ALL code paths creating `WrapperEmitter` in `MethodHandler` MUST pass `context.GetEmissionContext()` to avoid dedup failures. Also applies to `Utf8SliceEmitter.EmitIfNeeded`/`EmitFreeIfNeeded`.
 - **Tj dispatch thunks**: Non-final class instance methods need `Tj` suffix. Gates: `!classParent.IsFinal && !methodDecl.IsFinal`.

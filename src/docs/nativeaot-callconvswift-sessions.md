@@ -386,61 +386,90 @@ These remain from Session 2:
 
 ---
 
-## Session 5: Session 2 Deferred Fixes & Mono Finalizer Hardening
+## Session 5: Verification Pass & Optional Closure Fix — COMPLETE
 
-**Goal**: Fix Session 2 deferred generator bugs (3 items) and harden the Mono finalizer code path to recover ~17 simulator-skipped tests. These are self-contained fixes with known root causes.
+**Goal**: Verify Session 2 deferred bug claims before fixing them. The "no assumptions" approach: remove skip annotations, run tests, observe actual behavior. Fix only verified bugs.
 
-**Scope**: 5D (deferred bugs) + 5C (finalizer hardening) + 5E (Codec ARC). Stop after validation gates.
+**Result**: 3 of 5 planned sub-tasks were false bug claims (tests pass with no changes). 1 real generator bug found and fixed (different from what was planned). 1 new generator gap identified. 15 tests recovered, 5 tests reclassified with accurate skip reasons. Unit tests: 7888 passed. Validation: 90/90. Build-and-test: succeeded.
 
-### Sub-task 5A: Struct Singleton ARC (Session 2D) — HIGH
+### Sub-task 5A: Struct Singleton ARC — DEBUNKED
 
-**Bug**: ARC reference count corruption from `initializeMemory` (bitwise copy) instead of `initializeWithCopy` (proper retains). SIGBUS on second access of singleton struct properties.
-**Location**: Property getter emission
-**Impact**: Alamofire `URLEncoding.Default` stability
+**Original claim**: ARC reference count corruption from `initializeMemory` (bitwise copy) instead of `initializeWithCopy`. SIGBUS on second access of singleton struct properties.
 
-### Sub-task 5B: Multi-Closure Parameter Ordering (Session 2E Bug 2) — MEDIUM
+**Actual result**: All 18 `StaticStructSingletonTests` pass, including String property access (`FormatName`). Swift's `initializeMemory(as:repeating:count:)` properly handles ARC retain/release for non-trivial types — it is NOT a bitwise copy. The session doc's premise was factually wrong. No code changes needed.
 
-**Bug**: Multi-closure parameter ordering wrong in generated code.
-**Location**: Closure emission
-**Skips recovered**: 1 (TestTransformerChain in `CompositionTests.cs`)
+### Sub-task 5B: Multi-Closure Parameter Ordering — MISDIAGNOSED
 
-### Sub-task 5C: Subscript Class Initialization (Session 2F) — MEDIUM
+**Original claim**: Multi-closure parameter ordering wrong in generated code.
 
-**Bug**: SubscriptTests class-level skip — class initialization crashes for subscript types.
-**Location**: Metadata or parameter marshalling
-**Skips recovered**: 1 class-level skip (all tests in `SubscriptTests`)
+**Actual result**: The C# P/Invoke parameter order `[resultPtr, fFuncPtr, fContext, gFuncPtr, gContext]` exactly matches the Swift wrapper's parameter order. The crash in `TestTransformerChain` is actually the **returned thick closure** pattern (`delegate* unmanaged[Swift]` with `SwiftSelf` SIGSEGV on Mono) — the same root cause as `TestMakeAdder`/`TestMakeMultiplier`/`TestMakeGreaterThan`/`TestClosureFactory`.
 
-### Sub-task 5D: Mono Finalizer Thread Crashes (15 tests) — MEDIUM
+**Change**: Reclassified from `[Skip("NativeAOT: SIGSEGV in static method with two closure parameters")]` to `[SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]`. Now runs on NativeAOT device.
 
-**Bug**: Mono's finalizer thread crashes with `jit-info.c:918` when freeing Swift handles via `Sys:Free`. Affects:
-- NSRunLoop.RunUntil-based SwiftUI bridge tests (8 tests)
-- Async view tests with Arc.Release (3 tests)
-- GC stress tests (2 + 1 class-level)
-- String-raw-value enum deferred free (2 tests)
+### Sub-task 5C: Subscript Class Initialization — DEBUNKED
 
-These all work individually but crash when the finalizer thread runs during or after the test. The root cause is likely in `SwiftSafeHandle.ReleaseHandle()` or `SwiftClassHandle.ReleaseHandle()` invoking VWT Destroy / Arc.Release from the finalizer thread on Mono.
+**Original claim**: Class initialization crashes for subscript types (SIGSEGV).
 
-**Potential fix**: Guard VWT Destroy and Arc.Release calls in ReleaseHandle to skip when called from the Mono finalizer thread (already partially implemented with `s_isMonoRuntime` but may need refinement for the `Sys:Free` code path).
+**Actual result**: All 14 `SubscriptTests` pass — including `KeyValueStore` with `String?` subscript returns (`Optional<SwiftString>`) and full CRUD lifecycle. No crash, no class initialization issue. The skip was completely false.
 
-### Sub-task 5E: Codec.Encoding ARC Copy (4 tests) — LOW
+**Change**: Removed class-level `[Skip("NativeAOT: SIGSEGV — class initialization for subscript types")]`. 14 tests recovered.
 
-**Bug**: Codec.Encoding (non-frozen String enum) ARC copy crashes Mono finalizer thread. The Codec constructor takes a `Codec.Encoding` parameter; the enum's String raw value requires ARC retain/release during copy, which fails on the Mono finalizer thread. Likely same root cause as 5D.
+### Sub-task 5D: Optional Closure GCHandle Lifetime — FIXED (new, not planned)
 
-**Tests affected**: TestCodecConstructionJson, TestCodecConstructionXml, TestCodecEncodingValueProperty, TestCodecGetDescribe in `NestedEnumTests.cs`
+**Bug discovered during verification**: `TestEventHandlerWithClosure` crashed with `jit-info.c:918` when calling `fire()`. Root cause: the EventHandler constructor's optional closure parameter `((Int32) -> Bool)?` had its GCHandle freed in the `finally` block after the P/Invoke returned. Swift stored the adapted closure (capturing the GCHandle context pointer) in `EventHandler.onComplete`. When `fire()` later invoked the closure, it called back through a dangling GCHandle → crash.
+
+**Root cause**: Optional closures in Swift are always escaping by definition (no `@noescape Optional<Closure>` exists). The ABI parser only propagates the `escaping` attribute to top-level `ClosureTypeSpec` nodes, not those wrapped in Optional. `WrapperEmitter.Marshalling` checked only `closureTypeSpec.IsEscaping` at three sites:
+1. **Setup (line ~248)**: chose ThreadStatic vs Marshal.GetFunctionPointerForDelegate for `@convention(c)` closures
+2. **Callback emission (line ~696)**: chose ThreadStatic `[UnmanagedCallersOnly]` vs skip for `@convention(c)` closures
+3. **Cleanup (line ~980)**: chose GCHandle.Free() vs leak for thunk closures
+
+All three were wrong for optional closures.
+
+**Fix**: Added `WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, originalType, closureHandler)` — a single public method that checks both `IsEscaping` and `IsOptionalClosure`. All three WrapperEmitter.Marshalling sites delegate to it.
+
+**Files modified**:
+- `WrapperValidation.cs` — new `IsEffectivelyEscaping()` method
+- `WrapperEmitter.Marshalling.cs` — 3 call sites updated
+- `ClosureHandlerTests.cs` — 5 new tests (helper-level + projection-level)
+- `MethodHandlerOutputTests.cs` — 2 emitter-output regression tests (one for thunk closures, one for `@convention(c)` closures)
+
+**Tests recovered**: 1 (`TestEventHandlerWithClosure`)
+
+### Sub-task 5E: Codec Tests — ROOT CAUSE CORRECTED
+
+**Original claim**: Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread.
+
+**Actual result**: Crash is NOT in the finalizer thread. It's in the test itself: `Codec.FormatValue` getter uses a Tj dispatch thunk (`$s...OvgTj`) via direct CallConvSwift. `Codec` is a non-final class, so its property getters use Tj vtable dispatch. `RequiresCdeclForAbiSafety()` correctly returns `true` for non-final class properties, but `ShouldEmitWrapper()` returns `false` because `Codec.Format` is a nested type (not yet supported in @_cdecl wrappers). Result: property emitted with direct CallConvSwift against a Tj thunk → SIGSEGV on both runtimes.
+
+**Change**: Reclassified from `[SkipOnSimulator("Codec.Encoding non-frozen String enum ARC copy crashes Mono finalizer thread")]` to `[Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]`. Now correctly identified as a generator gap (not Mono-specific).
+
+**Remaining work**: Support nested enum types in @_cdecl property wrappers, OR suppress properties that need @_cdecl but can't get one. See Session 6G.
+
+### SkipOnSimulator Verification Results
+
+| Category | Verified? | Result |
+|----------|-----------|--------|
+| Generic CallConvSwift (18 tests) | YES | Confirmed crash — Mono JIT limitation |
+| Returned thick closures (5 tests) | YES | Confirmed crash — Mono `delegate* unmanaged[Swift]` + SwiftSelf |
+| Codec.Encoding ARC (4 tests) | YES | **Misdiagnosed** — actually Tj dispatch thunk crash (both runtimes) |
+| Finalizer Sys:Free (15 tests) | Partial | Full suite crash at 344 tests with `Sys:Free` at `jit-info.c:918` — non-deterministic, timing-dependent |
+| Typed throws swifterror (1 test) | No | Not yet verified individually |
 
 ### Validation Gates
 
-`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh`
+- Unit tests: 7888 passed, 0 failed ✓
+- Library validation: 90/90 passed ✓
+- Build-and-test: succeeded ✓
 
 ---
 
-## Session 6: Generic CallConvSwift & Remaining Mono Gaps
+## Session 6: Generic CallConvSwift & Remaining Gaps
 
-**Goal**: Fix the generic type CallConvSwift P/Invoke pattern that crashes Mono JIT, and clean up remaining low-priority items. This is deep infrastructure work.
+**Goal**: Fix the generic type CallConvSwift P/Invoke pattern that crashes Mono JIT, and clean up remaining items. This is deep infrastructure work.
 
 ### Sub-task 6A: Generic Type CallConvSwift on Mono (18 tests) — HIGH
 
-**Bug**: All P/Invokes in `PInvokeHelper` classes for generic types crash Mono JIT with `jit-info.c:918` when using `CallConvSwift`. The metadata accessor (`PInvoke_getMetadata`) also crashes. Session 4 fixed duplicate TypeMetadata params and `_payloadSize` static field initialization, but the fundamental issue remains: Mono's JIT can't compile CallConvSwift P/Invokes in certain contexts.
+**Bug**: All P/Invokes in `PInvokeHelper` classes for generic types crash Mono JIT with `jit-info.c:918` when using `CallConvSwift`. The metadata accessor (`PInvoke_getMetadata`) also crashes. Session 4 fixed duplicate TypeMetadata params and `_payloadSize` static field initialization, but the fundamental issue remains: Mono's JIT can't compile CallConvSwift P/Invokes in certain contexts. **Verified in Session 5**: `TestWrapperCreation` SIGSEGV confirmed on simulator.
 
 **Potential approaches**:
 1. Emit @_cdecl metadata accessor wrappers (non-generic Swift functions that forward to the generic metadata accessor) — avoids CallConvSwift entirely for metadata resolution
@@ -449,11 +478,11 @@ These all work individually but crash when the finalizer thread runs during or a
 
 **Tests affected**: 15 `[SkipOnSimulator("Generic type CallConvSwift P/Invoke crashes Mono JIT")]` + 3 `[SkipOnSimulator("BaseEntity metadata cache corruption")]` in `BasicGenericTests.cs`
 
-### Sub-task 6B: Returned Thick Closures on Mono (4 tests) — MEDIUM
+### Sub-task 6B: Returned Thick Closures on Mono (5 tests) — MEDIUM
 
-**Bug**: Invoking returned closures via `delegate* unmanaged[Swift]` with `SwiftSelf` context SIGSEGV on Mono. Proven in evidence matrix (line 89). Works on NativeAOT.
+**Bug**: Invoking returned closures via `delegate* unmanaged[Swift]` with `SwiftSelf` context SIGSEGV on Mono. Proven in evidence matrix (line 89) and **verified in Session 5** (TestTransformerChain crash). Works on NativeAOT.
 
-**Tests affected**: TestMakeAdder, TestMakeMultiplier, TestMakeGreaterThan, TestClosureFactory in `ClosureTests.cs`
+**Tests affected**: TestMakeAdder, TestMakeMultiplier, TestMakeGreaterThan, TestClosureFactory in `ClosureTests.cs` + TestTransformerChain in `CompositionTests.cs`
 
 ### Sub-task 6C: SwiftOptional<Shape> Generic Metadata (2 tests) — MEDIUM
 
@@ -475,6 +504,27 @@ Lines 98 and 150 of `DefaultParameterOverloadEmitter.cs` still promote overloads
 
 **VWT Destroy test coverage**: Add focused test verifying actual VWT Destroy invocation.
 
+### Sub-task 6G: Nested Type @_cdecl Property Wrappers (4 tests) — MEDIUM (new from Session 5)
+
+**Bug identified in Session 5E**: Non-final class properties returning nested types (e.g., `Codec.format` returning `Codec.Format`) use Tj dispatch thunks but can't get @_cdecl wrappers because nested types aren't supported in wrapper emission. The property is emitted with direct CallConvSwift against a Tj thunk → SIGSEGV on both runtimes.
+
+**Fix options**:
+1. Support nested enum types (Int32 raw value) in @_cdecl wrappers — pass as Int32, reconstruct on return
+2. Suppress properties that need @_cdecl but can't get one (safety net)
+3. Both: option 1 for simple nested enums, option 2 as general fallback
+
+**Tests affected**: TestCodecConstructionJson, TestCodecConstructionXml, TestCodecEncodingValueProperty, TestCodecGetDescribe in `NestedEnumTests.cs` (currently `[Skip]`)
+
+### Sub-task 6H: Mono Finalizer Thread Crashes (15 tests) — MEDIUM (moved from Session 5D)
+
+**Bug**: Mono's finalizer thread crashes with `jit-info.c:918` when freeing Swift handles via `Sys:Free`. Non-deterministic timing. Observed during full test suite run (crash at test 344 of ~550). Affects:
+- NSRunLoop.RunUntil-based SwiftUI bridge tests (8 tests)
+- Async view tests with Arc.Release (3 tests)
+- GC stress tests (2 + 1 class-level)
+- String-raw-value enum deferred free (2 tests)
+
+**Status**: Not yet individually verified. Could be Mono limitation or our ReleaseHandle code triggering Mono JIT from finalizer thread. Needs investigation in repro project before attributing to Mono.
+
 ### Validation Gates
 
 `run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (both simulator AND device)
@@ -494,7 +544,7 @@ For reference, these are the 6 issues that originally motivated the @_cdecl wrap
 | E: Bool-returning callback | SIGABRT | **OUR BUG** (bool vs byte marshalling) | 2B (fix closures) |
 | F: Generic dispatch crashes | SIGSEGV in generic constructors | **OUR BUG** (wrong metadata for allocating inits) | 2A (fix generics) |
 
-## 35 Test Skips — Mapping
+## 35 Test Skips — Mapping (Updated After Session 5 Verification)
 
 | Category | Count | Verdict | Session | Details |
 |----------|------:|---------|---------|---------|
@@ -505,18 +555,20 @@ For reference, these are the 6 issues that originally motivated the @_cdecl wrap
 | Closures (String) | 2 | CORRECT | — | Non-blittable limitation; update skip reason |
 | Enum raw-value String | 4 | OUR BUG | 2C | @_cdecl wrapper buffer layout |
 | Optional enum | 2 | OUR BUG | 2C | Pointer misalignment for enum payloads |
-| Composition | 3 | OUR BUG | 2E | Buffer sizes, closure ordering |
-| Composition (closure context) | 1 | OUR BUG | 2E | Closure context not preserved |
-| Subscripts | 1 | OUR BUG | 2F | Class initialization crash |
+| Composition (closure ordering) | 1 | ~~OUR BUG~~ **MISDIAGNOSED** | 5B | Actually returned thick closure pattern (Mono-only, same as 2B) |
+| Composition (closure context) | 1 | OUR BUG → **FIXED** | 5D | Optional closure GCHandle freed too early in constructor |
+| Composition (buffer sizes) | 1 | OUR BUG | 2E | Frozen struct + optional array buffer layout |
+| Subscripts | 1 | ~~OUR BUG~~ **NOT A BUG** | 5C | All 14 tests pass — skip was false |
 | Tuples (annotation) | 1 | UPSTREAM | — | StructLayout.Auto limitation |
 | Tuples (runtime skip) | 1 | UPSTREAM | — | NativeAOT class loading SIGSEGV |
-| **Total** | **35** | | | **30 fixable, 3 correct/upstream, 2 update reason** |
+| **Total** | **35** | | | **27 fixable, 3 correct/upstream, 2 update reason, 2 debunked, 1 fixed** |
 
-## Device Stability Issues — Mapping
+## Device Stability Issues — Mapping (Updated After Session 5)
 
 | Issue | Verdict | Session |
 |-------|---------|---------|
-| Struct singleton second-access (Alamofire) | OUR BUG: initializeMemory vs initializeWithCopy | 2D |
+| Struct singleton second-access (Alamofire) | ~~OUR BUG~~ **NOT A BUG**: `initializeMemory` properly handles ARC (all 18 tests pass) | 5A (debunked) |
 | Enum case dispose crash (Starscream) | OUR BUG: cumulative VWT/enum lifecycle corruption | 2C |
 | Foundation.Data in @_cdecl | KNOWN LIMITATION: ObjC bridging at boundary | Deferred (DataProjection) |
 | CallConvSwift URL.init(string:) | KNOWN LIMITATION: SwiftString non-blittable | N/A (already uses @_cdecl) |
+| Codec nested type property crash | OUR BUG: Tj dispatch thunk without @_cdecl (nested type restriction blocks wrapper) | 6G (new) |
