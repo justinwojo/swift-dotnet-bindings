@@ -212,11 +212,10 @@ public class BasicGenericTests : TestBase
     #endregion
 
     #region Unbound Generic Instantiation Tests
-    // Tier 3: All unbound generics use TypeMetadata resolution via
-    // SwiftObjectHelper<T>.GetTypeMetadata() through CallConvSwift.
-    // Expected to hit Mono JIT assertion (jit-info.c:918).
+    // Generic types use TypeMetadata resolution via SwiftObjectHelper<T>.GetTypeMetadata().
+    // Class/struct allocating inits pass specialized metatype (e.g., GenericClass<T>.self).
 
-    [Skip("NativeAOT: SIGSEGV in generic Wrapper<T> constructor — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<Wrapper<T>>.GetTypeMetadata()
     public void TestWrapperCreation()
     {
         var inner = new SummableInt32(value: 42);
@@ -226,7 +225,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in generic Wrapper<T> — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<Wrapper<T>>.GetTypeMetadata()
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -236,7 +235,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in GenericPair<T,U> constructor — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericPair<T,U>>.GetTypeMetadata()
     public void TestGenericPairCreation()
     {
         var a = new SummableInt32(value: 10);
@@ -247,7 +246,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
     }
 
-    [Skip("NativeAOT: SIGSEGV in GenericPair<T,U> — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericPair<T,U>>.GetTypeMetadata()
     public void TestGenericPairMixedTypes()
     {
         var s = new SummableInt32(value: 5);
@@ -257,7 +256,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(3, pair.Second.Sum(), "GenericPair mixed Second.Sum()");
     }
 
-    [Skip("NativeAOT: SIGSEGV in GenericClass<T> — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata()
     public void TestGenericClassCreation()
     {
         var inner = new SummableInt32(value: 77);
@@ -267,7 +266,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in GenericClass<T> — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata()
     public void TestGenericClassGetMethod()
     {
         var inner = new SummableInt32(value: 33);
@@ -276,7 +275,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
 
-    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericClass<T>>.GetTypeMetadata()
     public void TestGenericClassValueSetter()
     {
         var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
@@ -289,12 +288,12 @@ public class BasicGenericTests : TestBase
     #endregion
 
     #region Generic Free Function Tests
-    // Tier 3: Generic free functions use CallConvSwift for type metadata.
+    // Generic free functions pass per-param TypeMetadata directly via CallConvSwift.
     // GetConstrained, SumTwo, GetDescribeConstrained deferred —
     // proxy types (SummableProxy, etc.) satisfy constraints but require
     // wrapper library bundled in RuntimeTestsApp (same blocker as proxy dispatch).
 
-    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on generic free function TypeMetadata resolution
     public void TestGetIdentity()
     {
         var original = new SummableInt32(value: 42);
@@ -303,7 +302,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GetIdentity(SummableInt32(42)).Value = {result.Value}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on generic free function TypeMetadata resolution
     public void TestGetIdentityPreservesValue()
     {
         var original = new SummableInt32(value: -100);
@@ -311,7 +310,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("NativeAOT: SIGSEGV in generic type — constrained generic dispatch crash")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on generic free function TypeMetadata resolution
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);
@@ -326,7 +325,7 @@ public class BasicGenericTests : TestBase
 
     #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
 
-    [Skip("NativeAOT: SIGSEGV in constrained generic dispatch — crashes process")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<ConstrainedBox<T>>.GetTypeMetadata()
     public void TestConstrainedBoxCreation()
     {
         var item = new SimpleItem("gen-id", "test");
@@ -335,7 +334,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV in constrained generic dispatch — crashes process")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<ConstrainedBox<T>>.GetTypeMetadata()
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");
@@ -349,7 +348,7 @@ public class BasicGenericTests : TestBase
 
     #region M3: Generic Class Implementing Protocol (GenericNamedBox)
 
-    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericNamedBox<T>>.GetTypeMetadata()
     public void TestGenericNamedBoxCreation()
     {
         var item = new SummableInt32(value: 42);
@@ -358,7 +357,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("GenericNamedBox creation passed");
     }
 
-    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericNamedBox<T>>.GetTypeMetadata()
     public void TestGenericNamedBoxName()
     {
         var item = new SummableInt32(value: 10);
@@ -394,7 +393,7 @@ public class BasicGenericTests : TestBase
             "Disposed BaseEntity throws on access");
     }
 
-    [Skip("Generic constructor missing @_cdecl wrapper — Mono cannot handle CallConvSwift with non-trivial params")]
+    [MonoJitCrash] // Mono: mini-generic-sharing.c:2759 on SwiftObjectHelper<TypedEntity<T>>.GetTypeMetadata()
     public void TestTypedEntityCreation()
     {
         var item = new SummableInt32(value: 99);

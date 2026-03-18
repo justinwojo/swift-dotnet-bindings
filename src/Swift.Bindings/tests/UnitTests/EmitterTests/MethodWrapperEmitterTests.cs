@@ -1039,7 +1039,7 @@ public class MethodWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_ self_: UnsafeRawPointer", output);
-        Assert.Contains("self_.load(as: TestModule.MyType.self)", output);
+        Assert.Contains("self_.assumingMemoryBound(to: TestModule.MyType.self).pointee", output);
         Assert.Contains("-> Int", output);
     }
 

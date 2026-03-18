@@ -1123,7 +1123,7 @@ public class ConstructorWrapperEmitterTests
         // should pass the raw pointer through, NOT load Optional<String>
         Assert.Contains("_ licensee: UnsafeRawPointer", output);
         // Should NOT contain the load pattern for widened Optional params
-        Assert.DoesNotContain("licensee.load(as: Optional<String>.self)", output);
+        Assert.DoesNotContain("licensee.assumingMemoryBound(to: Optional<String>.self).pointee", output);
     }
 
     [Fact]
@@ -1180,7 +1180,7 @@ public class ConstructorWrapperEmitterTests
         ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
 
         var output = sw.ToString();
-        Assert.Contains("licensee.load(as: Swift.Optional<Swift.String>.self)", output);
+        Assert.Contains("licensee.assumingMemoryBound(to: Swift.Optional<Swift.String>.self).pointee", output);
     }
 
     #endregion
@@ -1242,7 +1242,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Custom frozen struct: passed as UnsafeRawPointer, reconstructed via .load(as:)
         Assert.Contains("_ point: UnsafeRawPointer", output);
-        Assert.Contains("point.load(as: TestModule.Point.self)", output);
+        Assert.Contains("point.assumingMemoryBound(to: TestModule.Point.self).pointee", output);
         Assert.Contains("point: pointVal", output);
     }
 
@@ -1407,7 +1407,7 @@ public class ConstructorWrapperEmitterTests
         var output = sw.ToString();
         // Non-frozen struct: passed as pointer, needs load
         Assert.Contains("_ config: UnsafeRawPointer", output);
-        Assert.Contains("config.load(as: TestModule.Config.self)", output);
+        Assert.Contains("config.assumingMemoryBound(to: TestModule.Config.self).pointee", output);
     }
 
     #endregion
@@ -3089,10 +3089,10 @@ public class ConstructorWrapperEmitterTests
         var (cdeclParam, reconstruction, callArg) =
             ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "items", env);
 
-        // Swift side: must use UnsafeRawPointer and .load(as:) to read the container value
+        // Swift side: must use UnsafeRawPointer and .assumingMemoryBound(to:).pointee to read the container value
         Assert.Contains("UnsafeRawPointer", cdeclParam);
         Assert.NotNull(reconstruction);
-        Assert.Contains(".load(as:", reconstruction);
+        Assert.Contains(".assumingMemoryBound(to:", reconstruction);
     }
 
     [Fact]
@@ -3121,10 +3121,10 @@ public class ConstructorWrapperEmitterTests
         var (cdeclParam, reconstruction, callArg) =
             ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "dict", env);
 
-        // Swift side: must use UnsafeRawPointer and .load(as:) to read the container value
+        // Swift side: must use UnsafeRawPointer and .assumingMemoryBound(to:).pointee to read the container value
         Assert.Contains("UnsafeRawPointer", cdeclParam);
         Assert.NotNull(reconstruction);
-        Assert.Contains(".load(as:", reconstruction);
+        Assert.Contains(".assumingMemoryBound(to:", reconstruction);
     }
 
     /// <summary>

@@ -221,7 +221,8 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape default null passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV — SwiftOptional<Shape> marshalling for enum with associated values")]
+    // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
+    [MonoJitCrash] // Mono: SwiftOptional<Shape> generic metadata triggers mini-generic-sharing.c:2759
     public void TestEnumPropertyHolder_SetOptionalShape()
     {
         // Set optionalShape to a value, read back
@@ -233,7 +234,8 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape setter passed");
     }
 
-    [Skip("NativeAOT: SIGSEGV — SwiftOptional<Shape> marshalling for enum with associated values")]
+    // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
+    [MonoJitCrash] // Mono: SwiftOptional<Shape> generic metadata triggers mini-generic-sharing.c:2759
     public void TestEnumPropertyHolder_ClearOptionalShape()
     {
         // Set optionalShape, then clear back to null

@@ -696,9 +696,13 @@ public static class ConstructorWrapperEmitter
                         $"{label}");
             }
 
+            // Use assumingMemoryBound(to:).pointee instead of load(as:) — for generic containers
+            // like Optional<EnumWithAssociatedValues>, load(as:) can SIGSEGV because the container
+            // may not satisfy BitwiseCopyable constraints. assumingMemoryBound(to:).pointee
+            // uses typed pointer access with proper value semantics.
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
             return ($"_ {label}: UnsafeRawPointer",
-                    $"let {label}Val = {label}.load(as: {swiftType}.self)",
+                    $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                     $"{argLabel}{label}Val");
         }
 
@@ -826,21 +830,26 @@ public static class ConstructorWrapperEmitter
                 return ($"_ {label}: {rawType}", conversion, $"{argLabel}{label}Val");
             }
 
-            // Complex enums: pass as pointer
+            // Complex enums: pass as pointer.
+            // Use assumingMemoryBound(to:).pointee instead of load(as:) — for enums with
+            // non-BitwiseCopyable fields (e.g., String raw-value enums), load(as:) creates
+            // a bitwise copy without proper reference semantics, causing SIGBUS.
+            // assumingMemoryBound(to:).pointee uses typed pointer access with proper value semantics.
             if (typeRecord.Kind == TypeRecordKind.Enum)
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
-                        $"let {label}Val = {label}.load(as: {swiftType}.self)",
+                        $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
 
-            // Non-frozen structs: C# passes SafeHandle (IntPtr), receive as pointer
+            // Non-frozen structs: C# passes SafeHandle (IntPtr), receive as pointer.
+            // Use assumingMemoryBound for consistency with enum/container paths.
             if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
                 var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
-                        $"let {label}Val = {label}.load(as: {swiftType}.self)",
+                        $"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
 
@@ -856,18 +865,21 @@ public static class ConstructorWrapperEmitter
                     return ($"_ {label}: {swiftType}", null, $"{argLabel}{label}");
                 }
 
-                // Custom frozen structs: pass as UnsafeRawPointer and reconstruct via .load(as:).
+                // Custom frozen structs: pass as UnsafeRawPointer and reconstruct.
+                // Use assumingMemoryBound(to:).pointee instead of load(as:) — frozen structs
+                // with reference-counted fields (String, Array, Optional) are not BitwiseCopyable.
                 var moduleQualifiedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeRawPointer",
-                        $"let {label}Val = {label}.load(as: {moduleQualifiedType}.self)",
+                        $"let {label}Val = {label}.assumingMemoryBound(to: {moduleQualifiedType}.self).pointee",
                         $"{argLabel}{label}Val");
             }
         }
 
-        // Fallback: pass as UnsafeRawPointer
+        // Fallback: pass as UnsafeRawPointer.
+        // Use assumingMemoryBound for consistency with all other pointer reconstruction paths.
         var fallbackSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
         return ($"_ {label}: UnsafeRawPointer",
-                $"let {label}Val = {label}.load(as: {fallbackSwiftType}.self)",
+                $"let {label}Val = {label}.assumingMemoryBound(to: {fallbackSwiftType}.self).pointee",
                 $"{argLabel}{label}Val");
     }
 

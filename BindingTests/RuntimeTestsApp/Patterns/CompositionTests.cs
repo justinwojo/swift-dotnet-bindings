@@ -145,7 +145,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"BatchConfig.EffectiveName = {name}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in free function with frozen struct + optional array parameter")]
+    // Fixed: assumingMemoryBound(to:).pointee for frozen struct with non-BitwiseCopyable fields
     public void TestDescribeConfigFreeFunction()
     {
         var config = new BatchConfig(name: "Sync", maxRetries: 2, tags: null);
@@ -155,7 +155,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"describeConfig = {desc}");
     }
 
-    [Skip("NativeAOT: SIGSEGV in free function with frozen struct + optional array parameter")]
+    // Fixed: assumingMemoryBound(to:).pointee for frozen struct with non-BitwiseCopyable fields
     public void TestDescribeConfigWithTags()
     {
         var tags = new SwiftArray<int>();

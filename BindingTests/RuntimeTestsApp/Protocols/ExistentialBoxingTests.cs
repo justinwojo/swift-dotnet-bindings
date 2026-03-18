@@ -255,6 +255,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, SimpleMode) = {result}");
     }
 
+    [MonoJitCrash] // Mono: jit-info.c:918 on repeated existential P/Invoke with CallConvSwift
     public void TestRunModeConsumerWithStrictMode()
     {
         var consumer = new SimpleModeConsumer();

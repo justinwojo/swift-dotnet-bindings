@@ -255,6 +255,7 @@ public class ClassMarshallingTests : TestBase
 
     #region GC Survival
 
+    [MonoJitCrash] // Mono: jit-info.c:918 assertion in Sys:Free during GC finalization
     public void TestClassSurvivesGCPressure()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -272,6 +273,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("Class survives GC pressure");
     }
 
+    [MonoJitCrash] // Mono: jit-info.c:918 assertion in Sys:Free during GC finalization
     public void TestMultipleObjectsGCPressure()
     {
         // Create several objects, apply GC pressure, verify all survive

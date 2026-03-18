@@ -102,6 +102,7 @@ public class OptionSetTests : TestBase
 
     #region Tier 2 — TextStyle Equality and Free Function
 
+    [MonoJitCrash] // Mono: deferred Sys:Free from OptionSet operations triggers jit-info.c:918
     public void TestTextStyleEqualitySame()
     {
         var a = TextStyle.Bold;

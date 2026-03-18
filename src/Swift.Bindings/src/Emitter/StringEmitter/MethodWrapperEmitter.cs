@@ -518,7 +518,7 @@ public static class MethodWrapperEmitter
         }
         else
         {
-            swiftWriter.WriteLine($"let obj = self_.load(as: {moduleQualifiedSwiftName}.self)");
+            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).pointee");
         }
     }
 

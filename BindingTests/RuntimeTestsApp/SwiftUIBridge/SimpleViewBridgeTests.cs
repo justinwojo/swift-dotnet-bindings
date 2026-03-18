@@ -84,6 +84,7 @@ public class BridgeSimpleViewTests : TestBase
         TestLogger.Info("MultiArgClosureView: create/invoke/free cycle passed");
     }
 
+    [MonoJitCrash] // Mono: jit-info.c:918 assertion in Sys:Free during NSRunLoop.RunUntil callback dispatch
     public unsafe void TestMixedParamView()
     {
         MixedActionState.Reset();

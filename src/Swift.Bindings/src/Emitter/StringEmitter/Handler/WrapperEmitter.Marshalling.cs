@@ -254,17 +254,29 @@ namespace BindingsGeneration
                         // ThreadStatic is unsound for this case — fall back to Marshal.GetFunctionPointerForDelegate.
                         // This works on NativeAOT (device); on Mono AOT (simulator) it requires JIT trampolines
                         // which may not be available. Escaping @convention(c) closures are rare in practice.
+                        //
+                        // Bool bridge: Marshal.GetFunctionPointerForDelegate creates a native thunk where bool
+                        // maps to 4-byte BOOL, but Swift's @convention(c) Bool is 1 byte. Generate a wrapper
+                        // delegate with byte types so the thunk matches Swift's ABI.
+                        string marshalSource = csName;
+                        if (ClosureEmitter.NeedsConventionCBoolBridge(closureTypeSpec))
+                        {
+                            var bridgeName = $"_{csName}_boolBridge";
+                            ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
+                            marshalSource = bridgeName;
+                        }
+
                         if (isOptional)
                         {
                             csWriter.WriteLines($"""
                                 var {csName}FuncPtr = {csName} != null
-                                    ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName})
+                                    ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource})
                                     : ({funcPtrType})IntPtr.Zero;
                                 """);
                         }
                         else
                         {
-                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({csName});");
+                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource});");
                         }
                     }
                     else

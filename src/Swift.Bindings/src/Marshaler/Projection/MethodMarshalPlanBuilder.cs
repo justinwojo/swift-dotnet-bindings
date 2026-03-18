@@ -765,14 +765,17 @@ internal class MethodMarshalPlanBuilder
             {
                 metadataArgs = "";
             }
-            else if (_env.MethodDecl.UsesCdeclConstructorWrapper &&
+            else if (_env.MethodDecl.IsConstructor &&
                      _env.ParentDecl is TypeDecl { IsGeneric: true })
             {
-                // @_cdecl constructor wrappers on generic classes: _metadata0 must be the
-                // specialized class metatype (e.g., GenericCache<String>.self), not per-param T metadata.
-                // The Swift wrapper does unsafeBitCast(_metadata0, to: Any.Type.self) for protocol dispatch.
-                // Use SwiftObjectHelper<ClassName<T>>.GetTypeMetadata() — this routes through the
-                // ISwiftObject constraint to the class's explicit interface implementation, returning
+                // Generic type allocating inits: the last metadata argument must be the
+                // specialized type metatype (e.g., GenericClass<T>.self, Wrapper<T>.self),
+                // not per-param T metadata.
+                // Swift allocating init ABI: (init_params, T_metadata..., Type<T>.Type metatype).
+                // For @_cdecl wrappers: the Swift wrapper does unsafeBitCast(_metadata0, to: Any.Type.self).
+                // For direct CallConvSwift: the last TypeMetadata param IS the type metatype.
+                // Use SwiftObjectHelper<TypeName<T>>.GetTypeMetadata() — this routes through the
+                // ISwiftObject constraint to the type's explicit interface implementation, returning
                 // the specialized metatype with all generic params baked in.
                 var metadataList = _env.PInvokeHelperContext.GetMetadataArgumentList().ToList();
                 if (metadataList.Count > 0)

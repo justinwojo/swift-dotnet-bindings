@@ -11,6 +11,7 @@ public class ExistentialMetadataTests : TestBase
 {
     public ExistentialMetadataTests(TestResults results) : base(results) { }
 
+    [MonoJitCrash] // Mono: CallConvSwift P/Invoke into swift_getExistentialTypeMetadata
     public void TestGetExistentialTypeMetadata_ZeroProtocols()
     {
         var metadata = TypeMetadata.GetExistentialTypeMetadata(0);
@@ -20,6 +21,7 @@ public class ExistentialMetadataTests : TestBase
         TestLogger.Info($"ExistentialTypeMetadata(0) kind={metadata.Kind}");
     }
 
+    [MonoJitCrash] // Mono: SwiftObjectHelper<ExistentialContainer0>.GetTypeMetadata() triggers mini-generic-sharing.c:2759
     public void TestTryGetTypeMetadata_ExistentialContainer0()
     {
         var success = TypeMetadata.TryGetTypeMetadata<ExistentialContainer0>(out var result);

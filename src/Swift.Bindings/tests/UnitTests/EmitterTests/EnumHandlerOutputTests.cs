@@ -3181,7 +3181,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("CallConvCdecl", csOutput);
         // Swift side should receive UnsafeRawPointer and load tuple
         Assert.Contains("UnsafeRawPointer", swiftOutput);
-        Assert.Contains(".load(as:", swiftOutput);
+        Assert.Contains(".assumingMemoryBound(to:", swiftOutput);
         Assert.Contains("@_cdecl", swiftOutput);
     }
 

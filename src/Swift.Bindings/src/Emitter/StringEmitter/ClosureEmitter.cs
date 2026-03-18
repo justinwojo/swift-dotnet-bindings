@@ -788,4 +788,74 @@ public static partial class ClosureEmitter
 
         return $"_arg{argIndex}";
     }
+
+    /// <summary>
+    /// Checks if a @convention(c) closure needs a bool bridge for Marshal.GetFunctionPointerForDelegate.
+    /// Marshal.GetFunctionPointerForDelegate creates a native thunk based on the managed delegate's
+    /// signature, where bool marshals as 4-byte BOOL instead of Swift's 1-byte Bool. The bridge wraps
+    /// the user's delegate in a byte-typed delegate that matches Swift's calling convention.
+    /// </summary>
+    internal static bool NeedsConventionCBoolBridge(ClosureTypeSpec closureTypeSpec)
+    {
+        if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
+            return true;
+        return closureTypeSpec.EachArgument().Any(a => MarshallingHelpers.IsBoolType(a));
+    }
+
+    /// <summary>
+    /// Emits a bridge delegate for @convention(c) closures with bool types.
+    /// Wraps the user's delegate (which uses C# bool) in a delegate that uses byte for bool,
+    /// so Marshal.GetFunctionPointerForDelegate creates a thunk with the correct 1-byte return/param ABI.
+    /// </summary>
+    internal static void EmitConventionCBoolBridge(
+        CSharpWriter csWriter,
+        string originalName,
+        string bridgeName,
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler)
+    {
+        var args = closureTypeSpec.EachArgument().ToList();
+        bool hasBoolReturn = MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
+
+        // Build bridge delegate type args and lambda
+        var bridgeTypeArgs = new List<string>();
+        var lambdaParams = new List<string>();
+        var forwardArgs = new List<string>();
+        for (int i = 0; i < args.Count; i++)
+        {
+            lambdaParams.Add($"_ba{i}");
+            if (MarshallingHelpers.IsBoolType(args[i]))
+            {
+                bridgeTypeArgs.Add("byte");
+                forwardArgs.Add($"_ba{i} != 0");
+            }
+            else
+            {
+                bridgeTypeArgs.Add(closureHandler.TranslateTypeSpecToCSharp(args[i]));
+                forwardArgs.Add($"_ba{i}");
+            }
+        }
+
+        string callExpr = $"{originalName}({string.Join(", ", forwardArgs)})";
+        string lambdaParamsStr = string.Join(", ", lambdaParams);
+
+        if (closureTypeSpec.ReturnType.IsEmptyTuple)
+        {
+            string delegateType = bridgeTypeArgs.Count > 0
+                ? $"Action<{string.Join(", ", bridgeTypeArgs)}>"
+                : "Action";
+            csWriter.WriteLine($"{delegateType} {bridgeName} = ({lambdaParamsStr}) => {{ {callExpr}; }};");
+        }
+        else
+        {
+            if (hasBoolReturn)
+                bridgeTypeArgs.Add("byte");
+            else
+                bridgeTypeArgs.Add(closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true));
+
+            string delegateType = $"Func<{string.Join(", ", bridgeTypeArgs)}>";
+            string returnExpr = hasBoolReturn ? $"(byte)({callExpr} ? 1 : 0)" : callExpr;
+            csWriter.WriteLine($"{delegateType} {bridgeName} = ({lambdaParamsStr}) => {returnExpr};");
+        }
+    }
 }

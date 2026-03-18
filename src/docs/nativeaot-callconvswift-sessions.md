@@ -102,11 +102,11 @@ This framework covers the *calling convention* dimension only. The generator's e
 
 ---
 
-## Session 1: Runtime & Infrastructure Cleanup
+## Session 1: Runtime & Infrastructure Cleanup — **Status: Complete** (`ee6a86ac`)
 
 **Goal**: Remove proven-unnecessary infrastructure, simplify the runtime, update docs. Zero-risk changes backed by investigation evidence.
 
-**Partially started**: Working tree on `nativeaot-investigation` branch has draft changes to EnumHandler, FrozenStructHandler, NonFrozenStructHandler, SwiftHandle.cs, TypeMetadata.cs, and SwiftClassHandleTests.cs. Review and complete these.
+**Completed**: March 18, 2026. All sub-tasks delivered. 7829 unit tests passed, 90/90 validation, BindingTests build-and-test succeeded. 17 files changed (net -459 lines of source + golden file churn). DestroyWrapperEmitter deleted (157+302 lines), SwiftHandle simplified, direct CallConvSwift existential metadata P/Invoke added, upstream bug reports updated.
 
 ### Sub-task 1A: VWT Destroy Wrapper Elimination
 
