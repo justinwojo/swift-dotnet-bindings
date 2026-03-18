@@ -264,6 +264,10 @@ namespace BindingsGeneration
                             var bridgeName = $"_{csName}_boolBridge";
                             ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
                             marshalSource = bridgeName;
+                            // Root the bridge delegate — Marshal.GetFunctionPointerForDelegate does not prevent
+                            // GC collection of the delegate. For escaping closures, Swift may invoke the function
+                            // pointer after this call returns. GCHandle keeps the bridge alive indefinitely.
+                            csWriter.WriteLine($"var {bridgeName}Handle = System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
                         }
 
                         if (isOptional)

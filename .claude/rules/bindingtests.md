@@ -40,9 +40,9 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - Tests in `RuntimeTestsApp/` — iOS simulator app, discovery-based runner
 - Tests extend `TestBase`, auto-discovered via reflection. Test attributes:
   - **Default** (no attribute) — runs on both simulator and device
-  - **`[MonoJitCrash]`** — skipped on simulator (Mono JIT crash), runs on device (NativeAOT)
   - **`[Skip("reason")]`** — always skipped (generator bugs, missing entry points)
   - **`[Slow]`** — stress tests, always runs
+  - **`[MonoJitCrash]`** — DEPRECATED, do not use. All Mono crashes are our bugs. Use `[Skip]` with a specific reason instead.
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
 - `--class NAME` runs only the named test class (exact match, case-insensitive)
 - `--platform simulator|device` selects execution mode (default: simulator)
@@ -54,11 +54,10 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 - `EventHandler` name collides with `System.EventHandler` — use `using SwiftEventHandler = SwiftBindingsTestLib.EventHandler`
 
 ## Active Mono/Runtime Limitations (affects test classification)
-- See CLAUDE.md "Known Runtime Issues" for Mono JIT assertion details. Tests hitting these are marked `[MonoJitCrash]`.
-- On simulator, [MonoJitCrash] tests are skipped; any crash is treated as a regression.
-- On device (NativeAOT), [MonoJitCrash] tests run and should pass.
+- **NEVER use `[MonoJitCrash]`** — all Mono JIT crashes were traced to our own bugs (see src/docs/Completed/MONO-JIT-FINDINGS.md). If a test crashes on simulator, diagnose the root cause in our generator/runtime code and either fix it or use `[Skip("specific bug description")]`.
+- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[Slow]` (stress tests)
 - Optional array on frozen struct → "Not enough bits" layout mismatch → `[Skip]`
-- SafeHandle arg through CallConvSwift → non-blittable error → `[MonoJitCrash]`
+- SafeHandle arg through CallConvSwift → non-blittable error → `[Skip("SafeHandle non-blittable in CallConvSwift")]`
 - Class inheritance+protocol → entry points not exported from dylib → `[Skip]`
 - GenericPair.swapped() → CS8500 (pointer to managed generic, guarded) — active C# compiler limitation
 - TaskPriority (String raw value enum) → `[Skip]`. TaskStatus (Int32 raw value) works fine

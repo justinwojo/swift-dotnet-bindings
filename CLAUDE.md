@@ -253,7 +253,7 @@ If a gate fails, fix the regressions before signing off. Do not run gates that a
 ## Known Issues
 
 ### Runtime
-- **Mono JIT assertion (mini-generic-sharing.c:2759 / jit-info.c:918)**: Affects ALL Mono JIT (simulator AND device). Kills process on any `SwiftObjectHelper<T>.GetTypeMetadata()` call — meaning all Swift type access. NativeAOT (device builds) is unaffected. NativeAOT on simulator is not supported by the .NET iOS SDK.
+- **Mono JIT crashes are OUR BUGS, not upstream**: Investigation of 102 `[MonoJitCrash]`-annotated tests proved every single crash was a generator/runtime bug in our code. Zero upstream Mono issues confirmed. **NEVER use `[MonoJitCrash]` attribute** — diagnose the actual root cause and either fix it or use `[Skip("specific bug description")]`. See `src/docs/Completed/MONO-JIT-FINDINGS.md`.
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
 - DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
 - See [wiki Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) for full consumer-facing details

@@ -96,10 +96,16 @@ public enum TestPlatform
 }
 
 /// <summary>
-/// Marks tests that crash only under Mono JIT (iOS Simulator) due to
-/// jit-info.c:918 assertion, non-blittable CallConvSwift, or generic metadata.
-/// Skipped on simulator, runs on device/NativeAOT.
+/// DEPRECATED — DO NOT ADD NEW USAGES. All Mono JIT crashes were traced to our own
+/// generator/runtime bugs (see src/docs/Completed/MONO-JIT-FINDINGS.md).
+/// Zero upstream Mono bugs confirmed across 102 investigated tests.
+///
+/// If a test crashes on simulator, diagnose the actual root cause in our code and either
+/// fix it or use [Skip("specific bug description")] — never blame Mono JIT.
+///
+/// Existing usages are being removed in NativeAOT Session 4.
 /// </summary>
+[Obsolete("All Mono JIT crashes were our bugs. Diagnose the real root cause instead. See src/docs/Completed/MONO-JIT-FINDINGS.md.")]
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class MonoJitCrashAttribute : Attribute { }
 

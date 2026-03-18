@@ -293,6 +293,88 @@ Full runtime test suite is critical for this session since calling convention ch
 
 ---
 
+## Session 4: Regression Fixes & Annotation Cleanup
+
+**Goal**: Fix Session 2/3 regressions found during NativeAOT device validation and Codex code review. Remove all spurious `[MonoJitCrash]` annotations that Session 2/3 incorrectly added. The Mono JIT investigation (`src/docs/Completed/MONO-JIT-FINDINGS.md`) proved **every single Mono JIT crash was our own bug** — zero upstream Mono issues. All `[MonoJitCrash]` annotations were at 0 before these NativeAOT sessions; Session 2 added 42 and Session 3 added 7.
+
+### Sub-task 4A: Class Method CallConvSwift Guards — COMPLETE (`a16629a9`)
+
+Session 3's `RequiresCdeclForAbiSafety()` incorrectly allowed direct CallConvSwift for two categories of class methods:
+
+1. **Static class methods**: Swift's `@convention(method)` passes `@thick Self.Type` (metatype) as a hidden last parameter. C# P/Invoke declarations don't include this parameter → Swift reads garbage from the metatype register → SIGSEGV. Affects ALL static class methods (final and non-final). Proven on NativeAOT device: `EventHandler.createDefault()` crash.
+
+2. **Non-final class instance methods**: Use Tj dispatch thunks (vtable indirection). Direct CallConvSwift against Tj symbols crashes on both runtimes. Proven in evidence matrix.
+
+**Fix applied**: Both guards added to `RequiresCdeclForAbiSafety()` and property overload. 7 new ABI safety tests. NativeAOT device: 27 → 47 passes, EventHandler crash resolved.
+
+### Sub-task 4B: `HasFloatFields` CGFloat Detection Fix — COMPLETE (`18da4e42`)
+
+Session 3's `HasFloatFields` detection in `ModuleProcessor.cs` checked for `CoreFoundation.CGFloat` but the type database registers CGFloat under `CoreGraphics.CGFloat` (see `CoreGraphicsDatabase.xml`). Custom structs containing `CGFloat` fields were misclassified as safe for direct CallConvSwift — exactly the HFA bug bucket Session 3 is fencing off.
+
+**Fix applied**: Added `"CoreGraphics.CGFloat"` to the float field detection in `ModuleProcessor.cs`.
+
+### Sub-task 4C: Escaping Bool Bridge Delegate Lifetime — COMPLETE (`18da4e42`)
+
+Session 2's `@convention(c)` bool bridge for escaping closures creates a local bridge delegate (`Func<byte>` wrapping the user's `Func<bool>`), then passes its function pointer to Swift via `Marshal.GetFunctionPointerForDelegate`. Nothing roots the bridge delegate after the call returns. If Swift stores and later invokes the function pointer, the managed thunk's target may have been GC'd.
+
+**Fix applied**: Emit `GCHandle.Alloc(bridgeName)` to root the bridge delegate for escaping closures in `WrapperEmitter.Marshalling.cs`.
+
+### Sub-task 4D: Remove ALL `[MonoJitCrash]` Annotations (50 tests)
+
+Session 2 added 42 and Session 3 added 7 `[MonoJitCrash]` annotations. These are ALL incorrect — the Mono JIT investigation proved every crash was our own generator/runtime bug, and all 102 original annotations were resolved to 0 before these NativeAOT sessions started.
+
+**Important**: `MonoJitCrashAttribute` in `TestResults.cs` is now marked `[Obsolete]` with a deprecation message. This means all 50 usages will generate compiler warnings. Removing the annotations will also eliminate these warnings.
+
+**Current NativeAOT device baseline** (post-4A fix): 47 pass, 3 fail (Animal metadata TypeInitializationException — pre-existing), process crashes at `BasicGenericTests.TestWrapperCreation` (generic class metadata SIGSEGV). The crash kills the process before most tests can run — the pre-NativeAOT-sessions baseline was 373 passes. Fixing the `[MonoJitCrash]` root causes on simulator should also improve device stability.
+
+For each annotated test:
+1. Remove the `[MonoJitCrash]` annotation
+2. Run on simulator to verify it passes (most should — ~70% of original annotations passed when tested)
+3. If it fails, diagnose the actual root cause and either fix it or add a `[Skip("specific reason")]`
+
+**Files with `[MonoJitCrash]` annotations to clean** (50 total):
+- `BasicGenericTests.cs` — 18
+- `StateUpdateBridgeTests.cs` — 7
+- `NestedEnumTests.cs` — 6
+- `ClosureTests.cs` — 4
+- `AsyncViewBridgeTests.cs` — 3
+- `ClassMarshallingTests.cs` — 2
+- `EnumMarshallingTests.cs` — 2
+- `ExistentialMetadataTests.cs` — 2
+- `ClassSingletonTests.cs` — 1
+- `ExistentialBoxingTests.cs` — 1
+- `OptionSetTests.cs` — 1
+- `SimpleViewBridgeTests.cs` — 1
+- `ThrowingMethodTests.cs` — 1
+- `TestBase.cs` — 1
+
+### Sub-task 4E: Codex Review P3 Findings
+
+**P3 #1: DefaultParameterOverloadEmitter not gated on RequiresCdeclForAbiSafety**. Lines 98 and 150 of `DefaultParameterOverloadEmitter.cs` still promote overloads to @_cdecl based on `ShouldEmitWrapper()` alone. Overloads can remain on the old wrapper architecture even when the trimmed signature is CallConvSwift-safe. Low priority — the overloads get MORE wrapping than needed (safe but wasteful), not less.
+
+**P3 #2: RegisterDestroyAction [Obsolete] is source-breaking for TreatWarningsAsErrors**. Session 1 marked `RegisterDestroyAction` as `[Obsolete]` no-op in `src/Swift.Runtime/src/Swift/Runtime/SwiftHandle.cs`. Previously generated bindings that call it will raise warnings → build failures with `TreatWarningsAsErrors=true`. Fix: remove the `[Obsolete]` attribute, keep the method as a silent no-op.
+
+### Sub-task 4F: Evidence-vs-Implementation Mismatches
+
+**CGRect/system structs**: Session doc says CGRect (32B) is PASS on both runtimes (line 93), but Session 3's implementation treats system frozen structs > 8 bytes as @_cdecl-required (WrapperValidation.cs line 789). This is overly conservative for system types with special runtime handling but safer than the alternative. Document the intentional conservatism — can be relaxed with targeted NativeAOT device testing of system struct CallConvSwift.
+
+**VWT Destroy test coverage**: Session 1 removed the destroy action assertions from `SwiftClassHandleTests.cs`. The remaining tests only verify `ReleaseHandle` closes the handle. Consider adding a focused test that verifies actual VWT Destroy invocation (low priority).
+
+### Sub-task 4G: Session 2 Deferred Sub-tasks
+
+These were deferred from Session 2 and should be attempted:
+- **2D**: Struct singleton ARC (`initializeMemory` vs `initializeWithCopy`) — Alamofire stability
+- **2E Bug 2**: Multi-closure parameter ordering — 1 skip (TransformerChain)
+- **2F**: Subscript class initialization — 1 class-level skip
+
+### Validation Gates
+
+`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (both simulator AND device)
+
+The `[MonoJitCrash]` cleanup MUST be validated on simulator to confirm tests actually pass. Device validation confirms no Session 3 regressions remain.
+
+---
+
 ## Original 6 Architecture Issues — Final Verdicts
 
 For reference, these are the 6 issues that originally motivated the @_cdecl wrapper architecture:

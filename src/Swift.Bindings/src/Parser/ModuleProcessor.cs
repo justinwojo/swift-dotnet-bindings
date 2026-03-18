@@ -297,7 +297,7 @@ namespace BindingsGeneration
                 // System structs (CGRect, etc.) are NOT flagged — they have special runtime handling.
                 if (!flags.HasFlag(TypeRecordFlags.HasFloatFields))
                 {
-                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" or "CoreFoundation.CGFloat")
+                    if (namedPropertyType.Name is "Swift.Float" or "Swift.Double" or "CoreFoundation.CGFloat" or "CoreGraphics.CGFloat")
                         flags |= TypeRecordFlags.HasFloatFields;
                     else if (propertyRecord.Kind == TypeRecordKind.Struct &&
                              propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
