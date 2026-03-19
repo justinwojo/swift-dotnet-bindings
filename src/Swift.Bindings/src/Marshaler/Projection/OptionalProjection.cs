@@ -277,7 +277,15 @@ public class OptionalProjection : ITypeProjection
                     },
                     PInvokeExpression = $"rawOpt is {{ }} rawVal ? {innerRetConv} : null"
                 },
-                ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
+                ReturnStrategy.AsyncCallback => new MarshalPlan
+                {
+                    SetupStatements = new List<MarshalStatement>
+                    {
+                        new MarshalStatement.Line(
+                            $"var rawOpt = {marshalFromSwift}({resultName}).ToNullable();")
+                    },
+                    PInvokeExpression = $"rawOpt is {{ }} rawVal ? {innerRetConv} : null"
+                },
                 _ => MarshalPlan.PassThrough(resultName)
             };
         }
@@ -294,7 +302,10 @@ public class OptionalProjection : ITypeProjection
             {
                 PInvokeExpression = $"{marshalFromSwift}({resultName}).ToNullable()"
             },
-            ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
+            ReturnStrategy.AsyncCallback => new MarshalPlan
+            {
+                PInvokeExpression = $"{marshalFromSwift}({resultName}).ToNullable()"
+            },
             _ => MarshalPlan.PassThrough(resultName)
         };
     }

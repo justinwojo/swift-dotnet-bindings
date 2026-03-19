@@ -436,7 +436,6 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Async (Tier 3: Mono JIT limitations)
 
-    [Skip("Async typed throws wrapper stripped during compilation — EntryPointNotFoundException")]
     public async Task TestAsyncParseTypedCatch()
     {
         // Async typed throws: SwiftException<ParseError> with non-null .Error
@@ -455,7 +454,6 @@ public class BasicThrowingTests : TestBase
         }
     }
 
-    [Skip("Async typed throws wrapper stripped during compilation — EntryPointNotFoundException")]
     public async Task TestAsyncParseSuccess()
     {
         var parser = TestLibFunctions.CreateLenientParser();

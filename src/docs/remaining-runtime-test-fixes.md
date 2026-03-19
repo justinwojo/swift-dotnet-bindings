@@ -1,13 +1,13 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 13)
+**Updated**: March 19, 2026 (Session 14)
 
 ### Simulator (Mono)
-**Current**: 656 passed, 0 failed, 38 skipped.
+**Current**: 663 passed, 0 failed, 31 skipped.
 
 ### Device (NativeAOT)
-**Current**: 654 passed, 0 failed, 40 skipped.
+**Current**: 661 passed, 0 failed, 33 skipped. *(projected — pending device validation)*
 **Gap**: 2 tests (both `[SkipOnDevice]` existential container ref params, Session 8).
 
 ---
@@ -15,6 +15,26 @@
 ## Device Test Coverage Gaps — RESOLVED (Session 13)
 
 Session 13 closed the 43-test device gap (30 SwiftUI bridge + 13 OperatorTests). See Session 13 completed fixes below.
+
+---
+
+## Session 14 Completed Fixes
+
+### Tests recovered (7 net simulator — 656→663)
+
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| 1 | Generic struct constructor @_cdecl wrappers | 3 (+1 skip) | `RequiresCdeclForAbiSafety()` had no check for generic type constructors. The `EmitGenericStaticFactoryConstructor` infrastructure was fully built but never triggered. Fix: added `IsConstructor && IsGeneric && !IsInheritedGenericContext` check in `WrapperValidation.cs`. `IsInheritedGenericContext` detects nested types whose generic params are inherited from an outer generic parent (e.g., `AuthenticationInterceptor<A>.RefreshWindow`) — the @_cdecl extension can't bind the parent's unresolved generic context. `TestWrapperCreation`, `TestGenericPairCreation`, `TestGenericPairMixedTypes` pass. `TestWrapperUnwrap` still crashes (method dispatch on generic struct, not constructor). |
+| 7 | Async optional nil detection | 1 | Async callback code in `EmitAsyncWrapperForComplexType` used `MarshalFromSwift<T?>` which doesn't read the Swift Optional discriminator byte. Fix: added `TryGetOptionalMarshalType()` that uses `TypeProjectionFactory` to resolve the correct runtime type (e.g., `SwiftOptional<SwiftString>` not `SwiftOptional<string>`), then applies `.ToNullable()`. Excludes class/ObjC-bridged optionals (these use nullable pointer ABI). Also fixed `OptionalProjection.GetReturnPlan()` `AsyncCallback` strategy for future projection-path usage. |
+| 8 | Async typed throws wrapper compilation | 2 | `BuildSwiftCatchBody()` in `WrapperEmitter.Async.cs` emitted `_errPtr.initializeMemory(as: ErrorType.self, repeating: error, count: 1)` where `error` is `any Error` — type mismatch causes Swift compilation failure, wrapper silently stripped by error-based retry build. Fixed: added `error as! ErrorType` cast, guarded behind `if _isCancelled == 0` to avoid trapping when the task was cancelled (`CancellationError` is not the typed error type). |
+| 10 | Optional array layout mismatch | 1 | `TryComputeOptionalInlineSize()` failed for `Optional<Array<Int32>>` because `Swift.Array` had no `inlineSize` in SwiftDatabase.xml. Returned false, causing frozen struct Buffer to emit single `IntPtr` (8 bytes) instead of 2 IntPtrs (16 bytes) for the Optional<Array> field. Fixed: added `inlineSize="8"` to Array/Set/Dictionary in SwiftDatabase.xml. Also added defensive fallback for `RequiresMemoryManagement` types without explicit InlineSize. |
+
+### Generator/runtime improvements (no test count change)
+
+| Change | Files |
+|--------|-------|
+| Unit tests for generic constructor ABI safety check | `AbiSafetyTests.cs` — 6 new tests: generic struct/class constructor returns true, non-generic struct constructor returns false, nested inherited-context constructor returns false, nested own-generic constructor returns true. |
+| Metatype helper name uniqueness | `ConstructorWrapperEmitter.cs` — `_sbw_meta_` helpers now use mangled name hash (e.g., `_sbw_meta_EB2E243E`) instead of short type name. Fixes collision when two types share a name (e.g., `DiskStorage.Backend<T>` vs `MemoryStorage.Backend<T>` in Kingfisher). |
 
 ---
 
@@ -119,9 +139,9 @@ Goal achieved: device and simulator have identical pass/fail results. 611 passed
 
 ## Current State (Simulator Skips)
 
-38 `[Skip]` + 2 `[SkipOnDevice]` = 40 total annotations. Of these:
+31 `[Skip]` + 2 `[SkipOnDevice]` = 33 total annotations. Of these:
 - **27 are unfixable** without external action (upstream bugs, missing data sources, future roadmap)
-- **13 are fixable** generator/runtime bugs, grouped into 8 categories below
+- **6 are fixable** generator/runtime bugs, grouped into 5 categories below
 
 ## Unfixable Skips (27 annotations — leave as-is)
 
@@ -134,57 +154,35 @@ Goal achieved: device and simulator have identical pass/fail results. 611 passed
 | ValueTuple StructLayout.Auto | 1 | MarshalDirectiveException on Mono, SIGSEGV on NativeAOT. Documented upstream limitation. |
 | ABI JSON lacks enum raw values (Permission) | 1 | Same root cause as string enum raw values. |
 
-## Fixable Skips (13 annotations — 8 categories)
+## Fixable Skips (5 annotations — 3 categories)
 
-### Priority 1: Partially fixed, need remaining work
-
-#### 1. Generic struct constructors — 4 tests
-
-**Tests**: 4 struct (Wrapper, GenericPair)
-
-**Status**: Class sub-issues all **fixed** (Session 11: metatype dispatch via `_sbw_meta_*` helpers + parameter ordering fix). Struct constructors remain: no @_cdecl wrapper emitted — C# uses `CallConvSwift` directly to mangled symbols. Generator doesn't emit wrappers for generic struct constructors.
-
-**Fix approach**: Emit @_cdecl wrappers for generic struct constructors, similar to the class pattern.
-
-**Key files**: `ConstructorWrapperEmitter.cs` (EmitGenericStaticFactoryConstructor)
+#### ~~1. Generic struct constructors — 4 tests~~ **FIXED (Session 14)**
 
 #### ~~2. IntContainer array marshalling — 3 tests~~ **FIXED (Session 9)**
 
 #### ~~3. Optional<Int32> None getter — 1 test~~ **FIXED (Session 10)**
 
-### Priority 2: Medium complexity
-
 #### ~~4. OptionalShape setter — 2 tests~~ **FIXED (Session 11)**
 
 #### ~~5. Generic class T-typed constructors — 2 tests~~ **FIXED (Session 11)**
 
-#### 6. Generic struct method dispatch — 1 test
+#### 6. Generic class concrete-signature method — 1 test
 
 **Tests**: TestConstrainedBoxGetDescription
 
-**Root cause**: Guard 5b in wrapper emission rejects concrete-signature methods on generic structs. Method doesn't reference T but no @_cdecl wrapper generated — C# uses `CallConvSwift` on Mono which crashes.
+**Status**: NOT a stale skip — crashes Mono JIT. The @_cdecl wrapper IS emitted (Path 1: generic class instance dispatch with protocol cast), but the dispatched method call crashes. Needs investigation of the generated wrapper's `Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_P_*` protocol cast path.
 
-**Fix approach**: Relax guard 5b to allow methods with concrete signatures on generic types, or emit @_cdecl wrappers for them.
+#### 6b. Generic struct method dispatch — 1 test
 
-**Key files**: `MethodWrapperEmitter.cs`, `WrapperValidation.cs`
+**Tests**: TestWrapperUnwrap
 
-### Priority 3: Requires investigation or deep infrastructure
+**Root cause**: `Wrapper<T>.Unwrap()` crashes Mono JIT. The @_cdecl wrapper uses the generic static protocol dispatch path (protocol with static method, metatype dispatch). Constructor works but method dispatch crashes. Needs investigation.
 
-#### 7. Async optional nil detection — 1 test
+#### ~~7. Async optional nil detection — 1 test~~ **FIXED (Session 14)**
 
-**Tests**: TestAsyncGetNilResult (AsyncComplexTypeTests.cs)
+#### ~~8. Async typed throws wrapper compilation — 2 tests~~ **FIXED (Session 14)**
 
-**Root cause**: Async callback returns non-null for nil Swift optional. The tag/discriminator detection in the async optional return path doesn't detect None correctly.
-
-**Key files**: `WrapperEmitter.Async.cs`
-
-#### 8. Async typed throws wrapper compilation — 2 tests
-
-**Tests**: TestAsyncParseTypedCatch, TestAsyncParseSuccess (ThrowingMethodTests.cs)
-
-**Root cause**: `EntryPointNotFoundException` — the typed throws async wrapper fails Swift compilation and is silently stripped by the error-based retry build.
-
-**Key files**: `ClosureEmitter.Async.cs`, `WrapperEmitter.Async.cs`
+### Remaining fixable
 
 #### 9. Method-level generic free function — 1 test
 
@@ -196,13 +194,7 @@ Goal achieved: device and simulator have identical pass/fail results. 611 passed
 
 **Key files**: `MethodWrapperEmitter.cs` (guard 6)
 
-#### 10. Optional array layout mismatch — 1 test
-
-**Tests**: TestBatchConfigTagCountNil (CompositionTests.cs)
-
-**Root cause**: Frozen struct + optional array buffer size calculation wrong.
-
-**Key files**: Layout/marshalling code for frozen structs
+#### ~~10. Optional array layout mismatch — 1 test~~ **FIXED (Session 14)**
 
 #### 11. ExistentialCallbackTests — 1 test (class-level skip)
 

@@ -677,6 +677,19 @@ public static class WrapperValidation
         if (env.MethodDecl.HasTypedThrows)
             return true;
 
+        // Generic type constructors need @_cdecl wrapper for metatype dispatch.
+        // The @_cdecl wrapper builds the specialized metatype (e.g., Wrapper<T>.self) from
+        // raw metadata pointers and dispatches the init via protocol cast. Without this,
+        // C# calls the mangled allocating init symbol directly via CallConvSwift, which
+        // crashes on both Mono (no CallConvSwift) and NativeAOT (missing metatype).
+        // Exclude nested types that only inherit their parent's generic context
+        // (e.g., AuthenticationInterceptor<A>.RefreshWindow) — the @_cdecl extension can't
+        // bind the parent's unresolved generic context. Detect this by checking whether the
+        // outer parent type is also generic with the same parameter names.
+        if (env.MethodDecl.IsConstructor && env.ParentDecl is TypeDecl genericParent && genericParent.IsGeneric
+            && !IsInheritedGenericContext(genericParent))
+            return true;
+
         // Class methods need @_cdecl in two cases:
         // 1. Static methods: Swift's @convention(method) passes @thick Self.Type (metatype)
         //    as a hidden parameter. The C# P/Invoke doesn't include this parameter, so the
@@ -808,6 +821,31 @@ public static class WrapperValidation
 
         // Non-frozen structs: projected as ClassWithOpaquePayload, IntPtr self ≠ SwiftSelf<T>
         return parentRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(parentRecord);
+    }
+
+    /// <summary>
+    /// Returns true if a generic type's generic parameters are inherited from an outer generic
+    /// parent rather than declared on the type itself. For example, AuthenticationInterceptor&lt;A&gt;.RefreshWindow
+    /// inherits A from its parent — the @_cdecl extension can't bind the parent's unresolved context.
+    /// A truly generic nested type like Outer.Inner&lt;T&gt; declares its own T independent of Outer.
+    /// </summary>
+    private static bool IsInheritedGenericContext(TypeDecl typeDecl)
+    {
+        if (typeDecl.ParentDecl is not TypeDecl outerType)
+            return false; // Top-level type → own generic params
+
+        if (!outerType.IsGeneric)
+            return false; // Non-generic parent → own generic params
+
+        // If the outer parent is generic and the nested type's generic params are a subset
+        // of (or equal to) the parent's, the context is inherited. A nested type with its own
+        // generic params would have params not present in the parent.
+        var outerParamNames = outerType.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+
+        return typeDecl.GenericParameters
+            .All(p => outerParamNames.Contains(p.TypeName));
     }
 
     /// <summary>

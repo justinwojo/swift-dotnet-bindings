@@ -113,9 +113,6 @@ public class BasicCompositionTests : TestBase
 
     // --- BatchConfig: frozen struct + optional array composition ---
 
-    // TagCount crashes: "Not enough bits to represent the passed value" —
-    // optional array property on frozen struct has layout mismatch
-    [Skip("Not enough bits: optional array layout mismatch")]
     public void TestBatchConfigTagCountNil()
     {
         var config = new BatchConfig(name: "test", maxRetries: 3, tags: null);

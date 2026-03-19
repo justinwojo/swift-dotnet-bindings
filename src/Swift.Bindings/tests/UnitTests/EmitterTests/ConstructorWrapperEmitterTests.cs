@@ -2377,7 +2377,8 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
 
         // Metatype reconstruction via metadata accessor helper
-        Assert.Contains("_sbw_meta_GenericCache(_metadata0)", output);
+        Assert.Contains("_sbw_meta_", output);
+        Assert.Contains("(_metadata0)", output);
         Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
         Assert.Contains("as! any _SBW_CI_", output);
 
@@ -2628,7 +2629,8 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_ _metadata1: UnsafeRawPointer", output);
 
         // Both metadata params passed to metadata accessor helper for multi-generic dispatch
-        Assert.Contains("_sbw_meta_GenericPair(_metadata0, _metadata1)", output);
+        Assert.Contains("_sbw_meta_", output);
+        Assert.Contains("(_metadata0, _metadata1)", output);
         Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
     }
 

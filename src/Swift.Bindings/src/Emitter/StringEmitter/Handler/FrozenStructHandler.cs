@@ -411,6 +411,14 @@ namespace BindingsGeneration
             {
                 unsafe { innerSize = (int)innerRecord.SwiftTypeInfo.Value.ValueWitnessTable->Size; }
             }
+            else if ((innerRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0)
+            {
+                // RequiresMemoryManagement types without explicit InlineSize are pointer-sized
+                // (Array, Set, Dictionary, class references). String is the exception but always
+                // has InlineSize=16 in the XML. This fallback prevents Optional<Array<T>> from
+                // getting a wrong 8-byte layout when it should be 8 (pointer + extra inhabitants).
+                innerSize = IntPtr.Size;
+            }
             else
             {
                 return false; // Can't determine inner size

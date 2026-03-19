@@ -481,6 +481,143 @@ public class AbiSafetyTests
         Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
+    [Fact]
+    public void RequiresCdeclForAbiSafety_GenericStructConstructor_ReturnsTrue()
+    {
+        // Generic struct constructor → needs @_cdecl for metatype dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Wrapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_GenericClassConstructor_ReturnsTrue()
+    {
+        // Generic class constructor → needs @_cdecl for metatype dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl, isFinal: true);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonGenericStructConstructor_ReturnsFalse()
+    {
+        // Non-generic struct constructor → no metatype dispatch needed → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Point", moduleDecl);
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NestedGenericStructConstructor_ReturnsFalse()
+    {
+        // Nested struct inside generic parent → @_cdecl extension can't bind parent's generic context
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Create outer generic class
+        var outerDecl = CreateClassDecl("Interceptor", moduleDecl, isFinal: false);
+        outerDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        // Create nested struct that inherits generic context
+        var nestedDecl = new StructDecl
+        {
+            Name = "RefreshWindow",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Interceptor.RefreshWindow"),
+            MangledName = "$s10TestModule11InterceptorV13RefreshWindowVN",
+            MetadataAccessor = "$s10TestModule11InterceptorV13RefreshWindowVMa",
+            IsFrozen = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = outerDecl, // Nested inside generic parent
+            ModuleDecl = moduleDecl
+        };
+        outerDecl.Types.Add(nestedDecl);
+
+        var method = CreateMethod("init", nestedDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NestedOwnGenericStructConstructor_ReturnsTrue()
+    {
+        // Nested struct with its OWN generic param (not inherited from parent) → needs @_cdecl
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Create non-generic outer class
+        var outerDecl = CreateClassDecl("Container", moduleDecl, isFinal: false);
+
+        // Create nested generic struct with its own T
+        var nestedDecl = new StructDecl
+        {
+            Name = "Inner",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container.Inner"),
+            MangledName = "$s10TestModule9ContainerV5InnerVN",
+            MetadataAccessor = "$s10TestModule9ContainerV5InnerVMa",
+            IsFrozen = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("U", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = outerDecl,
+            ModuleDecl = moduleDecl
+        };
+        outerDecl.Types.Add(nestedDecl);
+
+        var method = CreateMethod("init", nestedDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
     #endregion
 
     #region Property RequiresCdeclForAbiSafety Tests

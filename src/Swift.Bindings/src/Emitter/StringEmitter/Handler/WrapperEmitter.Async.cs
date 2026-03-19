@@ -1224,11 +1224,16 @@ namespace BindingsGeneration
             // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
             // For class types, use the dereferenced object pointer (NewFromPayload expects raw pointer, not buffer)
             // For non-class types, marshal from Swift memory layout (resultPtr is the buffer)
+            // For optional (nullable) types, use SwiftOptional<T> to read the discriminator byte correctly.
+            // The inner type must be the runtime/marshal type (e.g., SwiftString not string, SwiftArray<T>
+            // not IReadOnlyList<T>) — resolved via TypeProjectionFactory.
             string marshalResultCode;
             if (isObjCBridged)
                 marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};";
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType))
+                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
@@ -1313,6 +1318,47 @@ namespace BindingsGeneration
                 // SetProjection returns null when no element conversion is needed
                 // (SwiftSet<T> already implements IReadOnlySet<T>). Use identity.
                 conversionExpr = sp.GetReturnContainerConversion("_collection") ?? "_collection";
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if the method's return type is Optional and resolves the correct runtime/marshal
+        /// type for MarshalFromSwift. Uses TypeProjectionFactory to get the projection-resolved
+        /// container type (e.g., SwiftOptional&lt;SwiftString&gt; not SwiftOptional&lt;string&gt;).
+        /// </summary>
+        private bool TryGetOptionalMarshalType([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType)
+        {
+            marshalType = null;
+            var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+            if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
+                return false;
+
+            // Class and ObjC-bridged optionals use nullable pointer ABI (nil = IntPtr.Zero),
+            // handled by the isClassType/isObjCBridged paths above. Only value-type optionals
+            // need SwiftOptional<T> with discriminator byte reading.
+            var innerSpec = optionalSpec.GenericParameters[0];
+            if (_env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerRecord))
+            {
+                if (innerRecord.Kind == TypeRecordKind.Class)
+                    return false;
+                if (MarshallingHelpers.IsObjCBridged(innerRecord))
+                    return false;
+            }
+
+            var ctx = new ProjectionContext
+            {
+                TypeDatabase = _env.TypeDatabase,
+                IsParameter = false,
+                IsAsync = false
+            };
+
+            var projection = s_projectionFactory.Project(returnSpec, ctx);
+            if (projection is OptionalProjection op)
+            {
+                marshalType = op.ContainerTypeName;
                 return true;
             }
 
@@ -1537,12 +1583,18 @@ namespace BindingsGeneration
         {
             if (useTypedErrorCallback)
             {
+                // Cancellation must be handled before the force-cast to the typed error.
+                // CancellationError is not the typed error type, so `error as! T` would trap.
+                // For cancellation: allocate a zeroed buffer (C# only reads _isCancelled flag).
+                // For typed errors: cast and copy the error value into the buffer.
                 return
                     $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
                     $"{indent}let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
                     $"{indent}let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
                     $"{indent}    byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
-                    $"{indent}_errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: error, count: 1)\n" +
+                    $"{indent}if _isCancelled == 0 {{\n" +
+                    $"{indent}    _errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: error as! {typedThrowsSwiftErrorType}, count: 1)\n" +
+                    $"{indent}}}\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
                     $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
                     $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask)\n" +

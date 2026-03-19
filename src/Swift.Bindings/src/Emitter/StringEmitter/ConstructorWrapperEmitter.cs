@@ -627,9 +627,10 @@ public static class ConstructorWrapperEmitter
         TypeDecl parentTypeDecl,
         ModuleEmissionContext ctx)
     {
-        var typeName = parentTypeDecl.Name.Replace(".", "_");
-        var helperName = $"_sbw_meta_{typeName}";
         var mangledName = parentTypeDecl.MangledName;
+        // Use mangled name hash for uniqueness — two types with the same short name
+        // (e.g., DiskStorage.Backend<T> and MemoryStorage.Backend<T>) need distinct helpers.
+        var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(mangledName)}";
 
         if (!ctx.TryAddMetadataAccessorHelper(mangledName))
             return helperName; // Already emitted, just return the name

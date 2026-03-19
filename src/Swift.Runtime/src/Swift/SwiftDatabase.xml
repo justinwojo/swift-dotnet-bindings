@@ -68,13 +68,13 @@
             <typedeclaration kind="struct" name="String" module="Swift" mangledName="sSS" frozen="true" requiresMemoryManagement="true" inlineSize="16" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftArray">
-            <typedeclaration kind="struct" name="Array" module="Swift" mangledName="sSa" frozen="true" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="Array" module="Swift" mangledName="sSa" frozen="true" requiresMemoryManagement="true" inlineSize="8" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftSet">
-            <typedeclaration kind="struct" name="Set" module="Swift" mangledName="sSh" frozen="true" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="Set" module="Swift" mangledName="sSh" frozen="true" requiresMemoryManagement="true" inlineSize="8" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftDictionary">
-            <typedeclaration kind="struct" name="Dictionary" module="Swift" mangledName="sSD" frozen="true" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="Dictionary" module="Swift" mangledName="sSD" frozen="true" requiresMemoryManagement="true" inlineSize="8" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="SwiftOptional">
             <typedeclaration kind="struct" name="Optional" module="Swift" mangledName="$sSq" frozen="true" requiresMemoryManagement="true" />

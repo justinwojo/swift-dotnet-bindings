@@ -652,7 +652,7 @@ public class PropertyWrapperEmitterTests
 
         var output = sw.ToString();
         // Metadata accessor helper emitted at module scope
-        Assert.Contains("_sbw_meta_GenericClass", output);
+        Assert.Contains("_sbw_meta_", output);
         Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
         Assert.Contains("Ma", output); // metadata accessor suffix
 
@@ -858,7 +858,7 @@ public class PropertyWrapperEmitterTests
 
         var output = sw.ToString();
         // Metadata accessor helper emitted at module scope
-        Assert.Contains("_sbw_meta_GenericClass", output);
+        Assert.Contains("_sbw_meta_", output);
         Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
 
         // Metatype dispatch uses helper result

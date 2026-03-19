@@ -108,7 +108,6 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info($"AsyncComplexWorker.AsyncGetOptionalResult() = Some(id={result.Id})");
     }
 
-    [Skip("Async callback optional return nil detection: callback returns non-null for nil Swift optional")]
     public async Task TestAsyncGetNilResult()
     {
         var worker = new AsyncComplexWorker("nil-worker");

@@ -209,7 +209,6 @@ public class BasicGenericTests : TestBase
     // Generic types use TypeMetadata resolution via SwiftObjectHelper<T>.GetTypeMetadata().
     // Class/struct allocating inits pass specialized metatype (e.g., GenericClass<T>.self).
 
-    [Skip("Generic static factory protocol dispatch: Mono JIT assertion + NativeAOT device SIGSEGV")]
     public void TestWrapperCreation()
     {
         var inner = new SummableInt32(value: 42);
@@ -219,7 +218,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [Skip("Generic static factory protocol dispatch: Mono JIT assertion + NativeAOT device SIGSEGV")]
+    [Skip("Wrapper<T>.Unwrap() crashes Mono JIT — generic struct method dispatch via static protocol needs investigation")]
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -229,7 +228,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
     }
 
-    [Skip("Generic static factory protocol dispatch: Mono JIT assertion + NativeAOT device SIGSEGV")]
     public void TestGenericPairCreation()
     {
         var a = new SummableInt32(value: 10);
@@ -240,7 +238,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
     }
 
-    [Skip("Generic static factory protocol dispatch: Mono JIT assertion + NativeAOT device SIGSEGV")]
     public void TestGenericPairMixedTypes()
     {
         var s = new SummableInt32(value: 5);
@@ -323,7 +320,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("ConstrainedBox.getDescription: CallConvSwift on Mono — needs @_cdecl wrapper (guard 5b rejects concrete-signature methods on generic structs)")]
+    [Skip("ConstrainedBox<T>.getDescription() crashes Mono JIT — generic class concrete-signature method wrapper needs investigation")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");

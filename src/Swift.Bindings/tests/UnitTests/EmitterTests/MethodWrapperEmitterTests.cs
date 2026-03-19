@@ -1461,7 +1461,7 @@ public class MethodWrapperEmitterTests
 
         var output = sw.ToString();
         // Metadata accessor helper emitted at module scope
-        Assert.Contains("_sbw_meta_GenericBox", output);
+        Assert.Contains("_sbw_meta_", output);
         Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
 
         // Metatype dispatch uses helper result, not raw _metadata0
