@@ -246,7 +246,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Pass 2 — N2: Protocol with Existential Parameters (ModeConsumer)
 
-    [Skip("Existential container ref params cause SIGKILL on NativeAOT device")]
+    [SkipOnDevice("Existential container ref params SIGKILL on NativeAOT device")]
     public void TestRunModeConsumerWithSimpleMode()
     {
         var consumer = new SimpleModeConsumer();
@@ -256,7 +256,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, SimpleMode) = {result}");
     }
 
-    [Skip("Existential container ref params cause SIGKILL on NativeAOT device")]
+    [SkipOnDevice("Existential container ref params SIGKILL on NativeAOT device")]
     public void TestRunModeConsumerWithStrictMode()
     {
         var consumer = new SimpleModeConsumer();

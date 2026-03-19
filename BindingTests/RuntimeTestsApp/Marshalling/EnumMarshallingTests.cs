@@ -217,8 +217,7 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape default null passed");
     }
 
-    // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
-    [Skip("OptionalShape setter crashes both Mono and NativeAOT — SwiftOptional<Shape> generic metadata in CallConvSwift")]
+    [Skip("OptionalShape setter crashes Mono — SwiftOptional<Shape>.NewSome/NewNone VWT issue")]
     public void TestEnumPropertyHolder_SetOptionalShape()
     {
         // Set optionalShape to a value, read back
@@ -230,8 +229,7 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("EnumPropertyHolder.OptionalShape setter passed");
     }
 
-    // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
-    [Skip("OptionalShape setter crashes both Mono and NativeAOT — SwiftOptional<Shape> generic metadata in CallConvSwift")]
+    [Skip("OptionalShape setter crashes Mono — SwiftOptional<Shape>.NewSome/NewNone VWT issue")]
     public void TestEnumPropertyHolder_ClearOptionalShape()
     {
         // Set optionalShape, then clear back to null

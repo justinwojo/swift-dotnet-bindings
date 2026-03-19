@@ -317,14 +317,44 @@ public static class PropertyWrapperEmitter
         }
         else if (needsResultPtr)
         {
-            // Non-frozen struct, complex enum, or Optional<closure>: write to result buffer
-            var qualifiedPropertyType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
-            // Strip @escaping/@Sendable — parameter attributes, not valid in metatype position.
-            // No-op for non-closure types.
-            qualifiedPropertyType = qualifiedPropertyType.Replace("@escaping ", "").Replace("@Sendable ", "");
-            var metatype = qualifiedPropertyType.StartsWith("any ") ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
-            swiftWriter.WriteLine($"let result = {propAccess}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+            // Optional<BlittablePrimitive>: write value and tag byte separately to avoid
+            // initializeMemory(as: Optional<Int32>.self) which produces incorrect tag bytes
+            // on some runtimes (the tag byte for None reads as 0 instead of 1).
+            if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
+                propertyDecl.SwiftTypeSpec is NamedTypeSpec optNts && optNts.GenericParameters.Count == 1 &&
+                optNts.GenericParameters[0] is NamedTypeSpec innerNts &&
+                ConstructorWrapperEmitter.IsBlittablePrimitiveSwiftType(innerNts.Name))
+            {
+                var rawType = ConstructorWrapperEmitter.GetSwiftRawValueType(innerNts.Name);
+                var tagOffset = innerNts.Name switch
+                {
+                    "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
+                    "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
+                    "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
+                    _ => "8"
+                };
+                swiftWriter.WriteLine($"let result = {propAccess}");
+                swiftWriter.WriteLines($$"""
+                    let tagPtr = resultPtr.assumingMemoryBound(to: UInt8.self).advanced(by: {{tagOffset}})
+                    if let val = result {
+                        resultPtr.assumingMemoryBound(to: {{rawType}}.self).pointee = val
+                        tagPtr.pointee = 0
+                    } else {
+                        tagPtr.pointee = 1
+                    }
+                    """);
+            }
+            else
+            {
+                // Non-frozen struct, complex enum, or Optional<closure>: write to result buffer
+                var qualifiedPropertyType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+                // Strip @escaping/@Sendable — parameter attributes, not valid in metatype position.
+                // No-op for non-closure types.
+                qualifiedPropertyType = qualifiedPropertyType.Replace("@escaping ", "").Replace("@Sendable ", "");
+                var metatype = qualifiedPropertyType.StartsWith("any ") ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
+                swiftWriter.WriteLine($"let result = {propAccess}");
+                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+            }
         }
         else
         {

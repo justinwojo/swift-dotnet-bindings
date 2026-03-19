@@ -301,9 +301,18 @@ public class OptionalProjection : ITypeProjection
 
     /// <summary>
     /// Returns the size in bytes for blittable primitive C# types, or null if not a known blittable primitive.
-    /// Used for direct discriminator byte reading in Optional return marshalling.
+    /// Used for direct discriminator byte reading in Optional return/parameter marshalling.
     /// </summary>
     private static int? GetBlittablePrimitiveSize(ITypeProjection inner)
+    {
+        return GetBlittablePrimitiveSizePublic(inner);
+    }
+
+    /// <summary>
+    /// Public accessor for blittable primitive size check.
+    /// Used by WrapperEmitter.Return.cs for accessor return fast path.
+    /// </summary>
+    public static int? GetBlittablePrimitiveSizePublic(ITypeProjection inner)
     {
         if (inner is not BlittableProjection) return null;
         return inner.PublicType switch

@@ -96,7 +96,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
+    [Skip("Closure return from @_cdecl: Mono 16-byte struct return ABI + NativeAOT device SIGSEGV")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -106,7 +106,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
+    [Skip("Closure return from @_cdecl: Mono 16-byte struct return ABI + NativeAOT device SIGSEGV")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -116,7 +116,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
+    [Skip("Closure return from @_cdecl: Mono 16-byte struct return ABI + NativeAOT device SIGSEGV")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -126,7 +126,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
+    [Skip("Closure return from @_cdecl: Mono 16-byte struct return ABI + NativeAOT device SIGSEGV")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);

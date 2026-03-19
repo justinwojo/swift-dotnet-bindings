@@ -55,13 +55,27 @@ Investigate degraded features: check `binding-report.json`, search generated bin
 
 ## Active Mono/Runtime Limitations (affects test classification)
 - **NEVER use `[MonoJitCrash]`** — all Mono JIT crashes were traced to our own bugs (see src/docs/Completed/MONO-JIT-FINDINGS.md). If a test crashes on simulator, diagnose the root cause in our generator/runtime code and either fix it or use `[Skip("specific bug description")]`.
-- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[Slow]` (stress tests)
+- **ALL runtime crashes are guilty-until-proven-innocent**: The same skepticism applies to ALL crash classifications, not just `[MonoJitCrash]`. Before labeling anything "upstream Mono" or "upstream NativeAOT", verify the generated C# P/Invoke matches the Swift @_cdecl wrapper exactly: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point. Most "upstream" crashes turn out to be wrapper connection bugs.
+- **Confirmed upstream issues** are documented in `src/docs/Future/upstream-bug-reports-draft.md` (single source of truth). Only 5 confirmed: Mono JIT async assertion (Issue 1), Mono non-blittable rejection (Issue 2), Mono SafeHandle async lifetime (Issue 3), NativeAOT float struct GPR/FPR mismatch for params (Issue 5) and returns (Issue 6). Everything else so far has been our bug. Consult this doc before classifying any crash as upstream.
+- Test attributes: no attribute (runs everywhere), `[Skip("reason")]` (always skipped), `[SkipOnSimulator("reason")]` (skipped on Mono simulator, runs on NativeAOT device), `[SkipOnDevice("reason")]` (skipped on NativeAOT device, runs on Mono simulator), `[Slow]` (stress tests)
 - Optional array on frozen struct → "Not enough bits" layout mismatch → `[Skip]`
 - SafeHandle arg through CallConvSwift → non-blittable error → `[Skip("SafeHandle non-blittable in CallConvSwift")]`
 - Class inheritance+protocol → entry points not exported from dylib → `[Skip]`
 - GenericPair.swapped() → CS8500 (pointer to managed generic, guarded) — active C# compiler limitation
 - TaskPriority (String raw value enum) → `[Skip]`. TaskStatus (Int32 raw value) works fine
 - Integration tests have pre-existing nint generic errors (unrelated noise, ignore)
+
+## Debugging Runtime Test Crashes
+When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
+1. **Add diagnostic logging FIRST** — print the actual values before asserting. Don't iterate on blind fixes.
+2. **Check generated code matches the wrapper** — verify C# P/Invoke calling convention, parameter count, and types match the Swift @_cdecl wrapper. Use `grep` on `output/SwiftBindingsTestLib.cs` and `output/SwiftBindingsTestLib.swift`.
+3. **Isolate constructor vs getter** — if a property reads wrong after construction, hardcode the Swift wrapper to pass `nil`/a known value and see if the getter still returns the wrong thing. This tells you which side is broken.
+4. **Check if the wrapper was stripped** — the build script silently strips Swift functions that fail compilation. After a build, `grep` the output `.swift` file for the @_cdecl symbol AND check `nm -g` on the compiled framework to confirm the symbol exists.
+5. **Run `validate-libraries.sh` after any generator change** — emission pipeline changes (especially to OptionalProjection, WrapperEmitter.Marshalling, PInvokeEmitter) can cause regressions on third-party libraries. Catch them early.
+6. **Don't iterate more than 3 times on the same approach** — if 3 attempts at the same strategy don't work, step back and question the hypothesis. The root cause is probably elsewhere.
+
+## Emission Pipeline Dual-Path Hazard
+`EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `validate-libraries.sh --filter AMPopTip` as a canary — it has Optional<CGFloat> params that exercise both paths.
 
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:

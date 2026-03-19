@@ -129,6 +129,21 @@ public class SkipOnSimulatorAttribute : Attribute
 }
 
 /// <summary>
+/// Marks tests that crash on device (NativeAOT) but work on simulator (Mono).
+/// Skipped on device, runs on simulator. The reason is visible in test output.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public class SkipOnDeviceAttribute : Attribute
+{
+    public string Reason { get; }
+
+    public SkipOnDeviceAttribute(string reason)
+    {
+        Reason = reason;
+    }
+}
+
+/// <summary>
 /// Marks stress/slow tests. Always runs but can be filtered if needed.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]

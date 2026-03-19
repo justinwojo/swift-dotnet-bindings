@@ -881,8 +881,15 @@ public static class WrapperValidation
             return false;
 
         // Non-frozen struct returns → IndirectResult/IntPtr in CallConvSwift → safe
-        // Complex enum returns → IntPtr in CallConvSwift → safe
         // Class returns → IntPtr → safe
+
+        // Non-simple enum returns (enums with associated values / payloads) use
+        // SwiftIndirectResult marshalling which crashes Mono JIT. Route through @_cdecl
+        // wrapper. This matches the !SimpleEnum classification used elsewhere in the
+        // generator (MethodMarshalPlanBuilder, TypeProjectionFactory).
+        if (typeRecord.Kind == TypeRecordKind.Enum &&
+            !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return true;
 
         // Frozen struct with float fields returned BY VALUE → Mono SIGSEGV
         // Only applies to pure frozen structs (no RequiresMemoryManagement) since

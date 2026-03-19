@@ -171,8 +171,19 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         instance._payload.DangerousAddRef(ref success);
         try
         {
-            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             byte* payload = (byte*)instance._payload.DangerousGetHandle();
+
+            // Blittable primitive fast path: write the None tag byte directly
+            // instead of using VWT DestructiveInjectEnumTag, which produces
+            // incorrect results for Optional<Int32> on some runtimes (Mono iOS Simulator).
+            var tagOffset = GetBlittablePrimitiveTagOffset();
+            if (tagOffset >= 0)
+            {
+                payload[tagOffset] = 1; // None
+                return instance;
+            }
+
+            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.None, metadata);
             return instance;
         }
@@ -210,8 +221,19 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             _payload.DangerousAddRef(ref success);
             try
             {
-                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
                 byte* payload = (byte*)_payload.DangerousGetHandle();
+
+                // Blittable primitive fast path: read the tag byte directly at offset sizeof(T)
+                // instead of going through VWT GetEnumTag, which returns incorrect values for
+                // Optional<Int32> on some runtimes (Mono on iOS Simulator).
+                // Layout: [sizeof(T) bytes payload][1 byte tag: 0=Some, 1=None]
+                var tagOffset = GetBlittablePrimitiveTagOffset();
+                if (tagOffset >= 0)
+                {
+                    return payload[tagOffset] == 0 ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
+                }
+
+                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
                 return (SwiftOptionalCases)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);
             }
             finally
@@ -220,6 +242,25 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                     _payload.DangerousRelease();
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the tag byte offset for blittable primitive types, or -1 if not applicable.
+    /// For Optional&lt;Int32&gt;, the tag byte is at offset 4 (sizeof(Int32)).
+    /// </summary>
+    private static int GetBlittablePrimitiveTagOffset()
+    {
+        if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
+            return 1;
+        if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
+            return 2;
+        if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
+            return 4;
+        if (typeof(T) == typeof(long) || typeof(T) == typeof(ulong) || typeof(T) == typeof(double))
+            return 8;
+        if (typeof(T) == typeof(nint) || typeof(T) == typeof(nuint))
+            return IntPtr.Size;
+        return -1;
     }
 
     /// <summary>

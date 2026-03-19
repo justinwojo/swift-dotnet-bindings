@@ -29,6 +29,7 @@ public abstract class TestBase
     {
         var classSkip = GetType().GetCustomAttribute<SkipAttribute>();
         var classSimSkip = GetType().GetCustomAttribute<SkipOnSimulatorAttribute>();
+        var classDevSkip = GetType().GetCustomAttribute<SkipOnDeviceAttribute>();
 
         var methods = GetType()
             .GetMethods(BindingFlags.Public | BindingFlags.Instance)
@@ -54,6 +55,15 @@ public abstract class TestBase
             if (effectiveSimSkip != null && platform == TestPlatform.Simulator)
             {
                 Results.Skip(testName, $"Simulator: {effectiveSimSkip.Reason}");
+                continue;
+            }
+
+            // Check [SkipOnDevice] — skipped on device, runs on simulator
+            var methodDevSkip = method.GetCustomAttribute<SkipOnDeviceAttribute>();
+            var effectiveDevSkip = methodDevSkip ?? classDevSkip;
+            if (effectiveDevSkip != null && platform == TestPlatform.Device)
+            {
+                Results.Skip(testName, $"Device: {effectiveDevSkip.Reason}");
                 continue;
             }
 

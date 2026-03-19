@@ -470,11 +470,25 @@ internal class MethodMarshalPlanBuilder
                 }
                 else
                 {
-                    allocCode = $$"""
-                        var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
-                        _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
-                        var resultPtr = (IntPtr)_cdeclBuf;
-                        """;
+                    // For Optional returns, ensure the buffer is large enough for the tag byte.
+                    // VWT metadata.Size may return incorrect values for Optional<Int32> on some
+                    // runtimes (Mono iOS Simulator). Use AllocZeroed with minimum of 16 bytes.
+                    if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec))
+                    {
+                        allocCode = $$"""
+                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
+                            _cdeclBuf = NativeMemory.AllocZeroed(Math.Max((nuint)returnMetadata.Size, 16));
+                            var resultPtr = (IntPtr)_cdeclBuf;
+                            """;
+                    }
+                    else
+                    {
+                        allocCode = $$"""
+                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
+                            _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                            var resultPtr = (IntPtr)_cdeclBuf;
+                            """;
+                    }
                 }
 
                 // Non-frozen structs and complex enums: NewFromPayload stores the buffer
@@ -813,14 +827,25 @@ internal class MethodMarshalPlanBuilder
             else if (_env.MethodDecl.IsConstructor &&
                      _env.ParentDecl is TypeDecl { IsGeneric: true })
             {
-                // Generic type allocating inits: the last metadata argument must be the
-                // specialized type metatype (e.g., GenericClass<T>.self, Wrapper<T>.self),
-                // not per-param T metadata.
-                // Swift allocating init ABI: (init_params, T_metadata..., Type<T>.Type metatype).
-                // Use the helper class metadata accessor to get the specialized metatype
-                // (avoids SwiftObjectHelper<Wrapper<T>> which crashes Mono's generic sharing).
-                var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
-                metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {perParamMetadata}).Handle";
+                if (_env.MethodDecl.UsesCdeclWrapper)
+                {
+                    // @_cdecl constructor wrappers: metadata is already in the P/Invoke signature
+                    // via HandleGenericMetadata(). The @_cdecl wrapper receives _metadata0 as a
+                    // regular parameter and handles metatype dispatch internally. No extra
+                    // trailing metatype argument needed.
+                    metadataArgs = "";
+                }
+                else
+                {
+                    // Generic type allocating inits: the last metadata argument must be the
+                    // specialized type metatype (e.g., GenericClass<T>.self, Wrapper<T>.self),
+                    // not per-param T metadata.
+                    // Swift allocating init ABI: (init_params, T_metadata..., Type<T>.Type metatype).
+                    // Use the helper class metadata accessor to get the specialized metatype
+                    // (avoids SwiftObjectHelper<Wrapper<T>> which crashes Mono's generic sharing).
+                    var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+                    metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {perParamMetadata}).Handle";
+                }
             }
             else if (_env.MethodDecl.GenericParameters.Count > 0)
             {

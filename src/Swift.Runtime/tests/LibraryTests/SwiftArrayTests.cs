@@ -186,8 +186,14 @@ public class SwiftArrayTests : IClassFixture<SwiftArrayTests.TestFixture>
     [Fact]
     public void GetProtocolConformanceDescriptor_UnknownProtocol_Throws()
     {
-        Assert.Throws<SwiftRuntimeException>(() =>
+        // .NET 10 may wrap in TargetInvocationException or throw SwiftRuntimeException directly
+        var ex = Record.Exception(() =>
             ProtocolConformanceDescriptorHelper<SwiftArray<int>, ITestProtocol>.GetProtocolConformanceDescriptor());
+        Assert.NotNull(ex);
+        if (ex is System.Reflection.TargetInvocationException tie)
+            Assert.IsType<SwiftRuntimeException>(tie.InnerException);
+        else
+            Assert.IsType<SwiftRuntimeException>(ex);
     }
 
     private void PrimitiveArrayTest<T>(T value1, T value2, T overwriteValue)

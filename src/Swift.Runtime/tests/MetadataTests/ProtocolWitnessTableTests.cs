@@ -60,8 +60,13 @@ public class ProtocolWitnessTableTests : IClassFixture<ProtocolWitnessTableTests
     [Fact]
     public static void FailsToRetrieveProtocolWitnessTableWhenProtocolConformanceDescriptorInvalid()
     {
-        Exception exception = Assert.Throws<System.Reflection.TargetInvocationException>(() => ProtocolWitnessTable.GetOrThrow<AnyTypeMock, ISwiftHashable>());
-        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        // .NET 10 may throw SwiftRuntimeException directly instead of wrapping in TargetInvocationException
+        var exception = Record.Exception(() => ProtocolWitnessTable.GetOrThrow<AnyTypeMock, ISwiftHashable>());
+        Assert.NotNull(exception);
+        if (exception is System.Reflection.TargetInvocationException tie)
+            Assert.IsType<InvalidOperationException>(tie.InnerException);
+        else
+            Assert.IsType<SwiftRuntimeException>(exception);
     }
 
     [Fact]

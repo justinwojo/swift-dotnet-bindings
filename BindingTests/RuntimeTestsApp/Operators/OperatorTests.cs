@@ -131,7 +131,6 @@ public class OperatorTests : TestBase
 
     #region Tier 2 — Unary
 
-    [Skip("UnaryValue has Bool field — non-blittable in CallConvSwift, @_cdecl wrapper needed")]
     public void TestUnaryNot()
     {
         var trueVal = new UnaryValue(true, 0);
@@ -144,7 +143,6 @@ public class OperatorTests : TestBase
         TestLogger.Info("Unary NOT passed");
     }
 
-    [Skip("UnaryValue has Bool field — non-blittable in CallConvSwift, @_cdecl wrapper needed")]
     public void TestUnaryBitwiseNot()
     {
         var val = new UnaryValue(false, 0x0000FF00);

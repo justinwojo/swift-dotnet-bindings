@@ -252,7 +252,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Free Functions
 
-    [Skip("SHA2Variant:Int enum param crashes at runtime — ABI size mismatch between Swift Int (8 bytes) and C# int (4 bytes)")]
     public void TestCreateHashAlgorithm()
     {
         var algo = TestLibFunctions.CreateHashAlgorithm(SHA2Variant.Sha512);

@@ -1040,12 +1040,13 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void PInvokeCall_CdeclGenericClassConstructor_UsesClassMetadata()
+    public void PInvokeCall_CdeclGenericClassConstructor_NoExtraMetatypeArg()
     {
-        // @_cdecl constructor wrappers on generic classes must pass the class's own metadata
-        // (e.g., GenericCache<T>.GetTypeMetadata()) as _metadata0, NOT per-param metadata
-        // (SwiftObjectHelper<T>.GetTypeMetadata()). The Swift wrapper does
-        // unsafeBitCast(_metadata0, to: Any.Type.self) for protocol metatype dispatch.
+        // @_cdecl constructor wrappers on generic classes handle metatype dispatch internally.
+        // The metadata is passed via HandleGenericMetadata() as a regular P/Invoke parameter
+        // (maps to _metadata0 in the @_cdecl wrapper). No extra trailing metatype argument
+        // (PInvoke_getMetadata) should be appended — that would cause a parameter count mismatch
+        // between the C# call site and the @_cdecl wrapper's parameter list.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("GenericCache", moduleDecl);
         classDecl.GenericParameters = new List<GenericArgumentDecl>
@@ -1084,11 +1085,9 @@ public class MethodMarshalPlanBuilderTests
         var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
         var plan = BuildPlan(env, wrapperSig, pInvokeSig);
 
-        // Must use the helper class metadata accessor to get the specialized metatype
-        // (avoids SwiftObjectHelper<GenericCache<T>> which crashes Mono's generic sharing).
-        // Uses .Handle to extract IntPtr from TypeMetadata (avoids Mono JIT crash with
-        // TypeMetadata struct + SwiftSelf in CallConvSwift P/Invokes).
-        Assert.Contains("GenericCache_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete, SwiftObjectHelper<T>.GetTypeMetadata().Handle).Handle", plan.PInvokeCallStatement);
+        // @_cdecl constructor: no extra metatype argument (PInvoke_getMetadata) should be appended.
+        // The helper class P/Invoke call should NOT contain the metatype accessor.
+        Assert.DoesNotContain("PInvoke_getMetadata", plan.PInvokeCallStatement);
     }
 
     [Fact]

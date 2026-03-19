@@ -803,16 +803,25 @@ namespace BindingsGeneration
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = methodDecl.IsAsync,
+                    // @_cdecl wrappers use C calling convention, not Swift calling convention.
+                    // Must propagate UsesCdeclWrapper to the helper class P/Invoke declaration
+                    // to emit CallConvCdecl instead of CallConvSwift.
+                    OmitCallingConvention = methodDecl.UsesCdeclWrapper,
                     // Methods with GenericParameters already have per-param TypeMetadata in the
                     // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
                     // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).
                     // Constructors additionally need ONE IntPtr for the allocating init's
                     // Self.Type metatype (e.g., Wrapper<T>.Type).
-                    MetadataParameters = methodDecl.GenericParameters.Count > 0
-                        ? (methodDecl.IsConstructor
-                            ? new[] { "IntPtr metatype" }
-                            : Array.Empty<string>())
-                        : methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
+                    // @_cdecl constructors: metadata is already included via HandleGenericMetadata()
+                    // (maps to _metadata0 in the @_cdecl wrapper). No extra metatype param needed —
+                    // the @_cdecl wrapper handles metatype dispatch internally.
+                    MetadataParameters = methodDecl.UsesCdeclWrapper
+                        ? Array.Empty<string>()
+                        : methodDecl.GenericParameters.Count > 0
+                            ? (methodDecl.IsConstructor
+                                ? new[] { "IntPtr metatype" }
+                                : Array.Empty<string>())
+                            : methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
                 };
                 methodEnv.PInvokeHelperContext.AddDeclaration(declaration);
             }

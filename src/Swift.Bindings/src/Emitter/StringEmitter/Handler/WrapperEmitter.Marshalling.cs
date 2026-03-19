@@ -158,6 +158,7 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))
                     continue;
 
+
                 // Optional<ObjC> accessor setter: parameter is already IntPtr (nullable pointer ABI).
                 // Just alias to the buffer name that the P/Invoke expects.
                 if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))

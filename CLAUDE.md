@@ -33,7 +33,8 @@ cd BindingTests
 ./run-runtime-tests.sh --timeout 90            # Runtime on iOS Sim (default: simulator)
 
 # Runtime test iteration flags:
-#   --skip-regen     Skip binding regeneration (incremental build)
+#   --skip-regen     Skip binding regeneration (incremental build, ~17s)
+#   --skip-build     Skip all builds, just install + run (~5s, use after --skip-regen)
 #   --class NAME     Run only one test class
 
 # Real-world library validation:
@@ -254,6 +255,7 @@ If a gate fails, fix the regressions before signing off. Do not run gates that a
 
 ### Runtime
 - **Mono JIT crashes are OUR BUGS, not upstream**: Investigation of 102 `[MonoJitCrash]`-annotated tests proved every single crash was a generator/runtime bug in our code. Zero upstream Mono issues confirmed. **NEVER use `[MonoJitCrash]` attribute** — diagnose the actual root cause and either fix it or use `[Skip("specific bug description")]`. See `src/docs/Completed/MONO-JIT-FINDINGS.md`.
+- **ALL runtime crashes are guilty-until-proven-innocent**: Before labeling any crash "upstream", verify the generated C# P/Invoke matches the Swift @_cdecl wrapper: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point symbol. Common generator bugs that look like runtime issues: wrong calling convention on P/Invoke targeting @_cdecl wrapper, extra metadata parameters the wrapper doesn't expect, missing @_cdecl wrapper (C# calls mangled symbol via CallConvSwift which Mono can't JIT).
 - SafeHandle in async P/Invoke not preserved (workaround: singleton + IntPtr)
 - DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
 - See [wiki Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) for full consumer-facing details

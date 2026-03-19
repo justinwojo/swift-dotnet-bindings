@@ -54,8 +54,14 @@ public class SwiftSetTests : IClassFixture<SwiftSetTests.TestFixture>
     [Fact]
     public void GetProtocolConformanceDescriptor_UnknownProtocol_Throws()
     {
-        Assert.Throws<SwiftRuntimeException>(() =>
+        // .NET 10 may wrap in TargetInvocationException or throw SwiftRuntimeException directly
+        var ex = Record.Exception(() =>
             ProtocolConformanceDescriptorHelper<SwiftSet<SwiftIntMock>, ITestProtocol>.GetProtocolConformanceDescriptor());
+        Assert.NotNull(ex);
+        if (ex is System.Reflection.TargetInvocationException tie)
+            Assert.IsType<SwiftRuntimeException>(tie.InnerException);
+        else
+            Assert.IsType<SwiftRuntimeException>(ex);
     }
 
     [Fact]

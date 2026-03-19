@@ -78,7 +78,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor with label passed");
     }
 
-    [Skip("Optional<Int32> None marshalling in constructor params: None reads as Some on simulator")]
+    [Skip("Optional<Int32> None in frozen struct: initializeMemory(as: Optional<Int32>.self) writes wrong tag byte on Mono")]
     public void TestOptionalConfigConstructorWithoutLabel()
     {
         var config = new OptionalConfig(null, null, "Default");

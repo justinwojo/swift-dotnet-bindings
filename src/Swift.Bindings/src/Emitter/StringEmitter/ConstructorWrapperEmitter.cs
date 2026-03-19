@@ -702,6 +702,32 @@ public static class ConstructorWrapperEmitter
                     $"{argLabel}{label}Val");
         }
 
+        // Optional<BlittablePrimitive>: read value and tag byte separately from UnsafeRawPointer
+        // instead of using assumingMemoryBound(to: Optional<T>.self).pointee, which misinterprets
+        // the tag byte for Optional<Int32> on some runtimes.
+        if (swiftTypeSpec is NamedTypeSpec optSpec && optSpec.Name == "Swift.Optional"
+            && optSpec.GenericParameters.Count == 1)
+        {
+            var innerSpec = optSpec.GenericParameters[0];
+            if (innerSpec is NamedTypeSpec innerNamed && IsBlittablePrimitiveSwiftType(innerNamed.Name))
+            {
+                var rawType = GetSwiftRawValueType(innerNamed.Name);
+                // Compute the tag byte offset = size of the inner type
+                var tagOffset = innerNamed.Name switch
+                {
+                    "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
+                    "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
+                    "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
+                    _ => "8" // Int, UInt, Int64, UInt64, Double, CGFloat
+                };
+                // Read payload and tag separately, reconstruct Optional
+                var reconstruction = $"let {label}Opt: {rawType}? = {label}.advanced(by: {tagOffset}).load(as: UInt8.self) == 0 ? {label}.load(as: {rawType}.self) : nil";
+                return ($"_ {label}: UnsafeRawPointer",
+                        reconstruction,
+                        $"{argLabel}{label}Opt");
+            }
+        }
+
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))
@@ -1011,6 +1037,24 @@ public static class ConstructorWrapperEmitter
             _ => false
         };
     }
+
+    /// <summary>
+    /// Returns true for Swift types that are blittable primitives (integers, floats, bool).
+    /// Used for Optional&lt;BlittablePrimitive&gt; split-parameter pattern.
+    /// </summary>
+    internal static bool IsBlittablePrimitiveSwiftType(string typeName) => typeName switch
+    {
+        "Swift.Int" or "Swift.UInt" or "Swift.Int8" or "Swift.UInt8" or
+        "Swift.Int16" or "Swift.UInt16" or "Swift.Int32" or "Swift.UInt32" or
+        "Swift.Int64" or "Swift.UInt64" or
+        "Swift.Float" or "Swift.Double" or "Swift.Bool" or
+        "CoreFoundation.CGFloat" or "CGFloat" or
+        "Int" or "UInt" or "Int8" or "UInt8" or
+        "Int16" or "UInt16" or "Int32" or "UInt32" or
+        "Int64" or "UInt64" or
+        "Float" or "Double" or "Bool" => true,
+        _ => false
+    };
 
     /// <summary>
     /// Maps C# enum underlying type names to Swift raw value type names.

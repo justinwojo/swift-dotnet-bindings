@@ -183,6 +183,30 @@ namespace BindingsGeneration
                         new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
                             GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
                             CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+
+                    // Blittable primitive fast path: read tag byte directly from result buffer
+                    // instead of going through SwiftOptional<T> + VWT GetEnumTag, which returns
+                    // incorrect values for Optional<Int32> on some runtimes (Mono iOS Simulator).
+                    // Return null SwiftOptional reference for None to avoid VWT entirely.
+                    if (projection is OptionalProjection optProj)
+                    {
+                        var blittableSize = OptionalProjection.GetBlittablePrimitiveSizePublic(optProj.InnerProjection);
+                        if (blittableSize != null)
+                        {
+                            var innerType = optProj.InnerProjection.PublicType;
+                            var containerType = optProj.ContainerTypeName;
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    byte* _optPtr = (byte*){{resultExpr}};
+                                    if (_optPtr[{{blittableSize.Value}}] != 0)
+                                        return null!; // None — return null reference to bypass VWT
+                                    return {{containerType}}.NewSome(*(({{innerType}}*)_optPtr));
+                                }
+                                """);
+                            return;
+                        }
+                    }
+
                     var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                     csWriter.WriteLines($$"""
                         var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>({{resultExpr}});

@@ -4,9 +4,7 @@ Prepared: February 2026
 Project: Swift/.NET interop binding generator
 Contact: Justin Wojciechowski
 
-Five .NET runtime issues affect real-world Swift interop scenarios — three on Mono (Issues 1-3), one on NativeAOT (Issue 5), and one new cross-runtime issue (Issue 6). Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
-
-> **Issue 4 (VWT Destroy) deleted March 2026**: NativeAOT investigation proved VWT Destroy via `delegate* unmanaged[Swift]` works correctly on both runtimes. The original crashes were caused by our generator bugs (wrong buffer sizes / corrupted metadata), not a runtime defect.
+Five .NET runtime issues affect real-world Swift interop scenarios — three on Mono (Issues 1-3) and two on NativeAOT (Issues 5-6). Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
 > **Before filing:** These drafts are waiting on the swift-bindings repo going public so we can
 > link to concrete reproduction code and the binding generator as context. Before submitting,
@@ -18,7 +16,6 @@ Five .NET runtime issues affect real-world Swift interop scenarios — three on 
 - **Issue 1** — File as a **bug report**. Clear-cut Mono JIT defect with assertion failure and stack trace.
 - **Issue 2** — File as a **feature request**. The error message suggests this is an intentional scope limitation in the initial `CallConvSwift` implementation, not a bug.
 - **Issue 3** — **Mono-only**. Do not file standalone. Post as a **comment on the Swift interop tracking issue** asking whether async P/Invoke with SwiftSelf/SafeHandle is a supported scenario on Mono. NativeAOT investigation (March 2026) confirmed this issue does not reproduce on NativeAOT.
-- ~~**Issue 4**~~ — **DELETED** (disproven). VWT Destroy via CallConvSwift works correctly. Crashes were our generator bugs.
 - **Issue 5** — File as a **bug report**. NativeAOT passes custom struct float/double fields in GPR instead of FPR on ARM64.
 - **Issue 6** — File as a **bug report**. New: Custom struct with single `double` field returns garbage via CallConvSwift on NativeAOT ARM64.
 
@@ -258,12 +255,6 @@ public async Task AsyncMethod()
 3. If this scenario isn't supported yet, is it on the roadmap? It's required for calling any async instance method on a Swift class from .NET.
 
 This affects every async Swift API we bind — libraries like StoreKit 2 and Nuke rely heavily on async instance methods. Currently every such method requires a Swift wrapper function, which adds significant build complexity.
-
----
-
-## ~~Issue 4~~ (DELETED): VWT Destroy crash — DISPROVEN
-
-> **Deleted March 2026.** NativeAOT investigation proved that `delegate* unmanaged[Swift]` calls to VWT Destroy work correctly on both Mono and NativeAOT. The original crashes were caused by generator bugs (wrong buffer sizes, corrupted metadata), not a runtime defect. VWT Destroy wrappers have been removed from the generator.
 
 ---
 
