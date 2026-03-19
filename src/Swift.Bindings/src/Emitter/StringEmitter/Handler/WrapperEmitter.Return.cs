@@ -207,10 +207,13 @@ namespace BindingsGeneration
                         }
                     }
 
+                    // Return SwiftOptional<T> directly — the accessor method returns SwiftOptional<T>,
+                    // not T?. Calling .ToNullable() is broken for value types (T? with unconstrained T
+                    // is T in IL, so default returns 0/false instead of null) and the implicit operator
+                    // SwiftOptional<T>(T?) would then wrap 0 back into NewSome(0).
                     var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                     csWriter.WriteLines($$"""
-                        var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>({{resultExpr}});
-                        return swiftResult.ToNullable();
+                        return SwiftMarshal.MarshalFromSwift<{{swiftType}}>({{resultExpr}});
                         """);
                     return;
                 }
@@ -246,6 +249,9 @@ namespace BindingsGeneration
 
             // Large Optional return via out-buffer fallback — for accessor returns where projection
             // is skipped. Uses projection ContainerTypeName for the SwiftOptional type if available.
+            // Return SwiftOptional<T> directly — the property getter handles conversion via
+            // explicit HasValue/Some check. Calling .ToNullable() is broken for value types
+            // (same root cause as the @_cdecl indirect result path above).
             if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
                 (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
             {
@@ -253,8 +259,7 @@ namespace BindingsGeneration
                     new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false, GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl, CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                 var swiftType = projection?.ContainerTypeName ?? _wrapperSignature.ReturnType;
                 csWriter.WriteLines($$"""
-                    var swiftResult = SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
-                    return swiftResult.ToNullable();
+                    return SwiftMarshal.MarshalFromSwift<{{swiftType}}>(_optRetPtr);
                     """);
                 return;
             }

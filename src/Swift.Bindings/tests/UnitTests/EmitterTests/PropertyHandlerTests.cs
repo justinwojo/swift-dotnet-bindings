@@ -480,9 +480,11 @@ public class PropertyHandlerTests
 
         // Property type should be long?
         Assert.Contains("public virtual long? Timeout", csOutput);
-        // Getter: SwiftOptional is IDisposable — needs using, cast-based conversion
+        // Getter: SwiftOptional is IDisposable — needs using, explicit HasValue/Some check
+        // (implicit operator T?(SwiftOptional<T>) is broken for value types)
         Assert.Contains("using var __ret", csOutput);
-        Assert.Contains("((long?)__ret)", csOutput);
+        Assert.Contains("HasValue", csOutput);
+        Assert.Contains(".Some", csOutput);
         // Setter: SwiftOptional.NewSome/NewNone creates IDisposable — needs using
         Assert.Contains("using var __val", csOutput);
         Assert.Contains("SwiftOptional<long>.NewSome", csOutput);
@@ -1795,6 +1797,56 @@ public class PropertyHandlerTests
         Assert.Contains("SwiftOptional", conversion!);
         Assert.Contains("NewSome", conversion!);
         Assert.Contains("NewNone", conversion!);
+        Assert.True(requiresDisposal);
+    }
+
+    #endregion
+
+    #region Optional Value Type Getter Conversion Tests
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_BlittableInt_UsesExplicitHasValueCheck()
+    {
+        // Regression test: implicit operator T?(SwiftOptional<T>) is broken for value types.
+        // T is unconstrained, so T? in IL is T (not Nullable<T>). default(int) returns 0,
+        // causing None to appear as Some(0). The getter must use explicit HasValue/Some check.
+        var inner = new BlittableProjection("int");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "__ret");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("HasValue", conversion!);
+        Assert.Contains(".Some", conversion);
+        Assert.DoesNotContain("(int?)__ret)", conversion); // Must NOT use implicit operator cast
+        Assert.True(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_BlittableBool_UsesExplicitHasValueCheck()
+    {
+        var inner = new BoolProjection();
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "__ret");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("HasValue", conversion!);
+        Assert.Contains(".Some", conversion);
+        Assert.True(requiresDisposal);
+    }
+
+    [Fact]
+    public void GetOptionalAccessorGetterConversion_SimpleEnum_UsesExplicitHasValueCheck()
+    {
+        var inner = new SimpleEnumProjection("MyModule.MyEnum", "int");
+        var opt = new OptionalProjection(inner);
+
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "__ret");
+
+        Assert.NotNull(conversion);
+        Assert.Contains("HasValue", conversion!);
+        Assert.Contains(".Some", conversion);
         Assert.True(requiresDisposal);
     }
 

@@ -1,9 +1,19 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 9)
-**Current**: 646 passed, 0 failed, 48 skipped (simulator). Unit tests: 8328.
-**Previous**: 643 passed, 0 failed, 51 skipped (simulator). Unit tests: 8289.
+**Updated**: March 19, 2026 (Session 10)
+**Current**: 647 passed, 0 failed, 47 skipped (simulator). Unit tests: 8331.
+**Previous**: 646 passed, 0 failed, 48 skipped (simulator). Unit tests: 8328.
+
+---
+
+## Session 10 Completed Fixes
+
+### Tests recovered (1 simulator + device, 3 unit)
+
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| 3 | Optional<Int32> None getter implicit operator bug | 1 | `implicit operator T?(SwiftOptional<T>)` is broken for value types: T is unconstrained, so `T?` in IL is `T` (not `Nullable<T>`). `default(T)` returns `0` instead of null, causing None to appear as `Some(0)`. Fixed property getter to use explicit `HasValue`/`Some` check. Also fixed non-blittable accessor return path that called `.ToNullable()` (same bug). |
 
 ---
 
@@ -59,9 +69,9 @@
 
 ## Current State
 
-48 `[Skip]` + 2 `[SkipOnDevice]` = 50 total annotations. Of these:
+47 `[Skip]` + 2 `[SkipOnDevice]` = 49 total annotations. Of these:
 - **27 are unfixable** without external action (upstream bugs, missing data sources, future roadmap)
-- **23 are fixable** generator/runtime bugs, grouped into 11 categories below
+- **22 are fixable** generator/runtime bugs, grouped into 10 categories below
 
 ## Unfixable Skips (27 annotations — leave as-is)
 
@@ -94,19 +104,9 @@
 
 #### ~~2. IntContainer array marshalling — 3 tests~~ **FIXED (Session 9)**
 
+#### ~~3. Optional<Int32> None getter — 1 test~~ **FIXED (Session 10)**
+
 ### Priority 2: Medium complexity
-
-#### 3. Optional<Int32> None in constructor params — 1 test
-
-**Tests**: TestOptionalConfigConstructorWithoutLabel (OptionalMarshallingTests.cs)
-
-**Status**: Session 9 added constructor tag fixup via `MemoryLayout<T>.offset(of:)`. Exhaustive runtime diagnostics confirmed: (1) constructor writes correct tag byte (buffer bytes `00 00 00 00 01 00 00 00`, tag=1 at offset 20), (2) Swift getter reads `obj.count = nil` and writes tag=1 to return buffer, (3) C# return buffer also shows byte[4]=0x01. Despite all this, `(int?)Count_Get()` returns `Some(0)` on **both Mono and NativeAOT** (verified on device).
-
-**Root cause**: NOT the constructor or Swift getter — both are correct. The bug is in the C# `Count_Get()` → `using var __ret` → `(int?)__ret` → `op_Implicit` chain. The blittable fast path `if (_optPtr[4] != 0) return null!` should fire (byte[4] is 1), but the value doesn't propagate correctly through the implicit conversion to `Nullable<int>`.
-
-**Fix approach**: Investigate the `Count_Get()` return → implicit operator path. Possible approaches: (a) return `SwiftOptional<int>.NewNone()` instead of `null!`, (b) bypass the `SwiftOptional<T>` intermediate entirely and return `int?` directly from `Count_Get()`, (c) check if `using var` + `return null!` has unexpected interaction.
-
-**Key files**: `WrapperEmitter.Return.cs` (blittable fast path emission), `SwiftOptional.cs` (implicit operator)
 
 #### 4. OptionalShape setter — 2 tests
 

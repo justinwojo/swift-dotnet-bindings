@@ -140,8 +140,14 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(OptionalProjection p) => DefaultCast(p);
     public (string?, bool) Visit(TupleProjection p) => DefaultCast(p);
 
+    // Use explicit HasValue/Some check instead of implicit operator cast.
+    // The implicit operator T?(SwiftOptional<T>) is broken for value types:
+    // T is unconstrained, so T? in IL is T (not Nullable<T>). default(T) returns 0/false
+    // instead of null, causing None to appear as Some(0).
+    // Note: `default` resolves to null for concrete Nullable<T> (int?, bool?, etc.) but
+    // to default(T) for unconstrained generic T? — the generic case is a known limitation.
     private (string?, bool) DefaultCast(ITypeProjection inner) =>
-        ($"(({inner.PublicType}?){_resultExpr})", true);
+        ($"({_resultExpr}?.HasValue == true ? ({inner.PublicType}?){_resultExpr}.Some : default)", true);
 }
 
 /// <summary>
