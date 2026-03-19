@@ -96,7 +96,6 @@ public class NestedEnumTests : TestBase
 
     #region Tier 3 — Codec Construction and Properties
 
-    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecConstructionJson()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -106,7 +105,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Json format passed");
     }
 
-    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecConstructionXml()
     {
         var encoding = Codec.Encoding.FromRawValue("ascii");
@@ -116,7 +114,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
-    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecEncodingValueProperty()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -127,7 +124,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
-    [Skip("Codec.format/encoding Tj dispatch thunk: non-final class property with nested return type, @_cdecl wrapper blocked by nested type restriction")]
     public void TestCodecGetDescribe()
     {
         var encoding = Codec.Encoding.FromRawValue("utf-8");
@@ -213,8 +209,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Sha1 passed");
     }
 
-    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [Skip("Cannot marshal nested enum associated value")]
     public void TestHashAlgorithmSha2()
     {
         var algo = HashAlgorithm.Sha2(SHA2Variant.Sha256);
@@ -224,8 +218,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("HashAlgorithm.Sha2(Sha256) passed");
     }
 
-    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [Skip("Cannot marshal nested enum associated value")]
     public void TestHashAlgorithmSha2AllVariants()
     {
         var variants = new[] { SHA2Variant.Sha224, SHA2Variant.Sha256, SHA2Variant.Sha384, SHA2Variant.Sha512 };
@@ -260,8 +252,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Free Functions
 
-    // Cannot marshal SHA2Variant from Swift — nested enum associated value not supported
-    [Skip("Cannot marshal nested enum associated value")]
+    [Skip("SHA2Variant:Int enum param is 8 bytes in Swift but mapped to int (4 bytes) in C# — CallConvSwift ABI size mismatch")]
     public void TestCreateHashAlgorithm()
     {
         var algo = TestLibFunctions.CreateHashAlgorithm(SHA2Variant.Sha512);

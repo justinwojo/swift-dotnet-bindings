@@ -1632,13 +1632,10 @@ public class MethodHandlerOutputTests
     [Fact]
     public void Emit_MethodWithOptionalConventionCClosure_SkipsThreadStaticAndUsesMarshalGetFunctionPointer()
     {
-        // Regression test for the @convention(c) branches at WrapperEmitter.Marshalling
-        // lines ~248 (setup) and ~696 (callback emission). Before the fix, an optional
-        // @convention(c) closure was treated as non-escaping: the setup emitted a
-        // ThreadStatic callback variable, and the callback gate emitted an
-        // [UnmanagedCallersOnly] + [ThreadStatic] delegate. After the fix,
-        // IsEffectivelyEscaping returns true for Optional closures, routing to the
-        // escaping path: Marshal.GetFunctionPointerForDelegate (no ThreadStatic).
+        // Optional @convention(c) closures are effectively escaping — Swift may store and invoke
+        // the function pointer later on any thread. ThreadStatic is unsound for this case, so
+        // optional convention-c closures use Marshal.GetFunctionPointerForDelegate (escaping path).
+        // Non-optional convention-c closures use [UnmanagedCallersOnly] + [ThreadStatic] instead.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1666,10 +1663,10 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Line ~696: callback emission should NOT use ThreadStatic for optional @convention(c)
+        // Optional convention-c: no ThreadStatic (escaping → unsafe for ThreadStatic)
         Assert.DoesNotContain("[ThreadStatic]", csOutput);
 
-        // Line ~248: setup should use Marshal.GetFunctionPointerForDelegate (escaping path)
+        // Optional convention-c: uses Marshal.GetFunctionPointerForDelegate (escaping path)
         Assert.Contains("Marshal.GetFunctionPointerForDelegate", csOutput);
 
         // Cleanup should NOT free the GCHandle

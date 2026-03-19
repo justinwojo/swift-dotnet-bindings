@@ -65,11 +65,10 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
             return false;
 
-        // 8. Skip nested type properties — @_cdecl can't represent nested Swift types
-        //    (e.g., OuterType.InnerType) as parameters. C-compatible structs (CGSize, UIEdgeInsets)
-        //    work fine, but pure Swift nested types fail at compilation.
-        if (WrapperValidation.IsNestedType(propertyDecl.SwiftTypeSpec))
-            return false;
+        // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
+        //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr
+        //    for indirect results). The nested type name only appears in the function BODY
+        //    (e.g., initializeMemory(as: Codec.Format.self)), which is valid Swift.
 
         // 9. Skip unsupported generic container properties (Result<T,E>, Optional<existential>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
@@ -118,8 +117,7 @@ public static class PropertyWrapperEmitter
             return "actor_type_property";
         if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
             return "non_copyable_struct_parent";
-        if (WrapperValidation.IsNestedType(propertyDecl.SwiftTypeSpec))
-            return "nested_type_property";
+        // Nested types are now allowed — see guard 8 comment in ShouldEmitWrapper()
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return "unsupported_generic_container";
         if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&

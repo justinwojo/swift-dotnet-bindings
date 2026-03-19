@@ -72,8 +72,6 @@ public class ClosureTests : TestBase
     // @convention(c) closures: C# callbacks still use CallConvSwift (Strategy B excludes them)
     // Closure returns: invoking returned closures uses delegate* unmanaged[Swift]
 
-    // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
-    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestConventionCFunction()
     {
         var result = TestLibFunctions.CallCFunction(x => x + 8);
@@ -81,8 +79,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCFunction(x => x + 8) = {result}");
     }
 
-    // @convention(c) closures now use [UnmanagedCallersOnly] callbacks (no JIT required)
-    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestCBinaryFunction()
     {
         var result = TestLibFunctions.CallCBinaryFunction((a, b) => a * b);
@@ -90,7 +86,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallCBinaryFunction((a,b) => a*b) = {result}");
     }
 
-    [Skip("AOT-only mode: lambda-based native-to-managed callbacks require JIT compilation")]
     public void TestCPredicate()
     {
         var result = TestLibFunctions.CallCPredicate(x => x > 5, 10);
@@ -101,7 +96,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
+    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -111,7 +106,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
+    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -121,7 +116,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
+    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -131,7 +126,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
+    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);

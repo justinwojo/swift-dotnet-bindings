@@ -24,6 +24,7 @@ cd "$(dirname "$0")"
 # Default options
 PLATFORM="simulator"
 SKIP_REGEN=false
+SKIP_BUILD=false
 TIMEOUT=90
 CLASS_FILTER=""
 DEVICE_UDID=""
@@ -52,13 +53,18 @@ while [[ $# -gt 0 ]]; do
             DEVICE_UDID="$2"
             shift 2
             ;;
+        --skip-build)
+            SKIP_BUILD=true
+            SKIP_REGEN=true
+            shift
+            ;;
         --flake-detect)
             FLAKE_DETECT=true
             shift
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./run-runtime-tests.sh [--platform simulator|device|macos] [--skip-regen] [--timeout SECONDS] [--class ClassName] [--flake-detect]"
+            echo "Usage: ./run-runtime-tests.sh [--platform simulator|device|macos] [--skip-regen] [--skip-build] [--timeout SECONDS] [--class ClassName] [--flake-detect]"
             exit 1
             ;;
     esac
@@ -456,6 +462,7 @@ else
 fi
 
 # Step 1.5: Build async Swift wrappers (if generated)
+if [ "$SKIP_BUILD" = false ]; then
 ASYNC_SWIFT=$(find output -maxdepth 1 -name "*.swift" ! -name "*.SwiftUIBridge.swift" -type f 2>/dev/null | head -1)
 if [ -n "$ASYNC_SWIFT" ]; then
     echo "--- Step 1.5: Build async Swift wrappers ---"
@@ -480,10 +487,15 @@ elif [ "$SKIP_REGEN" = false ]; then
         echo ""
     fi
 fi
+else
+    echo "--- Steps 1.5-1.6: Skipped (--skip-build) ---"
+    echo ""
+fi # SKIP_BUILD
 
 # Step 1.7: Safety attribute check (no longer needs sed downgrade)
 # [Obsolete] now uses DiagnosticId (SB0001/SB0002) instead of error:true.
 # Test csprojs suppress SB0001 via NoWarn. No post-processing needed.
+if [ "$SKIP_BUILD" = false ]; then
 echo "Safety attributes use DiagnosticId — no sed downgrade needed."
 echo ""
 
@@ -491,10 +503,9 @@ echo ""
 echo "--- Step 2: Build RuntimeTestsApp ---"
 cd RuntimeTestsApp
 
-# Clean previous build only when bindings may have changed
-if [ "$SKIP_REGEN" = false ]; then
-    rm -rf bin obj
-fi
+# Incremental build: dotnet handles source file change detection.
+# Previously rm -rf bin obj was done here, but that forces a 67s full rebuild.
+# The incremental path takes ~4s and correctly picks up changed bindings/test files.
 
 # Build for iOS Simulator
 echo "Building for iOS Simulator (arm64)..."
@@ -536,6 +547,10 @@ fi
 echo ""
 
 cd ..
+else
+    echo "--- Step 2: Skipped (--skip-build) ---"
+    echo ""
+fi # SKIP_BUILD
 
 # Step 3: Run on iOS Simulator
 echo "--- Step 3: Run on iOS Simulator ---"
@@ -620,11 +635,17 @@ xcrun simctl launch --console --terminate-running-process "$DEVICE_UDID" "$BUNDL
 PID=$!
 
 # Poll for success, failure, or crash markers
+# Use 0.25s polling interval for faster response (tests complete in <1s)
 ELAPSED=0
 RESULT=""
 while [ $ELAPSED -lt $TIMEOUT ]; do
-    sleep 1
-    ELAPSED=$((ELAPSED + 1))
+    sleep 0.25
+    # Increment elapsed in quarter-second steps; bump full second every 4 iterations
+    QUARTER=$((${QUARTER:-0} + 1))
+    if [ $QUARTER -ge 4 ]; then
+        ELAPSED=$((ELAPSED + 1))
+        QUARTER=0
+    fi
 
     # Detect early launch failure (process exited without producing test output)
     if ! kill -0 $PID 2>/dev/null; then
@@ -660,7 +681,7 @@ done
 # Terminate the app (with timeout — simctl terminate can hang on GHA runners)
 xcrun simctl terminate "$DEVICE_UDID" "$BUNDLE_ID" 2>/dev/null &
 TERM_PID=$!
-sleep 5 && kill $TERM_PID 2>/dev/null &
+sleep 2 && kill $TERM_PID 2>/dev/null &
 wait $TERM_PID 2>/dev/null || true
 kill $PID 2>/dev/null || true
 # Ensure background simctl launch process is fully dead

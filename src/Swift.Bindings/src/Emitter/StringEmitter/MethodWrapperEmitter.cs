@@ -143,11 +143,9 @@ public static class MethodWrapperEmitter
         if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
             return false;
 
-        // 17. No nested type returns
-        if (returnSpec is NamedTypeSpec retNamed &&
-            retNamed.HasModule() &&
-            AppleFrameworkRegistry.IsNestedType(retNamed.Name))
-            return false;
+        // 17. Nested type returns — ALLOWED. @_cdecl wrapper return types use C-compatible types
+        //     (Int32 for simple enums, void+resultPtr for indirect results, UnsafeMutableRawPointer
+        //     for class pointers). The nested type only appears in the function BODY.
 
         return true;
     }

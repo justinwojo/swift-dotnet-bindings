@@ -275,6 +275,16 @@ namespace BindingsGeneration
                 }
             }
 
+            // Simple enum associated values: read discriminator with correct width.
+            if (typeDatabase.TryGetTypeRecord(typeSpec, out var offsetEnumRecord) &&
+                offsetEnumRecord.Kind == TypeRecordKind.Enum &&
+                offsetEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            {
+                var readExpr = GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar);
+                csWriter.WriteLine($"{varName} = ({csharpType}){readExpr};");
+                return;
+            }
+
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
         }
 
@@ -357,6 +367,21 @@ namespace BindingsGeneration
 
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+
+            // Simple enum associated values: SwiftMarshal.MarshalFromSwift<T> can't handle
+            // simple C# enums (enum Foo : int) because they don't have TypeMetadata registered.
+            // Read the discriminator directly using the correct width from InlineSize.
+            // Swift stores simple enums as the minimum bytes needed for the discriminator
+            // (1 byte for ≤256 cases, 2 for ≤65536, etc.), regardless of raw value type.
+            if (typeDatabase.TryGetTypeRecord(typeSpec, out var payloadRecord) &&
+                payloadRecord.Kind == TypeRecordKind.Enum &&
+                payloadRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            {
+                var readExpr = GetSimpleEnumReadExpression(payloadRecord, sourcePtr);
+                csWriter.WriteLine($"{varName} = ({csharpType}){readExpr};");
+                return;
+            }
+
             csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
         }
 
@@ -439,6 +464,16 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Simple enum associated values: read discriminator with correct width.
+            if (typeDatabase.TryGetTypeRecord(typeSpec, out var simpleEnumRecord) &&
+                simpleEnumRecord.Kind == TypeRecordKind.Enum &&
+                simpleEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            {
+                var readExpr = GetSimpleEnumReadExpression(simpleEnumRecord, sourcePtr);
+                csWriter.WriteLine($"var {varName} = ({csharpType}){readExpr};");
+                return;
+            }
+
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
             // For types requiring memory management (classes, non-frozen structs), use SwiftMarshal
@@ -451,6 +486,41 @@ namespace BindingsGeneration
                 // For primitives and frozen structs, marshal directly
                 csWriter.WriteLine($"var {varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
             }
+        }
+        /// <summary>
+        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer,
+        /// using the correct width based on InlineSize from the TypeRecord.
+        /// Swift stores simple enums as the minimum bytes needed for the discriminator
+        /// (1 byte for ≤256 cases, 2 for ≤65536, etc.), regardless of raw value type.
+        /// </summary>
+        private static string GetSimpleEnumReadExpression(TypeRecord typeRecord, string sourcePtr)
+        {
+            var size = typeRecord.InlineSize ?? 1; // Default to 1 byte when InlineSize unavailable
+            return size switch
+            {
+                1 => $"(*{sourcePtr})",
+                2 => $"(*(short*){sourcePtr})",
+                4 => $"(*(int*){sourcePtr})",
+                8 => $"(*(long*){sourcePtr})",
+                _ => $"(*{sourcePtr})" // Fallback to 1 byte for unusual sizes
+            };
+        }
+
+        /// <summary>
+        /// Returns a C# expression to read a simple enum's discriminator from a byte pointer
+        /// at a given offset, using the correct width based on InlineSize.
+        /// </summary>
+        private static string GetSimpleEnumReadExpressionWithOffset(TypeRecord typeRecord, string sourcePtr, string offsetVar)
+        {
+            var size = typeRecord.InlineSize ?? 1;
+            return size switch
+            {
+                1 => $"(*({sourcePtr} + (int){offsetVar}))",
+                2 => $"(*(short*)({sourcePtr} + (int){offsetVar}))",
+                4 => $"(*(int*)({sourcePtr} + (int){offsetVar}))",
+                8 => $"(*(long*)({sourcePtr} + (int){offsetVar}))",
+                _ => $"(*({sourcePtr} + (int){offsetVar}))"
+            };
         }
     }
 }

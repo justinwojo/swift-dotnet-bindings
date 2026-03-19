@@ -340,11 +340,10 @@ public static class WrapperValidation
         // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
         if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
             return false;
-        // Guard 17: No nested type returns
-        if (returnSpec is NamedTypeSpec retNamed &&
-            retNamed.HasModule() &&
-            AppleFrameworkRegistry.IsNestedType(retNamed.Name))
-            return false;
+        // Guard 17: Nested type returns — ALLOWED. @_cdecl wrapper return types are always
+        // C-compatible (Int32, UnsafeMutableRawPointer, void+resultPtr). Nested type names only
+        // appear in function bodies (initializeMemory(as:), rawValue casts), which is valid Swift.
+
         // Guard 10: No protocol existential return
         if (ConstructorWrapperEmitter.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
             return false;
@@ -535,11 +534,7 @@ public static class WrapperValidation
             if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
                 return "dynamic_self_non_class";
 
-            // 17. No nested type returns
-            if (returnSpec is NamedTypeSpec retNamed &&
-                retNamed.HasModule() &&
-                AppleFrameworkRegistry.IsNestedType(retNamed.Name))
-                return "nested_type_return";
+            // 17. Nested type returns — ALLOWED (see HasCdeclCompatibleFunctionShape guard 17)
         }
 
         return null;

@@ -1,11 +1,11 @@
 {
-  "git_sha": "8b8bcc86",
+  "git_sha": "d0840fae",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51535,
+        "lines": 51531,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23393,
+        "lines": 23355,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 94453,
+        "lines": 94449,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,21 +54,21 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56537,
+        "lines": 56522,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32419,
+        "lines": 32412,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50473,
+        "lines": 50471,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22724,
+        "lines": 22719,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22724,
+        "lines": 22719,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22724,
+        "lines": 22719,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -173,7 +173,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7345,
+        "lines": 7265,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -215,21 +215,21 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66213,
+        "lines": 66205,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32624,
+        "lines": 32467,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7319,
+        "lines": 7324,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16116,
+        "lines": 16092,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,14 +285,14 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8118,
+        "lines": 8099,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "Reachability": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1233,
+        "lines": 1231,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,7 +313,7 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14474,
+        "lines": 14470,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -341,14 +341,14 @@
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4413,
+        "lines": 4414,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SwiftyGif": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1243,
+        "lines": 1244,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -376,21 +376,21 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4454,
+        "lines": 4455,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22560,
+        "lines": 22508,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "AnimatedCollectionViewLayout": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3209,
+        "lines": 3205,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

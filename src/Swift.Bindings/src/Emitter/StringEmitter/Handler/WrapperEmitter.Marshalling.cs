@@ -248,62 +248,39 @@ namespace BindingsGeneration
                 {
                     var funcPtrType = _env.ClosureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
 
-                    if (WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
+                    if (isOptional)
                     {
-                        // Escaping @convention(c) closures may be stored and called later on any thread.
-                        // ThreadStatic is unsound for this case — fall back to Marshal.GetFunctionPointerForDelegate.
-                        // This works on NativeAOT (device); on Mono AOT (simulator) it requires JIT trampolines
-                        // which may not be available. Escaping @convention(c) closures are rare in practice.
-                        //
-                        // Bool bridge: Marshal.GetFunctionPointerForDelegate creates a native thunk where bool
-                        // maps to 4-byte BOOL, but Swift's @convention(c) Bool is 1 byte. Generate a wrapper
-                        // delegate with byte types so the thunk matches Swift's ABI.
+                        // Optional @convention(c) closures may be stored and called later by Swift
+                        // (Optional closures are always escaping). ThreadStatic is unsound for this
+                        // case — fall back to Marshal.GetFunctionPointerForDelegate. This works on
+                        // NativeAOT (device); on Mono AOT (simulator) it requires JIT trampolines
+                        // which may not be available. Optional escaping @convention(c) closures are
+                        // rare in practice.
                         string marshalSource = csName;
                         if (ClosureEmitter.NeedsConventionCBoolBridge(closureTypeSpec))
                         {
                             var bridgeName = $"_{csName}_boolBridge";
                             ClosureEmitter.EmitConventionCBoolBridge(csWriter, csName, bridgeName, closureTypeSpec, _env.ClosureHandler);
                             marshalSource = bridgeName;
-                            // Root the bridge delegate — Marshal.GetFunctionPointerForDelegate does not prevent
-                            // GC collection of the delegate. For escaping closures, Swift may invoke the function
-                            // pointer after this call returns. GCHandle keeps the bridge alive indefinitely.
                             csWriter.WriteLine($"var {bridgeName}Handle = System.Runtime.InteropServices.GCHandle.Alloc({bridgeName});");
                         }
 
-                        if (isOptional)
-                        {
-                            csWriter.WriteLines($"""
-                                var {csName}FuncPtr = {csName} != null
-                                    ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource})
-                                    : ({funcPtrType})IntPtr.Zero;
-                                """);
-                        }
-                        else
-                        {
-                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource});");
-                        }
+                        csWriter.WriteLines($"""
+                            var {csName}FuncPtr = {csName} != null
+                                ? ({funcPtrType})Marshal.GetFunctionPointerForDelegate({marshalSource})
+                                : ({funcPtrType})IntPtr.Zero;
+                            """);
                     }
                     else
                     {
-                        // Non-escaping @convention(c) closures are called synchronously during the P/Invoke
-                        // and cannot be stored by Swift. Use [UnmanagedCallersOnly] callback + [ThreadStatic]
-                        // delegate to avoid Marshal.GetFunctionPointerForDelegate which requires JIT on Mono.
+                        // Non-optional @convention(c) closures are synchronous function pointers.
+                        // Use [UnmanagedCallersOnly] + [ThreadStatic] to avoid JIT requirement on
+                        // AOT-only runtimes (Mono simulator). The ABI parser may conservatively mark
+                        // these as "escaping", but non-optional @convention(c) params without context
+                        // capture are always called synchronously within the P/Invoke scope.
                         var baseName = GetConventionCCallbackName(_env.MethodDecl.Name, csName);
-
-                        if (isOptional)
-                        {
-                            csWriter.WriteLines($"""
-                                {baseName}_del = {csName};
-                                var {csName}FuncPtr = {csName} != null
-                                    ? ({funcPtrType}){baseName}_ptr
-                                    : ({funcPtrType})IntPtr.Zero;
-                                """);
-                        }
-                        else
-                        {
-                            csWriter.WriteLine($"{baseName}_del = {csName};");
-                            csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
-                        }
+                        csWriter.WriteLine($"{baseName}_del = {csName};");
+                        csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
                     }
                 }
                 else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
@@ -687,13 +664,13 @@ namespace BindingsGeneration
                 if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     continue;
 
-                // Non-escaping @convention(c) closures: emit [UnmanagedCallersOnly(CallConvCdecl)] callback +
-                // [ThreadStatic] delegate storage. Replaces Marshal.GetFunctionPointerForDelegate which
-                // requires JIT (crashes on iOS AOT/Mono). Escaping @convention(c) closures skip this —
-                // they use Marshal.GetFunctionPointerForDelegate (works on NativeAOT, Mono limitation accepted).
-                // Optional closures are always escaping in Swift — ThreadStatic is unsound for them.
+                // Non-optional @convention(c) closures: emit [UnmanagedCallersOnly(CallConvCdecl)]
+                // callback + [ThreadStatic] delegate storage. Replaces Marshal.GetFunctionPointerForDelegate
+                // which requires JIT (crashes on iOS AOT/Mono). Optional @convention(c) closures skip this —
+                // they use Marshal.GetFunctionPointerForDelegate because Optional implies escaping
+                // (Swift may store and invoke the function pointer later on any thread).
                 if (_env.ClosureHandler.IsConventionC(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount)
-                    && !WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
+                    && !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
                 {
                     EmitConventionCCallback(csWriter, argumentDecl, closureTypeSpec);
                     csWriter.WriteLine();

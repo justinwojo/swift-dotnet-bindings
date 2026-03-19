@@ -281,7 +281,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
+    [SkipOnSimulator("Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);
