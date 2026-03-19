@@ -132,8 +132,9 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     unsafe SwiftSet(IntPtr handle)
     {
-        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
-        *(IntPtr*)bufferPtr = *(IntPtr*)handle;
+        var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
         _payload = new SwiftSafeHandle<SwiftSet<Element>>(bufferPtr);
     }
 

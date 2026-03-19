@@ -83,10 +83,16 @@ public static class PropertyWrapperEmitter
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
 
-        // 10. Skip properties with raw ABI generic type params (τ_0_0) in the property type.
-        // These leak from parent type generics and cause Swift compilation failures.
+        // 10. Skip properties with raw ABI generic type params (τ_0_0) in the property type,
+        // UNLESS the parent is a generic type that supports static dispatch for T-typed properties.
+        // Raw generic params from parent type generics are handled by the static dispatch protocol.
         if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
-            return false;
+        {
+            // Allow if parent is generic and we passed the CanEmitGenericClassPropertyWrapper check above
+            // (which already validated that the T-typed property can use static dispatch)
+            if (!(accessorEnv.ParentDecl is TypeDecl genericTd && genericTd.IsGeneric))
+                return false;
+        }
 
         return true;
     }
@@ -125,7 +131,10 @@ public static class PropertyWrapperEmitter
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return "objc_bridged_optional_setter";
         if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
-            return "raw_generic_type_params";
+        {
+            if (!(accessorEnv.ParentDecl is TypeDecl rejGenTd && rejGenTd.IsGeneric))
+                return "raw_generic_type_params";
+        }
 
         return null;
     }
@@ -177,7 +186,24 @@ public static class PropertyWrapperEmitter
         // Build parameter list — phase ordering from CdeclSignatureContract.
         // ResultPtr is handled outside the loop using the emitter's own needsResultPtr logic.
         var swiftParams = new List<string>();
-        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
+        bool isGenericClassParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+
+        // Check if property type references a generic type parameter
+        bool propertyReferencesT = false;
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            var genericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+            propertyReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
+        }
+
+        // When property type is T, the return needs a resultPtr (to write the T value)
+        if (propertyReferencesT && !needsResultPtr)
+        {
+            needsResultPtr = true;
+        }
 
         if (needsResultPtr)
         {
@@ -217,9 +243,26 @@ public static class PropertyWrapperEmitter
 
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
 
-        // For generic parent class types, emit protocol + conformance for type erasure
+        // Determine which generic dispatch pattern to use for the getter.
+        // needsStaticGetterDispatch: generic struct OR generic class with T-typed property
+        // (T-typed properties can't use the instance protocol pattern because the property type
+        // is a generic param that's only available inside the conforming extension body)
+        bool needsStaticGetterDispatch = isGenericParent && !isGenericClassParent;
+        if (isGenericClassParent && propertyReferencesT)
+            needsStaticGetterDispatch = true;
+
+        // For generic types needing static dispatch, delegate to specialized emitter
+        if (needsStaticGetterDispatch)
+        {
+            EmitGenericStaticGetterWrapper(swiftWriter, propertyDecl, symbolName, env,
+                parentTypeDecl!, moduleQualifiedName, isClass, isStatic, isString, needsResultPtr,
+                propertyReferencesT, returnMapping);
+            return;
+        }
+
+        // For generic parent class types with concrete property, emit protocol + conformance for type erasure
         string? protocolName = null;
-        if (isGenericParent)
+        if (isGenericClassParent)
         {
             protocolName = EmitGetterProtocolAndConformance(
                 swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
@@ -254,7 +297,7 @@ public static class PropertyWrapperEmitter
         // Reconstruct self
         if (!isStatic)
         {
-            if (isGenericParent && protocolName != null)
+            if (isGenericClassParent && protocolName != null)
             {
                 swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
             }
@@ -319,7 +362,30 @@ public static class PropertyWrapperEmitter
         // Build parameter list — phase ordering from CdeclSignatureContract.
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
-        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
+        bool isGenericClassParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+
+        // Check if property type references T
+        bool propertyReferencesT = false;
+        if (isGenericParent && parentTypeDecl != null)
+        {
+            var genericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+            propertyReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
+        }
+
+        bool needsStaticSetterDispatch = isGenericParent && !isGenericClassParent;
+        if (isGenericClassParent && propertyReferencesT)
+            needsStaticSetterDispatch = true;
+
+        // For generic static dispatch setters, delegate to specialized emitter
+        if (needsStaticSetterDispatch)
+        {
+            EmitGenericStaticSetterWrapper(swiftWriter, propertyDecl, symbolName, env,
+                parentTypeDecl!, moduleQualifiedName, isClass, isStatic, isString, propertyReferencesT);
+            return;
+        }
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env,
             overrideNeedsResultPtr: false, overrideHasArguments: true, overrideNeedsSelf: !isStatic);
@@ -360,7 +426,7 @@ public static class PropertyWrapperEmitter
                     break;
 
                 case CdeclPhase.Metadata:
-                    if (isGenericParent && parentTypeDecl != null)
+                    if (isGenericClassParent && parentTypeDecl != null)
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
@@ -381,7 +447,7 @@ public static class PropertyWrapperEmitter
 
         // For generic parent class types, emit protocol + conformance for type erasure
         string? protocolName = null;
-        if (isGenericParent)
+        if (isGenericClassParent)
         {
             protocolName = EmitSetterProtocolAndConformance(
                 swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
@@ -428,7 +494,7 @@ public static class PropertyWrapperEmitter
         {
             swiftWriter.WriteLine($"{moduleQualifiedName}.{propertyDecl.Name} = {valueExpr}");
         }
-        else if (isGenericParent && protocolName != null)
+        else if (isGenericClassParent && protocolName != null)
         {
             // Generic class: use protocol-based type erasure
             swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
@@ -643,23 +709,179 @@ public static class PropertyWrapperEmitter
     private static bool CanEmitGenericClassPropertyWrapper(
         PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
     {
-        // Only class types — protocol dispatch via existential cast
-        if (parentTypeDecl is not ClassDecl)
-            return false;
-
         // Static properties don't need self-based erasure, but static dispatch
         // uses wrong metadata for generic types — skip for now
         if (propertyDecl.IsStatic)
             return false;
 
-        // Property type must not reference the parent's generic type parameters
+        // Check if property type references the parent's generic type parameters
         var genericParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
             .ToHashSet();
-        if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames))
+        bool referencesT = MethodWrapperEmitter.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
+
+        // Path 1: Generic class with concrete property type — existing protocol dispatch
+        if (parentTypeDecl is ClassDecl && !referencesT)
+            return true;
+
+        // Path 2: Generic struct/class with T-typed property — static protocol dispatch
+        // Only allow if the property type is a direct generic param (not complex composition).
+        // Concrete properties on generic structs are deferred — they may come from constrained
+        // extensions (e.g., `extension Wrapper where T: UIImage`) and unconditional protocol
+        // conformances can't access conditionally-available members.
+        if (referencesT)
+        {
+            if (propertyDecl.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
+                return true; // Direct T property, can use static dispatch
+            return false; // Complex generic composition, deferred
+        }
+
+        // Generic struct with concrete property type — deferred.
+        // These may come from constrained extensions; unconditional protocol conformance
+        // can't access conditionally-available members. Fall back to CallConvSwift.
+        if (parentTypeDecl is not ClassDecl)
             return false;
 
+        // Generic class with concrete property type — use existing instance dispatch
         return true;
+    }
+
+    /// <summary>
+    /// Emits a @_cdecl property getter wrapper using generic static dispatch.
+    /// Used for generic struct parents and T-typed properties on generic class parents.
+    /// </summary>
+    private static void EmitGenericStaticGetterWrapper(
+        SwiftWriter swiftWriter,
+        PropertyDecl propertyDecl,
+        string symbolName,
+        MethodEnvironment env,
+        TypeDecl parentTypeDecl,
+        string moduleQualifiedName,
+        bool isClass,
+        bool isStatic,
+        bool isString,
+        bool needsResultPtr,
+        bool propertyReferencesT,
+        CdeclReturnMapping returnMapping)
+    {
+        var hash = EmitterUtility.DeterministicHash8(symbolName);
+        var protocolName = $"_SBW_GSPG_{hash}";
+        var getMethodName = $"_sbw_get_{hash}";
+        var abiToSugaredName = WrapperValidation.GetAbiToSugaredNameMap(parentTypeDecl);
+        var propertySwiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(propertyDecl.SwiftTypeSpec, abiToSugaredName);
+
+        // Build protocol static method params
+        var protocolParams = new List<string>();
+        var cdeclParams = new List<string>();
+        var cdeclCallArgs = new List<string>();
+
+        if (needsResultPtr)
+        {
+            cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            protocolParams.Add("resultPtr: UnsafeMutableRawPointer");
+            cdeclCallArgs.Add("resultPtr: resultPtr");
+        }
+
+        if (isClass)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else
+            cdeclParams.Add("_ self_: UnsafeRawPointer");
+        protocolParams.Add(isClass ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
+        cdeclCallArgs.Add("selfPtr: self_");
+
+        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+        {
+            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+        }
+
+        string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+
+        // Build extension body lines
+        var bodyLines = new List<string>();
+        if (isClass)
+            bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+        else
+            bodyLines.Add("let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
+
+        var propAccess = $"obj.{propertyDecl.Name}";
+
+        if (isString)
+        {
+            bodyLines.Add($"let result: String = {propAccess}");
+            bodyLines.Add("let utf8 = Array(result.utf8)");
+            bodyLines.Add("if utf8.isEmpty {");
+            bodyLines.Add("    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");
+            bodyLines.Add("    return");
+            bodyLines.Add("}");
+            bodyLines.Add("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
+            bodyLines.Add("ptr.initialize(from: utf8, count: utf8.count)");
+            bodyLines.Add("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
+        }
+        else if (needsResultPtr && propertyReferencesT)
+        {
+            bodyLines.Add($"let result = {propAccess}");
+            bodyLines.Add($"resultPtr.initializeMemory(as: {propertySwiftType}.self, repeating: result, count: 1)");
+        }
+        else if (needsResultPtr)
+        {
+            var qualifiedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec)
+                .Replace("@escaping ", "").Replace("@Sendable ", "");
+            var metatype = qualifiedType.StartsWith("any ") ? $"({qualifiedType}).self" : $"{qualifiedType}.self";
+            bodyLines.Add($"let result = {propAccess}");
+            bodyLines.Add($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+        }
+        else
+        {
+            // Direct return — use the same logic as non-generic direct return
+            bodyLines.Add($"return {propAccess}");
+        }
+
+        // Emit protocol
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}}
+            }
+            """);
+
+        var extensionBody = string.Join("\n        ", bodyLines);
+        swiftWriter.WriteLines($$"""
+            extension {{moduleQualifiedName}}: {{protocolName}} {
+                static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}} {
+                    {{extensionBody}}
+                }
+            }
+            """);
+
+        // Emit @_cdecl
+        var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{hash}";
+        string cdeclReturnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+        var cdeclParamString = string.Join(", ", cdeclParams);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Property getter @_cdecl wrapper for {{moduleQualifiedName}}.{{propertyDecl.Name}} (generic static dispatch).
+            """);
+
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        if (needsMainActor)
+            swiftWriter.WriteLine("@MainActor");
+
+        swiftWriter.WriteLines($$"""
+            @_cdecl("{{symbolName}}")
+            """);
+        swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
+        swiftWriter.Indent++;
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+
+        if (needsResultPtr || protocolReturnType == "")
+            swiftWriter.WriteLine($"metatype.{getMethodName}({string.Join(", ", cdeclCallArgs)})");
+        else
+            swiftWriter.WriteLine($"return metatype.{getMethodName}({string.Join(", ", cdeclCallArgs)})");
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
     }
 
     /// <summary>
@@ -685,6 +907,156 @@ public static class PropertyWrapperEmitter
     /// <summary>
     /// Emits protocol declaration and conformance for a property setter on a generic class type.
     /// </summary>
+    /// <summary>
+    /// Emits a @_cdecl property setter wrapper using generic static dispatch.
+    /// </summary>
+    private static void EmitGenericStaticSetterWrapper(
+        SwiftWriter swiftWriter,
+        PropertyDecl propertyDecl,
+        string symbolName,
+        MethodEnvironment env,
+        TypeDecl parentTypeDecl,
+        string moduleQualifiedName,
+        bool isClass,
+        bool isStatic,
+        bool isString,
+        bool propertyReferencesT)
+    {
+        var setHash = EmitterUtility.DeterministicHash8(symbolName);
+        var protocolName = $"_SBW_GSPS_{setHash}";
+        var setMethodName = $"_sbw_set_{setHash}";
+        var abiToSugaredName = WrapperValidation.GetAbiToSugaredNameMap(parentTypeDecl);
+        var propertySwiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(propertyDecl.SwiftTypeSpec, abiToSugaredName);
+
+        var protocolParams = new List<string>();
+        var cdeclParams = new List<string>();
+        var cdeclCallArgs = new List<string>();
+
+        // NewValue param
+        if (propertyReferencesT)
+        {
+            cdeclParams.Add("_ newValue: UnsafeRawPointer");
+            protocolParams.Add("newValuePtr: UnsafeRawPointer");
+            cdeclCallArgs.Add("newValuePtr: newValue");
+        }
+        else if (isString)
+        {
+            cdeclParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
+            cdeclParams.Add("_ utf8Len: Int");
+            protocolParams.Add("utf8Ptr: UnsafePointer<UInt8>");
+            protocolParams.Add("utf8Len: Int");
+            cdeclCallArgs.Add("utf8Ptr: utf8Ptr");
+            cdeclCallArgs.Add("utf8Len: utf8Len");
+        }
+        else
+        {
+            var newValueArg = new ArgumentDecl
+            {
+                SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
+                Name = "newValue", PrivateName = "newValue",
+                IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+            };
+            var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+            cdeclParams.Add(cdeclParam);
+            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+            protocolParams.Add($"newValue: {swiftType}");
+            cdeclCallArgs.Add("newValue: newValueVal");
+        }
+
+        // Self and metadata
+        cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
+        cdeclCallArgs.Add("selfPtr: self_");
+
+        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+
+        // Build extension body
+        var bodyLines = new List<string>();
+        if (isClass)
+            bodyLines.Add("let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+        else
+            bodyLines.Add("// Mutate through pointer for struct setter");
+
+        string valueExpr;
+        if (propertyReferencesT)
+        {
+            bodyLines.Add($"let val = newValuePtr.assumingMemoryBound(to: {propertySwiftType}.self).pointee");
+            valueExpr = "val";
+        }
+        else if (isString)
+        {
+            bodyLines.Add("let val = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+            valueExpr = "val";
+        }
+        else
+        {
+            valueExpr = "newValue";
+        }
+
+        if (isClass)
+            bodyLines.Add($"obj.{propertyDecl.Name} = {valueExpr}");
+        else
+            bodyLines.Add($"selfPtr.assumingMemoryBound(to: Self.self).pointee.{propertyDecl.Name} = {valueExpr}");
+
+        // Emit protocol
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                static func {{setMethodName}}({{string.Join(", ", protocolParams)}})
+            }
+            """);
+
+        var extensionBody = string.Join("\n        ", bodyLines);
+        swiftWriter.WriteLines($$"""
+            extension {{moduleQualifiedName}}: {{protocolName}} {
+                static func {{setMethodName}}({{string.Join(", ", protocolParams)}}) {
+                    {{extensionBody}}
+                }
+            }
+            """);
+
+        // Emit @_cdecl
+        var swiftFuncName = $"_sbw_set_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var cdeclParamString = string.Join(", ", cdeclParams);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Property setter @_cdecl wrapper for {{moduleQualifiedName}}.{{propertyDecl.Name}} (generic static dispatch).
+            """);
+
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        if (needsMainActor)
+            swiftWriter.WriteLine("@MainActor");
+
+        swiftWriter.WriteLines($$"""
+            @_cdecl("{{symbolName}}")
+            """);
+        swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}) {{");
+        swiftWriter.Indent++;
+
+        // Reconstruct non-T concrete params for protocol dispatch
+        if (!propertyReferencesT && !isString)
+        {
+            var newValueArg = new ArgumentDecl
+            {
+                SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
+                Name = "newValue", PrivateName = "newValue",
+                IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+            };
+            var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+            if (reconstruction != null)
+                swiftWriter.WriteLine(reconstruction);
+        }
+
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"metatype.{setMethodName}({string.Join(", ", cdeclCallArgs)})");
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+    }
+
     private static string EmitSetterProtocolAndConformance(
         SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
     {

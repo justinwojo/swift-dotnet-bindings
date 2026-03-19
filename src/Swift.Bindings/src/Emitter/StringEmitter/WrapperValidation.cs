@@ -360,6 +360,15 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true if the given parent type declaration is any generic type (class or struct).
+    /// Used to determine whether generic wrapper emission is needed.
+    /// </summary>
+    public static bool IsGenericParent(BaseDecl? parentDecl)
+    {
+        return parentDecl is TypeDecl td && td.IsGeneric;
+    }
+
+    /// <summary>
     /// Recursively checks whether a TypeSpec references any of the given generic type parameter names.
     /// Handles NamedTypeSpec (including generic parameters), ClosureTypeSpec, TupleTypeSpec,
     /// ProtocolListTypeSpec, and AssociatedTypeReferenceSpec.
@@ -815,11 +824,17 @@ public static class WrapperValidation
         // Frozen struct classification
         if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
         {
-            // System types ≤ 8 bytes (Int, Bool, UInt, etc.) → single register → safe
-            // System types > 8 bytes (String = 16 bytes) → multi-register → @_cdecl required
-            // Mono JIT can't generate correct CallConvSwift stubs for multi-register params
+            // System types from C-bridging modules (CoreGraphics, CoreFoundation, Darwin, simd)
+            // are pure C structs with well-defined register layouts — safe at any size.
+            // Evidence matrix: CGRect (32B) passes on both Mono and NativeAOT.
+            // Only Swift-module system types (String = 16 bytes) need the > 8 byte restriction
+            // because Mono JIT can't generate correct CallConvSwift stubs for them.
             if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+            {
+                if (IsCBridgingModuleType(named))
+                    return false;  // Pure C struct — safe at any size
                 return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
+            }
 
             // Custom struct with float/double fields → NativeAOT puts floats in GPR
             if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
@@ -876,10 +891,14 @@ public static class WrapperValidation
             MarshallingHelpers.IsTypeFrozen(typeRecord) &&
             !MarshallingHelpers.RequiresMemoryManagement(typeRecord))
         {
-            // System types ≤ 8 bytes → single register → safe
-            // System types > 8 bytes → multi-register → @_cdecl required (Mono JIT crash)
+            // System types from C-bridging modules (CoreGraphics, etc.) — safe at any size.
+            // Only Swift-module system types (String = 16 bytes) need the > 8 byte restriction.
             if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+            {
+                if (IsCBridgingModuleType(named))
+                    return false;  // Pure C struct — safe at any size
                 return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
+            }
 
             // Custom struct with float/double fields → Mono SIGSEGV on by-value return
             if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
@@ -891,13 +910,57 @@ public static class WrapperValidation
         }
 
         // System frozen struct > 8 bytes with memory management (e.g., String = 16 bytes)
-        // returned by value as Buffer struct — Mono JIT can't handle multi-register CallConvSwift
+        // returned by value as Buffer struct — Mono JIT can't handle multi-register CallConvSwift.
+        // C-bridging module types don't have memory management (pure C structs), so this
+        // only applies to Swift-module types like String.
         if (typeRecord.Kind == TypeRecordKind.Struct &&
             MarshallingHelpers.IsTypeFrozen(typeRecord) &&
             typeSpec is NamedTypeSpec namedRet && ConstructorWrapperEmitter.IsSystemFrozenStruct(namedRet) &&
+            !IsCBridgingModuleType(namedRet) &&
             typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8)
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true for types from C-bridging modules (CoreGraphics, CoreFoundation, Darwin, simd).
+    /// These modules expose pure C structs via Swift overlays — they have well-defined, platform-stable
+    /// register layouts that both Mono and NativeAOT handle correctly at any size.
+    /// Evidence: CGRect (32 bytes) passes on both runtimes (evidence matrix, Session 2).
+    ///
+    /// Does NOT include Swift, ObjectiveC, or _Concurrency modules — those contain types with
+    /// internal complexity (e.g., Swift.String at 16 bytes) that Mono JIT may not handle correctly
+    /// in multi-register CallConvSwift stubs.
+    /// </summary>
+    internal static bool IsCBridgingModuleType(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+        var module = SwiftTypeName.FromTypeSpec(typeSpec).Module;
+        return module is "CoreGraphics" or "CoreFoundation" or "Darwin" or "simd";
+    }
+
+    /// <summary>
+    /// Creates a mapping from ABI generic parameter names (τ_0_0, τ_0_1) to their sugared
+    /// source names (T, Element, U) from the type declaration's GenericParameters.
+    /// </summary>
+    public static Dictionary<string, string> GetAbiToSugaredNameMap(TypeDecl parentTypeDecl)
+    {
+        return parentTypeDecl.GenericParameters
+            .Where(p => !string.IsNullOrEmpty(p.SugaredTypeName))
+            .ToDictionary(p => p.TypeName, p => p.SugaredTypeName);
+    }
+
+    /// <summary>
+    /// Renders a TypeSpec using sugared source names (T, Element) instead of ABI names (τ_0_0).
+    /// Used inside protocol extension bodies where Swift's source-level names are in scope,
+    /// not the ABI-level mangled names.
+    /// </summary>
+    public static string RenderSwiftTypeSpecWithSugaredNames(TypeSpec typeSpec, Dictionary<string, string> abiToSugaredName)
+    {
+        if (typeSpec is NamedTypeSpec named && abiToSugaredName.TryGetValue(named.Name, out var sugared))
+            return sugared;
+        return ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
     }
 }

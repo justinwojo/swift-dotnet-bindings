@@ -217,8 +217,9 @@ namespace BindingsGeneration
 
                 unsafe {{_constructorName}}(IntPtr handle)
                 {
-                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({{_typeNameWithGenerics}}.Buffer));
-                    *({{_typeNameWithGenerics}}.Buffer*)bufferPtr = *({{_typeNameWithGenerics}}.Buffer*)handle;
+                    var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
+                    IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                    metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
                     _payload = new SwiftSafeHandle<{{_typeNameWithGenerics}}>(bufferPtr);
                 }
                 """;

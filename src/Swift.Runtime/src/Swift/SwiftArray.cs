@@ -125,11 +125,15 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
 
     /// <summary>
     /// Constructs a new SwiftArray from the given handle.
+    /// Uses VWT InitializeWithCopy to properly retain the Array's CoW buffer.
+    /// Without this, async callbacks would return stale data because the original
+    /// Swift Array goes out of scope after the callback returns.
     /// </summary>
     unsafe SwiftArray(IntPtr handle)
     {
-        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
-        *(IntPtr*)bufferPtr = *(IntPtr*)handle;
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
         _payload = new SwiftSafeHandle<SwiftArray<Element>>(bufferPtr);
     }
 

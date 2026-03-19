@@ -422,33 +422,70 @@ namespace BindingsGeneration
                     bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class
                                        || returnTypeSpec.IsDynamicSelf;
 
-                    // Allocate memory, copy result value, pass pointer through callback
-                    // C# will read from this memory and call SBW_Free to release it
+                    // Determine whether C#'s NewFromPayload takes ownership of the buffer
+                    // (non-frozen structs/enums projected as C# classes with SwiftSafeHandle).
+                    // When NewFromPayload takes ownership, we must use initializeMemory to properly
+                    // retain internal references — SwiftSafeHandle.Destroy will release them.
+                    // When NewFromPayload copies, we use copyMemory (the C# constructor uses
+                    // InitializeWithCopy which handles retain, and C# calls SBW_Free on the carrier).
+                    // Types that take ownership: non-frozen structs and enums that are projected as
+                    // C# classes (i.e., they have RequiresMemoryManagement and are not frozen structs
+                    // projected as class with Buffer). This excludes frozen value types, frozen-as-class
+                    // types, collections (no type record), and Swift class types.
+                    bool newFromPayloadTakesOwnership = false;
+                    if (!isClassType && complexReturnTypeRecord != null)
+                    {
+                        bool isFrozen = MarshallingHelpers.IsTypeFrozen(complexReturnTypeRecord);
+                        bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexReturnTypeRecord);
+                        bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexReturnTypeRecord);
+                        // Non-frozen enums and non-frozen structs with memory management → takes ownership
+                        // Also non-simple enums (which have RequiresMemoryManagement)
+                        newFromPayloadTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
+                    }
+
+                    // Allocate memory, copy result value, pass pointer through callback.
                     // Note: storeBytes(of:as:) requires BitwiseCopyable (Swift 6+), so we use
                     // alternative patterns that work with all types including classes like UIImage.
+                    string structEnumCopyCode;
+                    if (newFromPayloadTakesOwnership)
+                    {
+                        // Non-frozen structs/enums: initializeMemory properly retains internal refs.
+                        // C#'s NewFromPayload takes ownership; SwiftSafeHandle.Destroy releases them.
+                        structEnumCopyCode =
+                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
+                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                              $"                            _rawPtr.initializeMemory(as: {swiftReturnType}.self, repeating: {resultVar}, count: 1)\n";
+                    }
+                    else
+                    {
+                        // Frozen-as-class / collections / unknown: copyMemory is safe because C#'s
+                        // NewFromPayload allocates its own buffer with InitializeWithCopy (properly retains).
+                        // C# calls SBW_Free to deallocate this carrier buffer (no retain to release).
+                        structEnumCopyCode =
+                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
+                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                              $"                            withUnsafePointer(to: {resultVar}) {{ _srcPtr in\n" +
+                              $"                                _rawPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{swiftReturnType}>.size)\n" +
+                              $"                            }}\n";
+                    }
+
                     stringMarshalCode =
-                        $"// Marshal complex type to pointer (C# will free via SBW_Free)\n" +
+                        $"// Marshal complex type to pointer for C# callback\n" +
                         $"                        let _resultPtr: OpaquePointer\n" +
                         $"                        do {{\n" +
                         (isClassType
                             ? // For classes: retain and store the opaque pointer value directly.
                               // Unmanaged.passRetained increments refcount; toOpaque() returns UnsafeMutableRawPointer
                               // which IS BitwiseCopyable, avoiding the storeBytes restriction.
+                              // C# will free the 8-byte carrier buffer via SBW_Free.
+                              // SwiftClassHandle takes ownership of the +1 retain (no Arc.Release needed in C#).
                               $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
                               $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
                               $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
                               $"                            _rawPtr.storeBytes(of: Unmanaged.passRetained({resultVar} as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n"
-                            : // For structs/enums: use withUnsafePointer + copyMemory for a raw bitwise copy
-                              // without the BitwiseCopyable constraint. This matches the old storeBytes semantics
-                              // (no extra retain/copy of internal references) so SBW_Free can safely deallocate
-                              // the buffer without needing to call Destroy. The original 'result' variable keeps
-                              // internal references alive through the synchronous callback invocation.
-                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
-                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
-                              $"                            withUnsafePointer(to: {resultVar}) {{ _srcPtr in\n" +
-                              $"                                _rawPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{swiftReturnType}>.size)\n" +
-                              $"                            }}\n") +
+                            : structEnumCopyCode) +
                         $"                            _resultPtr = OpaquePointer(_rawPtr)\n" +
                         $"                        }}";
                 }
@@ -833,7 +870,16 @@ namespace BindingsGeneration
                 // ObjCBridged requires class type — the GetNSObject path reads _retainedObjPtr
                 // which is only declared when isClassType is true
                 bool isComplexObjCBridged = isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord);
-                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged);
+                // Non-frozen structs/enums with memory management: NewFromPayload takes ownership → no SBW_Free.
+                // All other types (frozen, classes, collections): NewFromPayload copies → SBW_Free needed.
+                bool cbTakesOwnership = false;
+                if (!isClassType && complexTypeRecord != null)
+                {
+                    bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexTypeRecord);
+                    bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
+                    cbTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
+                }
+                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership);
                 return;
             }
 
@@ -1164,21 +1210,15 @@ namespace BindingsGeneration
         /// allocates memory, stores the result, and passes an OpaquePointer.
         /// C# receives IntPtr, reads the value, and frees the memory.
         /// </summary>
-        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false)
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             // For class types, Swift retained the object before passing through callback.
-            // We must read the object pointer from the buffer (resultPtr points to buffer containing the pointer)
-            // and release it in finally to avoid leaking the retain even if marshalling throws.
+            // We must read the object pointer from the buffer (resultPtr points to buffer containing the pointer).
+            // SwiftClassHandle takes ownership of the +1 retain — no Arc.Release needed here.
             var readObjPtrCode = isClassType
                 ? "\n                            // Read object pointer from buffer (for class types, buffer contains the object reference)\n                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;"
-                : "";
-            // For ObjC-bridged types, GetNSObject<T> takes ownership of the passRetained reference —
-            // the NSObject wrapper will release on Dispose/finalize. Calling Arc.Release here would
-            // deallocate the object while the wrapper still references it (use-after-free → SIGSEGV).
-            var releaseObjCode = isClassType && !isObjCBridged
-                ? "\n                                // Release the retain added by Swift (must use dereferenced object pointer, not buffer pointer)\n                                Arc.Release(_retainedObjPtr);"
                 : "";
 
             // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
@@ -1191,6 +1231,14 @@ namespace BindingsGeneration
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
+
+            // Determine whether to free the Swift-allocated buffer:
+            // When NewFromPayload takes ownership (non-frozen structs/enums), don't free — the SafeHandle owns it.
+            // All other cases (classes, frozen structs, collections): free the carrier buffer.
+            bool shouldFreeSbwBuffer = !newFromPayloadTakesOwnership;
+            var freeCode = shouldFreeSbwBuffer
+                ? "\n                                // Free Swift-allocated memory\n                                SBW_Free(resultPtr);"
+                : "";
 
             var text = $$"""
                         {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
@@ -1216,9 +1264,7 @@ namespace BindingsGeneration
                                 }
                             }
                             finally
-                            {{{releaseObjCode}}
-                                // Free Swift-allocated memory
-                                SBW_Free(resultPtr);
+                            {{{freeCode}}
                                 handle.Free();
                             }
                         }
@@ -1496,9 +1542,7 @@ namespace BindingsGeneration
                     $"{indent}let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
                     $"{indent}let _errPtr = UnsafeMutableRawPointer.allocate(\n" +
                     $"{indent}    byteCount: _errSize, alignment: MemoryLayout<{typedThrowsSwiftErrorType}>.alignment)\n" +
-                    $"{indent}withUnsafePointer(to: error) {{ _src in\n" +
-                    $"{indent}    _errPtr.copyMemory(from: UnsafeRawPointer(_src), byteCount: _errSize)\n" +
-                    $"{indent}}}\n" +
+                    $"{indent}_errPtr.initializeMemory(as: {typedThrowsSwiftErrorType}.self, repeating: error, count: 1)\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
                     $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
                     $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask)\n" +

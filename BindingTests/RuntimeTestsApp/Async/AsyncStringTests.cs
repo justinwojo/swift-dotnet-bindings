@@ -108,7 +108,6 @@ public class AsyncStringTests : TestBase
         TestLogger.Info($"AsyncArrayWorker.AsyncGetUnicodeArray() = [{result.Count} items]");
     }
 
-    [Skip("Async callback array return count 0 on Mono")]
     public async Task TestAsyncGetIntArray()
     {
         var worker = new AsyncArrayWorker("ints");

@@ -44,8 +44,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ConcreteProperty_ReturnsFalse()
     {
+        // Generic struct parent with concrete property type — blocked because the property
+        // may come from a constrained extension. Only T-referencing properties are supported.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -60,9 +62,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericClassParent_GenericProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_GenericProperty_ReturnsTrue()
     {
-        // Property type references parent's generic param τ_0_0 → cannot use protocol erasure
+        // Property type references parent's generic param τ_0_0 — now supported via static dispatch
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -73,7 +75,7 @@ public class PropertyWrapperEmitterTests
         };
         var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]

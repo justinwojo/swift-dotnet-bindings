@@ -466,6 +466,47 @@ public class MarshalPlanRegressionTests
         Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result).ToNullable()", plan.PInvokeExpression);
     }
 
+    [Fact]
+    public void Optional_BlittablePrimitive_ReturnPlan_IndirectResult_DirectByteRead()
+    {
+        // When inner is a C# keyword-named blittable primitive (e.g., "int"),
+        // GetReturnPlan uses direct byte reading instead of SwiftOptional VWT.
+        var proj = new OptionalProjection(new BlittableProjection("int"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.True(plan.RequiresUnsafe);
+        // Should read discriminator byte at offset sizeof(int) = 4
+        Assert.Contains("((byte*)result)[4]", plan.PInvokeExpression);
+        Assert.Contains("(int?)*(int*)result", plan.PInvokeExpression);
+        // Should NOT go through SwiftOptional/ToNullable
+        Assert.DoesNotContain("SwiftMarshal", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Optional_BlittablePrimitive_ReturnPlan_Direct_StillUsesOldPath()
+    {
+        // Direct return strategy still uses the old SwiftMarshal path
+        // (only IndirectResult/OutBuffer use the new direct byte-reading)
+        var proj = new OptionalProjection(new BlittableProjection("int"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Optional_BlittableNonKeyword_ReturnPlan_IndirectResult_UsesOldPath()
+    {
+        // Non-keyword type names (e.g., "Int64") don't match GetBlittablePrimitiveSize
+        // and still use the old SwiftMarshal path.
+        var proj = new OptionalProjection(new BlittableProjection("Int64"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.False(plan.RequiresUnsafe);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result).ToNullable()", plan.PInvokeExpression);
+    }
+
     #endregion
 
     #region Optional (string inner)

@@ -76,7 +76,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"DataBuffer.GetFirst() = {first}");
     }
 
-    [Skip("Optional<Int32> marshalling on empty array")] // Optional<Int32> marshalling on empty array — known limitation
     public void TestDataBufferGetFirstEmpty()
     {
         var arr = new SwiftArray<int>();

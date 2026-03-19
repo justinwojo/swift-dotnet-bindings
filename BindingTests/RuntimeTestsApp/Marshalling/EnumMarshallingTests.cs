@@ -140,7 +140,6 @@ public class EnumMarshallingTests : TestBase
 
     #region Shape Enum (Associated Values)
 
-    [Skip("Shape.point FrozenPoint param has Double fields — ABI mismatch in @_cdecl wrapper")]
     public void TestShapeCaseCreation()
     {
         // Test creating Shape cases with associated values
@@ -159,7 +158,6 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Shape case creation passed");
     }
 
-    [Skip("Shape.point FrozenPoint param has Double fields — ABI mismatch in @_cdecl wrapper")]
     public void TestShapeAllCasesDistinct()
     {
         // Verify all cases produce distinct tags

@@ -424,6 +424,18 @@ namespace BindingsGeneration
                     // @_cdecl: pass container by reference (matches Swift's UnsafeRawPointer param)
                     argList.Add($"ref {bareName}Container");
                 }
+                else if (useCdeclWrapper && IsCustomFrozenStructParam(typeSpec, typeDatabase))
+                {
+                    // @_cdecl: custom frozen structs are passed as UnsafeRawPointer on the Swift side.
+                    // Marshal to a stack buffer and pass the pointer. This is required because
+                    // C calling convention passes float/double struct fields in FPR, but
+                    // UnsafeRawPointer expects a pointer in GPR — ABI mismatch.
+                    csWriter.WriteLine($"var {bareName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
+                    csWriter.WriteLine($"byte* {bareName}Buffer = stackalloc byte[(int){bareName}Metadata.Size];");
+                    csWriter.WriteLine($"var {bareName}Span = new Span<byte>({bareName}Buffer, (int){bareName}Metadata.Size);");
+                    csWriter.WriteLine($"SwiftMarshal.MarshalToSwift({name}, ref {bareName}Span);");
+                    argList.Add($"(IntPtr){bareName}Buffer");
+                }
                 else
                 {
                     var isConvertedToLocal = typeConversionHandler.IsSwiftString(typeSpec) ||
@@ -523,6 +535,11 @@ namespace BindingsGeneration
                     else if (typeSpec is TupleTypeSpec)
                     {
                         // @_cdecl: tuples pass as UnsafeRawPointer in Swift, IntPtr in C#
+                        pInvokeParams.Add($"IntPtr {name}");
+                    }
+                    else if (IsCustomFrozenStructParam(typeSpec, typeDatabase))
+                    {
+                        // @_cdecl: custom frozen structs pass as UnsafeRawPointer in Swift, IntPtr in C#
                         pInvokeParams.Add($"IntPtr {name}");
                     }
                     else
@@ -840,6 +857,24 @@ namespace BindingsGeneration
             }
 
             return paramName;
+        }
+
+        /// <summary>
+        /// Returns true if a type is a custom frozen struct that needs pointer passing
+        /// in @_cdecl wrappers. The Swift wrapper receives these as UnsafeRawPointer
+        /// (not by-value) because custom structs are not C-representable in @_cdecl.
+        /// System framework frozen structs (CGRect, etc.) are C-representable and pass by-value.
+        /// </summary>
+        private static bool IsCustomFrozenStructParam(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (typeSpec is not NamedTypeSpec named) return false;
+            if (!typeDatabase.TryGetTypeRecord(named, out var record)) return false;
+            if (record.Kind != TypeRecordKind.Struct) return false;
+            if (!MarshallingHelpers.IsTypeFrozen(record)) return false;
+            if (MarshallingHelpers.RequiresMemoryManagement(record)) return false;
+            // System structs pass by-value — only custom structs need pointer
+            if (ConstructorWrapperEmitter.IsSystemFrozenStruct(named)) return false;
+            return true;
         }
 
         /// <summary>

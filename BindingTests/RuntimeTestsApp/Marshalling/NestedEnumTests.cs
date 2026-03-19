@@ -252,7 +252,7 @@ public class NestedEnumTests : TestBase
 
     #region Tier 2 — Free Functions
 
-    [Skip("SHA2Variant:Int enum param is 8 bytes in Swift but mapped to int (4 bytes) in C# — CallConvSwift ABI size mismatch")]
+    [Skip("SHA2Variant:Int enum param crashes at runtime — ABI size mismatch between Swift Int (8 bytes) and C# int (4 bytes)")]
     public void TestCreateHashAlgorithm()
     {
         var algo = TestLibFunctions.CreateHashAlgorithm(SHA2Variant.Sha512);
@@ -312,7 +312,6 @@ public class NestedEnumTests : TestBase
 
     #region Pass 2 — L6: Nested Enum with String RawValue + CaseIterable
 
-    [Skip("String-raw-value enum deferred finalizer crash on both Mono and NativeAOT")]
     public void TestCodecAlignmentCases()
     {
         AssertEqual(Codec.Alignment.CaseTag.Left, Codec.Alignment.Left.Tag, "Left tag");
@@ -321,7 +320,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Alignment case tags passed");
     }
 
-    [Skip("String-raw-value enum deferred finalizer crash on both Mono and NativeAOT")]
     public void TestCodecAlignmentRawValues()
     {
         AssertEqual("left", Codec.Alignment.Left.RawValue.ToString(), "Left raw value");

@@ -132,6 +132,45 @@ public class AsyncSwiftWrapperTests
     }
 
     [Fact]
+    public void AsyncWrapper_NonFrozenEnumReturnType_UsesInitializeMemory()
+    {
+        // Enums with associated values (RequiresMemoryManagement) are projected as C# classes
+        // with SwiftSafeHandle. NewFromPayload takes ownership of the buffer, so the Swift side
+        // must use initializeMemory (not copyMemory) to properly retain internal references.
+        // SwiftSafeHandle.Destroy will release them on finalization.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.StatusCode",
+            returnKind: TypeRecordKind.Enum,
+            returnFlags: TypeRecordFlags.RequiresMemoryManagement);
+
+        // Swift side: should use initializeMemory (properly retains internal refs)
+        Assert.Contains("initializeMemory(as: TestModule.StatusCode.self", swiftOutput);
+        Assert.DoesNotContain("copyMemory", swiftOutput);
+        Assert.DoesNotContain("storeBytes(of:", swiftOutput);
+        Assert.DoesNotContain("Unmanaged.passRetained", swiftOutput);
+
+        // C# side: should NOT call SBW_Free (NewFromPayload takes ownership)
+        Assert.DoesNotContain("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ClassReturnType_FreesSbwBuffer()
+    {
+        // Class types: Swift stores the retained object pointer in an 8-byte buffer.
+        // C# must free the carrier buffer via SBW_Free, but NOT call Arc.Release
+        // on _retainedObjPtr (SwiftClassHandle handles the release via its ReleaseHandle).
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.ImageResult",
+            returnKind: TypeRecordKind.Class);
+
+        // Should free the 8-byte carrier buffer
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+        // Should NOT call Arc.Release(_retainedObjPtr) in the finally block
+        // (Arc.Release for RetainedSelfPtr in holder cleanup is a different pattern)
+        Assert.DoesNotContain("Arc.Release(_retainedObjPtr)", csOutput);
+    }
+
+    [Fact]
     public void AsyncWrapper_PrimitiveReturnType_DoesNotUsePointerMarshalling()
     {
         // Primitive types (Int, Double, Bool) are passed directly through @convention(c)
@@ -220,8 +259,9 @@ public class AsyncSwiftWrapperTests
         // Should NOT use GetNSObject (that's for ObjC types only)
         Assert.DoesNotContain("GetNSObject", csOutput);
 
-        // Non-ObjC class types still need Arc.Release to balance passRetained
-        Assert.Contains("Arc.Release(_retainedObjPtr)", csOutput);
+        // Non-ObjC class types: SwiftClassHandle takes ownership of the +1 retain from
+        // passRetained, so no explicit Arc.Release(_retainedObjPtr) in the callback (would double-release).
+        Assert.DoesNotContain("Arc.Release(_retainedObjPtr)", csOutput);
     }
 
     [Fact]
@@ -802,7 +842,8 @@ public class AsyncSwiftWrapperTests
     private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithComplexReturn(
         string returnTypeName,
         TypeRecordKind returnKind,
-        bool isObjCBridged = false)
+        bool isObjCBridged = false,
+        TypeRecordFlags? returnFlags = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -893,20 +934,20 @@ public class AsyncSwiftWrapperTests
 
         // Register the return type — may be in a different module (e.g., UIKit.UIImage)
         var returnSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(returnTypeName);
-        var returnFlags = returnKind == TypeRecordKind.Class
+        var computedReturnFlags = returnFlags ?? (returnKind == TypeRecordKind.Class
             ? TypeRecordFlags.RequiresMemoryManagement
             : returnKind == TypeRecordKind.Struct
                 ? TypeRecordFlags.Frozen
-                : TypeRecordFlags.None;
+                : TypeRecordFlags.None);
         if (isObjCBridged)
-            returnFlags |= TypeRecordFlags.ObjCBridged;
+            computedReturnFlags |= TypeRecordFlags.ObjCBridged;
         var returnNamespace = returnTypeName.Contains('.') ? returnTypeName.Substring(0, returnTypeName.IndexOf('.')) : "TestModule";
         var returnTypeRecord = new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName(returnNamespace, returnTypeName.Split('.').Last()),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = $"$s10TestModule{returnTypeName.Split('.').Last()}CMa",
-            Flags = returnFlags,
+            Flags = computedReturnFlags,
             Kind = returnKind
         };
         // Register in the correct module database (UIKit.UIImage → UIKit module)

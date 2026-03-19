@@ -55,11 +55,13 @@ public static class MethodWrapperEmitter
         if (parentTypeDecl == null && env.ParentDecl is not ModuleDecl)
             return false;
 
-        // 5b. Generic parent type — allow non-final class instance methods with concrete signatures
-        // (protocol-based type erasure enables calling without knowing the generic type parameter)
+        // 5b. Generic parent type — allow methods using protocol-based type erasure.
+        // Two paths:
+        // 1. Generic class with concrete params/return → existing protocol instance dispatch
+        // 2. Generic struct/class with T-typed params/return → protocol with static method
         if (parentTypeDecl?.IsGeneric == true)
         {
-            if (!CanEmitGenericClassWrapper(env, parentTypeDecl))
+            if (!CanEmitGenericWrapper(env, parentTypeDecl))
                 return false;
         }
 
@@ -236,7 +238,21 @@ public static class MethodWrapperEmitter
         // When calling a silgen target, all parameters use _ (no external labels).
         bool omitLabels = silgenTarget != null;
 
-        bool isGenericParent = IsGenericClassParent(env.ParentDecl);
+        bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
+        bool needsStaticDispatch = isGenericParent && parentTypeDecl != null &&
+            NeedsGenericStaticDispatch(env, parentTypeDecl);
+
+        // For generic static dispatch methods, delegate to the specialized emitter.
+        if (needsStaticDispatch && !isStatic)
+        {
+            EmitGenericStaticDispatchMethod(swiftWriter, env, ctx, symbolName,
+                parentTypeDecl!, moduleQualifiedSwiftName,
+                isClass, isMutating, throws, returnTypeSpec, isVoidReturn, isString,
+                needsResultPtr, returnMapping);
+            return;
+        }
+
+        bool isGenericClassParent = IsGenericClassParent(env.ParentDecl);
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env, overrideNeedsResultPtr: needsResultPtr);
         foreach (var phase in order.Phases)
@@ -308,7 +324,7 @@ public static class MethodWrapperEmitter
                     break;
 
                 case CdeclPhase.Metadata:
-                    if (isGenericParent && parentTypeDecl != null)
+                    if (isGenericClassParent && parentTypeDecl != null)
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
@@ -374,7 +390,7 @@ public static class MethodWrapperEmitter
 
         // For generic parent class types, emit protocol + conformance for type erasure
         string? protocolName = null;
-        if (isGenericParent && !string.IsNullOrEmpty(moduleQualifiedSwiftName))
+        if (isGenericClassParent && !string.IsNullOrEmpty(moduleQualifiedSwiftName))
         {
             protocolName = $"_SBW_P_{EmitterUtility.DeterministicHash8(symbolName)}";
             EmitGenericClassProtocolAndConformance(
@@ -429,7 +445,7 @@ public static class MethodWrapperEmitter
         // Reconstruct self for instance methods
         if (!isStatic)
         {
-            if (isGenericParent && protocolName != null)
+            if (isGenericClassParent && protocolName != null)
             {
                 // Generic parent class: use AnyObject + protocol cast for type erasure
                 swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
@@ -494,6 +510,382 @@ public static class MethodWrapperEmitter
             // The struct was loaded from self_ pointer; mutations happened on obj.
             // Write back the mutated value.
             // (Handled inline by using through-pointer access for mutating methods)
+        }
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a @_cdecl method wrapper for generic types where T appears in the method
+    /// parameters or return type. Uses protocol-based type erasure with a static dispatch method:
+    /// 1. Defines a protocol with a static method (UnsafeRawPointer for T positions)
+    /// 2. Extends the generic type to unconditionally conform
+    /// 3. The @_cdecl wrapper receives metadata, casts to protocol type, calls static method
+    /// </summary>
+    private static void EmitGenericStaticDispatchMethod(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ModuleEmissionContext? ctx,
+        string symbolName,
+        TypeDecl parentTypeDecl,
+        string moduleQualifiedSwiftName,
+        bool isClass,
+        bool isMutating,
+        bool throws,
+        TypeSpec returnTypeSpec,
+        bool isVoidReturn,
+        bool isString,
+        bool needsResultPtr,
+        PropertyWrapperEmitter.CdeclReturnMapping returnMapping)
+    {
+        var methodDecl = env.MethodDecl;
+        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+        var abiToSugaredName = WrapperValidation.GetAbiToSugaredNameMap(parentTypeDecl);
+
+        var methodHash = EmitterUtility.DeterministicHash8(symbolName);
+        var protocolName = $"_SBW_GSM_{methodHash}";
+        var dispatchMethodName = $"_sbw_dispatch_{methodHash}";
+        var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
+
+        // For string returns in generic static dispatch, we need Utf8Slice infrastructure
+        if (isString)
+        {
+            var moduleName = parentTypeDecl.SwiftTypeName.Module;
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx ?? ModuleEmissionContext.Default);
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, ctx ?? ModuleEmissionContext.Default);
+        }
+
+        // Determine if return type references T
+        bool returnReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(returnTypeSpec, genericParamNames);
+
+        // Build protocol method and @_cdecl signatures
+        var protocolParams = new List<string>();
+        var extensionBodyLines = new List<string>();
+        var methodCallArgs = new List<string>();
+        var cdeclParams = new List<string>();
+        var cdeclCallArgs = new List<string>();
+
+        // Result ptr for indirect results (including T returns)
+        bool cdeclNeedsResultPtr = needsResultPtr || (returnReferencesT && !isVoidReturn);
+        if (cdeclNeedsResultPtr)
+        {
+            cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+            protocolParams.Add("resultPtr: UnsafeMutableRawPointer");
+            cdeclCallArgs.Add("resultPtr: resultPtr");
+        }
+
+        if (throws)
+        {
+            cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            cdeclCallArgs.Add("errorOut: errorOut");
+        }
+
+        // Self parameter
+        if (isClass)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else if (isMutating)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else
+            cdeclParams.Add("_ self_: UnsafeRawPointer");
+
+        protocolParams.Add(isMutating ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
+        cdeclCallArgs.Add("selfPtr: self_");
+
+        // Method arguments
+        int argIndex = 0;
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (label == "_") label = $"arg{argIndex}";
+            if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
+            label = SwiftBuilder.SanitizeIdentifier(label);
+
+            var argLabel = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => "_",
+                "_" => "_",
+                var n when n.StartsWith("_") => n.Substring(1),
+                var n when string.IsNullOrEmpty(n) => "_",
+                var n => n
+            };
+
+            var protocolArgLabel = argLabel == "_" ? "" : argLabel + ": ";
+            var methodArgLabel = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => "",
+                "_" => "",
+                var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+                var n when string.IsNullOrEmpty(n) => "",
+                var n => $"{n}: "
+            };
+
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+            {
+                protocolParams.Add($"{argLabel} {label}: UnsafeRawPointer");
+                cdeclParams.Add($"_ {label}: UnsafeRawPointer");
+                cdeclCallArgs.Add($"{protocolArgLabel}{label}");
+
+                var swiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(arg.SwiftTypeSpec, abiToSugaredName);
+                extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                methodCallArgs.Add($"{methodArgLabel}{label}Val");
+            }
+            else
+            {
+                var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, false);
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                protocolParams.Add($"{argLabel} {label}: {swiftType}");
+                cdeclParams.Add(cdeclParam);
+
+                if (reconstruction != null)
+                {
+                    cdeclCallArgs.Add($"{protocolArgLabel}{label}Val");
+                }
+                else
+                {
+                    cdeclCallArgs.Add($"{protocolArgLabel}{label}");
+                }
+
+                methodCallArgs.Add($"{methodArgLabel}{label}");
+            }
+            argIndex++;
+        }
+
+        // Metadata parameters for @_cdecl
+        for (int mi = 0; mi < parentTypeDecl.GenericParameters.Count; mi++)
+        {
+            cdeclParams.Add($"_ _metadata{mi}: UnsafeRawPointer");
+        }
+
+        // Build protocol method declaration
+        string protocolReturnType;
+        if (isVoidReturn || cdeclNeedsResultPtr)
+            protocolReturnType = "";
+        else
+            protocolReturnType = $" -> {returnMapping.cdeclReturnType}";
+
+        var throwsClause = throws ? " throws" : "";
+        var protocolMethodSig = $"static func {dispatchMethodName}({string.Join(", ", protocolParams)}){throwsClause}{protocolReturnType}";
+
+        // Build extension body
+        var methodCallArgString = string.Join(", ", methodCallArgs);
+
+        // Reconstruct self inside the extension body
+        if (isClass)
+        {
+            extensionBodyLines.Insert(0, "let obj = Unmanaged<AnyObject>.fromOpaque(selfPtr).takeUnretainedValue() as! Self");
+        }
+        else if (isMutating)
+        {
+            extensionBodyLines.Insert(0, $"var obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
+        }
+        else
+        {
+            extensionBodyLines.Insert(0, $"let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee");
+        }
+
+        // Build the call and result handling
+        string tryPrefix = throws ? "try " : "";
+        if (isVoidReturn)
+        {
+            extensionBodyLines.Add($"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+        }
+        else if (isString)
+        {
+            // String returns: write SBW_Utf8Slice to resultPtr
+            extensionBodyLines.Add($"let result: String = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            // For mutating methods, write back BEFORE any early return (empty string branch)
+            if (isMutating && !isClass)
+            {
+                extensionBodyLines.Add("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
+            }
+            extensionBodyLines.Add("let utf8 = Array(result.utf8)");
+            extensionBodyLines.Add("if utf8.isEmpty {");
+            extensionBodyLines.Add("    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");
+            extensionBodyLines.Add("    return");
+            extensionBodyLines.Add("}");
+            extensionBodyLines.Add("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
+            extensionBodyLines.Add("ptr.initialize(from: utf8, count: utf8.count)");
+            extensionBodyLines.Add("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
+        }
+        else if (returnReferencesT)
+        {
+            // T return: write to resultPtr using the concrete type from the extension
+            // Use sugared names (T, Element) instead of ABI names (τ_0_0)
+            var returnSwiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(returnTypeSpec, abiToSugaredName);
+            extensionBodyLines.Add($"let result = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"resultPtr.initializeMemory(as: {returnSwiftType}.self, repeating: result, count: 1)");
+        }
+        else if (cdeclNeedsResultPtr)
+        {
+            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+            var metatype = returnSwiftType.StartsWith("any ") ? $"({returnSwiftType}).self" : $"{returnSwiftType}.self";
+            extensionBodyLines.Add($"let result = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            extensionBodyLines.Add($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+        }
+        else
+        {
+            // Direct return — must apply the same conversions as EmitDirectGetterReturn:
+            // Bool → Int8 (ternary), SimpleEnum → rawValue/tag, ClassPointer → Unmanaged
+            var callExpr = $"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})";
+            switch (returnMapping.Kind)
+            {
+                case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+                    extensionBodyLines.Add($"let result = {callExpr}");
+                    extensionBodyLines.Add("return result ? 1 : 0");
+                    break;
+                case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+                    // Tag-only enums have no rawValue — extract tag bits via pointer.
+                    // Matches EmitDirectGetterReturn in PropertyWrapperEmitter.
+                    if (env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
+                        !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
+                    {
+                        extensionBodyLines.Add($"let result = {callExpr}");
+                        extensionBodyLines.Add($"return {returnMapping.cdeclReturnType}(result.rawValue)");
+                    }
+                    else
+                    {
+                        extensionBodyLines.Add($"var result = {callExpr}");
+                        extensionBodyLines.Add($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {returnMapping.cdeclReturnType}.self) }}");
+                    }
+                    break;
+                case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+                    extensionBodyLines.Add($"let result = {callExpr}");
+                    extensionBodyLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+                    break;
+                case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+                    extensionBodyLines.Add($"let result = {callExpr}");
+                    extensionBodyLines.Add("return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }");
+                    break;
+                default:
+                    extensionBodyLines.Add($"return {callExpr}");
+                    break;
+            }
+        }
+
+        // For mutating struct methods, write back BEFORE any return statement.
+        // Skip if already handled in the string branch (which inserts write-back before early return).
+        if (isMutating && !isClass && !isString)
+        {
+            // Insert the write-back before the last line (which contains `return`)
+            // to ensure mutating state changes are persisted
+            var lastIdx = extensionBodyLines.Count - 1;
+            if (lastIdx >= 0 && extensionBodyLines[lastIdx].TrimStart().StartsWith("return"))
+            {
+                extensionBodyLines.Insert(lastIdx, "selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
+            }
+            else
+            {
+                extensionBodyLines.Add("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
+            }
+        }
+
+        // Emit protocol
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                {{protocolMethodSig}}
+            }
+            """);
+
+        // Emit extension
+        var extensionBody = string.Join("\n        ", extensionBodyLines);
+        swiftWriter.WriteLines($$"""
+            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
+                static func {{dispatchMethodName}}({{string.Join(", ", protocolParams)}}){{throwsClause}}{{protocolReturnType}} {
+                    {{extensionBody}}
+                }
+            }
+            """);
+
+        // Emit @_cdecl wrapper
+        var cdeclParamString = string.Join(", ", cdeclParams);
+        var swiftFuncName = $"_sbw_method_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        string cdeclReturnClause;
+        if (isVoidReturn || cdeclNeedsResultPtr)
+            cdeclReturnClause = "";
+        else
+            cdeclReturnClause = $" -> {returnMapping.cdeclReturnType}";
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Method @_cdecl wrapper for {{moduleQualifiedSwiftName}}.{{methodDecl.Name}} (generic static dispatch).
+            // Routes through protocol-based type erasure to avoid CallConvSwift crash.
+            """);
+
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
+        if (needsMainActor)
+            swiftWriter.WriteLine("@MainActor");
+
+        swiftWriter.WriteLines($$"""
+            @_cdecl("{{symbolName}}")
+            """);
+
+        swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
+        swiftWriter.Indent++;
+
+        // Emit parameter reconstruction for concrete params
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames)) continue;
+
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (label == "_") label = $"arg{i}";
+            if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
+            label = SwiftBuilder.SanitizeIdentifier(label);
+
+            var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, false);
+            if (reconstruction != null)
+                swiftWriter.WriteLine(reconstruction);
+        }
+
+        // Metatype dispatch
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+
+        // Call the protocol static method
+        var cdeclCallArgString = string.Join(", ", cdeclCallArgs);
+
+        if (throws)
+        {
+            swiftWriter.WriteLine("do {");
+            swiftWriter.Indent++;
+            if (isVoidReturn || cdeclNeedsResultPtr)
+                swiftWriter.WriteLine($"try metatype.{dispatchMethodName}({cdeclCallArgString})");
+            else
+                swiftWriter.WriteLine($"return try metatype.{dispatchMethodName}({cdeclCallArgString})");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLines("""
+                } catch {
+                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                """);
+            if (!isVoidReturn && !cdeclNeedsResultPtr)
+            {
+                swiftWriter.WriteLine("    return 0"); // sentinel
+            }
+            swiftWriter.WriteLine("}");
+        }
+        else if (isVoidReturn || cdeclNeedsResultPtr)
+        {
+            swiftWriter.WriteLine($"metatype.{dispatchMethodName}({cdeclCallArgString})");
+        }
+        else
+        {
+            swiftWriter.WriteLine($"return metatype.{dispatchMethodName}({cdeclCallArgString})");
         }
 
         swiftWriter.Indent--;
@@ -804,25 +1196,111 @@ public static class MethodWrapperEmitter
 
     /// <summary>
     /// Returns true when a method on a generic parent type can be wrapped via @_cdecl
-    /// using protocol-based type erasure. Requirements:
-    /// - Parent is a class (AnyObject cast + protocol witness dispatch)
-    /// - Method is an instance method (not static — static dispatch uses wrong metadata)
-    /// - Method signature doesn't reference the parent type's generic parameters
+    /// using protocol-based type erasure.
+    ///
+    /// Two paths:
+    /// 1. Generic class with concrete params/return — existing protocol instance dispatch
+    /// 2. Generic struct/class with T-typed params/return — protocol with static method
+    /// </summary>
+    internal static bool CanEmitGenericWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        // Path 1: Generic class with concrete (non-T-referencing) signature — existing approach
+        if (parentTypeDecl is ClassDecl && env.MethodDecl.MethodType != MethodType.Static)
+        {
+            if (!HasGenericTypeParamInSignature(env, parentTypeDecl))
+                return true; // Path 1: concrete signature, use existing instance dispatch
+        }
+
+        // Path 2: Generic struct or class with T-typed params/return — static protocol dispatch
+        return CanEmitGenericStaticMethodWrapper(env, parentTypeDecl);
+    }
+
+    /// <summary>
+    /// Backward-compatible alias for external callers.
     /// </summary>
     internal static bool CanEmitGenericClassWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        // Only class types — protocol dispatch via existential cast
-        if (parentTypeDecl is not ClassDecl)
-            return false;
+        => CanEmitGenericWrapper(env, parentTypeDecl);
 
-        // Instance methods only — static methods lack a self pointer for existential dispatch
+    /// <summary>
+    /// Returns true when a generic method can use the static protocol dispatch pattern.
+    /// This pattern creates a protocol with a static method whose signature uses
+    /// UnsafeRawPointer for T-typed parameters and UnsafeMutableRawPointer for T-typed returns.
+    ///
+    /// Requirements:
+    /// - Must be an instance method (not static — static dispatch needs different approach)
+    /// - T-typed params must be simple direct generic params (τ_0_0), not complex compositions
+    /// - T-typed returns are handled via resultPtr (UnsafeMutableRawPointer)
+    /// </summary>
+    internal static bool CanEmitGenericStaticMethodWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        // Instance methods only for now — static methods lack self pointer for dispatch
         if (env.MethodDecl.MethodType == MethodType.Static)
             return false;
 
-        // No generic type params in method signature (params/returns must be concrete)
-        if (HasGenericTypeParamInSignature(env, parentTypeDecl))
-            return false;
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
 
+        // For non-class parents (structs), only allow methods that reference T in their
+        // signature. Methods with concrete-only signatures may come from constrained extensions
+        // (e.g., `extension Wrapper where T: Equatable`), and unconditional protocol conformances
+        // can't access conditionally-available members. Fall back to CallConvSwift for these.
+        if (parentTypeDecl is not ClassDecl)
+        {
+            bool signatureReferencesT = env.MethodDecl.CSSignature
+                .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
+            if (!signatureReferencesT)
+                return false;
+        }
+
+        // Check params: T-typed must be simple direct generic params
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+            {
+                // Allow direct generic param (e.g., T itself)
+                if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
+                    continue;
+                // Block complex generic compositions for now
+                return false;
+            }
+        }
+
+        // Check return: T-typed returns are OK (routed through resultPtr)
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames))
+        {
+            // Allow direct generic param return
+            if (returnSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
+            { /* OK */ }
+            else
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when a method needs the generic static protocol dispatch approach
+    /// (as opposed to the existing concrete-signature instance dispatch approach).
+    /// </summary>
+    internal static bool NeedsGenericStaticDispatch(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric) return false;
+
+        // Path 1 check: generic class with concrete signature uses existing instance dispatch
+        if (parentTypeDecl is ClassDecl && env.MethodDecl.MethodType != MethodType.Static)
+        {
+            if (!HasGenericTypeParamInSignature(env, parentTypeDecl))
+                return false; // Existing instance dispatch works
+        }
+
+        // All generic struct methods need static dispatch; class methods with T in signature need it too
         return true;
     }
 

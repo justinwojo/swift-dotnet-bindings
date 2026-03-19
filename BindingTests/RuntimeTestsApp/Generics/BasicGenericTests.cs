@@ -215,7 +215,7 @@ public class BasicGenericTests : TestBase
     // Generic types use TypeMetadata resolution via SwiftObjectHelper<T>.GetTypeMetadata().
     // Class/struct allocating inits pass specialized metatype (e.g., GenericClass<T>.self).
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — needs @_cdecl wrapper for generic struct")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestWrapperCreation()
     {
         var inner = new SummableInt32(value: 42);
@@ -225,7 +225,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — needs @_cdecl wrapper for generic struct")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -235,7 +235,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(99).Unwrap().Value = {result.Value}");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — needs @_cdecl wrapper for generic struct")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericPairCreation()
     {
         var a = new SummableInt32(value: 10);
@@ -246,7 +246,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericPair(10, 20) = ({pair.First.Value}, {pair.Second.Value})");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — needs @_cdecl wrapper for generic struct")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericPairMixedTypes()
     {
         var s = new SummableInt32(value: 5);
@@ -256,7 +256,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(3, pair.Second.Sum(), "GenericPair mixed Second.Sum()");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — @_cdecl wrapper stripped (metadata resolution failed)")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericClassCreation()
     {
         var inner = new SummableInt32(value: 77);
@@ -266,7 +266,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — @_cdecl wrapper stripped (metadata resolution failed)")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericClassGetMethod()
     {
         var inner = new SummableInt32(value: 33);
@@ -275,7 +275,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
 
-    [Skip("SwiftIndirectResult+SwiftSelf combo crashes both Mono JIT and NativeAOT — @_cdecl wrapper stripped (metadata resolution failed)")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericClassValueSetter()
     {
         var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
@@ -308,7 +308,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("SwiftIndirectResult + 4 IntPtr params crashes both Mono JIT and NativeAOT — needs @_cdecl wrapper")]
+    [Skip("Method-level generic free function pair<T,U>: @_cdecl wrapper emission not yet supported for method-level generics")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);
@@ -323,7 +323,7 @@ public class BasicGenericTests : TestBase
 
     #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
 
-    [Skip("CallConvSwift with 4+ regular params crashes both Mono JIT and NativeAOT — init has 4 IntPtr")]
+    [Skip("Generic class constructor with T-typed params needs protocol-based static factory pattern (Session 7C pattern + constructor extension)")]
     public void TestConstrainedBoxCreation()
     {
         var item = new SimpleItem("gen-id", "test");
@@ -332,7 +332,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("CallConvSwift with Tj dispatch thunk + SwiftString.Buffer return crashes both Mono JIT and NativeAOT — @_cdecl wrapper stripped")]
+    [Skip("ConstrainedBox.getDescription wrapper gap: method doesn't reference T but no @_cdecl wrapper generated — needs investigation")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");
@@ -346,7 +346,7 @@ public class BasicGenericTests : TestBase
 
     #region M3: Generic Class Implementing Protocol (GenericNamedBox)
 
-    [Skip("CallConvSwift with 4+ regular params crashes both Mono JIT and NativeAOT — init has SwiftString.Buffer + 2 IntPtr + metatype")]
+    [SkipOnSimulator("Generic static factory protocol dispatch triggers Mono JIT jit-info.c:918 assertion")]
     public void TestGenericNamedBoxCreation()
     {
         var item = new SummableInt32(value: 42);
@@ -355,7 +355,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("GenericNamedBox creation passed");
     }
 
-    [Skip("GenericNamedBox constructor has 4+ params — crashes CallConvSwift on both Mono JIT and NativeAOT")]
+    [Skip("GenericNamedBox.Name property getter needs protocol-based static dispatch for generic class properties")]
     public void TestGenericNamedBoxName()
     {
         var item = new SummableInt32(value: 10);
@@ -391,7 +391,7 @@ public class BasicGenericTests : TestBase
             "Disposed BaseEntity throws on access");
     }
 
-    [Skip("CallConvSwift with 4+ regular params crashes both Mono JIT and NativeAOT — init has int + 2 IntPtr + metatype")]
+    [Skip("Generic class constructor with T-typed params needs protocol-based static factory pattern (TypedEntity<T> inherits BaseEntity)")]
     public void TestTypedEntityCreation()
     {
         var item = new SummableInt32(value: 99);

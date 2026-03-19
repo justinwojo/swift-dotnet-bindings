@@ -217,6 +217,38 @@ public class OptionalProjection : ITypeProjection
             return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, containerConv);
         }
 
+        // Blittable primitive inner types: read the discriminator byte directly from the buffer
+        // instead of going through SwiftOptional<T> and VWT GetEnumTag. This avoids a known issue
+        // where VWT GetEnumTag returns incorrect values for Optional<Int32> on some runtimes.
+        // Layout: [sizeof(T) bytes payload][1 byte discriminator: 0=Some, 1=None]
+        var blittableSize = GetBlittablePrimitiveSize(_innerProjection);
+        if (blittableSize != null && strategy is ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer)
+        {
+            var innerType = _innerProjection.PublicType;
+            var innerRetConvBlittable = _innerProjection.GetReturnElementConversion("_optVal");
+            // Direct byte read: check discriminator at offset sizeof(T)
+            var tagExpr = $"((byte*){resultName})[{blittableSize.Value}]";
+            var valueExpr = $"*({innerType}*){resultName}";
+            if (innerRetConvBlittable != null)
+            {
+                return new MarshalPlan
+                {
+                    SetupStatements = new List<MarshalStatement>
+                    {
+                        new MarshalStatement.Line(
+                            $"var _optVal = {tagExpr} == 0 ? ({innerType}?){valueExpr} : null;")
+                    },
+                    PInvokeExpression = $"_optVal is {{ }} rawVal ? {innerRetConvBlittable} : null",
+                    RequiresUnsafe = true
+                };
+            }
+            return new MarshalPlan
+            {
+                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : null)",
+                RequiresUnsafe = true
+            };
+        }
+
         // Non-existential, non-container — ToNullable() path
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
@@ -264,6 +296,24 @@ public class OptionalProjection : ITypeProjection
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)
+        };
+    }
+
+    /// <summary>
+    /// Returns the size in bytes for blittable primitive C# types, or null if not a known blittable primitive.
+    /// Used for direct discriminator byte reading in Optional return marshalling.
+    /// </summary>
+    private static int? GetBlittablePrimitiveSize(ITypeProjection inner)
+    {
+        if (inner is not BlittableProjection) return null;
+        return inner.PublicType switch
+        {
+            "bool" or "byte" or "sbyte" => 1,
+            "short" or "ushort" => 2,
+            "int" or "uint" or "float" => 4,
+            "long" or "ulong" or "double" => 8,
+            "nint" or "nuint" => 8, // 8 bytes on arm64
+            _ => null
         };
     }
 

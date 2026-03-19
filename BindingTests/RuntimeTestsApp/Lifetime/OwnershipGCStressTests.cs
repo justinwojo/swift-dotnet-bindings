@@ -11,7 +11,6 @@ namespace RuntimeTestsApp.Lifetime;
 /// GC stress tests that trigger ForceGC() or construct MutableProps.
 /// Separated from OwnershipTests for independent failure isolation.
 /// </summary>
-[Skip("GC stress triggers finalizer crash (NativeMemory.Free/swift_release) on both Mono and NativeAOT")]
 public class OwnershipGCStressTests : TestBase
 {
     public OwnershipGCStressTests(TestResults results) : base(results) { }

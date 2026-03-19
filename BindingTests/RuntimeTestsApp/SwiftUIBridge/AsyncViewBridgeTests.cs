@@ -17,7 +17,6 @@ public class BridgeAsyncViewTests : TestBase
 {
     public BridgeAsyncViewTests(TestResults results) : base(results) { }
 
-    [Skip("Async finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle during Arc.Release — crashes both runtimes")]
     public async Task TestAsyncServiceView()
     {
         var handle = await WithTimeout(CreateAsyncServiceView("test-key"), DefaultAsyncTimeout);
@@ -36,7 +35,6 @@ public class BridgeAsyncViewTests : TestBase
         TestLogger.Info("AsyncServiceView: create/validate/free cycle passed");
     }
 
-    [Skip("Async finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle during Arc.Release — crashes both runtimes")]
     public async Task TestDeepChainView()
     {
         var handle = await WithTimeout(CreateDeepChainView("test-key", 42), DefaultAsyncTimeout);
@@ -49,7 +47,6 @@ public class BridgeAsyncViewTests : TestBase
         TestLogger.Info("DeepChainView: create/validate/free cycle passed");
     }
 
-    [Skip("Async finalizer thread SIGSEGV in SwiftClassHandle.ReleaseHandle during Arc.Release — crashes both runtimes")]
     public async Task TestMixedAsyncView()
     {
         var handle = await WithTimeout(CreateMixedAsyncView("test-key", 10, true), DefaultAsyncTimeout);

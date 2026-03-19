@@ -132,9 +132,11 @@ public class TypedThrowsEmitterTests
         Assert.Contains("SBW_Free(errorPtr)", csOutput);
         Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
 
-        // Swift side: typed error callback with MemoryLayout + copyMemory
+        // Swift side: typed error callback with MemoryLayout + initializeMemory
+        // Uses initializeMemory (not copyMemory) to properly retain internal references
+        // in error enum associated values (e.g., String fields in ParseError.overflow).
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
-        Assert.Contains("copyMemory(from: UnsafeRawPointer(_src)", swiftOutput);
+        Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
         Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64", swiftOutput);
     }
 
@@ -200,6 +202,9 @@ public class TypedThrowsEmitterTests
         // Complex enums (non-SimpleEnum) are projected as C# classes with SafeHandle.
         // MarshalFromSwift takes ownership of the buffer — SBW_Free must only run on exception,
         // not in finally (which would double-free when SafeHandle finalizes).
+        // IMPORTANT: The throw new SwiftException must be OUTSIDE the try-catch that frees
+        // the buffer, otherwise re-throwing the exception triggers the catch handler and
+        // frees the buffer while the SwiftException still holds a reference to it.
         var (csOutput, _) = GenerateThrowingMethod(
             isAsync: false,
             hasTypedThrows: true,
@@ -208,7 +213,13 @@ public class TypedThrowsEmitterTests
         // The error type is registered as complex enum (Kind=Enum, no SimpleEnum flag).
         // Should use catch block, not finally, for SBW_Free.
         Assert.Contains("catch { SBW_Free(_typedErrorPtr); throw; }", csOutput);
-        Assert.DoesNotContain("finally\n", csOutput.Split("_typedErrorPtr")[2]);
+        // The throw new SwiftException must be AFTER the try-catch, not inside it.
+        // Split at MarshalFromSwift — the catch should come before the throw SwiftException.
+        var afterMarshal = csOutput.Substring(csOutput.IndexOf("MarshalFromSwift"));
+        var catchIndex = afterMarshal.IndexOf("catch { SBW_Free(_typedErrorPtr)");
+        var throwExceptionIndex = afterMarshal.IndexOf("throw new SwiftException");
+        Assert.True(catchIndex < throwExceptionIndex,
+            "catch { SBW_Free } should come before throw new SwiftException (not wrap it)");
     }
 
     [Fact]

@@ -149,11 +149,13 @@ public class WrapperConsistencyTests
 
     #endregion
 
-    #region Generic Struct Parent — All Wrappers Must Reject
+    #region Generic Struct Parent — Constructor/Method/Property Accept, Subscript Rejects
 
     [Fact]
-    public void GenericStructParent_AllWrappersReject()
+    public void GenericStructParent_ConstructorMethodPropertyAccept_SubscriptRejects()
     {
+        // Generic struct parents now supported for constructor, method, and property
+        // via protocol-based static dispatch. Subscript still blocked (separate emitter).
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -163,24 +165,24 @@ public class WrapperConsistencyTests
             new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
 
-        // Method
+        // Method with concrete signature on generic struct — blocked (may be from constrained extension)
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var methodEnv = new MethodEnvironment(method, typeDb);
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
-            "MethodWrapperEmitter should reject generic struct parent");
+            "MethodWrapperEmitter should reject generic struct parent with concrete signature");
 
-        // Constructor
+        // Constructor — now accepted
         var ctor = CreateConstructor("init", parentDecl, moduleDecl);
         var ctorEnv = new MethodEnvironment(ctor, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),
-            "ConstructorWrapperEmitter should reject generic struct parent");
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),
+            "ConstructorWrapperEmitter should accept generic struct parent");
 
-        // Property
+        // Property with concrete type on generic struct — blocked (may be from constrained extension)
         var (propertyDecl, propEnv) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, propEnv),
-            "PropertyWrapperEmitter should reject generic struct parent");
+            "PropertyWrapperEmitter should reject generic struct parent with concrete property type");
 
-        // Subscript
+        // Subscript — still blocked (not yet implemented)
         var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
         var subscriptDecl = CreateSubscriptDecl(
             new NamedTypeSpec("Swift.Int"),

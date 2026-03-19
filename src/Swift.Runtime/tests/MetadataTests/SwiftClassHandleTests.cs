@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
+using System.Threading;
 using Swift.Runtime;
 using Xunit;
 
@@ -46,6 +48,18 @@ public class SwiftClassHandleTests
         Assert.False(handle.IsInvalid);
         Assert.False(handle.IsClosed);
         Assert.Equal(ptr, handle.DangerousGetHandle());
+
+        // Must clean up with exit guard to prevent Arc.Release on mock pointer.
+        // Without this, the GC finalizer would call swift_isDeallocating(0x12345678) → SIGSEGV.
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Close();
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
     }
 
     [Fact]
@@ -73,15 +87,25 @@ public class SwiftClassHandleTests
 
         // DangerousGetHandle should return the pointer directly, NOT a buffer address
         Assert.Equal(ptr, handle.DangerousGetHandle());
+
+        // Clean up with exit guard to prevent Arc.Release on mock pointer.
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Close();
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
     }
 
     [Fact]
     public void Dispose_MarksHandleAsClosed()
     {
-        // Use a valid non-zero pointer but it won't be released since
-        // it's not a real Swift object (Arc.Release will throw, which is caught).
-        var ptr = new IntPtr(0x1);
-        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+        // Use IntPtr.Zero so ReleaseHandle early-exits without calling Arc.Release.
+        // Non-zero mock pointers would cause SIGSEGV from swift_isDeallocating P/Invoke.
+        var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         handle.Dispose();
 
@@ -91,8 +115,7 @@ public class SwiftClassHandleTests
     [Fact]
     public void Dispose_CalledTwice_DoesNotThrow()
     {
-        var ptr = new IntPtr(0x1);
-        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+        var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         handle.Dispose();
         handle.Dispose(); // Should not throw (SafeHandle ignores second Dispose)
@@ -111,8 +134,7 @@ public class SwiftClassHandleTests
     {
         // Verify that Dispose suppresses finalization (prevents double-release).
         // After Dispose, the finalizer should NOT run.
-        var ptr = new IntPtr(0x1);
-        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+        var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         handle.Dispose();
 
@@ -146,13 +168,25 @@ public class SwiftClassHandleTests
 
         // Contrast with SwiftSafeHandle where you'd need *(IntPtr*)handle to get the class pointer
         // With SwiftClassHandle, no dereference is needed
+
+        // Clean up with exit guard to prevent Arc.Release on mock pointer.
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Close();
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
     }
 
     [Fact]
     public void DangerousAddRef_DangerousRelease_WorkCorrectly()
     {
-        var ptr = new IntPtr(0xCAFE);
-        var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
+        // Use IntPtr.Zero so the final Dispose/Close doesn't call Arc.Release on an invalid pointer.
+        // DangerousAddRef/DangerousRelease only manage SafeHandle ref counting (not Swift ARC).
+        var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         bool success = false;
         handle.DangerousAddRef(ref success);
@@ -170,16 +204,14 @@ public class SwiftClassHandleTests
     [Fact]
     public void MultipleHandles_IndependentLifetimes()
     {
-        var ptr1 = new IntPtr(0x1111);
-        var ptr2 = new IntPtr(0x2222);
-        var handle1 = new SwiftClassHandle<MockSwiftClass>(ptr1);
-        var handle2 = new SwiftClassHandle<MockSwiftClass>(ptr2);
+        // Use zero handles to avoid Arc.Release on mock pointers during Dispose.
+        var handle1 = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
+        var handle2 = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
         handle1.Dispose();
 
         Assert.True(handle1.IsClosed);
         Assert.False(handle2.IsClosed);
-        Assert.Equal(ptr2, handle2.DangerousGetHandle());
 
         handle2.Dispose();
         Assert.True(handle2.IsClosed);
@@ -363,4 +395,289 @@ public class SwiftSafeHandleShutdownTests
         handle.Dispose();
         Assert.True(handle.IsClosed);
     }
+}
+
+/// <summary>
+/// Tests for GC/finalizer lifecycle safety of SwiftClassHandle and SwiftSafeHandle.
+/// Verifies that abandoned handles survive GC collection without double-free or SIGSEGV.
+/// These tests use mock handles that don't require real Swift objects.
+/// </summary>
+public class HandleGCLifecycleTests
+{
+    /// <summary>
+    /// Mock ISwiftObject for testing handle lifecycle without real Swift objects.
+    /// </summary>
+    private sealed class MockSwiftType : ISwiftObject, IDisposable
+    {
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private sealed class MockSwiftStructType : ISwiftObject, ISwiftStruct, IDisposable
+    {
+        public void Dispose() { }
+        public int MarshalToSwift(ref Span<byte> swiftDestSpan) => throw new NotSupportedException();
+        public static TypeMetadata GetTypeMetadata() => throw new NotSupportedException();
+        public static ISwiftObject NewFromPayload(IntPtr payload) => throw new NotSupportedException();
+        public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor<TProtocol>() where TProtocol : class
+            => throw new NotSupportedException();
+    }
+
+    private static unsafe IntPtr AllocMockBuffer()
+    {
+        return (IntPtr)NativeMemory.AllocZeroed(16);
+    }
+
+    #region SwiftClassHandle GC lifecycle
+
+    [Fact]
+    public void ClassHandle_DoubleDispose_IsNoop()
+    {
+        // Calling Dispose twice must not throw or crash.
+        // SafeHandle internally tracks IsClosed and skips the second ReleaseHandle call.
+        var handle = new SwiftClassHandle<MockSwiftType>(IntPtr.Zero);
+        handle.Dispose();
+        handle.Dispose(); // must be silent noop
+        Assert.True(handle.IsClosed);
+    }
+
+    [Fact]
+    public void ClassHandle_DisposeAfterClose_IsNoop()
+    {
+        // Close() is the SafeHandle base method. Calling Dispose() after Close() should be safe.
+        var handle = new SwiftClassHandle<MockSwiftType>(IntPtr.Zero);
+        handle.Close();
+        handle.Dispose(); // must be silent noop
+        Assert.True(handle.IsClosed);
+    }
+
+    [Fact]
+    public void ClassHandle_ZeroIsNeverCorrupted_AfterDispose()
+    {
+        // The static Zero field must remain usable even after someone calls Dispose on it.
+        // Zero has handle=IntPtr.Zero, which is "invalid" per SafeHandleZeroOrMinusOneIsInvalid.
+        // Disposing an invalid handle should be safe.
+        var zero = SwiftClassHandle<MockSwiftType>.Zero;
+        Assert.True(zero.IsInvalid);
+
+        // Even after Dispose, the Zero handle should still be queryable
+        zero.Dispose();
+        Assert.True(zero.IsClosed);
+        // Creating a new Zero-valued handle should still work independently
+        var fresh = new SwiftClassHandle<MockSwiftType>(IntPtr.Zero);
+        Assert.True(fresh.IsInvalid);
+    }
+
+    [Fact]
+    public void ClassHandle_AbandonedHandles_SurviveGC()
+    {
+        // Create many class handles and abandon them, then force GC.
+        // The handles have IntPtr.Zero so ReleaseHandle returns immediately.
+        // This tests that the finalizer path doesn't crash.
+        for (int i = 0; i < 50; i++)
+        {
+            _ = new SwiftClassHandle<MockSwiftType>(IntPtr.Zero);
+        }
+
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+
+        // If we get here, no crash from finalizers
+        Assert.True(true, "50 abandoned class handles finalized without crash");
+    }
+
+    [Fact]
+    public void ClassHandle_ConcurrentDisposeAndAccess_IsThreadSafe()
+    {
+        // Verify that concurrent DangerousAddRef/DangerousRelease and Dispose don't crash.
+        // Use IntPtr.Zero so ReleaseHandle hits the early-exit path (no Arc.Release call).
+        // Testing with a real Swift pointer requires the Swift runtime; unit tests use zero pointers.
+        var handle = new SwiftClassHandle<MockSwiftType>(IntPtr.Zero);
+        var errors = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var running = true;
+
+        var addRefThread = new Thread(() =>
+        {
+            while (running)
+            {
+                try
+                {
+                    bool success = false;
+                    handle.DangerousAddRef(ref success);
+                    if (success)
+                        handle.DangerousRelease();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Expected if Dispose races with DangerousAddRef
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(ex.ToString());
+                }
+            }
+        });
+        addRefThread.IsBackground = true;
+        addRefThread.Start();
+
+        Thread.Sleep(10);
+        handle.Dispose(); // Dispose while the other thread is accessing
+        running = false;
+        addRefThread.Join(TimeSpan.FromSeconds(5));
+
+        Assert.True(errors.IsEmpty, $"Concurrent errors: {string.Join("; ", errors)}");
+    }
+
+    #endregion
+
+    #region SwiftSafeHandle GC lifecycle
+
+    [Fact]
+    public void SafeHandle_DoubleDispose_IsNoop()
+    {
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+        handle.Dispose();
+        handle.Dispose(); // must be silent noop
+        Assert.True(handle.IsClosed);
+    }
+
+    [Fact]
+    public void SafeHandle_ZeroIsNeverCorrupted_AfterDispose()
+    {
+        var zero = SwiftSafeHandle<MockSwiftStructType>.Zero;
+        Assert.True(zero.IsInvalid);
+
+        zero.Dispose();
+        Assert.True(zero.IsClosed);
+
+        // A new Zero-valued handle should still work independently
+        var fresh = new SwiftSafeHandle<MockSwiftStructType>(IntPtr.Zero);
+        Assert.True(fresh.IsInvalid);
+    }
+
+    [Fact]
+    public void SafeHandle_AbandonedHandles_SurviveGC()
+    {
+        // Allocate real NativeMemory buffers, abandon them, and force GC.
+        // ReleaseHandle should free them safely (VWT Destroy throws because mock metadata
+        // is invalid, but the exception is caught, and NativeMemory.Free runs).
+        for (int i = 0; i < 50; i++)
+        {
+            _ = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+        }
+
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+
+        Assert.True(true, "50 abandoned safe handles finalized without crash");
+    }
+
+    [Fact]
+    public void SafeHandle_InterleavedAllocAndGC_NoCrash()
+    {
+        // Interleave allocation and GC collection to simulate real-world GC pressure.
+        for (int round = 0; round < 5; round++)
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                _ = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+            }
+            GC.Collect(0, GCCollectionMode.Forced);
+            // Don't wait for finalizers in inner loop -- let them race with allocations
+        }
+
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+
+        Assert.True(true, "Interleaved alloc+GC (100 handles, 5 rounds) without crash");
+    }
+
+    [Fact]
+    public void SafeHandle_MixedDisposeAndAbandon_NoCrash()
+    {
+        // Mix explicit Dispose and abandon in the same batch.
+        var handles = new List<SwiftSafeHandle<MockSwiftStructType>>();
+        for (int i = 0; i < 50; i++)
+        {
+            handles.Add(new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer()));
+        }
+
+        // Dispose every other handle; abandon the rest
+        for (int i = 0; i < handles.Count; i += 2)
+        {
+            handles[i].Dispose();
+        }
+        handles.Clear(); // Drop all references
+
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(2, GCCollectionMode.Forced);
+        GC.WaitForPendingFinalizers();
+
+        Assert.True(true, "Mixed dispose/abandon pattern finalized without crash");
+    }
+
+    #endregion
+
+    #region SwiftDispose.FinalizerCleanup safety
+
+    [Fact]
+    public void FinalizerCleanup_NullPayload_NoOp()
+    {
+        // FinalizerCleanup should handle null gracefully.
+        SwiftDispose.FinalizerCleanup<MockSwiftStructType>(null);
+        // No exception = pass
+    }
+
+    [Fact]
+    public void FinalizerCleanup_InvalidPayload_NoOp()
+    {
+        // FinalizerCleanup should skip Dispose for invalid (zero) handles.
+        var zero = new SwiftSafeHandle<MockSwiftStructType>(IntPtr.Zero);
+        Assert.True(zero.IsInvalid);
+
+        SwiftDispose.FinalizerCleanup(zero);
+        // Invalid handles should not be disposed -- IsInvalid check prevents it
+    }
+
+    [Fact]
+    public void FinalizerCleanup_ValidPayload_DisposesHandle()
+    {
+        // FinalizerCleanup should call Dispose on valid, non-Mono handles.
+        // Note: on Mono (simulator), FinalizerCleanup is a no-op.
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+        Assert.False(handle.IsInvalid);
+
+        SwiftDispose.FinalizerCleanup(handle);
+
+        // On non-Mono, the handle should be closed. On Mono, it's a no-op.
+        if (!SwiftRuntimeInfo.IsMonoRuntime)
+        {
+            Assert.True(handle.IsClosed);
+        }
+    }
+
+    [Fact]
+    public void FinalizerCleanup_AlreadyClosed_NoOp()
+    {
+        // FinalizerCleanup should handle already-closed handles gracefully.
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+        handle.Dispose(); // close it first
+        Assert.True(handle.IsClosed);
+
+        // This should not throw even though handle is already closed
+        SwiftDispose.FinalizerCleanup(handle);
+    }
+
+    #endregion
 }

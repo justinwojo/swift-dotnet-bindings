@@ -44,10 +44,13 @@ public static class ConstructorWrapperEmitter
             !failableStruct.IsFrozen)
             return false;
 
-        // Generic parent type — allow class constructors with concrete (non-T-referencing) signatures
+        // Generic parent type — allow constructors using protocol-based type erasure.
+        // Two paths:
+        // 1. Generic class with concrete params → existing protocol metatype dispatch
+        // 2. Generic struct/class with T-typed params → protocol with static factory (UnsafeRawPointer params)
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
         {
-            if (!CanEmitGenericClassConstructorWrapper(env, typeDecl))
+            if (!CanEmitGenericConstructorWrapper(env, typeDecl))
                 return false;
         }
 
@@ -91,10 +94,13 @@ public static class ConstructorWrapperEmitter
         if (HasBufferPointerParameter(env))
             return false;
 
-        // Skip constructors with raw ABI generic type params (τ_0_0) in signature.
-        // These leak from parent type generics and cause Swift compilation failures.
+        // Skip constructors with raw ABI generic type params (τ_0_0) in signature,
+        // UNLESS the parent is a generic type (where T params are handled by static factory dispatch).
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl))
-            return false;
+        {
+            if (!(env.ParentDecl is TypeDecl rawGenTd && rawGenTd.IsGeneric))
+                return false;
+        }
 
         // Skip constructors with variadic parameters detected from the demangler.
         // Swift variadic params (T...) appear as Array<T> in ABI JSON. The @_cdecl wrapper
@@ -361,7 +367,21 @@ public static class ConstructorWrapperEmitter
         // Only direct init calls need argument labels.
         bool omitLabels = silgenTarget != null;
 
-        bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
+        bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
+        bool needsStaticFactory = isGenericParent && parentTypeDecl != null &&
+            NeedsGenericStaticFactory(env, parentTypeDecl);
+
+        // For generic static factory constructors, delegate to the specialized emitter.
+        // This emitter creates a protocol with a static _sbw_create method, extends the generic
+        // type to conform, and dispatches through metatype cast in the @_cdecl wrapper.
+        if (needsStaticFactory)
+        {
+            EmitGenericStaticFactoryConstructor(swiftWriter, env, ctx, symbolName,
+                parentTypeDecl!, moduleQualifiedSwiftName, isClass, isFailable, throws);
+            return;
+        }
+
+        bool isGenericClassParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env);
         foreach (var phase in order.Phases)
@@ -422,7 +442,7 @@ public static class ConstructorWrapperEmitter
                     break;
 
                 case CdeclPhase.Metadata:
-                    if (isGenericParent && parentTypeDecl != null)
+                    if (isGenericClassParent && parentTypeDecl != null)
                     {
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
@@ -457,7 +477,7 @@ public static class ConstructorWrapperEmitter
         // Extra _metadata1..N params are accepted to match PInvokeSignatureBuilder ordering
         // but are unused — the isa pointer on the class provides the actual metadata.
         string? protocolName = null;
-        if (isGenericParent)
+        if (isGenericClassParent)
         {
             protocolName = EmitConstructorProtocolAndConformance(
                 swiftWriter, methodDecl, symbolName, moduleQualifiedSwiftName, isFailable, throws);
@@ -469,7 +489,7 @@ public static class ConstructorWrapperEmitter
         // dispatch, which is not yet supported. In practice, default-param overloads on generic
         // classes are rare and the C# side doesn't generate them for generic parents.
         string callExpr;
-        if (isGenericParent && protocolName != null)
+        if (isGenericClassParent && protocolName != null)
         {
             // Protocol metatype dispatch: use metadata → Any.Type → protocol.Type → init
             // The init call goes through the protocol existential metatype
@@ -521,14 +541,14 @@ public static class ConstructorWrapperEmitter
         }
 
         // For generic parent types: reconstruct metatype from metadata pointer
-        if (isGenericParent && protocolName != null)
+        if (isGenericClassParent && protocolName != null)
         {
             swiftWriter.WriteLine($"let anyType: Any.Type = unsafeBitCast(_metadata0, to: Any.Type.self)");
             swiftWriter.WriteLine($"let initType = anyType as! any {protocolName}.Type");
         }
 
         // Emit the body based on constructor type
-        if (isGenericParent && protocolName != null)
+        if (isGenericClassParent && protocolName != null)
         {
             // Generic parent class: use protocol metatype dispatch
             EmitGenericClassBody(swiftWriter, callExpr, isFailable, throws);
@@ -1012,30 +1032,114 @@ public static class ConstructorWrapperEmitter
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Generic parent class support — protocol-based type erasure for constructors
+    // Generic parent type support — protocol-based type erasure for constructors
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Returns true when a constructor on a generic parent type can be wrapped via @_cdecl
     /// using protocol-based type erasure with metatype dispatch.
+    ///
+    /// Two paths:
+    /// 1. Generic class with concrete params — original protocol init dispatch (AnyObject)
+    /// 2. Generic struct or class with T-typed params — protocol with static factory
+    ///    that uses UnsafeRawPointer for T positions. Works for both struct and class parents.
+    /// </summary>
+    internal static bool CanEmitGenericConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        // Path 1: Generic class with concrete (non-T-referencing) params — existing approach
+        if (parentTypeDecl is ClassDecl)
+        {
+            var genericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+
+            bool hasGenericParams = env.MethodDecl.CSSignature.Skip(1)
+                .Any(arg => MethodWrapperEmitter.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
+
+            if (!hasGenericParams)
+                return true; // Path 1: no T in params, use existing metatype dispatch
+        }
+
+        // Path 2: Generic struct or class with T-typed params — protocol-based static factory
+        // The protocol has a static factory method with UnsafeRawPointer params for T positions.
+        // Supported for both struct and class parent types.
+        return CanEmitGenericStaticFactoryWrapper(env, parentTypeDecl);
+    }
+
+    /// <summary>
+    /// Backward-compatible alias for external callers.
     /// </summary>
     internal static bool CanEmitGenericClassConstructorWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        // Only class types — protocol metatype dispatch requires AnyObject
-        if (parentTypeDecl is not ClassDecl)
-            return false;
+        => CanEmitGenericConstructorWrapper(env, parentTypeDecl);
 
-        // Constructor params must not reference the parent's generic type parameters
+    /// <summary>
+    /// Returns true when a generic constructor can use the static factory protocol pattern.
+    /// This pattern creates a protocol with a static factory method whose signature uses
+    /// UnsafeRawPointer for T-typed parameters. The generic type unconditionally conforms
+    /// to the protocol, and the @_cdecl wrapper dispatches via metatype cast.
+    ///
+    /// Requirements:
+    /// - All T-typed params must be simple (direct generic param or pointer-compatible)
+    /// - No closure parameters that reference T
+    /// - Constructor must not be failable (for now — failable adds Optional complexity)
+    /// </summary>
+    internal static bool CanEmitGenericStaticFactoryWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
         var genericParamNames = parentTypeDecl.GenericParameters
             .Select(p => p.TypeName)
             .ToHashSet();
 
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
-            if (MethodWrapperEmitter.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            // Closure parameters that reference T are not supported
+            if (env.ClosureHandler.IsClosure(arg))
+            {
+                var closureSpec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                if (closureSpec != null && WrapperValidation.TypeSpecReferencesGenericParam(closureSpec, genericParamNames))
+                    return false;
+            }
+
+            // For params that reference T: they must be simple generic params (just τ_0_0)
+            // or non-generic types. Complex generic compositions (Array<T>, Optional<T>) in
+            // constructor params are deferred.
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+            {
+                // Allow direct generic param (e.g., T itself) — will be passed as UnsafeRawPointer
+                if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
+                    continue;
+                // Block complex generic compositions for now (Array<T>, Optional<T>, etc.)
                 return false;
+            }
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true when a constructor needs the generic static factory approach
+    /// (as opposed to the existing concrete-param metatype dispatch approach).
+    /// </summary>
+    internal static bool NeedsGenericStaticFactory(MethodEnvironment env, TypeDecl parentTypeDecl)
+    {
+        if (!parentTypeDecl.IsGeneric) return false;
+
+        // If parent is a class with no T in params, use the existing metatype dispatch
+        if (parentTypeDecl is ClassDecl)
+        {
+            var genericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+            bool hasGenericParams = env.MethodDecl.CSSignature.Skip(1)
+                .Any(arg => MethodWrapperEmitter.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
+            if (!hasGenericParams) return false;
+        }
+
+        // All generic struct constructors need static factory approach
         return true;
     }
 
@@ -1194,6 +1298,342 @@ public static class ConstructorWrapperEmitter
                 }
                 """);
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Generic static factory — protocol-based type erasure for constructors with T params
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Emits a @_cdecl constructor wrapper for generic types where T appears in the constructor
+    /// parameters. Uses protocol-based type erasure with a static factory method:
+    /// 1. Defines a protocol with a static factory method (UnsafeRawPointer params for T positions)
+    /// 2. Extends the generic type to unconditionally conform to the protocol
+    /// 3. The @_cdecl wrapper receives metadata, casts to protocol type, calls static factory
+    ///
+    /// This approach works for both generic struct and generic class constructors.
+    /// </summary>
+    private static void EmitGenericStaticFactoryConstructor(
+        SwiftWriter swiftWriter,
+        MethodEnvironment env,
+        ModuleEmissionContext ctx,
+        string symbolName,
+        TypeDecl parentTypeDecl,
+        string moduleQualifiedSwiftName,
+        bool isClass,
+        bool isFailable,
+        bool throws)
+    {
+        var methodDecl = env.MethodDecl;
+        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
+        var genericParamNames = parentTypeDecl.GenericParameters
+            .Select(p => p.TypeName)
+            .ToHashSet();
+
+        // Map ABI generic param names (τ_0_0) to sugared source names (T, Element, etc.)
+        var abiToSugaredName = WrapperValidation.GetAbiToSugaredNameMap(parentTypeDecl);
+
+        var protocolName = $"_SBW_GSF_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        // Build the protocol's static factory method parameters.
+        // T-typed params become UnsafeRawPointer; concrete params keep their Swift types.
+        var protocolParams = new List<string>();
+        var extensionBodyLines = new List<string>();
+        var initCallArgs = new List<string>();
+        var cdeclParams = new List<string>();
+        var cdeclCallArgs = new List<string>();
+
+        // Struct constructors need a resultPtr for the output.
+        // Class constructors return UnsafeMutableRawPointer.
+        if (!isClass)
+        {
+            cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        }
+        if (throws)
+        {
+            cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            cdeclCallArgs.Add("errorOut: errorOut");
+        }
+
+        int argIndex = 0;
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (label == "_")
+                label = $"arg{argIndex}";
+            if (NameProvider.IsSwiftKeyword(label))
+                label = $"{label}Param";
+            label = SwiftBuilder.SanitizeIdentifier(label);
+
+            var argLabel = arg.Name switch
+            {
+                var n when n.StartsWith("arg") => "_",
+                "_" => "_",
+                var n when n.StartsWith("_") => n.Substring(1),
+                var n when string.IsNullOrEmpty(n) => "_",
+                var n => n
+            };
+
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+            {
+                // T-typed param → UnsafeRawPointer in protocol, reconstructed in extension body
+                protocolParams.Add($"{argLabel} {label}: UnsafeRawPointer");
+                cdeclParams.Add($"_ {label}: UnsafeRawPointer");
+                cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
+
+                // In the extension body, reconstruct T from UnsafeRawPointer
+                // Use sugared source names (T, Element) instead of ABI names (τ_0_0)
+                var swiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(arg.SwiftTypeSpec, abiToSugaredName);
+                extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}Val");
+            }
+            else
+            {
+                // Concrete param → pass through directly
+                var (cdeclParam, reconstruction, _) = GetCdeclParamMapping(arg, label, env, false);
+                // For the protocol, use the Swift type
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                protocolParams.Add($"{argLabel} {label}: {swiftType}");
+                cdeclParams.Add(cdeclParam);
+
+                if (reconstruction != null)
+                {
+                    // In @_cdecl, reconstruct the C param; pass reconstructed value to protocol
+                    cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}Val");
+                }
+                else
+                {
+                    cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
+                }
+
+                initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
+            }
+            argIndex++;
+        }
+
+        // Add metadata parameter(s) to @_cdecl
+        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+        {
+            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+        }
+
+        // Build protocol factory method signature
+        var ctorHash = EmitterUtility.DeterministicHash8(symbolName);
+        var factoryMethodName = $"_sbw_create_{ctorHash}";
+        string protocolReturnType;
+        if (isClass)
+            protocolReturnType = throws ? "UnsafeMutableRawPointer" : "UnsafeMutableRawPointer";
+        else
+            protocolReturnType = "";  // Writes to resultPtr
+
+        // For struct types, the factory also needs resultPtr
+        if (!isClass)
+        {
+            protocolParams.Insert(throws ? 1 : 0, "resultPtr: UnsafeMutableRawPointer");
+            cdeclCallArgs.Insert(throws ? 1 : 0, "resultPtr: resultPtr");
+        }
+
+        var protocolParamString = string.Join(", ", protocolParams);
+        var throwsClause = throws ? " throws" : "";
+        var failableQ = isFailable ? "?" : "";
+
+        // Emit protocol declaration
+        swiftWriter.WriteLine();
+        string protocolMethodDecl;
+        if (isClass)
+        {
+            protocolMethodDecl = $"static func {factoryMethodName}({protocolParamString}){throwsClause} -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}";
+        }
+        else
+        {
+            protocolMethodDecl = $"static func {factoryMethodName}({protocolParamString}){throwsClause}";
+        }
+
+        swiftWriter.WriteLines($$"""
+            private protocol {{protocolName}} {
+                {{protocolMethodDecl}}
+            }
+            """);
+
+        // Build the extension body: call the real init, handle result
+        var initCallArgString = string.Join(", ", initCallArgs);
+
+        var extensionLines = new List<string>();
+        extensionLines.AddRange(extensionBodyLines);
+
+        if (isClass)
+        {
+            // Use concrete type name instead of Self for class constructors.
+            // Swift requires `required init` for `Self(...)` in protocol extensions,
+            // but we can't add `required` to the original type. Using the concrete
+            // module-qualified name avoids this requirement.
+            var ctorType = moduleQualifiedSwiftName;
+            if (throws && isFailable)
+            {
+                extensionLines.Add($"guard let result = try {ctorType}({initCallArgString}) else {{ return nil }}");
+                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            }
+            else if (throws)
+            {
+                extensionLines.Add($"let result = try {ctorType}({initCallArgString})");
+                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            }
+            else if (isFailable)
+            {
+                extensionLines.Add($"guard let result = {ctorType}({initCallArgString}) else {{ return nil }}");
+                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            }
+            else
+            {
+                extensionLines.Add($"let result = {ctorType}({initCallArgString})");
+                extensionLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
+            }
+        }
+        else
+        {
+            // Struct: write to resultPtr
+            if (throws && isFailable)
+            {
+                extensionLines.Add($"let result: Self? = try Self({initCallArgString})");
+                extensionLines.Add("resultPtr.initializeMemory(as: Optional<Self>.self, repeating: result, count: 1)");
+            }
+            else if (throws)
+            {
+                extensionLines.Add($"let result = try Self({initCallArgString})");
+                extensionLines.Add("resultPtr.initializeMemory(as: Self.self, repeating: result, count: 1)");
+            }
+            else if (isFailable)
+            {
+                extensionLines.Add($"let result: Self? = Self({initCallArgString})");
+                extensionLines.Add("resultPtr.initializeMemory(as: Optional<Self>.self, repeating: result, count: 1)");
+            }
+            else
+            {
+                extensionLines.Add($"let result = Self({initCallArgString})");
+                extensionLines.Add("resultPtr.initializeMemory(as: Self.self, repeating: result, count: 1)");
+            }
+        }
+
+        // Build extension implementation
+        var extensionBody = string.Join("\n        ", extensionLines);
+
+        swiftWriter.WriteLines($$"""
+            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
+                static func {{factoryMethodName}}({{protocolParamString}}){{throwsClause}}{{(isClass ? $" -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}" : "")}} {
+                    {{extensionBody}}
+                }
+            }
+            """);
+
+        // Emit @_cdecl wrapper
+        var cdeclParamString = string.Join(", ", cdeclParams);
+        var swiftFuncName = $"_sbw_init_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        string cdeclReturnClause;
+        if (isClass && !isFailable)
+            cdeclReturnClause = " -> UnsafeMutableRawPointer";
+        else if (isClass && isFailable)
+            cdeclReturnClause = " -> UnsafeMutableRawPointer?";
+        else
+            cdeclReturnClause = "";
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Constructor @_cdecl wrapper for {{moduleQualifiedSwiftName}} (generic static factory).
+            // Routes through protocol-based type erasure to avoid CallConvSwift crash.
+            """);
+
+        if (parentTypeDecl.IsMainActorIsolated)
+        {
+            swiftWriter.WriteLine("@MainActor");
+        }
+
+        swiftWriter.WriteLines($$"""
+            @_cdecl("{{symbolName}}")
+            """);
+
+        swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
+        swiftWriter.Indent++;
+
+        // Emit parameter reconstruction for concrete params
+        // (The @_cdecl receives C types; reconstruct to Swift types before calling protocol method)
+        for (int i = 0; i < keptArgs.Count; i++)
+        {
+            var arg = keptArgs[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
+                continue; // T-typed params are already UnsafeRawPointer, passed through to protocol
+
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            if (label == "_") label = $"arg{i}";
+            if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
+            label = SwiftBuilder.SanitizeIdentifier(label);
+
+            var (_, reconstruction, _) = GetCdeclParamMapping(arg, label, env, false);
+            if (reconstruction != null)
+                swiftWriter.WriteLine(reconstruction);
+        }
+
+        // Metatype dispatch
+        swiftWriter.WriteLine("let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any _SBW_GSF_" +
+            EmitterUtility.DeterministicHash8(symbolName) + ".Type");
+
+        // Call the protocol static factory
+        var cdeclCallArgString = string.Join(", ", cdeclCallArgs);
+
+        if (throws)
+        {
+            swiftWriter.WriteLine("do {");
+            swiftWriter.Indent++;
+
+            if (isClass)
+            {
+                if (isFailable)
+                {
+                    swiftWriter.WriteLine($"return try metatype.{factoryMethodName}({cdeclCallArgString})");
+                }
+                else
+                {
+                    swiftWriter.WriteLine($"return try metatype.{factoryMethodName}({cdeclCallArgString})");
+                }
+            }
+            else
+            {
+                swiftWriter.WriteLine($"try metatype.{factoryMethodName}({cdeclCallArgString})");
+            }
+
+            swiftWriter.Indent--;
+            swiftWriter.WriteLines("""
+                } catch {
+                    errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                """);
+            if (isClass)
+            {
+                swiftWriter.WriteLine(isFailable ? "    return nil" : "    return UnsafeMutableRawPointer(bitPattern: 1)!");
+            }
+            swiftWriter.WriteLine("}");
+        }
+        else if (isClass)
+        {
+            swiftWriter.WriteLine($"return metatype.{factoryMethodName}({cdeclCallArgString})");
+        }
+        else
+        {
+            swiftWriter.WriteLine($"metatype.{factoryMethodName}({cdeclCallArgString})");
+        }
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
     }
 
     // ==================== Optional Tag Helper ====================

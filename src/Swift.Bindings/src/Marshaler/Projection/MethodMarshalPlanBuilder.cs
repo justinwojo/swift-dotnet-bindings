@@ -603,9 +603,36 @@ internal class MethodMarshalPlanBuilder
                 // C2: Typed throws via @_cdecl out-pointer
                 // For complex enums/non-frozen structs, MarshalFromSwift takes ownership of the buffer
                 // (SafeHandle wraps the pointer). Only free on exception to avoid double-free on GC.
-                var typedErrorFreeBlock = typedErrorTransfersOwnership
-                    ? $"catch {{ {hp}SBW_Free(_typedErrorPtr); throw; }}"
-                    : $"finally {{ {hp}SBW_Free(_typedErrorPtr); }}";
+                // IMPORTANT: The throw must be OUTSIDE the try-catch so that re-throwing the
+                // SwiftException doesn't trigger the catch handler that frees the buffer.
+                string typedErrorBlock;
+                if (typedErrorTransfersOwnership)
+                {
+                    typedErrorBlock = $$"""
+                            {
+                                    {{syncTypedErrorType}} _typedError;
+                                    try
+                                    {
+                                        _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                    }
+                                    catch { {{hp}}SBW_Free(_typedErrorPtr); throw; }
+                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                }
+                    """;
+                }
+                else
+                {
+                    typedErrorBlock = $$"""
+                            {
+                                    try
+                                    {
+                                        var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                        throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                    }
+                                    finally { {{hp}}SBW_Free(_typedErrorPtr); }
+                                }
+                    """;
+                }
                 errorCheckCode = $$"""
                     if (errorPtr != IntPtr.Zero)
                     {
@@ -625,14 +652,7 @@ internal class MethodMarshalPlanBuilder
                             }
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
-                            {
-                                try
-                                {
-                                    var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
-                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
-                                }
-                                {{typedErrorFreeBlock}}
-                            }
+                            {{typedErrorBlock}}
                             throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
                         }
                         finally
@@ -647,9 +667,36 @@ internal class MethodMarshalPlanBuilder
                 // C2: Typed throws — extract error value with nil-check fallback.
                 // SBW_ReleaseError is in the outermost finally, guaranteeing exactly-once release.
                 // For complex enums/non-frozen structs, MarshalFromSwift takes ownership of the buffer.
-                var typedErrorFreeBlock2 = typedErrorTransfersOwnership
-                    ? $"catch {{ {hp}SBW_Free(_typedErrorPtr); throw; }}"
-                    : $"finally {{ {hp}SBW_Free(_typedErrorPtr); }}";
+                // IMPORTANT: The throw must be OUTSIDE the try-catch so that re-throwing the
+                // SwiftException doesn't trigger the catch handler that frees the buffer.
+                string typedErrorBlock2;
+                if (typedErrorTransfersOwnership)
+                {
+                    typedErrorBlock2 = $$"""
+                            {
+                                    {{syncTypedErrorType}} _typedError;
+                                    try
+                                    {
+                                        _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                    }
+                                    catch { {{hp}}SBW_Free(_typedErrorPtr); throw; }
+                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                }
+                    """;
+                }
+                else
+                {
+                    typedErrorBlock2 = $$"""
+                            {
+                                    try
+                                    {
+                                        var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
+                                        throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
+                                    }
+                                    finally { {{hp}}SBW_Free(_typedErrorPtr); }
+                                }
+                    """;
+                }
                 errorCheckCode = $$"""
                     if (swiftError.Value != null)
                     {
@@ -670,14 +717,7 @@ internal class MethodMarshalPlanBuilder
                             }
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
-                            {
-                                try
-                                {
-                                    var _typedError = ({{syncTypedErrorType}})SwiftMarshal.MarshalFromSwift<{{syncTypedErrorType}}>(_typedErrorPtr);
-                                    throw new SwiftException<{{syncTypedErrorType}}>(_typedError, _errorMessage);
-                                }
-                                {{typedErrorFreeBlock2}}
-                            }
+                            {{typedErrorBlock2}}
                             throw new SwiftException<{{syncTypedErrorType}}>(_errorMessage);
                         }
                         finally

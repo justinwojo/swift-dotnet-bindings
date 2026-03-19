@@ -24,7 +24,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info($"FindIndex([10,20,30], 20) = {index}");
     }
 
-    [Skip("Optional<Int32> None return marshalling incorrectly reads as Some")]
     public void TestOptionalBlittableReturnNone()
     {
         var index = TestLibFunctions.FindIndex(new[] { 10, 20, 30 }, 99);
@@ -79,7 +78,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor with label passed");
     }
 
-    [Skip("Bug #9: Optional<Int32> None return marshalling incorrectly reads as Some")]
+    [Skip("Optional<Int32> None marshalling in constructor params: None reads as Some on simulator")]
     public void TestOptionalConfigConstructorWithoutLabel()
     {
         var config = new OptionalConfig(null, null, "Default");
@@ -109,7 +108,6 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("FindIndex first element passed");
     }
 
-    [Skip("Optional<Int32> None return marshalling incorrectly reads as Some")]
     public void TestFindIndexEmptyArray()
     {
         var index = TestLibFunctions.FindIndex(Array.Empty<int>(), 1);

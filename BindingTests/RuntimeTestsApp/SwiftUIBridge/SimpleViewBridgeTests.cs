@@ -84,7 +84,6 @@ public class BridgeSimpleViewTests : TestBase
         TestLogger.Info("MultiArgClosureView: create/invoke/free cycle passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestMixedParamView()
     {
         MixedActionState.Reset();

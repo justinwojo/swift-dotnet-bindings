@@ -118,8 +118,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// </summary>
     unsafe SwiftDictionary(IntPtr handle)
     {
-        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
-        *(IntPtr*)bufferPtr = *(IntPtr*)handle;
+        var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
         _payload = new SwiftSafeHandle<SwiftDictionary<TKey, TValue>>(bufferPtr);
     }
 

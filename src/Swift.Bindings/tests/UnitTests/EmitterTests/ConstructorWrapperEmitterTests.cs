@@ -42,9 +42,9 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ReturnsTrue()
     {
-        // Struct generic parents always blocked — protocol metatype dispatch requires AnyObject (class only)
+        // Generic struct parents now supported via protocol-based static factory dispatch
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -56,7 +56,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -108,10 +108,10 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericClassParent_TReferencingParam_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_TReferencingParam_ReturnsTrue()
     {
         // Constructor params that reference the parent's generic type parameter T
-        // cannot use @_cdecl wrappers (T not known at the @_cdecl function level)
+        // are now supported via protocol-based static factory dispatch
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -152,7 +152,88 @@ public class ConstructorWrapperEmitterTests
         parentDecl.Methods.Add(method);
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void NeedsGenericStaticFactory_GenericStructParent_ReturnsTrue()
+    {
+        // Generic struct parents always need static factory (no AnyObject for structs)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Wrapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Wrapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+
+        Assert.True(ConstructorWrapperEmitter.NeedsGenericStaticFactory(
+            new MethodEnvironment(method, typeDb), parentDecl));
+    }
+
+    [Fact]
+    public void NeedsGenericStaticFactory_GenericClassWithTParam_ReturnsTrue()
+    {
+        // Generic class constructor with T-typed param needs static factory
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericClass", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule12GenericClassCyACyxGxcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "value",
+                    PrivateName = "value",
+                    SwiftTypeSpec = new NamedTypeSpec("T"),
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        Assert.True(ConstructorWrapperEmitter.NeedsGenericStaticFactory(
+            new MethodEnvironment(method, typeDb), parentDecl));
+    }
+
+    [Fact]
+    public void NeedsGenericStaticFactory_GenericClassConcreteParams_ReturnsFalse()
+    {
+        // Generic class constructor with concrete (non-T) params uses existing metatype dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+
+        Assert.False(ConstructorWrapperEmitter.NeedsGenericStaticFactory(
+            new MethodEnvironment(method, typeDb), parentDecl));
     }
 
     [Fact]

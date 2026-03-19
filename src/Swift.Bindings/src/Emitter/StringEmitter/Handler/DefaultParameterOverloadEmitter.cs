@@ -144,12 +144,15 @@ public static class DefaultParameterOverloadEmitter
             // The trimmed overload may have removed problematic params that blocked the base method.
             // Guard 13 (UsesWrapperLibrary) is true because BuildOverloadDecl sets it;
             // temporarily clear to run ShouldEmitWrapper.
+            // Gate on RequiresCdeclForAbiSafety: only promote to @_cdecl when the method
+            // actually needs it for ABI safety (Session 7G). Methods that don't need @_cdecl
+            // use the @_silgen_name wrapper directly with CallConvSwift.
             if (!overloadDecl.IsConstructor && silgenSymbolForMethodCdecl == null)
             {
                 overloadDecl.UsesWrapperLibrary = false;
                 bool eligible = MethodWrapperEmitter.ShouldEmitWrapper(overloadEnv);
                 overloadDecl.UsesWrapperLibrary = true;
-                if (eligible)
+                if (eligible && WrapperValidation.RequiresCdeclForAbiSafety(overloadEnv))
                 {
                     var parentType_ = overloadDecl.ParentDecl as TypeDecl;
                     silgenSymbolForMethodCdecl = overloadDecl.MangledName;

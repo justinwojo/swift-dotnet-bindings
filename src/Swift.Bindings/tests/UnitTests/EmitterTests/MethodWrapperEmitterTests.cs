@@ -74,8 +74,11 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_ConcreteSignature_ReturnsFalse()
     {
+        // Generic struct parent with concrete-only method signature — blocked because
+        // the method may come from a constrained extension. Only T-referencing methods
+        // are supported for generic struct static dispatch.
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -91,9 +94,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericClassParent_MethodReferencingT_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericClassParent_MethodReferencingT_ReturnsTrue()
     {
-        // Method return type references parent's generic param → can't erase
+        // Method return type references parent's generic param — now supported via static dispatch
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -118,7 +121,43 @@ public class MethodWrapperEmitterTests
         };
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void NeedsGenericStaticDispatch_GenericStructMethod_ReturnsTrue()
+    {
+        // Generic struct instance methods always need static dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Wrapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Wrapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.NeedsGenericStaticDispatch(env, parentDecl));
+    }
+
+    [Fact]
+    public void NeedsGenericStaticDispatch_GenericClassConcreteMethod_ReturnsFalse()
+    {
+        // Generic class with concrete-signature method uses existing instance dispatch
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.NeedsGenericStaticDispatch(env, parentDecl));
     }
 
     [Fact]
@@ -2685,6 +2724,150 @@ public class MethodWrapperEmitterTests
         Assert.Contains("_dW1_data: Int", output);
         Assert.Contains("unsafeBitCast", output);
         Assert.Contains("Foundation.Data.self", output);
+    }
+
+    #endregion
+
+    #region Generic Static Dispatch — Return Conversion Tests
+
+    [Fact]
+    public void GenericStaticDispatch_BoolReturn_EmitsTernaryConversion()
+    {
+        // A generic struct method returning Bool must emit `result ? 1 : 0`
+        // not a bare `return obj.method(...)` which would return Swift Bool
+        // instead of the Int8 that the @_cdecl signature advertises.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Container", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Method: func isEmpty() -> Bool
+        var method = CreateMethodWithReturn("isEmpty", TypeSpecParser.Parse("Swift.Bool")!, parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Must contain ternary Bool→Int8 conversion, not bare return
+        Assert.Contains("result ? 1 : 0", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_MutatingWithDirectReturn_WriteBackBeforeReturn()
+    {
+        // A mutating generic struct method that returns a direct value must
+        // write back `selfPtr.assumingMemoryBound(to: Self.self).pointee = obj`
+        // BEFORE the `return` statement, not after (where it would be unreachable).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Stack");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Stack", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Method: mutating func pop() -> Int32
+        var method = CreateMethodWithReturn("pop", TypeSpecParser.Parse("Swift.Int32")!, parentDecl, moduleDecl);
+        method.IsMutating = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Write-back must appear in the output
+        Assert.Contains("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj", output);
+
+        // Write-back must come BEFORE the return statement
+        var writeBackIndex = output.IndexOf("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
+        var returnIndex = output.IndexOf("return ", writeBackIndex > 0 ? writeBackIndex : 0);
+        Assert.True(writeBackIndex < returnIndex,
+            "Mutating write-back must come before return statement to avoid being unreachable dead code");
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_TagOnlySimpleEnum_EmitsWithUnsafePointer()
+    {
+        // Tag-only simple enums (no RawValueTypeName) must use withUnsafePointer
+        // tag extraction, not .rawValue which doesn't exist on tag-only enums.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Container", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Register a tag-only enum (no RawValueTypeName) in the existing TestModule
+        typeDb.UpdateTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Status"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Status"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Status"),
+                MetadataAccessor = "$s10TestModule_StatusMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum
+                // No RawValueTypeName — tag-only enum
+            });
+        var method = CreateMethodWithReturn("getStatus", TypeSpecParser.Parse("TestModule.Status")!, parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Tag-only enum must use withUnsafePointer pattern, NOT .rawValue
+        Assert.Contains("withUnsafePointer", output);
+        Assert.DoesNotContain(".rawValue", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_MutatingStringReturn_WriteBackBeforeEarlyReturn()
+    {
+        // A mutating generic struct method returning String has an early `return`
+        // in the `if utf8.isEmpty` branch. The mutating write-back must happen
+        // BEFORE that early return to avoid losing the mutation on empty strings.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Buffer");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("Buffer", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethodWithReturn("drain", TypeSpecParser.Parse("Swift.String")!, parentDecl, moduleDecl);
+        method.IsMutating = true;
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Write-back must appear in the output
+        Assert.Contains("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj", output);
+
+        // Write-back must come BEFORE the early return in the empty string branch
+        var writeBackIndex = output.IndexOf("selfPtr.assumingMemoryBound(to: Self.self).pointee = obj");
+        var earlyReturnIndex = output.IndexOf("    return", writeBackIndex > 0 ? writeBackIndex : 0);
+        Assert.True(writeBackIndex < earlyReturnIndex,
+            "Mutating write-back must come before the early return in the empty string branch");
     }
 
     #endregion

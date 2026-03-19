@@ -192,10 +192,11 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_LargeSystemFrozenStruct_ReturnsTrue()
+    public void RequiresCdeclForAbiSafety_LargeSystemFrozenStruct_CBridging_ReturnsFalse()
     {
-        // System frozen struct > 8 bytes (CGRect = 32 bytes) → multi-register → @_cdecl required
-        // Mono JIT can't handle multi-register CallConvSwift params
+        // C-bridging module system frozen struct (CGRect = 32 bytes from CoreGraphics)
+        // → pure C struct with well-defined register layout → CallConvSwift safe at any size.
+        // Evidence matrix: CGRect (32B) passes on both Mono and NativeAOT.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
             "CoreGraphics.CGRect", new TypeRecord
             {
@@ -213,7 +214,7 @@ public class AbiSafetyTests
             new NamedTypeSpec("CoreGraphics.CGRect"), "frame", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
     [Fact]
@@ -957,9 +958,10 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void IsReturnTypeCdeclRequired_LargeSystemFrozenStruct_ReturnsTrue()
+    public void IsReturnTypeCdeclRequired_LargeSystemFrozenStruct_CBridging_ReturnsFalse()
     {
-        // System frozen struct > 8 bytes (CGSize = 16 bytes) → multi-register return → @_cdecl required
+        // C-bridging module system frozen struct (CGSize = 16 bytes from CoreGraphics)
+        // → pure C struct → CallConvSwift safe at any size
         var (_, typeDb) = CreateTestEnvironmentWithTypeRecord(
             "CoreGraphics.CGSize", new TypeRecord
             {
@@ -971,7 +973,7 @@ public class AbiSafetyTests
                 InlineSize = 16
             }, moduleName: "CoreGraphics");
 
-        Assert.True(WrapperValidation.IsReturnTypeCdeclRequired(new NamedTypeSpec("CoreGraphics.CGSize"), typeDb));
+        Assert.False(WrapperValidation.IsReturnTypeCdeclRequired(new NamedTypeSpec("CoreGraphics.CGSize"), typeDb));
     }
 
     [Fact]
@@ -1024,6 +1026,265 @@ public class AbiSafetyTests
             });
 
         Assert.False(WrapperValidation.IsReturnTypeCdeclRequired(new NamedTypeSpec("TestModule.LargeStruct"), typeDb));
+    }
+
+    #endregion
+
+    #region IsCBridgingModuleType Tests (Session 7G)
+
+    [Theory]
+    [InlineData("CoreGraphics.CGRect", true)]
+    [InlineData("CoreGraphics.CGSize", true)]
+    [InlineData("CoreGraphics.CGPoint", true)]
+    [InlineData("CoreFoundation.CFRange", true)]
+    [InlineData("Darwin.timeval", true)]
+    [InlineData("simd.simd_float4", true)]
+    [InlineData("Swift.String", false)]
+    [InlineData("Swift.Int", false)]
+    [InlineData("ObjectiveC.ObjCBool", false)]
+    [InlineData("_Concurrency.CheckedContinuation", false)]
+    [InlineData("TestModule.CustomStruct", false)]
+    public void IsCBridgingModuleType_ClassifiesCorrectly(string typeName, bool expected)
+    {
+        var typeSpec = new NamedTypeSpec(typeName);
+        Assert.Equal(expected, WrapperValidation.IsCBridgingModuleType(typeSpec));
+    }
+
+    [Fact]
+    public void IsCBridgingModuleType_NoModule_ReturnsFalse()
+    {
+        var typeSpec = new NamedTypeSpec("Int");
+        Assert.False(WrapperValidation.IsCBridgingModuleType(typeSpec));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_CBridgingStruct32Bytes_ReturnsFalse()
+    {
+        // CGRect (32 bytes) from CoreGraphics → C-bridging module → safe at any size
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
+            "CoreGraphics.CGRect", new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGRect"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGRect"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 32
+            }, moduleName: "CoreGraphics");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("CoreGraphics.CGRect"), env));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_SimdStruct64Bytes_ReturnsFalse()
+    {
+        // simd_float4x4 (64 bytes) from simd module → C-bridging → safe
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
+            "simd.simd_float4x4", new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("simd", "simd_float4x4"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float4x4"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 64
+            }, moduleName: "simd");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("simd.simd_float4x4"), env));
+    }
+
+    [Fact]
+    public void IsReturnTypeCdeclRequired_CBridgingStruct32Bytes_ReturnsFalse()
+    {
+        // CGRect return (32 bytes) from CoreGraphics → safe
+        var (_, typeDb) = CreateTestEnvironmentWithTypeRecord(
+            "CoreGraphics.CGRect", new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CoreGraphics", "CGRect"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGRect"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 32
+            }, moduleName: "CoreGraphics");
+
+        Assert.False(WrapperValidation.IsReturnTypeCdeclRequired(new NamedTypeSpec("CoreGraphics.CGRect"), typeDb));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_SwiftModuleStruct16Bytes_StillReturnsTrue()
+    {
+        // Swift.String (16 bytes) from Swift module → NOT C-bridging → still requires @_cdecl
+        // Ensures the relaxation is targeted to C-bridging modules only
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("Swift.String"), env));
+    }
+
+    [Fact]
+    public void IsReturnTypeCdeclRequired_SwiftModuleStruct16Bytes_StillReturnsTrue()
+    {
+        // Swift.String return (16 bytes) from Swift module → NOT C-bridging → still requires @_cdecl
+        var (_, typeDb) = CreateTestEnvironment();
+
+        Assert.True(WrapperValidation.IsReturnTypeCdeclRequired(new NamedTypeSpec("Swift.String"), typeDb));
+    }
+
+    #endregion
+
+    #region DefaultParameterOverloadEmitter ABI Safety Gating Tests (Session 7G)
+
+    [Fact]
+    public void OverloadCdeclCheck_IndependentOverload_GatedOnAbiSafety()
+    {
+        // When the primary method doesn't have UsesCdeclMethodWrapper, the overload emitter
+        // independently checks ShouldEmitWrapper && RequiresCdeclForAbiSafety.
+        // A method on a final class with only primitive params does NOT need @_cdecl.
+        // Session 7G: verify that such methods don't get unnecessary @_cdecl wrappers.
+        var typeDb = new TypeDatabase();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 8
+            });
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Calculator"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Calculator"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Calculator"),
+                MetadataAccessor = "$s10TestModule10CalculatorCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "Calculator",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Calculator"),
+            MangledName = "$s10TestModule10CalculatorCN",
+            IsFinal = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        // Method with only Int params on final class — NO ABI safety issue
+        // UsesCdeclMethodWrapper is NOT set (primary method uses CallConvSwift)
+        var method = new MethodDecl
+        {
+            Name = "compute",
+            MangledName = "$s10TestModule10CalculatorC7computeSi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "x",
+                    PrivateName = "x",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasDefaultArg = false,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    Name = "y",
+                    PrivateName = "y",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasDefaultArg = true,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            // Primary method does NOT use @_cdecl (all primitives, final class)
+            UsesCdeclMethodWrapper = false,
+            UsesWrapperLibrary = false,
+        };
+        parentDecl.Methods.Add(method);
+
+        var emissionContext = new ModuleEmissionContext();
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+        var env = new MethodEnvironment(method, typeDb);
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext);
+
+        var swiftOutput = swiftStringWriter.ToString();
+
+        // Should emit @_silgen_name wrapper (for default param handling)
+        Assert.Contains("@_silgen_name", swiftOutput);
+        Assert.Contains("_dbw_compute_", swiftOutput);
+
+        // Should NOT emit @_cdecl wrapper (method doesn't need it for ABI safety)
+        Assert.DoesNotContain("@_cdecl", swiftOutput);
+        Assert.DoesNotContain("SBW_TestModule_Calculator_compute_", swiftOutput);
     }
 
     #endregion
