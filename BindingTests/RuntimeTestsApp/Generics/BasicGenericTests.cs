@@ -180,11 +180,7 @@ public class BasicGenericTests : TestBase
     #endregion
 
     #region IntContainer (Non-Frozen Struct with Associated Type) Tests
-    // IntContainer constructor doesn't properly receive [Int32] array
-    // through SwiftIndirectResult marshalling path. Count returns 0 for non-empty
-    // arrays, and Element(at:) crashes with index out of range.
 
-    [Skip("IntContainer array marshalling broken: Count returns 0")]
     public void TestIntContainerCreation()
     {
         var container = new IntContainer(items: new int[] { 10, 20, 30 });
@@ -192,7 +188,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"IntContainer([10, 20, 30]).Count = {container.Count}");
     }
 
-    [Skip("IntContainer array marshalling broken: Element crashes")]
     public void TestIntContainerElementAt()
     {
         var container = new IntContainer(items: new int[] { 100, 200 });
@@ -202,7 +197,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(200, second, "Element at 1");
     }
 
-    [Skip("IntContainer array marshalling broken: Count returns 0")]
     public void TestIntContainerEmpty()
     {
         var container = new IntContainer(items: Array.Empty<int>());

@@ -764,6 +764,38 @@ public class AbiSafetyTests
     }
 
     [Fact]
+    public void RequiresCdeclForAbiSafety_Method_OnNonFrozenStructParent_ReturnsTrue()
+    {
+        // Instance method on non-frozen struct → C# projects as ClassWithOpaquePayload (IntPtr self)
+        // but Swift ABI expects SwiftSelf<T> (struct by value in registers) → ABI mismatch → @_cdecl required
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.IntContainer", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonFrozenStructDecl("IntContainer", moduleDecl);
+        var method = CreateMethod("element", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Method_OnNonFrozenStructParent_StaticMethod_ReturnsFalse()
+    {
+        // Static method on non-frozen struct → no self parameter → no ABI mismatch
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.IntContainer", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonFrozenStructDecl("IntContainer", moduleDecl);
+        var method = CreateMethod("create", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
     public void RequiresCdeclForAbiSafety_Method_OnClassParent_ReturnsFalse()
     {
         // Instance method on final class → IntPtr self (not by-value) → self type is always safe
@@ -821,6 +853,66 @@ public class AbiSafetyTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             HasStorage = true,
             IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_OnNonFrozenStruct_ReturnsTrue()
+    {
+        // Instance property on non-frozen struct → C# has IntPtr self (ClassWithOpaquePayload)
+        // but Swift expects SwiftSelf<T> (struct by value) → ABI mismatch → @_cdecl required
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.IntContainer", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonFrozenStructDecl("IntContainer", moduleDecl);
+        var getterMethod = CreateMethod("count_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_OnNonFrozenStruct_Static_ReturnsFalse()
+    {
+        // Static property on non-frozen struct → no self parameter → no ABI mismatch
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.IntContainer", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonFrozenStructDecl("IntContainer", moduleDecl);
+        var getterMethod = CreateMethod("defaultValue_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        getterMethod.MethodType = MethodType.Static;
+        var property = new PropertyDecl
+        {
+            Name = "defaultValue",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            HasStorage = false,
+            IsStatic = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = getterMethod }
@@ -1515,6 +1607,29 @@ public class AbiSafetyTests
             MangledName = $"$s10TestModule{name.Length}{name}VN",
             MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
             IsFrozen = true,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(decl);
+        return decl;
+    }
+
+    private static StructDecl CreateNonFrozenStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var decl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            IsFrozen = false,
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),

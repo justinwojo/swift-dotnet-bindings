@@ -566,7 +566,7 @@ public static class ConstructorWrapperEmitter
         else if (throws && !isClass)
         {
             // Throwing struct constructor
-            EmitThrowingStructBody(swiftWriter, callExpr, moduleQualifiedSwiftName, isFailable);
+            EmitThrowingStructBody(swiftWriter, callExpr, moduleQualifiedSwiftName, isFailable, parentTypeDecl);
         }
         else if (isFailableClass)
         {
@@ -583,6 +583,11 @@ public static class ConstructorWrapperEmitter
         else if (isFailableStruct)
         {
             // Failable struct constructor (non-throwing)
+            // Note: tag fixup not applied here — resultPtr contains Optional<T> (not T),
+            // so field offsets from MemoryLayout<T> don't directly apply. The Optional<T>
+            // wrapper adds its own tag byte at the end. If a failable struct init has
+            // Optional<BlittablePrimitive> fields that get corrupted, this path needs
+            // a fixup variant that accounts for the Optional<T> payload offset.
             swiftWriter.WriteLine($"let result: {moduleQualifiedSwiftName}? = {callExpr}");
             swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: Optional<{moduleQualifiedSwiftName}>.self).initialize(to: result)");
         }
@@ -591,6 +596,10 @@ public static class ConstructorWrapperEmitter
             // Non-failable, non-throwing struct constructor
             swiftWriter.WriteLine($"let result = {callExpr}");
             swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).initialize(to: result)");
+            // Fix Optional<BlittablePrimitive> tag bytes after initialize(to:).
+            // Mono's initializeMemory/initialize(to:) can corrupt the tag byte for Optional<Int32> etc.
+            // inside frozen structs, reading None as Some(0). Write correct tag bytes explicitly.
+            EmitOptionalBlittableTagFixup(swiftWriter, parentTypeDecl, moduleQualifiedSwiftName);
         }
 
         swiftWriter.Indent--;
@@ -1042,17 +1051,22 @@ public static class ConstructorWrapperEmitter
     /// Returns true for Swift types that are blittable primitives (integers, floats, bool).
     /// Used for Optional&lt;BlittablePrimitive&gt; split-parameter pattern.
     /// </summary>
+    /// <summary>
+    /// Returns true if the Swift type is a blittable primitive whose Optional uses an appended
+    /// tag byte (not extra inhabitants). Bool is excluded — Optional&lt;Bool&gt; uses extra
+    /// inhabitants (size 1 == Optional size 1), so there is no separate tag byte to read/write.
+    /// </summary>
     internal static bool IsBlittablePrimitiveSwiftType(string typeName) => typeName switch
     {
         "Swift.Int" or "Swift.UInt" or "Swift.Int8" or "Swift.UInt8" or
         "Swift.Int16" or "Swift.UInt16" or "Swift.Int32" or "Swift.UInt32" or
         "Swift.Int64" or "Swift.UInt64" or
-        "Swift.Float" or "Swift.Double" or "Swift.Bool" or
+        "Swift.Float" or "Swift.Double" or
         "CoreFoundation.CGFloat" or "CGFloat" or
         "Int" or "UInt" or "Int8" or "UInt8" or
         "Int16" or "UInt16" or "Int32" or "UInt32" or
         "Int64" or "UInt64" or
-        "Float" or "Double" or "Bool" => true,
+        "Float" or "Double" => true,
         _ => false
     };
 
@@ -1071,6 +1085,10 @@ public static class ConstructorWrapperEmitter
         "Swift.UInt32" or "UInt32" => "UInt32",
         "Swift.Int64" or "Int64" => "Int64",
         "Swift.UInt64" or "UInt64" => "UInt64",
+        "Swift.Bool" or "Bool" => "Bool",
+        "Swift.Float" or "Float" => "Float",
+        "Swift.Double" or "Double" => "Double",
+        "CoreFoundation.CGFloat" or "CGFloat" => "CGFloat",
         "Swift.String" or "String" => "String",
         _ => "Int" // fallback
     };
@@ -1318,7 +1336,7 @@ public static class ConstructorWrapperEmitter
     /// <summary>
     /// Emits the body of a throwing struct constructor wrapper.
     /// </summary>
-    private static void EmitThrowingStructBody(SwiftWriter sw, string callExpr, string swiftTypeName, bool isFailable)
+    private static void EmitThrowingStructBody(SwiftWriter sw, string callExpr, string swiftTypeName, bool isFailable, TypeDecl? parentTypeDecl = null)
     {
         if (isFailable)
         {
@@ -1333,10 +1351,14 @@ public static class ConstructorWrapperEmitter
         }
         else
         {
+            sw.WriteLine("do {");
+            sw.Indent++;
+            sw.WriteLine($"let result = try {callExpr}");
+            sw.WriteLine($"resultPtr.assumingMemoryBound(to: {swiftTypeName}.self).initialize(to: result)");
+            // Fix Optional<BlittablePrimitive> tag bytes after initialize(to:).
+            EmitOptionalBlittableTagFixup(sw, parentTypeDecl, swiftTypeName);
+            sw.Indent--;
             sw.WriteLines($$"""
-                do {
-                    let result = try {{callExpr}}
-                    resultPtr.assumingMemoryBound(to: {{swiftTypeName}}.self).initialize(to: result)
                 } catch {
                     errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
                 }
@@ -1678,6 +1700,66 @@ public static class ConstructorWrapperEmitter
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+    }
+
+    // ==================== Optional<BlittablePrimitive> Tag Fixup ====================
+
+    /// <summary>
+    /// Returns the list of stored properties on a struct that are Optional&lt;BlittablePrimitive&gt;.
+    /// These properties have tag bytes that can be corrupted by Mono's initialize(to:)/initializeMemory
+    /// when the full struct is written at once.
+    /// </summary>
+    internal static List<(string propertyName, string innerTypeName, string tagOffset)> GetOptionalBlittablePrimitiveProperties(TypeDecl? parentTypeDecl)
+    {
+        var result = new List<(string propertyName, string innerTypeName, string tagOffset)>();
+        if (parentTypeDecl == null) return result;
+
+        foreach (var prop in parentTypeDecl.Properties)
+        {
+            if (!prop.HasStorage) continue;
+            if (prop.SwiftTypeSpec is not NamedTypeSpec optSpec) continue;
+            if (optSpec.Name != "Swift.Optional" || optSpec.GenericParameters.Count != 1) continue;
+
+            var innerSpec = optSpec.GenericParameters[0];
+            if (innerSpec is not NamedTypeSpec innerNamed) continue;
+            if (!IsBlittablePrimitiveSwiftType(innerNamed.Name)) continue;
+
+            var tagOffset = innerNamed.Name switch
+            {
+                "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
+                "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
+                "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
+                _ => "8" // Int, UInt, Int64, UInt64, Double, CGFloat
+            };
+            result.Add((prop.Name, innerNamed.Name, tagOffset));
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Emits Swift code to fix Optional&lt;BlittablePrimitive&gt; tag bytes after a struct has been
+    /// written to a result pointer via initialize(to:) or initializeMemory(as:repeating:count:).
+    ///
+    /// Mono's memory operations can corrupt the tag byte for Optional&lt;Int32&gt; etc. inside frozen
+    /// structs — the None discriminator reads as 0 (Some) instead of 1. This fixup uses
+    /// MemoryLayout.offset(of:) to find each Optional field and explicitly writes the correct tag byte.
+    /// </summary>
+    internal static void EmitOptionalBlittableTagFixup(SwiftWriter sw, TypeDecl? parentTypeDecl, string moduleQualifiedSwiftName)
+    {
+        var optionalFields = GetOptionalBlittablePrimitiveProperties(parentTypeDecl);
+        if (optionalFields.Count == 0) return;
+
+        foreach (var (propertyName, _, tagOffset) in optionalFields)
+        {
+            // Use MemoryLayout<T>.offset(of:) to find the field's byte offset within the struct,
+            // then advance by the inner type's size to reach the tag byte.
+            // Tag byte: 0 = Some, 1 = None (matches Swift Optional enum layout).
+            sw.WriteLine($"if let _fo = MemoryLayout<{moduleQualifiedSwiftName}>.offset(of: \\{moduleQualifiedSwiftName}.{propertyName}) {{");
+            sw.Indent++;
+            sw.WriteLine($"resultPtr.advanced(by: _fo + {tagOffset}).assumingMemoryBound(to: UInt8.self).pointee = result.{propertyName} == nil ? 1 : 0");
+            sw.Indent--;
+            sw.WriteLine("}");
+        }
     }
 
     // ==================== Optional Tag Helper ====================

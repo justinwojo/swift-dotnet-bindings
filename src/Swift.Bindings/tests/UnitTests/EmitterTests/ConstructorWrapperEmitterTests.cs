@@ -1735,6 +1735,23 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("CALayerContentsGravity(rawValue:", output);
     }
 
+    [Theory]
+    [InlineData("Swift.Bool", "Bool")]
+    [InlineData("Bool", "Bool")]
+    [InlineData("Swift.Float", "Float")]
+    [InlineData("Float", "Float")]
+    [InlineData("Swift.Double", "Double")]
+    [InlineData("Double", "Double")]
+    [InlineData("CoreFoundation.CGFloat", "CGFloat")]
+    [InlineData("CGFloat", "CGFloat")]
+    [InlineData("Swift.Int32", "Int32")]
+    [InlineData("Int32", "Int32")]
+    public void GetSwiftRawValueType_ReturnsCorrectSwiftType(string input, string expected)
+    {
+        var result = ConstructorWrapperEmitter.GetSwiftRawValueType(input);
+        Assert.Equal(expected, result);
+    }
+
     #endregion
 
     #region Parameter Mapping Tests
@@ -2632,6 +2649,354 @@ public class ConstructorWrapperEmitterTests
 
         // Second add returns false (already tracked)
         Assert.False(ctx.TryAddConstructorWrapperSymbol(symbol));
+    }
+
+    #endregion
+
+    #region Optional<BlittablePrimitive> Tag Fixup Tests
+
+    [Fact]
+    public void EmitSwiftWrapper_StructWithOptionalInt32Property_EmitsTagFixup()
+    {
+        // A struct with an Optional<Int32> stored property should emit tag byte fixup
+        // after initialize(to:) to work around Mono tag corruption.
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false,
+            typeName: "OptConfig");
+
+        // Add Optional<Int32> property to the parent struct
+        var parentDecl = env.ParentDecl as TypeDecl;
+        var optInt32Spec = new NamedTypeSpec("Swift.Optional");
+        optInt32Spec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = optInt32Spec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Should contain the standard initialize(to:) call
+        Assert.Contains("initialize(to: result)", output);
+
+        // Should contain the tag fixup using MemoryLayout.offset(of:)
+        Assert.Contains("MemoryLayout<TestModule.OptConfig>.offset(of: \\TestModule.OptConfig.count)", output);
+        Assert.Contains("result.count == nil ? 1 : 0", output);
+        // Tag offset for Int32 is 4 bytes
+        Assert.Contains("_fo + 4)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_StructWithMultipleOptionalPrimitives_EmitsMultipleFixups()
+    {
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false,
+            typeName: "MultiOpt");
+
+        var parentDecl = env.ParentDecl as TypeDecl;
+
+        // Add Optional<Int32> property
+        var optInt32Spec = new NamedTypeSpec("Swift.Optional");
+        optInt32Spec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = optInt32Spec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        // Add Optional<Double> property
+        var optDoubleSpec = new NamedTypeSpec("Swift.Optional");
+        optDoubleSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Double"));
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "ratio",
+            SwiftTypeSpec = optDoubleSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Both properties should have tag fixups
+        Assert.Contains("\\TestModule.MultiOpt.count)", output);
+        Assert.Contains("result.count == nil ? 1 : 0", output);
+        Assert.Contains("_fo + 4)", output);  // Int32 tag offset
+
+        Assert.Contains("\\TestModule.MultiOpt.ratio)", output);
+        Assert.Contains("result.ratio == nil ? 1 : 0", output);
+        Assert.Contains("_fo + 8)", output);  // Double tag offset
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_StructWithoutOptionalBlittable_NoFixup()
+    {
+        // A struct with only String? and non-optional properties should NOT emit tag fixup
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false,
+            typeName: "NoOptBlittable");
+
+        var parentDecl = env.ParentDecl as TypeDecl;
+
+        // String property (not Optional<BlittablePrimitive>)
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        // Optional<String> property (not blittable primitive)
+        var optStringSpec = new NamedTypeSpec("Swift.Optional");
+        optStringSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = optStringSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Should NOT contain tag fixup code
+        Assert.DoesNotContain("MemoryLayout<", output);
+        Assert.DoesNotContain("offset(of:", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_ThrowingStructWithOptionalInt32_EmitsTagFixup()
+    {
+        // Throwing struct constructors should also emit tag fixup
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: true,
+            typeName: "ThrowOptConfig");
+
+        var parentDecl = env.ParentDecl as TypeDecl;
+        var optInt32Spec = new NamedTypeSpec("Swift.Optional");
+        optInt32Spec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = optInt32Spec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Should contain do/try/catch structure
+        Assert.Contains("do {", output);
+        Assert.Contains("try", output);
+
+        // Should contain the tag fixup
+        Assert.Contains("MemoryLayout<TestModule.ThrowOptConfig>.offset(of: \\TestModule.ThrowOptConfig.value)", output);
+        Assert.Contains("result.value == nil ? 1 : 0", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_ClassConstructorWithOptionalInt32_NoFixup()
+    {
+        // Class constructors return a pointer, not write to resultPtr — no tag fixup needed
+        var (env, ctx) = CreateConstructorEnv(isClass: true, isFailable: false, throws: false,
+            typeName: "ClassWithOpt");
+
+        var parentDecl = env.ParentDecl as TypeDecl;
+        var optInt32Spec = new NamedTypeSpec("Swift.Optional");
+        optInt32Spec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = optInt32Spec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Class constructors should NOT have tag fixup
+        Assert.DoesNotContain("MemoryLayout<", output);
+        Assert.DoesNotContain("offset(of:", output);
+        // Should return pointer instead
+        Assert.Contains("Unmanaged.passRetained(result).toOpaque()", output);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_StructWithComputedOptionalProperty_NoFixup()
+    {
+        // Computed properties (HasStorage=false) should NOT trigger tag fixup
+        var (env, ctx) = CreateConstructorEnv(isClass: false, isFailable: false, throws: false,
+            typeName: "ComputedOpt");
+
+        var parentDecl = env.ParentDecl as TypeDecl;
+        var optInt32Spec = new NamedTypeSpec("Swift.Optional");
+        optInt32Spec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        parentDecl!.Properties.Add(new PropertyDecl
+        {
+            Name = "computed",
+            SwiftTypeSpec = optInt32Spec,
+            HasStorage = false, // computed, not stored
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = env.MethodDecl.ModuleDecl
+        });
+
+        var sw = new StringWriter();
+        var writer = new SwiftWriter(sw);
+        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(writer, env, ctx);
+
+        var output = sw.ToString();
+
+        // Should NOT contain tag fixup for computed properties
+        Assert.DoesNotContain("MemoryLayout<", output);
+        Assert.DoesNotContain("offset(of:", output);
+    }
+
+    [Fact]
+    public void GetOptionalBlittablePrimitiveProperties_DetectsAllBlittableTypes()
+    {
+        // Verify the helper detects various Optional<BlittablePrimitive> types with correct tag offsets
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new StructDecl
+        {
+            Name = "AllTypes",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AllTypes"),
+            MangledName = "$s10TestModule8AllTypesVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+
+        // Add various Optional<BlittablePrimitive> properties
+        // Note: Bool is excluded — Optional<Bool> uses extra inhabitants (size == Optional size),
+        // not an appended tag byte.
+        var types = new (string name, string expectedOffset)[]
+        {
+            ("Swift.Int8", "1"),
+            ("Swift.UInt8", "1"),
+            ("Swift.Int16", "2"),
+            ("Swift.UInt16", "2"),
+            ("Swift.Int32", "4"),
+            ("Swift.UInt32", "4"),
+            ("Swift.Float", "4"),
+            ("Swift.Int64", "8"),
+            ("Swift.UInt64", "8"),
+            ("Swift.Double", "8"),
+            ("Swift.Int", "8"),
+        };
+
+        foreach (var (typeName, _) in types)
+        {
+            var optSpec = new NamedTypeSpec("Swift.Optional");
+            optSpec.GenericParameters.Add(new NamedTypeSpec(typeName));
+            parentDecl.Properties.Add(new PropertyDecl
+            {
+                Name = $"opt_{typeName.Replace("Swift.", "").ToLower()}",
+                SwiftTypeSpec = optSpec,
+                HasStorage = true,
+                IsStatic = false,
+                Accessors = new List<AccessorDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            });
+        }
+
+        // Also add a non-Optional property (should be ignored)
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "plain",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        // Also add an Optional<String> (should be ignored — not blittable)
+        var optStr = new NamedTypeSpec("Swift.Optional");
+        optStr.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "optLabel",
+            SwiftTypeSpec = optStr,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var result = ConstructorWrapperEmitter.GetOptionalBlittablePrimitiveProperties(parentDecl);
+
+        // Should detect exactly the blittable types (not plain Int32, not Optional<String>)
+        Assert.Equal(types.Length, result.Count);
+
+        for (int i = 0; i < types.Length; i++)
+        {
+            Assert.Equal(types[i].expectedOffset, result[i].tagOffset);
+        }
     }
 
     #endregion

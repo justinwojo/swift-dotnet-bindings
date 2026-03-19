@@ -78,7 +78,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalConfig constructor with label passed");
     }
 
-    [Skip("Optional<Int32> None in frozen struct: initializeMemory(as: Optional<Int32>.self) writes wrong tag byte on Mono")]
+    [Skip("Count_Get blittable fast path: byte[4]=1 (None) verified in buffer, but (int?)Count_Get() returns Some(0) on both Mono and NativeAOT — needs C# getter investigation")]
     public void TestOptionalConfigConstructorWithoutLabel()
     {
         var config = new OptionalConfig(null, null, "Default");

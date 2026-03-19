@@ -28,6 +28,38 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
 {
     static nuint _payloadSize = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata().Size;
 
+    /// <summary>
+    /// Returns the tag byte offset for the Optional discriminator, or -1 if the type uses
+    /// extra inhabitants (no separate tag byte).
+    ///
+    /// When Optional&lt;T&gt;.Size &gt; T.Size, the Optional uses an appended tag byte at offset T.Size.
+    /// Tag byte values: 0 = Some, 1 = None.
+    ///
+    /// When Optional&lt;T&gt;.Size == T.Size, the type has extra inhabitants (e.g., classes where nil
+    /// pointer encodes None) and the VWT must be used.
+    ///
+    /// This generalizes the blittable primitive fast path from Session 8 to cover all types
+    /// without extra inhabitants, including complex enums and non-frozen structs.
+    /// </summary>
+    internal static int GetTagByteOffset()
+    {
+        // Blittable primitive fast path (original Session 8 logic) — these are known at compile time
+        // and avoid the metadata lookup cost.
+        var blittableOffset = GetBlittablePrimitiveTagOffset();
+        if (blittableOffset >= 0)
+            return blittableOffset;
+
+        // General case: compare Optional<T>.Size vs T.Size.
+        // If Optional is larger, the tag byte is at offset T.Size.
+        var optionalSize = (int)_payloadSize;
+        var innerSize = (int)TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
+        if (optionalSize > innerSize)
+            return innerSize;
+
+        // Extra-inhabitant type (class, string, etc.) — no tag byte, must use VWT.
+        return -1;
+    }
+
     private SwiftSafeHandle<SwiftOptional<T>> _payload;
 
     /// <summary>
@@ -151,6 +183,18 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             int spanSize = ComputePayloadSpanSize((int)metadata.Size, innerSize);
             Span<byte> payloadSpan = new Span<byte>(payload, spanSize);
             SwiftMarshal.MarshalToSwift(value, ref payloadSpan);
+
+            // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
+            // the tag byte at offset innerSize is already 0 (Some) from AllocZeroed.
+            // Skip DestructiveInjectEnumTag which produces incorrect results on some runtimes
+            // (Mono iOS Simulator) for Optional<Int32>, Optional<ComplexEnum>, etc.
+            var tagOffset = GetTagByteOffset();
+            if (tagOffset >= 0)
+            {
+                // Tag byte is already 0 (Some) from AllocZeroed — no action needed.
+                return instance;
+            }
+
             metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
             return instance;
         }
@@ -173,10 +217,11 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         {
             byte* payload = (byte*)instance._payload.DangerousGetHandle();
 
-            // Blittable primitive fast path: write the None tag byte directly
-            // instead of using VWT DestructiveInjectEnumTag, which produces
-            // incorrect results for Optional<Int32> on some runtimes (Mono iOS Simulator).
-            var tagOffset = GetBlittablePrimitiveTagOffset();
+            // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
+            // write the None tag byte (1) directly at offset innerSize instead of using VWT
+            // DestructiveInjectEnumTag, which produces incorrect results on some runtimes
+            // (Mono iOS Simulator) for Optional<Int32>, Optional<ComplexEnum>, etc.
+            var tagOffset = GetTagByteOffset();
             if (tagOffset >= 0)
             {
                 payload[tagOffset] = 1; // None
@@ -223,11 +268,11 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 byte* payload = (byte*)_payload.DangerousGetHandle();
 
-                // Blittable primitive fast path: read the tag byte directly at offset sizeof(T)
-                // instead of going through VWT GetEnumTag, which returns incorrect values for
-                // Optional<Int32> on some runtimes (Mono on iOS Simulator).
-                // Layout: [sizeof(T) bytes payload][1 byte tag: 0=Some, 1=None]
-                var tagOffset = GetBlittablePrimitiveTagOffset();
+                // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
+                // read the tag byte directly at offset innerSize instead of going through VWT
+                // GetEnumTag, which returns incorrect values on some runtimes (Mono on iOS Simulator).
+                // Layout: [innerSize bytes payload][1 byte tag: 0=Some, 1=None]
+                var tagOffset = GetTagByteOffset();
                 if (tagOffset >= 0)
                 {
                     return payload[tagOffset] == 0 ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
@@ -247,10 +292,12 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Returns the tag byte offset for blittable primitive types, or -1 if not applicable.
     /// For Optional&lt;Int32&gt;, the tag byte is at offset 4 (sizeof(Int32)).
+    /// Note: Bool is excluded — Optional&lt;Bool&gt; uses extra inhabitants (size 1 == size 1),
+    /// not an appended tag byte. Bool falls through to GetTagByteOffset()'s size comparison.
     /// </summary>
     private static int GetBlittablePrimitiveTagOffset()
     {
-        if (typeof(T) == typeof(bool) || typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
+        if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
             return 1;
         if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
             return 2;

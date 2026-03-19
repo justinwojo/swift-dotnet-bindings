@@ -658,6 +658,14 @@ public static class WrapperValidation
                 return true;  // Tj dispatch thunk
         }
 
+        // Non-frozen struct instance members: C# projects these as ClassWithOpaquePayload
+        // (SafeHandle/IntPtr self), but the Swift ABI expects SwiftSelf<T> (struct by value
+        // in registers). CallConvSwift with IntPtr self doesn't match — crashes on Mono.
+        // @_cdecl wrapper bridges this by accepting UnsafeRawPointer self_ and extracting
+        // the struct value with .load(as:) or .assumingMemoryBound(to:).pointee.
+        if (IsNonFrozenStructInstanceMember(env))
+            return true;
+
         // Check self type for instance methods on frozen structs.
         // SwiftSelf<T> passes the struct by value in registers — if the struct has
         // float fields, Mono/NativeAOT may put them in wrong registers (GPR vs FPR).
@@ -702,6 +710,11 @@ public static class WrapperValidation
             !classDecl.IsFinal && !propertyDecl.IsFinal)
             return true;
 
+        // Non-frozen struct instance properties: same as method path — C# has IntPtr self
+        // but Swift expects SwiftSelf<T> (struct by value). @_cdecl required.
+        if (!propertyDecl.IsStatic && IsNonFrozenStructInstanceMember(env))
+            return true;
+
         // Check self type for properties on frozen structs (SwiftSelf<T> passes struct by value)
         if (IsSelfTypeCdeclRequired(env))
             return true;
@@ -736,6 +749,31 @@ public static class WrapperValidation
     public static bool IsEffectivelyEscaping(ClosureTypeSpec closureTypeSpec, TypeSpec originalType, ClosureHandler closureHandler)
     {
         return closureTypeSpec.IsEscaping || closureHandler.IsOptionalClosure(originalType);
+    }
+
+    /// <summary>
+    /// Determines whether the member is an instance member on a non-frozen struct parent.
+    /// Non-frozen structs are projected as ClassWithOpaquePayload in C# (SafeHandle/IntPtr self),
+    /// but the Swift ABI expects SwiftSelf&lt;T&gt; (struct by value in registers). The mismatch
+    /// means CallConvSwift with IntPtr self crashes on Mono. @_cdecl wrappers bridge this gap
+    /// by accepting UnsafeRawPointer self_ and using .load(as:) or .assumingMemoryBound(to:).pointee.
+    /// Constructors are exempt — they use SwiftIndirectResult, not SwiftSelf.
+    /// </summary>
+    internal static bool IsNonFrozenStructInstanceMember(MethodEnvironment env)
+    {
+        // Only instance members (not static, not constructors)
+        if (env.MethodDecl.MethodType == MethodType.Static || env.MethodDecl.IsConstructor)
+            return false;
+
+        if (env.ParentDecl is not TypeDecl parentType)
+            return false;
+
+        var parentNamedSpec = new NamedTypeSpec(parentType.SwiftTypeName.ModuleQualifiedName);
+        if (!env.TypeDatabase.TryGetTypeRecord(parentNamedSpec, out var parentRecord))
+            return false;
+
+        // Non-frozen structs: projected as ClassWithOpaquePayload, IntPtr self ≠ SwiftSelf<T>
+        return parentRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(parentRecord);
     }
 
     /// <summary>

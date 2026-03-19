@@ -1,9 +1,34 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 8)
-**Current**: 643 passed, 0 failed, 51 skipped (simulator). 562 passed, 36 failed, 53 skipped (device). Unit tests: 8289.
-**Previous**: 638 passed, 0 failed, 56 skipped (simulator). Unit tests: 7921.
+**Updated**: March 19, 2026 (Session 9)
+**Current**: 646 passed, 0 failed, 48 skipped (simulator). Unit tests: 8328.
+**Previous**: 643 passed, 0 failed, 51 skipped (simulator). Unit tests: 8289.
+
+---
+
+## Session 9 Completed Fixes
+
+### Tests recovered (3 simulator, 39 unit)
+
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| 2 | Non-frozen struct instance @_cdecl wrappers | 3 | `WrapperValidation.RequiresCdeclForAbiSafety()` didn't recognize non-frozen struct instance members need @_cdecl wrappers. C# projects these as ClassWithOpaquePayload (IntPtr self), but Swift ABI expects SwiftSelf<T> (struct by value). Added `IsNonFrozenStructInstanceMember()` check. |
+| — | GetSwiftRawValueType missing Bool/Float/Double/CGFloat | 0 | Pre-existing bug exposed by #2: `GetSwiftRawValueType()` had `_ => "Int"` fallback that caught Bool/Float/Double/CGFloat, causing wrapper compilation failures like `cannot assign value of type 'Bool' to type 'Int'`. Fixed 7 library wrapper regressions. |
+
+### Generator/runtime improvements (no test count change)
+
+| Change | Files |
+|--------|-------|
+| Optional<BlittablePrimitive> constructor tag fixup | `ConstructorWrapperEmitter.cs` — After `initialize(to:)`, emits explicit tag byte fixup using `MemoryLayout<T>.offset(of:)` for each Optional<BlittablePrimitive> stored property. Constructor tag bytes verified correct via runtime diagnostics. Separate Mono implicit operator bug blocks test recovery (see #3 below). |
+| Generalized SwiftOptional<T> tag byte fast path | `SwiftOptional.cs` — Extended blittable primitive fast path to cover ALL types without extra inhabitants (complex enums, non-frozen structs) by comparing `Optional<T>.Size` vs `T.Size`. Tag byte at offset `T.Size` when Optional is larger. |
+
+### Investigation findings
+
+| Finding | Detail |
+|---------|--------|
+| OptionalConfig None test (#3) — C# getter fast path bug | Constructor tag fixup writes correct bytes (verified: buffer bytes `00 00 00 00 01 00 00 00`, tag=1). Swift getter correctly reads None and writes tag=1 to return buffer. C# return buffer ALSO shows byte[4]=0x01. But `(int?)Count_Get()` returns `Some(0)` on **both Mono and NativeAOT**. The blittable fast path `if (_optPtr[4] != 0) return null!` should fire but doesn't take effect through the implicit conversion chain. Needs investigation of the `Count_Get()` → `using var` → `(int?)__ret` → `op_Implicit` path. |
+| OptionalShape setter (#4) — VWT payload copy crash | Generalized tag byte fast path works, but `Shape.MarshalToSwift()` uses VWT `initializeWithCopy` which crashes Mono for complex enums. Tag fix alone insufficient — needs approach that avoids constructing `SwiftOptional<Shape>` on C# side entirely. |
 
 ---
 
@@ -34,9 +59,9 @@
 
 ## Current State
 
-51 `[Skip]` + 2 `[SkipOnDevice]` = 53 total annotations. Of these:
+48 `[Skip]` + 2 `[SkipOnDevice]` = 50 total annotations. Of these:
 - **27 are unfixable** without external action (upstream bugs, missing data sources, future roadmap)
-- **26 are fixable** generator/runtime bugs, grouped into 12 categories below
+- **23 are fixable** generator/runtime bugs, grouped into 11 categories below
 
 ## Unfixable Skips (27 annotations — leave as-is)
 
@@ -49,7 +74,7 @@
 | ValueTuple StructLayout.Auto | 1 | MarshalDirectiveException on Mono, SIGSEGV on NativeAOT. Documented upstream limitation. |
 | ABI JSON lacks enum raw values (Permission) | 1 | Same root cause as string enum raw values. |
 
-## Fixable Skips (26 annotations — 12 categories)
+## Fixable Skips (23 annotations — 11 categories)
 
 ### Priority 1: Partially fixed, need remaining work
 
@@ -67,15 +92,7 @@
 
 **Key files**: `ConstructorWrapperEmitter.cs` (EmitGenericStaticFactoryConstructor), `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`
 
-#### 2. IntContainer array marshalling — 3 tests
-
-**Tests**: TestIntContainerCreation, TestIntContainerElementAt, TestIntContainerEmpty
-
-**Root cause**: `IntContainer.count` getter and `IntContainer.element(at:)` method have no @_cdecl wrappers — they use `CallConvSwift` directly to mangled symbols (marked `[Obsolete("Uses CallConvSwift")]`). On Mono, CallConvSwift crashes. The constructor has a @_cdecl wrapper and the array parameter marshalling appears correct.
-
-**Fix approach**: The generator needs to emit @_cdecl wrappers for `count` (property getter) and `element(at:)` (method) on non-frozen structs. These are instance members on `IntContainer` which is a `ClassWithOpaquePayload` (non-frozen struct projected as class). The wrapper should take `self_: UnsafeRawPointer` and use `self_.assumingMemoryBound(to: IntContainer.self).pointee` for value access.
-
-**Key files**: `PropertyWrapperEmitter.cs`, `MethodWrapperEmitter.cs`, `WrapperValidation.cs`
+#### ~~2. IntContainer array marshalling — 3 tests~~ **FIXED (Session 9)**
 
 ### Priority 2: Medium complexity
 
@@ -83,21 +100,25 @@
 
 **Tests**: TestOptionalConfigConstructorWithoutLabel (OptionalMarshallingTests.cs)
 
-**Root cause**: Swift's `initializeMemory(as: Optional<Int32>.self, repeating: nil, count: 1)` writes incorrect tag bytes on Mono — the None discriminator reads as 0 (Some) instead of 1 (None). This affects both the constructor (storing the struct) and the getter (reading the field). Session 8 added explicit tag writing in the Swift property getter wrapper and split-read in the constructor, but the `initializeMemory` call for the OptionalConfig struct itself still produces the wrong tag when writing the full struct to the result pointer.
+**Status**: Session 9 added constructor tag fixup via `MemoryLayout<T>.offset(of:)`. Exhaustive runtime diagnostics confirmed: (1) constructor writes correct tag byte (buffer bytes `00 00 00 00 01 00 00 00`, tag=1 at offset 20), (2) Swift getter reads `obj.count = nil` and writes tag=1 to return buffer, (3) C# return buffer also shows byte[4]=0x01. Despite all this, `(int?)Count_Get()` returns `Some(0)` on **both Mono and NativeAOT** (verified on device).
 
-**Fix approach**: The `resultPtr.assumingMemoryBound(to: OptionalConfig.self).initialize(to: result)` call in the constructor wrapper stores the full struct. The Optional<Int32> field inside this struct gets its tag byte corrupted by `initialize(to:)`. Need to either: (a) patch the tag byte after initialization, or (b) store fields individually instead of the full struct.
+**Root cause**: NOT the constructor or Swift getter — both are correct. The bug is in the C# `Count_Get()` → `using var __ret` → `(int?)__ret` → `op_Implicit` chain. The blittable fast path `if (_optPtr[4] != 0) return null!` should fire (byte[4] is 1), but the value doesn't propagate correctly through the implicit conversion to `Nullable<int>`.
 
-**Key files**: `ConstructorWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`
+**Fix approach**: Investigate the `Count_Get()` return → implicit operator path. Possible approaches: (a) return `SwiftOptional<int>.NewNone()` instead of `null!`, (b) bypass the `SwiftOptional<T>` intermediate entirely and return `int?` directly from `Count_Get()`, (c) check if `using var` + `return null!` has unexpected interaction.
+
+**Key files**: `WrapperEmitter.Return.cs` (blittable fast path emission), `SwiftOptional.cs` (implicit operator)
 
 #### 4. OptionalShape setter — 2 tests
 
 **Tests**: TestEnumPropertyHolder_SetOptionalShape, TestEnumPropertyHolder_ClearOptionalShape
 
-**Root cause**: `SwiftOptional<Shape>.NewSome()` / `NewNone()` use VWT operations that crash Mono. The setter creates a `SwiftOptional<Shape>` on the C# side and passes the buffer to the @_cdecl wrapper. The VWT for `Optional<Shape>` (complex enum) produces incorrect results on Mono.
+**Status**: Session 9 generalized `SwiftOptional<T>` tag byte fast path to cover complex enums (comparing `Optional<T>.Size` vs `T.Size`). Tag operations now bypass VWT correctly. However, `Shape.MarshalToSwift()` uses VWT `initializeWithCopy` which crashes Mono before the tag byte path is reached. Not tested on NativeAOT.
 
-**Fix approach**: Bypass `SwiftOptional<Shape>` entirely. Write the Optional<Shape> bytes directly (payload + tag) similar to the blittable primitive fast path, but for complex enum payloads. Or use a different setter wrapper pattern that accepts the Shape value + hasValue flag separately.
+**Root cause**: `SwiftOptional<Shape>.NewSome()` calls `MarshalToSwift` to copy the Shape payload into the Optional buffer. `MarshalToSwift` for complex enums uses VWT `initializeWithCopy` which crashes Mono. The tag byte fix is correct but the payload copy crashes first.
 
-**Key files**: `PropertyWrapperEmitter.cs`, `OptionalProjection.cs`
+**Fix approach**: Avoid constructing `SwiftOptional<Shape>` on C# side entirely. Change the setter @_cdecl wrapper to accept raw Shape bytes + `hasValue` flag, then construct `Optional<Shape>` in Swift. This bypasses all C#-side VWT operations.
+
+**Key files**: `PropertyWrapperEmitter.cs` (setter emission), `OptionalProjection.cs`
 
 #### 5. Generic class T-typed constructors — 2 tests
 
