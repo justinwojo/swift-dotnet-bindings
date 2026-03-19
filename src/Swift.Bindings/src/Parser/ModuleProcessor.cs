@@ -303,6 +303,16 @@ namespace BindingsGeneration
                              propertyRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
                         flags |= TypeRecordFlags.HasFloatFields;
                 }
+
+                // Detect Bool fields — non-blittable in .NET CallConvSwift.
+                if (!flags.HasFlag(TypeRecordFlags.HasBoolFields))
+                {
+                    if (namedPropertyType.Name is "Swift.Bool")
+                        flags |= TypeRecordFlags.HasBoolFields;
+                    else if (propertyRecord.Kind == TypeRecordKind.Struct &&
+                             propertyRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
+                        flags |= TypeRecordFlags.HasBoolFields;
+                }
             }
 
             return flags;

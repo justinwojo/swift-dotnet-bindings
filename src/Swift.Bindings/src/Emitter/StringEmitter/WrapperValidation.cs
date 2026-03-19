@@ -763,6 +763,10 @@ public static class WrapperValidation
         if (parentRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
             return true;
 
+        // Custom frozen struct with Bool fields → non-blittable in .NET CallConvSwift
+        if (parentRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
+            return true;
+
         // Custom frozen struct > 8 bytes passed by value via SwiftSelf<T> → multi-register
         // Mono JIT can't generate correct CallConvSwift stubs for multi-register self params.
         // The 16-byte param threshold doesn't apply here — SwiftSelf<T> register layout is
@@ -826,6 +830,10 @@ public static class WrapperValidation
             if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
                 return true;
 
+            // Custom struct with Bool fields → non-blittable in .NET CallConvSwift
+            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
+                return true;
+
             // Custom integer struct > 16 bytes → NativeAOT SIGSEGV
             if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 16)
                 return true;
@@ -880,6 +888,10 @@ public static class WrapperValidation
 
             // Custom struct with float/double fields → Mono SIGSEGV on by-value return
             if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+                return true;
+
+            // Custom struct with Bool fields → non-blittable in .NET CallConvSwift
+            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
                 return true;
         }
 

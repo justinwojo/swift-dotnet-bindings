@@ -167,9 +167,8 @@ namespace BindingsGeneration
             var methodEnv = new MethodEnvironment(methodDecl, typeDatabase, pinvokeHelperContext: pinvokeHelperContext);
 
             // Check if this operator should use a @_cdecl wrapper.
-            // Frozen struct operators need wrappers because Mono's CallConvSwift can't handle
-            // non-blittable types (e.g., Bool in struct fields) → InvalidProgramException.
-            bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter);
+            // Needed when struct has non-blittable fields (Bool), float/double fields, or is > 16 bytes.
+            bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter, methodEnv);
             if (usesCdeclWrapper && swiftWriter != null && emissionContext != null)
             {
                 var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
@@ -236,8 +235,8 @@ namespace BindingsGeneration
             var typeNameWithGenerics = $"{resolvedSimpleName}{GenericTypeEmitter.GetGenericParameterList(parentDecl)}";
 
             // Emit the operator wrapper and PInvoke
-            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv);
-            EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext);
+            EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
+            EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
             ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
             csWriter.WriteLine();
             return true;
@@ -254,7 +253,7 @@ namespace BindingsGeneration
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
         /// <param name="isReferenceType">Whether the containing type is a reference type.</param>
         /// <param name="methodEnv">The method environment for indirect result detection.</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv)
+        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv, bool usesCdeclWrapper = false)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
@@ -344,13 +343,21 @@ namespace BindingsGeneration
                 // Emit handle extraction for ObjC-bridged/rooted parameters
                 EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
 
-                // Wrap in unsafe block when indirect result uses pointer operations
-                if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+                if (usesCdeclWrapper)
+                {
+                    // @_cdecl path: marshal struct params to pointers, use SwiftIndirectResult for struct returns
+                    EmitCdeclOperatorCall(csWriter, symbol, returnType, parameters.Select(p => p.Name).ToArray(), pinvokeHelperContext, methodEnv, leftType);
+                }
+                else
+                {
+                    // Wrap in unsafe block when indirect result uses pointer operations
+                    if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
-                // Emit P/Invoke call and return
-                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
+                    // Emit P/Invoke call and return
+                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
-                if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                    if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                }
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -378,13 +385,21 @@ namespace BindingsGeneration
                 // Emit handle extraction for ObjC-bridged/rooted parameters
                 EmitObjCHandleExtraction(csWriter, pInvokeSignature, wrapperSignature);
 
-                // Wrap in unsafe block when indirect result uses pointer operations
-                if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
+                if (usesCdeclWrapper)
+                {
+                    // @_cdecl path: marshal struct params to pointers
+                    EmitCdeclOperatorCall(csWriter, symbol, returnType, new[] { operand.Name }, pinvokeHelperContext, methodEnv, operandType);
+                }
+                else
+                {
+                    // Wrap in unsafe block when indirect result uses pointer operations
+                    if (requiresIndirectResult) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
-                // Emit P/Invoke call and return
-                EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
+                    // Emit P/Invoke call and return
+                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv);
 
-                if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                    if (requiresIndirectResult) { csWriter.Indent--; csWriter.WriteLine("}"); }
+                }
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -481,6 +496,58 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits the @_cdecl operator call with pointer marshalling for struct params and
+        /// SwiftIndirectResult for struct returns. Bool returns use direct return.
+        /// </summary>
+        private void EmitCdeclOperatorCall(CSharpWriter csWriter, string symbol, string returnType, string[] paramNames, PInvokeHelperContext? pinvokeHelperContext, MethodEnvironment methodEnv, string? paramTypeName = null)
+        {
+            var pinvokeName = GetPInvokeMethodName(symbol);
+            bool returnsBool = returnType == "bool";
+            // For Bool-returning operators (comparisons), the param type is the struct type (not bool)
+            var structTypeName = paramTypeName ?? returnType;
+
+            csWriter.WriteLine("unsafe");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            // Stackalloc struct params to get pointers
+            foreach (var name in paramNames)
+            {
+                csWriter.WriteLine($"byte* {name}Bytes = stackalloc byte[Unsafe.SizeOf<{structTypeName}>()];");
+                csWriter.WriteLine($"Unsafe.Write({name}Bytes, {name});");
+            }
+
+            if (returnsBool)
+            {
+                // Bool return: direct call with pointer args
+                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){n}Bytes"));
+                csWriter.WriteLine($"return {pinvokeName}({ptrArgs});");
+            }
+            else
+            {
+                // Struct return: use SwiftIndirectResult
+                csWriter.WriteLine("void* _cdeclBuf = null;");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
+                csWriter.WriteLine("_cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);");
+                csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);");
+
+                var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){n}Bytes"));
+                csWriter.WriteLine($"{pinvokeName}(swiftIndirectResult, {ptrArgs});");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr(swiftIndirectResult.Value));");
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally { NativeMemory.Free(_cdeclBuf); }");
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
         /// Emits handle extraction for ObjC-bridged/rooted parameters in operator wrappers.
         /// For each parameter with ObjCBridged type, emits: IntPtr {name}Handle = {name}.Handle;
         /// This is needed because CallArgumentsString() generates "{name}Handle" references.
@@ -515,9 +582,11 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits the PInvoke declaration for an operator.
+        /// When using @_cdecl wrapper, emits Cdecl calling convention with pointer params
+        /// and SwiftIndirectResult for struct returns.
         /// </summary>
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
-        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext)
+        private void EmitOperatorPInvoke(CSharpWriter csWriter, OperatorDecl operatorDecl, MethodEnvironment methodEnv, SignatureHandler signatureHandler, ITypeDatabase typeDatabase, PInvokeHelperContext? pinvokeHelperContext, bool usesCdeclWrapper = false)
         {
             var methodDecl = operatorDecl.UnderlyingMethod;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -529,6 +598,33 @@ namespace BindingsGeneration
                 : typeDatabase.GetLibraryPath(moduleDecl.Name);
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
+            // For @_cdecl wrappers, adjust calling convention and parameter types
+            var callingConvention = usesCdeclWrapper ? PInvokeCallingConvention.Cdecl : PInvokeCallingConvention.Swift;
+            string returnType;
+            string parametersString;
+
+            if (usesCdeclWrapper)
+            {
+                var returnArg = methodDecl.CSSignature.FirstOrDefault();
+                bool returnsBool = returnArg != null && MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec);
+
+                // Struct returns → void (result via SwiftIndirectResult), Bool returns → bool
+                returnType = returnsBool ? pInvokeSignature.ReturnType : "void";
+
+                // Build pointer parameter list
+                var paramParts = new List<string>();
+                if (!returnsBool)
+                    paramParts.Add("SwiftIndirectResult swiftIndirectResult");
+                foreach (var p in pInvokeSignature.Parameters)
+                    paramParts.Add($"IntPtr {p.Name}");
+                parametersString = string.Join(", ", paramParts);
+            }
+            else
+            {
+                returnType = pInvokeSignature.ReturnType;
+                parametersString = pInvokeSignature.PInvokeParametersString();
+            }
+
             if (pinvokeHelperContext != null)
             {
                 // Collect to helper context for generic types
@@ -537,10 +633,11 @@ namespace BindingsGeneration
                     LibraryPath = libPath,
                     EntryPoint = methodDecl.MangledName,
                     MethodName = pinvokeName,
-                    ReturnType = pInvokeSignature.ReturnType,
-                    ParametersString = pInvokeSignature.PInvokeParametersString(),
+                    ReturnType = returnType,
+                    ParametersString = parametersString,
                     IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                    OmitCallingConvention = usesCdeclWrapper // @_cdecl wrappers use Cdecl, not CallConvSwift
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
@@ -552,8 +649,10 @@ namespace BindingsGeneration
                     LibraryPath = libPath,
                     EntryPoint = methodDecl.MangledName,
                     MethodName = pinvokeName,
-                    ReturnType = pInvokeSignature.ReturnType,
-                    ParametersString = pInvokeSignature.PInvokeParametersString()
+                    ReturnType = returnType,
+                    ParametersString = parametersString,
+                    CallingConvention = callingConvention,
+                    IsUnsafe = usesCdeclWrapper
                 });
             }
         }
@@ -723,10 +822,16 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Determines if an operator should use a @_cdecl wrapper.
-        /// Frozen struct operators need wrappers because Mono's CallConvSwift can't handle
-        /// certain field types (Bool) in struct parameters → InvalidProgramException.
+        /// Only needed when ABI safety requires it: float/double fields (NativeAOT HFA bug)
+        /// or structs > 16 bytes (NativeAOT register mismatch). Simple integer-only frozen
+        /// structs ≤ 16 bytes work correctly with direct CallConvSwift.
         /// </summary>
-        private static bool ShouldEmitOperatorWrapper(OperatorDecl operatorDecl, ITypeDatabase typeDatabase, SwiftWriter? swiftWriter)
+        /// <summary>
+        /// Full ABI safety check: delegates to RequiresCdeclForAbiSafety which checks
+        /// non-blittable types (Bool), float fields, large structs, etc.
+        /// Requires a MethodEnvironment — call from EmitOperator after env is created.
+        /// </summary>
+        internal static bool ShouldEmitOperatorWrapper(OperatorDecl operatorDecl, ITypeDatabase typeDatabase, SwiftWriter? swiftWriter, MethodEnvironment? methodEnv = null)
         {
             if (swiftWriter == null) return false;
             if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return false;
@@ -741,6 +846,12 @@ namespace BindingsGeneration
                 MarshallingHelpers.IsFrozenStructProjectedAsClass(record))
                 return false;
 
+            // Use RequiresCdeclForAbiSafety for comprehensive check:
+            // float/double fields, Bool fields (non-blittable), large structs, etc.
+            if (methodEnv != null)
+                return WrapperValidation.RequiresCdeclForAbiSafety(methodEnv);
+
+            // Fallback: conservative — wrap unknown structs
             return true;
         }
 
@@ -757,8 +868,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits a Swift @_cdecl wrapper for an operator P/Invoke.
-        /// The wrapper forwards the call using C calling convention, avoiding CallConvSwift
-        /// issues with non-blittable frozen struct parameters on Mono.
+        /// Uses C-compatible types: UnsafeRawPointer for struct params, UnsafeMutableRawPointer
+        /// for struct returns (via resultPtr). Bool returns are direct (C-compatible).
         /// </summary>
         /// <returns>The @_cdecl symbol name, or null if emission was skipped.</returns>
         private static string? EmitOperatorSwiftWrapper(
@@ -781,32 +892,61 @@ namespace BindingsGeneration
 
             // Determine return type in Swift
             var returnArg = methodDecl.CSSignature.FirstOrDefault();
-            bool returnsParentType = returnArg?.SwiftTypeSpec is NamedTypeSpec retNts &&
-                retNts.Name == parentDecl.SwiftTypeName.ToString();
             bool returnsBool = returnArg != null && MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec);
+            // Struct returns need resultPtr (structs are not C-representable in @_cdecl)
+            bool needsResultPtr = !returnsBool;
 
-            // Build params and call
-            var paramArgs = methodDecl.CSSignature.Skip(1).ToList();
+            // Resolve the actual Swift return type (may differ from parent type for some operators)
+            string swiftReturnType = moduleQualifiedSwiftName;
+            if (returnArg?.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule())
+                swiftReturnType = retNts.Name;
 
             swiftWriter.WriteLine();
             swiftWriter.WriteLines($$"""
                 // Operator @_cdecl wrapper for {{moduleQualifiedSwiftName}}.{{symbol}}.
-                // Routes operator through C calling convention to avoid CallConvSwift crash on Mono.
+                // Routes operator through C calling convention to avoid CallConvSwift crash on NativeAOT.
                 @_cdecl("{{symbolName}}")
                 """);
 
             if (isUnary)
             {
-                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}(_ operand: {moduleQualifiedSwiftName}) -> {GetSwiftReturnType(returnArg, moduleQualifiedSwiftName)} {{");
+                var paramList = needsResultPtr
+                    ? "_ resultPtr: UnsafeMutableRawPointer, _ operand: UnsafeRawPointer"
+                    : "_ operand: UnsafeRawPointer";
+                var returnClause = needsResultPtr ? "" : " -> Bool";
+                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}({paramList}){returnClause} {{");
                 swiftWriter.Indent++;
-                swiftWriter.WriteLine($"return {symbol}operand");
+                swiftWriter.WriteLine($"let op = operand.load(as: {moduleQualifiedSwiftName}.self)");
+                if (needsResultPtr)
+                {
+                    swiftWriter.WriteLine($"let result = {symbol}op");
+                    swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftReturnType}.self, repeating: result, count: 1)");
+                }
+                else
+                {
+                    swiftWriter.WriteLine($"return {symbol}op");
+                }
                 swiftWriter.Indent--;
             }
             else
             {
-                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}(_ lhs: {moduleQualifiedSwiftName}, _ rhs: {moduleQualifiedSwiftName}) -> {GetSwiftReturnType(returnArg, moduleQualifiedSwiftName)} {{");
+                var paramList = needsResultPtr
+                    ? "_ resultPtr: UnsafeMutableRawPointer, _ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer"
+                    : "_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer";
+                var returnClause = needsResultPtr ? "" : " -> Bool";
+                swiftWriter.WriteLine($"public func _sbw_op_{funcHash}({paramList}){returnClause} {{");
                 swiftWriter.Indent++;
-                swiftWriter.WriteLine($"return lhs {symbol} rhs");
+                swiftWriter.WriteLine($"let l = lhs.load(as: {moduleQualifiedSwiftName}.self)");
+                swiftWriter.WriteLine($"let r = rhs.load(as: {moduleQualifiedSwiftName}.self)");
+                if (needsResultPtr)
+                {
+                    swiftWriter.WriteLine($"let result = l {symbol} r");
+                    swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {swiftReturnType}.self, repeating: result, count: 1)");
+                }
+                else
+                {
+                    swiftWriter.WriteLine($"return l {symbol} r");
+                }
                 swiftWriter.Indent--;
             }
 
@@ -814,22 +954,5 @@ namespace BindingsGeneration
             return symbolName;
         }
 
-        /// <summary>
-        /// Gets the Swift return type string for an operator @_cdecl wrapper.
-        /// </summary>
-        private static string GetSwiftReturnType(ArgumentDecl? returnArg, string moduleQualifiedParentName)
-        {
-            if (returnArg == null) return "Void";
-            if (MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec)) return "Bool";
-
-            // Check common Swift types
-            var typeSpec = returnArg.SwiftTypeSpec;
-            if (typeSpec is NamedTypeSpec nts)
-            {
-                return nts.HasModule() ? nts.Name : moduleQualifiedParentName;
-            }
-
-            return moduleQualifiedParentName;
-        }
     }
 }

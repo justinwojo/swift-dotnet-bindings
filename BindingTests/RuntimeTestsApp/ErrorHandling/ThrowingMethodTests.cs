@@ -50,9 +50,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("Divide with negative values passed");
     }
 
-    // Error description extraction returns "SwiftBindingsTestLib.MathError (code 0)" instead of
-    // "divisionByZero" — the SBW_GetErrorDescription wrapper may be boxing the error incorrectly
-    [Skip("Error description returns type code, not case name")]
     public void TestDivideByZeroThrows()
     {
         try
@@ -103,9 +100,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ThrowingStruct.SafeDivide(20, 4) = {result}");
     }
 
-    // Error description extraction returns "SwiftBindingsTestLib.MathError (code 0)" instead of
-    // "divisionByZero" — the SBW_GetErrorDescription wrapper may be boxing the error incorrectly
-    [Skip("Error description returns type code, not case name")]
     public void TestThrowingStructDivideByZeroThrows()
     {
         var ts = new ThrowingStruct(100);
@@ -442,7 +436,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Async (Tier 3: Mono JIT limitations)
 
-    [Skip("Async DllImport targets wrong module")]
+    [Skip("Async typed throws callback returns garbled error tag on Mono")]
     public async Task TestAsyncParseTypedCatch()
     {
         // Async typed throws: SwiftException<ParseError> with non-null .Error
@@ -461,7 +455,6 @@ public class BasicThrowingTests : TestBase
         }
     }
 
-    [Skip("Async DllImport targets wrong module")]
     public async Task TestAsyncParseSuccess()
     {
         var parser = TestLibFunctions.CreateLenientParser();
@@ -547,9 +540,8 @@ public class BasicThrowingTests : TestBase
         catch (Swift.Runtime.SwiftException ex)
         {
             // Traditional `throws` — generator emits SwiftException (not SwiftException<StorageError>).
-            // StorageError.notFound has rawValue -1, surfaced as "code -1" in the message.
-            AssertTrue(ex.Message.Contains("code -1"), "Error message contains notFound raw value (code -1)");
-            AssertTrue(ex.Message.Contains("StorageError"), "Error message identifies StorageError type");
+            // Error description now uses String(describing:) which gives the case name directly.
+            AssertTrue(ex.Message.Contains("notFound"), "Error message contains notFound case name");
             TestLogger.Info($"LoadFromStorage(\"\") threw: {ex.Message}");
         }
     }
@@ -563,9 +555,8 @@ public class BasicThrowingTests : TestBase
         }
         catch (Swift.Runtime.SwiftException ex)
         {
-            // StorageError.accessDenied has rawValue -2, distinct from notFound's -1.
-            AssertTrue(ex.Message.Contains("code -2"), "Error message contains accessDenied raw value (code -2)");
-            AssertTrue(ex.Message.Contains("StorageError"), "Error message identifies StorageError type");
+            // StorageError.accessDenied — error description gives case name directly.
+            AssertTrue(ex.Message.Contains("accessDenied"), "Error message contains accessDenied case name");
             TestLogger.Info($"LoadFromStorage(\"restricted\") threw: {ex.Message}");
         }
     }

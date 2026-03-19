@@ -68,6 +68,10 @@ public enum TypeRecordFlags
     // NativeAOT places float fields in GPR instead of FPR (params), and Mono crashes on float
     // struct returns. System structs (CGRect, etc.) are NOT flagged — they have special runtime handling.
     HasFloatFields = 1 << 12,
+    // This flag indicates a frozen struct contains Bool fields (directly or transitively).
+    // Bool is non-blittable in .NET CallConvSwift — the runtime rejects structs containing Bool
+    // with "Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported".
+    HasBoolFields = 1 << 13,
 }
 
 /// <summary>

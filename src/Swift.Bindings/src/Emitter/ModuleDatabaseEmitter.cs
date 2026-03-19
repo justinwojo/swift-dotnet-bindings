@@ -127,6 +127,12 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.NonCopyable) != 0)
                 writer.WriteAttributeString("nonCopyable", "true");
 
+            if ((record.Flags & TypeRecordFlags.HasFloatFields) != 0)
+                writer.WriteAttributeString("hasFloatFields", "true");
+
+            if ((record.Flags & TypeRecordFlags.HasBoolFields) != 0)
+                writer.WriteAttributeString("hasBoolFields", "true");
+
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 

@@ -44,23 +44,21 @@ public static class ErrorDescriptionEmitter
             // SwiftError.Value from .NET CallConvSwift is the raw value from the Swift error register.
             //
             // Uses Unmanaged<AnyObject>.fromOpaque to recover the error object, then dispatches:
-            //   - NSError: access domain+code directly (String(describing:) and localizedDescription
-            //     crash on CoreCLR due to ObjC runtime operations in .NET interop contexts)
-            //   - Swift Error (enums, structs): String(describing:) is safe
+            //   - Swift Error (enums, structs): String(describing:) gives case name
+            //   - Pure NSError: domain+code (avoid ObjC runtime operations that may crash)
             //   - Fallback: type(of:) for anything else
             @_cdecl("{{descSymbol}}")
             public func SBW_GetErrorDescription(_ error: UnsafeRawPointer) -> UnsafeMutablePointer<CChar>? {
                 let errorObj = Unmanaged<AnyObject>.fromOpaque(error).takeUnretainedValue()
                 let desc: String
-                if let nsError = errorObj as? NSError {
-                    // NSError path: access domain + code directly.
-                    // String(describing:) and localizedDescription on NSError crash on CoreCLR
-                    // because they trigger ObjC runtime operations (e.g. NSLocalizedDescriptionKey
-                    // lookup in userInfo) that fail in .NET interop contexts.
-                    let domain = nsError.domain.isEmpty ? "unknown" : nsError.domain
-                    desc = "\(domain) (code \(nsError.code))"
-                } else if let errorValue = errorObj as? Error {
-                    // Swift value-type errors (enums, structs): String(describing:) is safe
+                if let errorValue = errorObj as? Error {
+                    // This function runs in the Swift/ObjC runtime (via @_cdecl P/Invoke),
+                    // not in CoreCLR, so ObjC runtime operations are fully available.
+                    // String(describing:) gives the case name for Swift enum errors (e.g., "divisionByZero")
+                    // and the localized description for NSError/subclasses.
+                    // Previous code checked NSError first, but Swift enum errors bridge to
+                    // _SwiftNativeNSError (an NSError subclass), so `as? NSError` matched everything
+                    // and returned "domain (code N)" instead of the case name.
                     desc = String(describing: errorValue)
                 } else {
                     desc = "\(type(of: errorObj))"

@@ -140,8 +140,7 @@ public class EnumMarshallingTests : TestBase
 
     #region Shape Enum (Associated Values)
 
-    // Shape.point wrapper stripped during compilation — associated value enum case construction fails
-    [Skip("Shape.point wrapper stripped during compilation")]
+    [Skip("Shape.point FrozenPoint param has Double fields — ABI mismatch in @_cdecl wrapper")]
     public void TestShapeCaseCreation()
     {
         // Test creating Shape cases with associated values
@@ -160,8 +159,7 @@ public class EnumMarshallingTests : TestBase
         TestLogger.Info("Shape case creation passed");
     }
 
-    // Depends on Shape.point wrapper which was stripped during compilation
-    [Skip("Shape.point wrapper stripped during compilation")]
+    [Skip("Shape.point FrozenPoint param has Double fields — ABI mismatch in @_cdecl wrapper")]
     public void TestShapeAllCasesDistinct()
     {
         // Verify all cases produce distinct tags

@@ -226,7 +226,7 @@ public class OwnershipTests : TestBase
 
     #region Ownership Transfer Patterns
 
-    [Skip("EntryPointNotFoundException: missing Swift wrapper export")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper .pointee copy fails compilation")]
     public void TestBorrowResourcePreservesOwnership()
     {
         // BorrowResource should not consume the resource

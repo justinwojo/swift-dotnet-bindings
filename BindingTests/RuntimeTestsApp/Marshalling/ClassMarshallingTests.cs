@@ -114,7 +114,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [Skip("EntryPointNotFoundException: missing Swift wrapper export")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper .pointee copy fails compilation")]
     public void TestBorrowResource()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);

@@ -16,14 +16,13 @@ namespace RuntimeTestsApp.Async;
 /// Tier 3: Async P/Invoke entry points are in the SwiftBindings wrapper library but
 /// DllImport targets "SwiftBindingsTestLib" → EntryPointNotFoundException at runtime.
 /// Tests are ready for when the generator routes async DllImports to the wrapper library.
-// Async DllImport targets wrong module — entry points are in wrapper lib, not native dylib
-[Skip("Async DllImport targets wrong module")]
 public class AsyncComplexTypeTests : TestBase
 {
     public AsyncComplexTypeTests(TestResults results) : base(results) { }
 
     #region AsyncResult (Frozen Struct) Tests
 
+    [Skip("Async callback frozen struct return data garbled on Mono")]
     public async Task TestAsyncGetResult()
     {
         var worker = new AsyncComplexWorker("worker-1");
@@ -49,6 +48,7 @@ public class AsyncComplexTypeTests : TestBase
 
     #region AsyncStatus (Enum) Tests
 
+    [Skip("Async callback enum return data garbled on Mono")]
     public async Task TestAsyncGetStatus()
     {
         var worker = new AsyncComplexWorker("status-worker");
@@ -61,6 +61,7 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info($"AsyncComplexWorker.AsyncGetStatus() = Completed(\"{message}\")");
     }
 
+    [Skip("Async callback enum return data garbled on Mono")]
     public async Task TestAsyncGetPendingStatus()
     {
         var worker = new AsyncComplexWorker("pending-worker");
@@ -74,6 +75,7 @@ public class AsyncComplexTypeTests : TestBase
 
     #region AsyncTask (Class) Tests
 
+    [Skip("Async callback class return data garbled on Mono")]
     public async Task TestAsyncGetTask()
     {
         var worker = new AsyncComplexWorker("task-worker");
@@ -85,6 +87,7 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info($"AsyncComplexWorker.AsyncGetTask() = Task[{task.TaskId}]: {task.StatusProperty}");
     }
 
+    [Skip("Async callback class return data garbled on Mono")]
     public async Task TestAsyncStaticTask()
     {
         var task = await WithTimeout(AsyncComplexWorker.StaticTaskAsync(), DefaultAsyncTimeout);
@@ -110,6 +113,7 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info($"AsyncComplexWorker.AsyncGetOptionalResult() = Some(id={result.Id})");
     }
 
+    [Skip("Async callback optional return nil detection garbled on Mono")]
     public async Task TestAsyncGetNilResult()
     {
         var worker = new AsyncComplexWorker("nil-worker");

@@ -20,8 +20,6 @@ namespace RuntimeTestsApp.Async;
 ///    are defined via @_silgen_name in the SwiftBindings wrapper library
 /// 2. InvalidProgramException — throwing async methods pass non-blittable function pointers
 ///    through CallConvSwift (Mono limitation)
-// Async: EntryPointNotFoundException (wrong module) + InvalidProgramException (non-blittable CallConvSwift)
-[Skip("Async DllImport targets wrong module")]
 public class AsyncMethodTests : TestBase
 {
     public AsyncMethodTests(TestResults results) : base(results) { }
