@@ -42,7 +42,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableCounterView create/read: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestUpdatableCounterView_UpdateCount()
     {
         var labelBytes = Encoding.UTF8.GetBytes("Score");
@@ -63,7 +63,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableCounterView UpdateCount: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestUpdatableCounterView_UpdateLabel()
     {
         var labelBytes = Encoding.UTF8.GetBytes("old");
@@ -117,7 +117,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableMixedView create/read: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestUpdatableMixedView_UpdateTitle()
     {
         MixedActionState.Reset();
@@ -146,7 +146,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableMixedView UpdateTitle: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestUpdatableMixedView_UpdateIsEnabled()
     {
         MixedActionState.Reset();
@@ -179,7 +179,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableMixedView UpdateIsEnabled: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestUpdatableMixedView_ClosureStillWorks()
     {
         MixedActionState.Reset();
@@ -213,7 +213,7 @@ public class BridgeStateUpdateTests : TestBase
 
     // --- Existing view Update functions (Session 4A retrofit) ---
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public void TestEnumParamView_UpdateStyle()
     {
         var handle = BridgeNativeMethods.EnumParamView_Create(0); // AlertStyle.info
@@ -240,7 +240,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("EnumParamView UpdateStyle: passed");
     }
 
-    [SkipOnSimulator("NSRunLoop.RunUntil triggers jit-info.c:918 assertion on Mono finalizer thread")]
+    [SkipOnSimulator("NSRunLoop.RunUntil triggers Mono JIT async assertion (jit-info.c:918)")]
     public unsafe void TestMixedParamView_UpdateStyleAndCount()
     {
         MixedActionState.Reset();

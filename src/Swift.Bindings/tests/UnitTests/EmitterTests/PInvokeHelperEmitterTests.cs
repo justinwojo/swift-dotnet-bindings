@@ -393,6 +393,33 @@ public class PInvokeHelperEmitterTests
         Assert.Contains("PInvoke_doWork(IntPtr self, TypeMetadata t0Metadata);", result);
     }
 
+    [Fact]
+    public void PInvokeDeclaration_Emit_GenericMetadataAccessor_HasMetadataRequestParameter()
+    {
+        // Generic type metadata accessor P/Invokes must have TypeMetadataRequest as first
+        // parameter per Swift ABI: (MetadataRequest, T_metadata...) -> MetadataResponse.
+        // Without this, TypeMetadata lands in x0 (where Swift expects MetadataRequest)
+        // causing Mono JIT crashes when the metadata cache misses.
+        var decl = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/lib.dylib",
+            EntryPoint = "$s10TestModule7WrapperVMa",
+            MethodName = "PInvoke_getMetadata",
+            ReturnType = "TypeMetadata",
+            ParametersString = "TypeMetadataRequest request",
+            IsAsync = false,
+            MetadataParameters = new[] { "TypeMetadata tMetadata" }
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        decl.Emit(csWriter);
+
+        var result = output.ToString();
+        // Verify TypeMetadataRequest is the first parameter
+        Assert.Contains("PInvoke_getMetadata(TypeMetadataRequest request, TypeMetadata tMetadata);", result);
+    }
+
     #endregion
 
     #region Helper Methods

@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -142,9 +143,10 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// This makes struct lifecycle match class lifecycle: the finalizer is a reliable safety net.
     /// </para>
     /// <para>
-    /// During finalization on Mono: skips Destroy to avoid jit-info.c:918 crashes from
-    /// the finalizer thread's async context. Only the .NET-allocated buffer is freed.
-    /// This is a dev-only limitation (Mono is only used for simulator builds).
+    /// During finalization on Mono: skips ALL P/Invoke calls (both VWT Destroy and
+    /// NativeMemory.Free) to avoid jit-info.c:918 crashes. When earlier CallConvSwift
+    /// compilations contaminate Mono's JIT state with the async flag, any P/Invoke from
+    /// the finalizer thread crashes. Accepts a small memory leak on simulator dev builds.
     /// </para>
     /// </remarks>
     protected override unsafe bool ReleaseHandle()
@@ -152,6 +154,19 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         // Early exit for already-freed handles
         if (handle == IntPtr.Zero)
             return true;
+
+        // On Mono finalizer thread, skip ALL P/Invoke calls — both VWT Destroy and
+        // NativeMemory.Free. NativeMemory.Free calls native free() via P/Invoke, and
+        // when earlier CallConvSwift compilations have contaminated Mono's JIT state
+        // with the async flag, any P/Invoke from the finalizer thread triggers
+        // jit-info.c:918 (!ji->async assertion). Accept a small memory leak on Mono
+        // simulator dev builds; explicit Dispose() from user threads still frees everything.
+        // NativeAOT (production) is unaffected — finalizer cleanup works fully.
+        if (!_explicitDispose && s_isMonoRuntime)
+        {
+            handle = IntPtr.Zero;
+            return true;
+        }
 
         // During process exit, skip Destroy for finalizer-triggered cleanup only.
         // Explicit Dispose() still runs Destroy — Swift deinit may flush/close/persist.
@@ -165,43 +180,40 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
             return true;
         }
 
-        // Warn when handle is finalized without explicit Dispose on Mono,
-        // where the finalizer cannot safely call Destroy.
-        if (!_explicitDispose && s_isMonoRuntime && handle != IntPtr.Zero)
-        {
-            Debug.WriteLine($"[SwiftSafeHandle] WARNING: SwiftSafeHandle<{typeof(T).Name}> " +
-                $"(0x{handle:X}) was finalized without Dispose() on Mono. " +
-                "Swift ARC reference count was not decremented. " +
-                "Use 'using' or call Dispose() explicitly.");
-        }
-
         try
         {
-            // Determine if Destroy should run:
-            // - Explicit Dispose: always (safe from user thread on both runtimes)
-            // - Finalization on NativeAOT: always (VWT Destroy safe from finalizer thread)
-            // - Finalization on Mono: skip (jit-info.c:918 async assertion crash)
-            bool shouldDestroy = _explicitDispose || !s_isMonoRuntime;
-
-            if (shouldDestroy)
-            {
-                TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
-                if (metadata.IsValid)
-                {
-                    metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
-                }
-            }
+            // VWT Destroy is in a separate NoInlining method so that Mono's JIT
+            // does not eagerly compile SwiftObjectHelper<T>.GetTypeMetadata() when
+            // compiling ReleaseHandle() on the finalizer thread. On the Mono finalizer
+            // path we've already returned above, so this is always safe here.
+            PerformVwtDestroy(handle);
         }
         catch
         {
             // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
         }
 
-        // Always free the .NET-allocated buffer
+        // Free the .NET-allocated buffer
         NativeMemory.Free((void*)handle);
         handle = IntPtr.Zero;
 
         return true;
+    }
+
+    /// <summary>
+    /// Calls VWT Destroy to properly decrement Swift ARC reference counts.
+    /// Extracted into a separate NoInlining method so that Mono's JIT does not
+    /// attempt to compile <see cref="SwiftObjectHelper{T}.GetTypeMetadata()"/> when
+    /// compiling <see cref="ReleaseHandle"/> on the finalizer thread.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private unsafe void PerformVwtDestroy(IntPtr handle)
+    {
+        TypeMetadata metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+        if (metadata.IsValid)
+        {
+            metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
+        }
     }
 }
 

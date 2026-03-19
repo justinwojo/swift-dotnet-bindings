@@ -518,18 +518,18 @@ namespace BindingsGeneration
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
                 var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
-                AddParameter("TypeMetadata", metadataName);
+                AddParameter("IntPtr", metadataName);
             }
 
             // Generic @_silgen_name wrappers require explicit T.Type params (Swift 6 mandate).
             // Swift also adds implicit trailing TypeMetadata after all explicit params.
-            // Both values are identical — emit a second TypeMetadata per generic param.
+            // Both values are identical — emit a second IntPtr per generic param.
             if (_env.MethodDecl.IsProtocolExtensionMethod && _env.MethodDecl.GenericParameters.Count > 0)
             {
                 foreach (var genericParameter in _env.MethodDecl.GenericParameters)
                 {
                     var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
-                    AddParameter("TypeMetadata", $"{metadataName}Implicit");
+                    AddParameter("IntPtr", $"{metadataName}Implicit");
                 }
             }
         }
@@ -552,7 +552,10 @@ namespace BindingsGeneration
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ConformanceTarget.Name);
-                    AddParameter("ProtocolWitnessTable", pwtName);
+                    // Use IntPtr instead of ProtocolWitnessTable struct to avoid Mono CallConvSwift
+                    // JIT crash (jit-info.c:918). The ProtocolWitnessTable struct wraps a single IntPtr
+                    // and is ABI-compatible, but Mono's JIT can't handle struct params in CallConvSwift.
+                    AddParameter("IntPtr", pwtName);
                 }
             }
         }
@@ -681,7 +684,10 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    AddParameter("SwiftError", "swiftError", "out");
+                    // Use 'ref' (not 'out') to match Swift ABI: caller must zero-initialize
+                    // the swifterror register before calling a throwing function. 'ref' ensures
+                    // the initial default(SwiftError) value is passed to the callee.
+                    AddParameter("SwiftError", "swiftError", "ref");
                 }
             }
         }
@@ -800,11 +806,11 @@ namespace BindingsGeneration
                     // Methods with GenericParameters already have per-param TypeMetadata in the
                     // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
                     // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).
-                    // Constructors additionally need ONE TypeMetadata for the allocating init's
+                    // Constructors additionally need ONE IntPtr for the allocating init's
                     // Self.Type metatype (e.g., Wrapper<T>.Type).
                     MetadataParameters = methodDecl.GenericParameters.Count > 0
                         ? (methodDecl.IsConstructor
-                            ? new[] { "TypeMetadata metatype" }
+                            ? new[] { "IntPtr metatype" }
                             : Array.Empty<string>())
                         : methodEnv.PInvokeHelperContext.GetMetadataParameterDeclarations()
                 };

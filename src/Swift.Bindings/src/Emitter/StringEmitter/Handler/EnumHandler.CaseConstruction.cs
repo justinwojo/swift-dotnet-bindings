@@ -368,7 +368,7 @@ namespace BindingsGeneration
 
             // Swift enum case constructors use indirect return - allocate buffer and pass it
             var getMetadataCall = pinvokeHelperContext != null
-                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
                 : "PInvoke_getMetadata()";
             csWriter.WriteLine($"var metadata = {getMetadataCall};");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");

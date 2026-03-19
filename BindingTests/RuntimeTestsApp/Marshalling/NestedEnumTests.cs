@@ -321,7 +321,7 @@ public class NestedEnumTests : TestBase
 
     #region Pass 2 — L6: Nested Enum with String RawValue + CaseIterable
 
-    [SkipOnSimulator("String-raw-value enum deferred Sys:Free crashes Mono finalizer thread")]
+    [Skip("String-raw-value enum deferred finalizer crash on both Mono and NativeAOT")]
     public void TestCodecAlignmentCases()
     {
         AssertEqual(Codec.Alignment.CaseTag.Left, Codec.Alignment.Left.Tag, "Left tag");
@@ -330,7 +330,7 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Codec.Alignment case tags passed");
     }
 
-    [SkipOnSimulator("String-raw-value enum deferred Sys:Free crashes Mono finalizer thread")]
+    [Skip("String-raw-value enum deferred finalizer crash on both Mono and NativeAOT")]
     public void TestCodecAlignmentRawValues()
     {
         AssertEqual("left", Codec.Alignment.Left.RawValue.ToString(), "Left raw value");

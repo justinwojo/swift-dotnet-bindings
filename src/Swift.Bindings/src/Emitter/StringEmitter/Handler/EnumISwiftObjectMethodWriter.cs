@@ -76,7 +76,7 @@ namespace BindingsGeneration
             if (_pinvokeHelperContext != null)
             {
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetMetadataArgumentList());
-                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs});");
+                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
                 _pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
                 {
@@ -84,7 +84,7 @@ namespace BindingsGeneration
                     EntryPoint = _enumDecl.MetadataAccessor,
                     MethodName = "PInvoke_getMetadata",
                     ReturnType = "TypeMetadata",
-                    ParametersString = "",
+                    ParametersString = "TypeMetadataRequest request",
                     IsAsync = false,
                     MetadataParameters = _pinvokeHelperContext.GetMetadataParameterDeclarations()
                 });

@@ -164,10 +164,12 @@ namespace BindingsGeneration
             EmitUnsafeBlockStart(csWriter);
             EmitSafeHandleAddRef(csWriter);
 
-            // Declare TypeMetadata, payload, and GCHandle variables
+            // Declare variables (SwiftError, TypeMetadata, payloads, GCHandles).
+            // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
+            EmitDeclarationsForAllocations(csWriter);
+
             if (needsTryFinally)
             {
-                EmitDeclarationsForAllocations(csWriter);
                 EmitTryBlockStart(csWriter);
             }
 
@@ -237,11 +239,9 @@ namespace BindingsGeneration
             EmitSafeHandleAddRef(csWriter);
             EmitBoundGenericArguments(csWriter);
 
-            // Declare GCHandle variables before closure marshalling uses them
-            if (needsTryFinally)
-            {
-                EmitDeclarationsForAllocations(csWriter);
-            }
+            // Declare variables (SwiftError, GCHandles, etc.) before use.
+            // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
+            EmitDeclarationsForAllocations(csWriter);
 
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);

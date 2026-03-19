@@ -195,7 +195,7 @@ namespace BindingsGeneration
                 // Get metadata for the enum type and SwiftOptional<EnumType>
                 csWriter.WriteLine("// Get metadata for the enum type");
                 var getMetadataCall = pinvokeHelperContext != null
-                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
                     : "PInvoke_getMetadata()";
                 csWriter.WriteLine($"var enumMetadata = {getMetadataCall};");
                 csWriter.WriteLine();

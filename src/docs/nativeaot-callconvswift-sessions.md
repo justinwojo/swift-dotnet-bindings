@@ -70,6 +70,7 @@ This framework covers the *calling convention* dimension only. The generator's e
 | #4: VWT Destroy crash | **DISPROVEN** | Delete |
 | #5: CGRect ABI mismatch | **REWRITE** | File as custom struct HFA bug (floats in GPR) |
 | NEW: Custom struct float fields in GPR | **New upstream bug** | File with minimal repro (single `struct S { double A; }`) |
+| NEW: Mono CallConvSwift 16-byte struct return | **Confirmed** (standalone repro) | File with repro project — `makeAdder` returns wrong fn ptr. See `MONO-SIMULATOR-FINDINGS.md` |
 
 ### Cross-Platform Evidence Matrix
 
@@ -463,71 +464,196 @@ All three were wrong for optional closures.
 
 ---
 
-## Session 6: Generic CallConvSwift & Remaining Gaps
+## Session 6: Complete Runtime Test Cleanup — All Fixable Skips
 
-**Goal**: Fix the generic type CallConvSwift P/Invoke pattern that crashes Mono JIT, and clean up remaining items. This is deep infrastructure work.
+**Goal**: Fix every remaining fixable `[Skip]` and `[SkipOnSimulator]` annotation in the runtime test suite. Zero deferrals. After this session group, the only remaining skips will be genuinely unfixable upstream limitations.
 
-### Sub-task 6A: Generic Type CallConvSwift on Mono (18 tests) — HIGH
+**Prerequisite**: Mono simulator crash reproduction (`MONO-SIMULATOR-FINDINGS.md`, March 18, 2026). Standalone repro at `/Users/wojo/Dev/swift-interop-repro/` proved 4 of 5 "Mono bug" categories are actually our generator/runtime bugs. Only returned thick closures (Mono CallConvSwift 16-byte struct return ABI) is confirmed upstream.
 
-**Bug**: All P/Invokes in `PInvokeHelper` classes for generic types crash Mono JIT with `jit-info.c:918` when using `CallConvSwift`. The metadata accessor (`PInvoke_getMetadata`) also crashes. Session 4 fixed duplicate TypeMetadata params and `_payloadSize` static field initialization, but the fundamental issue remains: Mono's JIT can't compile CallConvSwift P/Invokes in certain contexts. **Verified in Session 5**: `TestWrapperCreation` SIGSEGV confirmed on simulator.
+**Total scope**: 71 fixable tests across 3 sub-sessions. After completion:
+- **71 `[Skip]`/`[SkipOnSimulator]` removed**
+- **5 `[SkipOnSimulator]` remain** — returned thick closures (confirmed Mono 16-byte struct return ABI bug)
+- **19 `[Skip]` remain** — genuinely unfixable (string enum raw values: 8, noncopyable types: 8, non-blittable closures: 2, ValueTuple: 1)
 
-**Potential approaches**:
-1. Emit @_cdecl metadata accessor wrappers (non-generic Swift functions that forward to the generic metadata accessor) — avoids CallConvSwift entirely for metadata resolution
-2. Use `DllImport` with `CallingConvention.Cdecl` for metadata accessors on generic types (if a @_cdecl wrapper is emitted in the Swift wrapper library)
-3. Investigate whether `RuntimeFeature.IsDynamicCodeSupported` branching can route around the Mono JIT crash path
+---
 
-**Tests affected**: 15 `[SkipOnSimulator("Generic type CallConvSwift P/Invoke crashes Mono JIT")]` + 3 `[SkipOnSimulator("BaseEntity metadata cache corruption")]` in `BasicGenericTests.cs`
+### Session 6A: Investigation Bugs (38 tests)
 
-### Sub-task 6B: Returned Thick Closures on Mono (5 tests) — MEDIUM
+Bugs where the standalone repro proves the pattern works on Mono — our generator/runtime code is wrong. Requires debugging against the repro's working patterns.
 
-**Bug**: Invoking returned closures via `delegate* unmanaged[Swift]` with `SwiftSelf` context SIGSEGV on Mono. Proven in evidence matrix (line 89) and **verified in Session 5** (TestTransformerChain crash). Works on NativeAOT.
+#### 6A-1: Generic CallConvSwift P/Invoke (20 tests) — HIGH
 
-**Tests affected**: TestMakeAdder, TestMakeMultiplier, TestMakeGreaterThan, TestClosureFactory in `ClosureTests.cs` + TestTransformerChain in `CompositionTests.cs`
+**Old claim**: "Mono JIT can't compile CallConvSwift P/Invokes inside generic C# types."
+**Repro result**: **ALL PASS on Mono.** `GenericCaller<object>.CallGenericIdentity(42) = 42 — PASS`. The repro calls `genericIdentity<T>` via CallConvSwift from a generic C# class with `SwiftIndirectResult + IntPtr + IntPtr typeMetadata`. Works perfectly.
 
-### Sub-task 6C: SwiftOptional<Shape> Generic Metadata (2 tests) — MEDIUM
+**Real bug**: Our generator's P/Invoke signatures or marshalling code for generic types is wrong. The repro uses simple `IntPtr` for metadata and `SwiftIndirectResult` for generic returns. Our generator uses `TypeMetadata`, `ProtocolWitnessTable`, and complex `SwiftMarshal.MarshalFromSwift` chains. The bug is in this complexity.
 
-**Tests affected**: TestEnumPropertyHolder_SetOptionalShape, TestEnumPropertyHolder_ClearOptionalShape. Same root cause family as 6A — generic metadata CallConvSwift on Mono.
+**Debugging strategy**: Compare our generated P/Invoke signatures (in `SwiftBindingsTestLib.cs`) against the repro's working pattern for each generic function. Focus on:
+1. Register assignment for TypeMetadata/PWT parameters
+2. SwiftIndirectResult buffer allocation and lifetime
+3. `SwiftMarshal.MarshalFromSwift` pointer correctness
 
-### Sub-task 6D: AOT @convention(c) Closure Callbacks (3 tests) — LOW
+**Tests**: 15 `[SkipOnSimulator("Generic type CallConvSwift P/Invoke")]` + 3 `[SkipOnSimulator("BaseEntity metadata cache corruption")]` in `BasicGenericTests.cs` + 2 `[SkipOnSimulator("SwiftOptional<Shape> generic metadata")]` in `EnumMarshallingTests.cs`
 
-**Bug**: TestConventionCFunction, TestCBinaryFunction, TestCPredicate fail on iOS simulator with "Attempting to JIT compile method while running in aot-only mode." The generated callbacks use C# lambdas that require a JIT-compiled native-to-managed wrapper. Fix: generate `[UnmanagedCallersOnly]` static methods for @convention(c) callbacks.
+#### 6A-2: Finalizer Lifecycle Bugs (15 tests) — HIGH
 
-**Tests affected**: 3 tests in `ClosureTests.cs` (currently `[Skip]` — broken on both platforms)
+**Old claim**: "Mono finalizer thread crashes when calling NativeMemory.Free / Arc.Release / VWT Destroy."
+**Repro result**: **ALL PASS on Mono.** 50 abandoned `SwiftObjectHandle` objects → `GC.Collect` → `GC.WaitForPendingFinalizers` → no crash. Also tested `NativeMemory.Free` and P/Invoke free on finalizer thread — all pass.
 
-### Sub-task 6E: P3 #1 DefaultParameterOverloadEmitter (cleanup) — LOW
+**Real bug**: Our SafeHandle implementations have dispose/finalize lifecycle bugs — double-free, use-after-free, invalid pointers, or thread-safety issues with NSRunLoop dispatch.
 
-Lines 98 and 150 of `DefaultParameterOverloadEmitter.cs` still promote overloads to @_cdecl based on `ShouldEmitWrapper()` alone, not gated on `RequiresCdeclForAbiSafety()`. Safe but wasteful.
+**Debugging strategy**: Run each subcategory individually on simulator with logging in `ReleaseHandle()`:
+1. **NSRunLoop + finalizer (8 tests)**: NSRunLoop.RunUntil may pump the run loop while finalizers execute. Check for reentrancy.
+2. **Arc.Release on finalizer (3 tests)**: Log the handle pointer in `ReleaseHandle()` — is it valid?
+3. **GC stress (2 + class-level)**: Check for double-dispose (Dispose + finalizer both calling release).
+4. **String enum deferred free (2 tests)**: Check string raw value buffer lifecycle.
 
-### Sub-task 6F: Evidence-vs-Implementation Reconciliation — LOW
+**Tests**: 8 in `StateUpdateBridgeTests.cs` + 1 in `SimpleViewBridgeTests.cs` + 3 in `AsyncViewBridgeTests.cs` + 1 class-level in `OwnershipGCStressTests.cs` + 2 in `ClassMarshallingTests.cs` + 2 in `NestedEnumTests.cs`
 
-**CGRect/system structs**: Session 3 treats system frozen structs > 8 bytes as @_cdecl-required (intentionally conservative). Can be relaxed with targeted NativeAOT device testing.
+#### 6A-3: Typed Throws & Error Handling (3 tests)
 
-**VWT Destroy test coverage**: Add focused test verifying actual VWT Destroy invocation.
+**Old claim**: "Mono JIT puts the error in wrong register for typed throws."
+**Repro result**: **ALL PASS on Mono.** Both `throws` and `throws(ReproTypedError)` work correctly via CallConvSwift + SwiftError, including the throwing path. The @_cdecl wrapper also works.
 
-### Sub-task 6G: Nested Type @_cdecl Property Wrappers (4 tests) — MEDIUM (new from Session 5)
+**Real bug**: Our error extraction or marshalling code is wrong — likely dereferencing an invalid error pointer, misaligned typed error, or error lifecycle issue (releasing before extracting).
 
-**Bug identified in Session 5E**: Non-final class properties returning nested types (e.g., `Codec.format` returning `Codec.Format`) use Tj dispatch thunks but can't get @_cdecl wrappers because nested types aren't supported in wrapper emission. The property is emitted with direct CallConvSwift against a Tj thunk → SIGSEGV on both runtimes.
+**Tests**: 1 `[SkipOnSimulator("Typed throws swifterror")]` in `ThrowingMethodTests.cs` + 2 `[Skip("Typed throws: swifterror ABI mismatch")]` in `ThrowingMethodTests.cs`
+
+### Validation Gates (6A)
+
+`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (simulator) → `run-runtime-tests.sh --device` (NativeAOT)
+
+**Both runtimes required.** 6A fixes SkipOnSimulator tests that currently pass on NativeAOT device. Any P/Invoke signature or marshalling change could break the device path. Verify: still pass on device, now also pass on simulator.
+
+---
+
+### Session 6B: Generator Emission Bugs (26 tests)
+
+Bugs where the generator emits incorrect code — clear fixes, no deep investigation needed.
+
+#### 6B-1: Operator @_cdecl Wrappers Stripped (13 tests)
+
+**Bug**: The Swift compiler strips `@_cdecl` wrappers for operator functions during compilation because the linker sees them as unused. C# gets `EntryPointNotFoundException`.
+
+**Fix**: Ensure operator wrapper symbols survive linking (e.g., via `@_used` attribute, or export list).
+
+**Tests**: 13 in `OperatorTests.cs`
+
+#### 6B-2: Async DllImport Wrong Module (5 tests)
+
+**Bug**: Generated async P/Invokes target the wrong library name in `[DllImport]`.
+
+**Fix**: Generator emits wrong module string for async wrappers.
+
+**Tests**: 3 class-level skips (`AsyncMethodTests.cs`, `AsyncComplexTypeTests.cs`, `AsyncStringTests.cs`) + 2 in `ThrowingMethodTests.cs`
+
+#### 6B-3: Optional\<Int32\> None Marshalling (3 tests)
+
+**Bug**: `Optional<Int32>` with `None` value is incorrectly read as `Some`. The marshalling code misinterprets the tag byte.
+
+**Tests**: 3 in `OptionalMarshallingTests.cs`
+
+#### 6B-4: Error Description Type Code (2 tests)
+
+**Bug**: Error description returns the type code string instead of the case name.
+
+**Tests**: 2 in `ThrowingMethodTests.cs`
+
+#### 6B-5: Shape.point Wrapper Stripped (2 tests)
+
+**Bug**: `Shape.point` case wrapper is stripped during compilation — similar to operator wrappers.
+
+**Tests**: 2 in `EnumMarshallingTests.cs`
+
+#### 6B-6: Missing Swift Wrapper Exports (2 tests)
+
+**Bug**: `EntryPointNotFoundException` for expected wrapper functions — wrapper emission gap.
+
+**Tests**: 1 in `ClassMarshallingTests.cs` + 1 in `OwnershipTests.cs`
+
+#### 6B-7: Optional Array Layout Mismatch (1 test)
+
+**Bug**: Buffer size calculation wrong for frozen struct + optional array combination.
+
+**Tests**: 1 in `CompositionTests.cs`
+
+#### 6B-8: IntContainer Array Marshalling (3 tests)
+
+**Bug**: Generic array marshalling for `IntContainer` returns count=0 or crashes on element access.
+
+**Tests**: 3 in `BasicGenericTests.cs`
+
+#### 6B-9: Non-Standard Enum Raw Values (1 test)
+
+**Bug**: ABI JSON lacks enum raw values — generator falls back to case names.
+
+**Note**: This specific test may actually be unfixable (same root cause as string enum raw values). Verify during session.
+
+**Tests**: 1 in `NonStandardEnumTests.cs`
+
+### Validation Gates (6B)
+
+`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (simulator) → `run-runtime-tests.sh --device` (NativeAOT)
+
+**Both runtimes required.** 6B fixes `[Skip]` tests that are broken on both platforms. Generator emission changes (operators, async module, Optional marshalling) could have different ABI behavior on each runtime.
+
+---
+
+### Session 6C: New Emission Patterns (7 tests + cleanup)
+
+Bugs that need new generator emission logic, not just fixes to existing code.
+
+#### 6C-1: Nested Type @_cdecl Property Wrappers (4 tests)
+
+**Bug (from Session 5E)**: Non-final class properties returning nested types (e.g., `Codec.format` returning `Codec.Format`) use Tj dispatch thunks but can't get @_cdecl wrappers because nested types aren't supported in wrapper emission. Property emitted with direct CallConvSwift against Tj thunk → SIGSEGV on both runtimes.
 
 **Fix options**:
 1. Support nested enum types (Int32 raw value) in @_cdecl wrappers — pass as Int32, reconstruct on return
 2. Suppress properties that need @_cdecl but can't get one (safety net)
 3. Both: option 1 for simple nested enums, option 2 as general fallback
 
-**Tests affected**: TestCodecConstructionJson, TestCodecConstructionXml, TestCodecEncodingValueProperty, TestCodecGetDescribe in `NestedEnumTests.cs` (currently `[Skip]`)
+**Tests**: 4 in `NestedEnumTests.cs`
 
-### Sub-task 6H: Mono Finalizer Thread Crashes (15 tests) — MEDIUM (moved from Session 5D)
+#### 6C-2: AOT @convention(c) Closure Callbacks (3 tests)
 
-**Bug**: Mono's finalizer thread crashes with `jit-info.c:918` when freeing Swift handles via `Sys:Free`. Non-deterministic timing. Observed during full test suite run (crash at test 344 of ~550). Affects:
-- NSRunLoop.RunUntil-based SwiftUI bridge tests (8 tests)
-- Async view tests with Arc.Release (3 tests)
-- GC stress tests (2 + 1 class-level)
-- String-raw-value enum deferred free (2 tests)
+**Bug**: `@convention(c)` closure callbacks use C# lambdas that require JIT compilation for the native-to-managed wrapper. Fails in AOT-only mode with "Attempting to JIT compile method."
 
-**Status**: Not yet individually verified. Could be Mono limitation or our ReleaseHandle code triggering Mono JIT from finalizer thread. Needs investigation in repro project before attributing to Mono.
+**Fix**: Generate `[UnmanagedCallersOnly]` static methods for `@convention(c)` callbacks instead of lambdas.
 
-### Validation Gates
+**Tests**: 3 in `ClosureTests.cs`
 
-`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (both simulator AND device)
+#### 6C-3: Nested Enum Associated Values (3 tests)
+
+**Bug**: Cannot marshal nested enum types used as associated values in parent enums.
+
+**Tests**: 3 in `NestedEnumTests.cs`
+
+#### 6C-4: Cleanup
+
+- **DefaultParameterOverloadEmitter**: Lines 98/150 promote overloads to @_cdecl based on `ShouldEmitWrapper()` alone, not gated on `RequiresCdeclForAbiSafety()`. Safe but wasteful.
+- **CGRect/system struct conservative fence**: Session 3 treats system frozen structs > 8 bytes as @_cdecl-required. Can be relaxed with targeted NativeAOT device testing.
+- **Update `[SkipOnSimulator]` reasons**: 5 returned closure tests should reference "Mono CallConvSwift 16-byte struct return ABI returns wrong pointer values (confirmed upstream, standalone repro at swift-interop-repro)".
+
+### Validation Gates (6C)
+
+`run-tests.sh` → `validate-libraries.sh` → `build-and-test.sh` → `run-runtime-tests.sh` (simulator) → `run-runtime-tests.sh --device` (NativeAOT)
+
+**Both runtimes required.** 6C adds new emission patterns (UnmanagedCallersOnly, nested type wrappers) that must work on both Mono and NativeAOT. This is the final session — device run is the sign-off gate for the entire Session 6 effort.
+
+---
+
+### Post-Session 6 Skip Inventory
+
+After all three sub-sessions, the runtime test suite should have:
+
+| Annotation | Count | Reason |
+|------------|------:|--------|
+| `[SkipOnSimulator]` | 5 | Returned thick closures — Mono CallConvSwift 16-byte struct return ABI (confirmed upstream) |
+| `[Skip]` — string enum raw values | 8 | No data source in ABI JSON (blocked) |
+| `[Skip]` — noncopyable types | 8 | `~Copyable` needs move semantics in wrappers (future roadmap) |
+| `[Skip]` — non-blittable closures | 2 | SwiftString in closure callback (upstream limitation) |
+| `[Skip]` — ValueTuple | 1 | StructLayout.Auto (upstream limitation) |
+| **Total remaining** | **24** | **0 false skips, 0 deferrals** |
 
 ---
 
@@ -544,24 +670,50 @@ For reference, these are the 6 issues that originally motivated the @_cdecl wrap
 | E: Bool-returning callback | SIGABRT | **OUR BUG** (bool vs byte marshalling) | 2B (fix closures) |
 | F: Generic dispatch crashes | SIGSEGV in generic constructors | **OUR BUG** (wrong metadata for allocating inits) | 2A (fix generics) |
 
-## 35 Test Skips — Mapping (Updated After Session 5 Verification)
+## Full Runtime Test Skip Inventory (Updated After Mono Simulator Repro, March 18, 2026)
+
+### SkipOnSimulator Annotations (41 total → 36 fixable, 5 upstream)
 
 | Category | Count | Verdict | Session | Details |
 |----------|------:|---------|---------|---------|
-| Generics (NativeAOT) | 12 | OUR BUG | 2A | Wrong metadata for generic class allocating inits |
-| Generics (CS7042) | 3 | OUR LIMITATION | 2A | @_cdecl can't live in generic types; CallConvSwift + LibraryImport can |
-| Closures (returned) | 4 | OUR BUG | 2B | Closure context/layout wrong |
-| Closures (Bool) | 1 | OUR BUG | 2B | bool vs byte marshalling |
-| Closures (String) | 2 | CORRECT | — | Non-blittable limitation; update skip reason |
-| Enum raw-value String | 4 | OUR BUG | 2C | @_cdecl wrapper buffer layout |
-| Optional enum | 2 | OUR BUG | 2C | Pointer misalignment for enum payloads |
-| Composition (closure ordering) | 1 | ~~OUR BUG~~ **MISDIAGNOSED** | 5B | Actually returned thick closure pattern (Mono-only, same as 2B) |
-| Composition (closure context) | 1 | OUR BUG → **FIXED** | 5D | Optional closure GCHandle freed too early in constructor |
-| Composition (buffer sizes) | 1 | OUR BUG | 2E | Frozen struct + optional array buffer layout |
-| Subscripts | 1 | ~~OUR BUG~~ **NOT A BUG** | 5C | All 14 tests pass — skip was false |
-| Tuples (annotation) | 1 | UPSTREAM | — | StructLayout.Auto limitation |
-| Tuples (runtime skip) | 1 | UPSTREAM | — | NativeAOT class loading SIGSEGV |
-| **Total** | **35** | | | **27 fixable, 3 correct/upstream, 2 update reason, 2 debunked, 1 fixed** |
+| Generic CallConvSwift P/Invoke | 18 | **OUR BUG** (repro passes) | 6A-1 | Generator P/Invoke signature or marshalling wrong |
+| SwiftOptional\<Shape\> generic metadata | 2 | **OUR BUG** (repro passes) | 6A-1 | Same root cause as generic CallConvSwift |
+| Finalizer Sys:Free (NSRunLoop) | 8 | **OUR BUG** (repro passes) | 6A-2 | SafeHandle lifecycle bugs, not Mono finalizer limitation |
+| Finalizer Sys:Free (Arc.Release) | 3 | **OUR BUG** (repro passes) | 6A-2 | SafeHandle lifecycle bugs |
+| Finalizer Sys:Free (GC stress) | 2+class | **OUR BUG** (repro passes) | 6A-2 | Dispose/finalize double-free or invalid pointer |
+| Finalizer Sys:Free (string enum) | 2 | **OUR BUG** (repro passes) | 6A-2 | String buffer lifecycle bug |
+| Typed throws swifterror | 1 | **OUR BUG** (repro passes) | 6A-3 | Error extraction/marshalling wrong |
+| Returned thick closures | 5 | **MONO BUG** (confirmed) | — | Mono CallConvSwift 16-byte struct return ABI. Keep `[SkipOnSimulator]`. |
+
+### Skip Annotations (55 total → 35 fixable, 20 unfixable)
+
+| Category | Count | Verdict | Session | Details |
+|----------|------:|---------|---------|---------|
+| Operator wrappers stripped | 13 | OUR BUG | 6B-1 | Linker strips unused @_cdecl symbols |
+| String enum raw values | 7 | BLOCKED | — | No data source in ABI JSON |
+| Async DllImport wrong module | 5 | OUR BUG | 6B-2 | Generator emits wrong library name |
+| Codec Tj dispatch + nested type | 4 | OUR BUG | 6C-1 | Nested types not supported in wrapper emission |
+| AOT @convention(c) callbacks | 3 | OUR BUG | 6C-2 | Need `[UnmanagedCallersOnly]` static methods |
+| IntContainer array marshalling | 3 | OUR BUG | 6B-8 | Generic array count/element access broken |
+| Optional\<Int32\> None marshalling | 3 | OUR BUG | 6B-3 | Tag byte misinterpretation |
+| Nested enum associated values | 3 | OUR BUG | 6C-3 | New projection needed |
+| Non-blittable closures (SwiftString) | 2 | UPSTREAM | — | Documented CallConvSwift limitation |
+| Typed throws swifterror ABI | 2 | OUR BUG | 6A-3 | Error extraction/marshalling wrong |
+| Error description type code | 2 | OUR BUG | 6B-4 | String formatting bug |
+| Shape.point wrapper stripped | 2 | OUR BUG | 6B-5 | Linker strips enum case wrapper |
+| Missing Swift wrapper exports | 2 | OUR BUG | 6B-6 | Wrapper emission gap |
+| ~Copyable noncopyable types | 8 | FUTURE | — | Needs move semantics in wrappers (roadmap) |
+| Non-standard enum raw values | 1 | BLOCKED | — | Same root cause as string enum raw values |
+| Optional array layout mismatch | 1 | OUR BUG | 6B-7 | Buffer size calculation wrong |
+| ValueTuple StructLayout.Auto | 1 | UPSTREAM | — | Documented limitation |
+
+### Summary
+
+| | Fixable (Session 6) | Upstream/Blocked | Future Roadmap |
+|--|---------------------:|-----------------:|---------------:|
+| `[SkipOnSimulator]` | 36 | 5 | 0 |
+| `[Skip]` | 35 | 12 | 8 |
+| **Total** | **71** | **17** | **8** |
 
 ## Device Stability Issues — Mapping (Updated After Session 5)
 
@@ -571,4 +723,4 @@ For reference, these are the 6 issues that originally motivated the @_cdecl wrap
 | Enum case dispose crash (Starscream) | OUR BUG: cumulative VWT/enum lifecycle corruption | 2C |
 | Foundation.Data in @_cdecl | KNOWN LIMITATION: ObjC bridging at boundary | Deferred (DataProjection) |
 | CallConvSwift URL.init(string:) | KNOWN LIMITATION: SwiftString non-blittable | N/A (already uses @_cdecl) |
-| Codec nested type property crash | OUR BUG: Tj dispatch thunk without @_cdecl (nested type restriction blocks wrapper) | 6G (new) |
+| Codec nested type property crash | OUR BUG: Tj dispatch thunk without @_cdecl (nested type restriction blocks wrapper) | 6C-1 |

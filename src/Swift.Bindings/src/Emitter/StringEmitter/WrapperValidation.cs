@@ -631,6 +631,14 @@ public static class WrapperValidation
     /// </summary>
     public static bool RequiresCdeclForAbiSafety(MethodEnvironment env)
     {
+        // Typed throws (throws(ErrorType)) requires @_cdecl wrapper because the swifterror
+        // register contains the raw typed error value, NOT a boxed Error existential.
+        // Our error extraction code (SBW_GetErrorDescription, SBW_ExtractTypedError) uses
+        // Unmanaged<AnyObject>.fromOpaque() which crashes on raw enum/struct values.
+        // The @_cdecl wrapper catches the error in Swift and boxes it properly.
+        if (env.MethodDecl.HasTypedThrows)
+            return true;
+
         // Class methods need @_cdecl in two cases:
         // 1. Static methods: Swift's @convention(method) passes @thick Self.Type (metatype)
         //    as a hidden parameter. The C# P/Invoke doesn't include this parameter, so the

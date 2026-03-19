@@ -153,6 +153,11 @@ internal class MethodMarshalPlanBuilder
             lines.Add($"IntPtr {payloadName} = IntPtr.Zero;");
         }
 
+        // Pre-declare SwiftError for 'ref' passing (caller must zero-initialize per Swift ABI).
+        // @_cdecl wrappers use 'out IntPtr errorPtr' — no SwiftError needed.
+        if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper)
+            lines.Add("var swiftError = default(SwiftError);");
+
         // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
         var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
@@ -775,7 +780,7 @@ internal class MethodMarshalPlanBuilder
                 // Use the helper class metadata accessor to get the specialized metatype
                 // (avoids SwiftObjectHelper<Wrapper<T>> which crashes Mono's generic sharing).
                 var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
-                metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata({perParamMetadata})";
+                metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {perParamMetadata}).Handle";
             }
             else if (_env.MethodDecl.GenericParameters.Count > 0)
             {

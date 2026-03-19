@@ -155,7 +155,7 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("out SwiftError swiftError", csOutput);
+        Assert.Contains("ref SwiftError swiftError", csOutput);
         Assert.Contains("if (swiftError.Value != null)", csOutput);
         Assert.Contains("SBW_GetErrorDescription", csOutput);
         Assert.Contains("SBW_ReleaseError", csOutput);

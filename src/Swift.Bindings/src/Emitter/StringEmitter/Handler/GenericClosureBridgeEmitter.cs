@@ -729,7 +729,7 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
-            callArgs.Add("out SwiftError swiftError");
+            callArgs.Add("out var swiftError");
 
         csWriter.WriteLine($"{pInvokeName}_XC({string.Join(", ", callArgs)});");
 
@@ -826,7 +826,7 @@ public static class GenericClosureBridgeEmitter
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
-            callArgs.Add("out SwiftError swiftError");
+            callArgs.Add("out var swiftError");
 
         csWriter.WriteLine($"{pInvokeName}_XC_void({string.Join(", ", callArgs)});");
 

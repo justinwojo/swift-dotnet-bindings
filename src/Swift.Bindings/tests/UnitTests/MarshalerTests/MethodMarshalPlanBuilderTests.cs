@@ -1086,9 +1086,9 @@ public class MethodMarshalPlanBuilderTests
 
         // Must use the helper class metadata accessor to get the specialized metatype
         // (avoids SwiftObjectHelper<GenericCache<T>> which crashes Mono's generic sharing).
-        // GenericCache_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata())
-        // is functionally equivalent but Mono-safe.
-        Assert.Contains("GenericCache_PInvoke.PInvoke_getMetadata(SwiftObjectHelper<T>.GetTypeMetadata())", plan.PInvokeCallStatement);
+        // Uses .Handle to extract IntPtr from TypeMetadata (avoids Mono JIT crash with
+        // TypeMetadata struct + SwiftSelf in CallConvSwift P/Invokes).
+        Assert.Contains("GenericCache_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete, SwiftObjectHelper<T>.GetTypeMetadata().Handle).Handle", plan.PInvokeCallStatement);
     }
 
     [Fact]

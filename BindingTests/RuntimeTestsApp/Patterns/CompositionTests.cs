@@ -281,7 +281,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [SkipOnSimulator("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes Mono JIT")]
+    [Skip("Returned thick closure via delegate* unmanaged[Swift] with SwiftSelf crashes both Mono JIT and NativeAOT")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

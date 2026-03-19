@@ -129,17 +129,23 @@ Completed March 18, 2026. Sub-task 1 (static protocol members) shipped. Sub-task
 
 ---
 
-### Sessions 5–7: NativeAOT & CallConvSwift Migration (3 sessions)
+### Sessions 5–7: NativeAOT & CallConvSwift Migration — Sessions 1–5 COMPLETE, Session 6 remaining
 
 **Detailed plan**: `nativeaot-callconvswift-sessions.md`
 
-NativeAOT investigation revealed 4 of 6 original @_cdecl architecture motivations were our bugs, not upstream runtime issues. These sessions fix the bugs, remove unnecessary wrappers, and migrate proven-safe patterns to direct CallConvSwift.
+NativeAOT investigation revealed 4 of 6 original @_cdecl architecture motivations were our bugs. Sessions 1–5 complete (infrastructure cleanup, generator fixes, CallConvSwift migration, regression fixes, verification). Session 7 (further @_cdecl reduction) absorbed into Session 6 scope.
 
-| Session | Focus | Skip Recovery | Key Impact |
-|---------|-------|--------------|------------|
-| **5** | Runtime & infrastructure cleanup | 0 | VWT Destroy wrapper elimination, ReleaseHandle simplification, upstream bug report updates |
-| **6** | Generator bug fixes | up to 30 | Generic metadata, closure marshalling, enum lifecycle, struct ARC, composition |
-| **7** | CallConvSwift architecture migration | 0 | @_cdecl reduction from ~78.5% to ~55% (~3,000–4,000 fewer wrapper functions) |
+Mono simulator crash reproduction (`MONO-SIMULATOR-FINDINGS.md`, standalone repro at `/Users/wojo/Dev/swift-interop-repro/`) proved 4 of 5 "Mono bug" categories are actually our generator/runtime bugs. Only returned thick closures is confirmed upstream (Mono CallConvSwift 16-byte struct return ABI).
+
+**Session 6: Complete Runtime Test Cleanup** — fixes ALL 71 remaining fixable `[Skip]`/`[SkipOnSimulator]` annotations. Zero deferrals.
+
+| Sub-session | Focus | Skip Recovery | Key Impact |
+|-------------|-------|--------------|------------|
+| **6A** | Investigation bugs (generic CallConvSwift, finalizer lifecycle, typed throws) | 38 | Debug against standalone repro's working patterns |
+| **6B** | Generator emission bugs (operators, async module, Optional\<Int32\>, arrays, exports) | 26 | Clear fixes — generator emits wrong code |
+| **6C** | New emission patterns (nested type wrappers, AOT callbacks, nested enum values) + cleanup | 7 | New generator logic needed |
+
+After Session 6: **24 skips remain** (5 confirmed Mono upstream, 8 string enum blocked, 8 noncopyable future, 2 non-blittable upstream, 1 ValueTuple upstream). Zero false skips.
 
 ### Remaining Misc Fixes (not in NativeAOT sessions)
 
@@ -183,6 +189,7 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **Async methods** | 28 | 5 | Methods with `async` keyword |
 | **Async properties** | 14 | 5 | Properties with `async get` |
 | **inout parameters** | 14 | 2 | `inout` write-back semantics |
+| **Noncopyable types** (`~Copyable`) | 8 tests | 0 validation | `@_cdecl` wrappers need `consuming`/`borrowing` annotations + move semantics. Swift compiler strips wrappers that copy noncopyable values. Maps to `IDisposable` with deterministic deinit. No validation libraries use noncopyable types today. |
 
 ---
 

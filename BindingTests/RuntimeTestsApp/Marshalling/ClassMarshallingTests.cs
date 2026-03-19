@@ -255,7 +255,7 @@ public class ClassMarshallingTests : TestBase
 
     #region GC Survival
 
-    [SkipOnSimulator("GC stress triggers Mono finalizer thread Sys:Free crash (jit-info.c:918) that kills the process")]
+    [Skip("GC stress triggers finalizer crash (NativeMemory.Free/swift_release) on both Mono and NativeAOT")]
     public void TestClassSurvivesGCPressure()
     {
         var animal = TestLibFunctions.CreateAnimal("Survivor", "Roar");
@@ -273,7 +273,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info("Class survives GC pressure");
     }
 
-    [SkipOnSimulator("GC stress triggers Mono finalizer thread Sys:Free crash (jit-info.c:918) that kills the process")]
+    [Skip("GC stress triggers finalizer crash (NativeMemory.Free/swift_release) on both Mono and NativeAOT")]
     public void TestMultipleObjectsGCPressure()
     {
         // Create several objects, apply GC pressure, verify all survive

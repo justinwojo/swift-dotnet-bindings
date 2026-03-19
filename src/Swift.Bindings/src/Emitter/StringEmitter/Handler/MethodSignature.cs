@@ -218,10 +218,18 @@ namespace BindingsGeneration
                 { Name: "_selfClass" } => "_handle.DangerousGetHandle()",
                 { Name: "_selfFixed" } => "(IntPtr)__self",
                 { Name: "_self", Type: MarshalledType.Simple("IntPtr") } => "_payload.DangerousGetHandle()",
-                // Implicit trailing TypeMetadata for generic @_silgen_name wrappers:
-                // reuse the same variable as the explicit metadata.
-                { Type: MarshalledType.Simple("TypeMetadata") } when parameter.Name.EndsWith("Implicit")
-                    => parameter.Name.Replace("Implicit", ""),
+                // Generic type metadata: local is TypeMetadata struct, P/Invoke expects IntPtr.
+                // Use .Handle to extract the IntPtr from the TypeMetadata local.
+                { Type: MarshalledType.Simple("IntPtr") } when parameter.Name.EndsWith("Metadata")
+                    => $"{parameter.Name}.Handle",
+                // Implicit trailing metadata for generic @_silgen_name wrappers:
+                // reuse the same TypeMetadata variable's Handle as the explicit metadata.
+                { Type: MarshalledType.Simple("IntPtr") } when parameter.Name.EndsWith("Implicit")
+                    => $"{parameter.Name.Replace("Implicit", "")}.Handle",
+                // Protocol witness table: local is ProtocolWitnessTable struct, P/Invoke expects IntPtr.
+                // Use .Handle to extract the IntPtr. Same pattern as TypeMetadata fix.
+                { Type: MarshalledType.Simple("IntPtr") } when parameter.Name.EndsWith("PWT")
+                    => $"{parameter.Name}.Handle",
                 _ => parameter.Name
             };
         }

@@ -266,8 +266,8 @@ public static class ProtocolExtensionClosureBridge
         foreach (var gp in method.GenericParameters)
         {
             var gpLabel = (gp.SugaredTypeName ?? gp.TypeName).ToLowerInvariant();
-            pinvokeParams.Add($"TypeMetadata {gpLabel}Type");
-            pinvokeParams.Add($"TypeMetadata {gpLabel}ImplicitMetadata");
+            pinvokeParams.Add($"IntPtr {gpLabel}Type");
+            pinvokeParams.Add($"IntPtr {gpLabel}ImplicitMetadata");
         }
 
         // Return type — class returns IntPtr, primitives return their P/Invoke type, otherwise void
@@ -478,8 +478,8 @@ public static class ProtocolExtensionClosureBridge
         foreach (var gp in method.GenericParameters)
         {
             var csharpGenericName = GetCSharpGenericParamName(gp, classDecl, methodLevelGenerics);
-            callArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{csharpGenericName}>()");
-            callArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{csharpGenericName}>()");
+            callArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{csharpGenericName}>().Handle");
+            callArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{csharpGenericName}>().Handle");
         }
 
         if (returnsClass)

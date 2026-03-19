@@ -721,7 +721,7 @@ public class PInvokeEmitterTests
         var errorParam = sig.Parameters.FirstOrDefault(p => p.Name == "swiftError");
         Assert.NotNull(errorParam);
         Assert.Equal(new MarshalledType.Simple("SwiftError"), errorParam.Type);
-        Assert.Equal("out", errorParam.modifier);
+        Assert.Equal("ref", errorParam.modifier);
     }
 
     [Fact]

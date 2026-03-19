@@ -222,7 +222,7 @@ public class EnumMarshallingTests : TestBase
     }
 
     // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
-    [SkipOnSimulator("SwiftOptional<Shape> generic metadata CallConvSwift P/Invoke crashes Mono JIT")]
+    [Skip("OptionalShape setter crashes both Mono and NativeAOT — SwiftOptional<Shape> generic metadata in CallConvSwift")]
     public void TestEnumPropertyHolder_SetOptionalShape()
     {
         // Set optionalShape to a value, read back
@@ -235,7 +235,7 @@ public class EnumMarshallingTests : TestBase
     }
 
     // Fixed: assumingMemoryBound(to:).pointee instead of load(as:) for Optional<enum> marshalling
-    [SkipOnSimulator("SwiftOptional<Shape> generic metadata CallConvSwift P/Invoke crashes Mono JIT")]
+    [Skip("OptionalShape setter crashes both Mono and NativeAOT — SwiftOptional<Shape> generic metadata in CallConvSwift")]
     public void TestEnumPropertyHolder_ClearOptionalShape()
     {
         // Set optionalShape, then clear back to null

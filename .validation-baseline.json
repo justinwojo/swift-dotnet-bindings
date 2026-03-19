@@ -1,11 +1,11 @@
 {
-  "git_sha": "d4854e89",
+  "git_sha": "04283bdb",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51518,
+        "lines": 51535,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12499,
+        "lines": 12500,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,28 +33,28 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23368,
+        "lines": 23393,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 94365,
+        "lines": 94453,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4665,
+        "lines": 4666,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56530,
+        "lines": 56537,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -68,7 +68,7 @@
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50472,
+        "lines": 50473,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,28 +89,28 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22719,
+        "lines": 22724,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22719,
+        "lines": 22724,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22719,
+        "lines": 22724,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13210,
+        "lines": 13211,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -124,7 +124,7 @@
       "SmartCardIO": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5606,
+        "lines": 5609,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5708,
+        "lines": 5710,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22539,
+        "lines": 22560,
         "dep_compile": "none",
         "swift_compile": "fail"
       },

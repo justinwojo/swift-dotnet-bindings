@@ -169,7 +169,7 @@ namespace BindingsGeneration
                     // Generic enums: use helper class metadata accessor to avoid Mono JIT crash
                     // (mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericEnum<T>>).
                     var metadataArgs = string.Join(", ", ownPInvokeContext.GetMetadataArgumentList());
-                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata({metadataArgs}).Size;");
+                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
                 }
                 else
                 {

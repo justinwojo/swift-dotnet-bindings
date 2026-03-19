@@ -97,25 +97,28 @@ public class PInvokeHelperContext
     }
 
     /// <summary>
-    /// Gets the additional TypeMetadata parameters needed for P/Invoke declarations in a generic type.
-    /// These parameters allow the non-generic helper class to receive the type metadata at runtime.
+    /// Gets the additional metadata parameters needed for P/Invoke declarations in a generic type.
+    /// Uses IntPtr instead of TypeMetadata to avoid Mono JIT crashes when combined with
+    /// SwiftSelf in CallConvSwift P/Invokes (jit-info.c:918 assertion). TypeMetadata is a
+    /// single-field struct wrapping IntPtr, so IntPtr is ABI-compatible.
     /// </summary>
-    /// <returns>A list of parameter strings like "TypeMetadata t0Metadata".</returns>
+    /// <returns>A list of parameter strings like "IntPtr t0Metadata".</returns>
     public IReadOnlyList<string> GetMetadataParameterDeclarations()
     {
         return GenericTypeParameters
-            .Select(t => $"TypeMetadata {t.ToLowerInvariant()}Metadata")
+            .Select(t => $"IntPtr {t.ToLowerInvariant()}Metadata")
             .ToList();
     }
 
     /// <summary>
     /// Gets the argument list for passing type metadata to the helper class methods.
+    /// Passes TypeMetadata.Handle (IntPtr) to match the IntPtr parameter type.
     /// </summary>
-    /// <returns>A list of argument strings like "SwiftObjectHelper&lt;T0&gt;.GetTypeMetadata()".</returns>
+    /// <returns>A list of argument strings like "SwiftObjectHelper&lt;T0&gt;.GetTypeMetadata().Handle".</returns>
     public IReadOnlyList<string> GetMetadataArgumentList()
     {
         return GenericTypeParameters
-            .Select(t => $"SwiftObjectHelper<{t}>.GetTypeMetadata()")
+            .Select(t => $"SwiftObjectHelper<{t}>.GetTypeMetadata().Handle")
             .ToList();
     }
 

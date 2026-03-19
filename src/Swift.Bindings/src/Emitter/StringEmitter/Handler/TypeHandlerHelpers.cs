@@ -82,7 +82,7 @@ namespace BindingsGeneration
             {
                 // For generic types, call the helper class with type metadata arguments
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs});");
+                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
                 // Add the P/Invoke declaration to the helper context
@@ -92,7 +92,7 @@ namespace BindingsGeneration
                     EntryPoint = _structDecl.MetadataAccessor,
                     MethodName = "PInvoke_getMetadata",
                     ReturnType = "TypeMetadata",
-                    ParametersString = "",
+                    ParametersString = "TypeMetadataRequest request",
                     IsAsync = false,
                     MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
                 };

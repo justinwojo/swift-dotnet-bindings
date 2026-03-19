@@ -279,7 +279,7 @@ namespace BindingsGeneration
                 // (mini-generic-sharing.c:2759) because the nested generic instantiation can't be
                 // compiled without the type argument's metadata.
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                csWriter.WriteLine($"static nuint _payloadSize = {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata({metadataArgs}).Size;");
+                csWriter.WriteLine($"static nuint _payloadSize = {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
             }
             else
             {

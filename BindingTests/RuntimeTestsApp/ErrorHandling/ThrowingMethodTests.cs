@@ -162,7 +162,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"ValidateRange(5, 1, 10) = {result}");
     }
 
-    [Skip("Typed throws: swifterror ABI mismatch")] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeBelowMinThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -172,7 +171,6 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info("ValidateRange(0, 1, 10) correctly threw SwiftException<RangeError>");
     }
 
-    [Skip("Typed throws: swifterror ABI mismatch")] // Typed throws via direct P/Invoke: swifterror may not contain AnyObject box
     public void TestValidateRangeAboveMaxThrows()
     {
         AssertThrows<SwiftException<RangeError>>(() =>
@@ -417,7 +415,7 @@ public class BasicThrowingTests : TestBase
 
     #region Typed Throws — Sync Error Property (Tier 1: blittable)
 
-    [SkipOnSimulator("Typed throws: swifterror register mismatch crashes Mono JIT on throwing path")]
+    [Skip("Typed throws: error enum case tag read incorrectly (BelowMinimum vs AboveMaximum)")]
     public void TestValidateRangeTypedCatchWithError()
     {
         // Sync typed throws (C2): SwiftException<RangeError> with non-null .Error
