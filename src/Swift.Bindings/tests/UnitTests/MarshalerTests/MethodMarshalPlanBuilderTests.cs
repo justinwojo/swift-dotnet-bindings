@@ -1298,6 +1298,55 @@ public class MethodMarshalPlanBuilderTests
             });
     }
 
+    [Fact]
+    public void IndirectResult_CdeclTupleReturn_UsesGetTupleTypeMetadataFromElements()
+    {
+        // Tuple returns through @_cdecl must use GetTupleTypeMetadataFromElements()
+        // instead of GetTypeMetadataOrThrow<ValueTuple<...>>() because the latter
+        // uses MakeGenericMethod which gets trimmed on NativeAOT.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Calculator", moduleDecl);
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int")
+        });
+        var method = new MethodDecl
+        {
+            Name = "divmod",
+            MangledName = "SBW_TestModule_Calculator_divmod_12345678",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            UsesCdeclMethodWrapper = true,
+            UsesWrapperLibrary = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", tupleSpec, moduleDecl),
+                CreateArg("a", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArg("b", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        moduleDecl.Methods.Add(method);
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Calculator");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("ValueTuple<long, long>", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        // Must use NativeAOT-safe tuple metadata, not the generic path
+        Assert.Contains("GetTupleTypeMetadataFromElements", plan.IndirectResultMethod!.AllocationCode);
+        Assert.DoesNotContain("GetTypeMetadataOrThrow<ValueTuple", plan.IndirectResultMethod.AllocationCode);
+    }
+
     #endregion
 
     #region Non-Cdecl SwiftIndirectResult Cleanup Tests

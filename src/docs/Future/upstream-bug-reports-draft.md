@@ -4,7 +4,7 @@ Prepared: February 2026
 Project: Swift/.NET interop binding generator
 Contact: Justin Wojciechowski
 
-Five .NET runtime issues affect real-world Swift interop scenarios — three on Mono (Issues 1-3) and two on NativeAOT (Issues 5-6). Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
+Five .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
 > **Before filing:** These drafts are waiting on the swift-bindings repo going public so we can
 > link to concrete reproduction code and the binding generator as context. Before submitting,
@@ -13,11 +13,11 @@ Five .NET runtime issues affect real-world Swift interop scenarios — three on 
 > confirm nothing has been filed in the interim.
 
 **Filing strategy:**
-- **Issue 1** — File as a **bug report**. Clear-cut Mono JIT defect with assertion failure and stack trace.
-- **Issue 2** — File as a **feature request**. The error message suggests this is an intentional scope limitation in the initial `CallConvSwift` implementation, not a bug.
-- **Issue 3** — **Mono-only**. Do not file standalone. Post as a **comment on the Swift interop tracking issue** asking whether async P/Invoke with SwiftSelf/SafeHandle is a supported scenario on Mono. NativeAOT investigation (March 2026) confirmed this issue does not reproduce on NativeAOT.
-- **Issue 5** — File as a **bug report**. NativeAOT passes custom struct float/double fields in GPR instead of FPR on ARM64.
-- **Issue 6** — File as a **bug report**. New: Custom struct with single `double` field returns garbage via CallConvSwift on NativeAOT ARM64.
+- **Issue 2** — File as a **feature request** (highest priority). Non-blittable `CallConvSwift` support. Includes source-level analysis of both Mono (`marshal.c:3729`) and CoreCLR (`SwiftPhysicalLowering.cs:215`) rejection points, architectural suggestion (run marshalling before blittable validation), and incremental approach (SafeHandle first, then String).
+- **Issue 1** — File as a **bug report**. Mono JIT `jit-info.c:918` assertion failure.
+- **Issue 3** — **Mono-only**. Post as a **comment on the Swift interop tracking issue** asking whether async P/Invoke with SwiftSelf/SafeHandle is a supported scenario on Mono.
+- **Issue 5** — File as a **bug report**. NativeAOT JIT register allocation bug: custom struct float/double fields placed in GPR instead of FPR despite correct lowering in `SwiftPhysicalLowering.cs`.
+- **Issue 6** — File as a **bug report**. Minimal repro of Issue 5 (single `double` field struct).
 
 ---
 
@@ -135,81 +135,87 @@ The P/Invoke call to `swift_getExistentialTypeMetadata` with `CallConvSwift` sho
 
 ### Title
 
-`[Mono] Support non-blittable type marshalling with CallConvSwift P/Invoke`
+`Support non-blittable type marshalling with CallConvSwift P/Invoke`
 
 ### Labels
 
-`area-Interop-Swift`, `os-ios`, `os-maccatalyst`, `enhancement`, `runtime-mono`
+`area-Interop-Swift`, `os-ios`, `os-maccatalyst`, `os-macos`, `enhancement`, `runtime-mono`, `runtime-nativeaot`
 
 ### Description
 
 **Environment:**
-- .NET 10.0, Mono runtime (iOS / Mac Catalyst)
+- .NET 10.0, both Mono (iOS Simulator) and NativeAOT (iOS device)
 - macOS 15+ / iOS 18+, arm64
 - Swift 5.10+ runtime
 
 **Summary:**
 
-P/Invoke declarations using `CallConvSwift` currently reject all non-blittable parameter and return types with `System.InvalidProgramException`. We understand this may be an intentional scope limitation of the initial `CallConvSwift` implementation. This request is to understand the roadmap for non-blittable type support and to document the real-world impact of the current restriction.
+`CallConvSwift` P/Invokes reject all non-blittable parameter and return types. This is the single largest barrier to direct Swift interop — across 51 third-party Swift library bindings (Nuke, Alamofire, Stripe, Lottie, BlinkID, Kingfisher, etc.), **~67% of P/Invokes require `@_cdecl` Swift wrapper functions** primarily because of this restriction. If non-blittable types were supported, the wrapper rate would drop to ~20% (the remaining wrappers handle Swift ABI patterns that C# P/Invoke can't express, like vtable dispatch and hidden metatype parameters).
+
+**Where the restriction is enforced:**
+
+Both runtimes hard-reject non-blittable types, but at different points:
+
+- **Mono** (`mono/metadata/marshal.c:3729`): Validates blittable **before** IL marshalling stub generation. The check `!type_is_blittable(method->signature->params[i])` fires and throws `InvalidProgramException` before `mono_marshal_emit_native_wrapper` runs — so the existing `SafeHandle → IntPtr` marshalling path never gets a chance to execute.
+
+- **CoreCLR/NativeAOT** (`SwiftPhysicalLowering.cs:215`): `LowerTypeForSwiftSignature()` rejects types with `ContainsGCPointers: true`. The struct lowering pipeline assumes all input types are already blittable.
 
 **Current behavior:**
 
 ```
-System.InvalidProgramException: Cannot use non-blittable types with Swift calling convention
+System.InvalidProgramException: Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.
 ```
 
-This occurs for any P/Invoke with `CallConvSwift` that includes non-blittable types in the signature — `SafeHandle` derivatives, managed strings, `SwiftOptional<T>`, etc. The same types marshal correctly with standard calling conventions (`Cdecl`, etc.).
+This occurs for `SafeHandle` derivatives, managed strings, `SwiftOptional<T>`, managed delegates, and any struct containing GC-tracked fields. The same types marshal correctly with `CallingConvention.Cdecl`.
 
-**Example triggering the error:**
+**What we've observed in the runtime source:**
 
-```csharp
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Swift;
+The existing P/Invoke marshalling pipeline (`ILSafeHandleMarshaler`, `ILStringMarshaler`, etc.) already converts non-blittable types to blittable representations for `Cdecl` calls. The marshalling runs in an IL stub that produces a fully blittable native call signature. For `CallConvSwift`, the struct lowering (`SwiftPhysicalLowering`) then decomposes blittable structs into register-sized primitives.
 
-public static class NonBlittableExample
-{
-    // Swift: enum Country: String { case US = "US" ... }
-    // The getter for .rawValue returns SwiftString (non-blittable)
-    //
-    // This throws InvalidProgramException even though the only non-blittable
-    // type in the signature could be trivially lowered to IntPtr
-    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    [DllImport("libMyFramework", EntryPoint = "$s...rawValue...getter")]
-    private static extern IntPtr Country_rawValue_getter(
-        int enumValue,
-        SwiftSelf self);
-    // ^ Throws if SwiftString or SafeHandle appears anywhere in signature
-}
-```
+We noticed that the blittable validation and the marshalling pipeline don't compose today — Mono validates blittable before marshalling runs, and CoreCLR's lowering assumes its input is already blittable. We don't know enough about the runtime internals to know whether composing these is straightforward or if there are deeper reasons they're separated.
 
-**Workaround in use:**
+**Types by complexity (from our perspective as consumers):**
 
-We use `IntPtr` for all non-blittable positions and marshal manually. For string transfers across the boundary, we use a blittable `SBW_Utf8Slice` bridge struct `(IntPtr buffer, int length)` with Swift-side allocation and C#-side decoding.
-
-```csharp
-// Instead of relying on marshalling:
-[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-[DllImport("libMyFramework", EntryPoint = "$s...rawValue...getter")]
-private static extern IntPtr Country_rawValue_getter(int enumValue, SwiftSelf self);
-
-// Then manual marshalling in wrapper code
-```
+- `SafeHandle → IntPtr` appears to be the simplest case — 1:1 marshalling with no layout change. This is also the highest-value for our use case (class instance methods are a large category of wrappers).
+- Managed strings, delegates, and structs with GC fields are more complex and involve buffer allocation, lifetime management, and pinning.
 
 **Real-world impact:**
 
-This affects any Swift API with non-primitive types in its signature:
-- **Enum raw values** — String-backed enums (`Country`, `DocumentType`, `DetectionStatus`) cannot use their getter or `init(rawValue:)` directly
-- **Optional returns** — `URL.absoluteString` returning `Optional<String>`
-- **SafeHandle parameters** — instance methods taking complex objects
+| Non-blittable pattern | % of wrappers | Example Swift API |
+|---|---|---|
+| String params/returns | ~20% | `func name() -> String` |
+| Class instances (SafeHandle) | ~15% | `func create() -> MyClass` |
+| Optional params/returns | ~10% | `func find(_ id: Int) -> User?` |
+| Array/Dictionary/Set | ~5% | `func items() -> [Item]` |
+| Non-frozen structs (opaque) | ~5% | Instance methods on library-evolution structs |
 
-In our BlinkID binding validation (18 runtime tests), 3 tests fail due to this — all String-based enum raw value accessors. The workaround (IntPtr + manual marshalling) works but adds complexity to the binding generator.
+Across 51 libraries (16,451 P/Invokes), 11,042 use `@_cdecl` wrappers. The majority are driven by non-blittable types in the signature.
 
-**Questions for the runtime team:**
+**Workaround in use:**
 
-1. Is non-blittable marshalling support for `CallConvSwift` on the roadmap?
-2. Is the restriction specific to Mono, or does CoreCLR/NativeAOT have the same limitation?
-3. Is the recommended long-term pattern to always use blittable types with `CallConvSwift` and marshal manually, or is automatic marshalling planned?
+We generate `@_cdecl` Swift wrapper functions that present a C-compatible signature to .NET, then internally call the real Swift function. This works but adds per-method Swift wrapper generation, a wrapper xcframework compilation step, and an extra function call indirection at runtime.
+
+```swift
+// Generated Swift wrapper — converts C-compatible types to Swift types
+@_cdecl("SBW_MyType_name")
+public func _sbw_name(_ self_: UnsafeRawPointer, _ resultPtr: UnsafeMutableRawPointer) {
+    let instance = self_.assumingMemoryBound(to: MyType.self).pointee
+    let result = instance.name  // Returns Swift.String
+    // Marshal String → UTF-8 slice for C# consumption
+    resultPtr.initializeMemory(as: SBW_Utf8Slice.self, to: ...)
+}
+```
+
+```csharp
+// Generated C# P/Invoke — uses Cdecl to call the wrapper
+[DllImport("SwiftBindings", EntryPoint = "SBW_MyType_name",
+    CallingConvention = CallingConvention.Cdecl)]
+private static extern void SBW_MyType_name(IntPtr self, IntPtr resultPtr);
+```
+
+**Expected behavior:**
+
+Non-blittable types in `CallConvSwift` P/Invoke signatures should be marshalled to their blittable representations (using the existing IL marshalling stub infrastructure) before Swift struct lowering and register assignment.
 
 ---
 
@@ -328,7 +334,11 @@ public static class FloatStructRepro
 
 **Root cause analysis:**
 
-The Swift calling convention on ARM64 places HFA struct fields in floating-point registers (`d0`–`d7`). NativeAOT's `CallConvSwift` implementation correctly handles system types (CGRect, CGSize, CGPoint — likely via special-casing or metadata), but for custom C# struct definitions with float/double fields, it incorrectly places the values in general-purpose registers (`x0`–`x7`).
+The Swift calling convention on ARM64 places HFA struct fields in floating-point registers (`d0`–`d7`). The struct lowering code in `SwiftPhysicalLowering.cs` (`LowerTypeForSwiftSignature`) correctly classifies `float` fields as `CORINFO_TYPE_FLOAT` and `double` fields as `CORINFO_TYPE_DOUBLE` via `GetIntervalDataForType()` (lines 74–82). This lowering should tell the JIT to place these elements in FPR.
+
+However, for custom C# struct definitions, the lowered float/double elements end up in general-purpose registers (`x0`–`x7`) instead of floating-point registers (`d0`–`d7`). System framework types like `CGRect` (4 doubles, 32B) pass correctly — suggesting the bug is **downstream of the lowering**, in how the JIT consumes `CORINFO_SWIFT_LOWERING` results for register assignment when the struct originates from a custom C# definition rather than a system type.
+
+The lowering output is correct; the register allocation from that output is not.
 
 Tested patterns:
 - `struct { double A; }` (1 field, 8B) → garbage value on NativeAOT
@@ -429,7 +439,7 @@ public static class SingleDoubleRepro
 
 Swift returns `SingleDouble` (1 double field) in floating-point register `d0`. NativeAOT's `CallConvSwift` reads the return value from general-purpose register `x0`. The registers contain different values, so the returned struct has a garbage `Value` field.
 
-This is the same underlying bug as Issue 5 (custom struct float fields in GPR instead of FPR), distilled to the absolute minimal reproduction: a single `double` field in a custom struct.
+This is the same underlying bug as Issue 5. The struct lowering in `SwiftPhysicalLowering.cs` correctly produces `CORINFO_TYPE_DOUBLE` for the single field — the bug is downstream in the JIT's register assignment for the return value. A single `double` field in a custom struct is the simplest possible reproduction, eliminating any register splitting ambiguity.
 
 **Workaround in use:**
 
@@ -461,4 +471,11 @@ Or use `SwiftIndirectResult` to bypass register allocation entirely (struct retu
 
 **Context:**
 
-These issues were discovered while building a Swift/.NET binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. Issues 1-3 are Mono-specific (iOS Simulator). Issue 4 was disproven (March 2026). Issues 5-6 affect NativeAOT on physical devices. All active issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling) that could be reduced or eliminated with runtime improvements.
+These issues were discovered while building a Swift/.NET binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. The generator has been validated against 51 third-party Swift libraries (16,451 P/Invokes total).
+
+- **Issue 1** — Mono-specific (iOS Simulator)
+- **Issue 2** — Both runtimes. Highest impact: non-blittable types are the primary driver of ~67% of P/Invokes needing `@_cdecl` wrappers across real-world libraries
+- **Issue 3** — Mono-specific (iOS Simulator)
+- **Issues 5-6** — NativeAOT on physical devices. Source-level analysis shows the struct lowering (`SwiftPhysicalLowering.cs`) correctly classifies float/double fields — the bug is downstream in JIT register assignment
+
+All active issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling). Issue 2 (non-blittable support) would have the largest impact — reducing the wrapper rate from ~67% to ~20%.

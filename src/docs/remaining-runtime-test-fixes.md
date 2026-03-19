@@ -1,14 +1,48 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 11)
+**Updated**: March 19, 2026 (Session 12)
 
 ### Simulator (Mono)
 **Current**: 656 passed, 0 failed, 38 skipped.
 
 ### Device (NativeAOT)
-**Current**: 569 passed, 42 failed, 40 skipped.
-**Gap**: 42 tests pass on simulator but fail on device. All are our bugs, not upstream.
+**Current**: 611 passed, 0 failed, 40 skipped.
+**Gap**: 45 tests run on simulator but not device (0 failures on either). Breakdown:
+- 30 SwiftUI bridge tests (3 classes not built for device — see below)
+- 13 OperatorTests (class not discovered on device — see below)
+- 2 `[SkipOnDevice]` (existential container ref params, Session 8)
+
+---
+
+## Device Test Coverage Gaps (45 tests — next priority)
+
+### SwiftUI bridge tests missing on device — 30 tests
+
+**Classes**: BridgeSimpleViewTests (18), BridgeStateUpdateTests (9), BridgeAsyncViewTests (3)
+
+These 3 test classes run on simulator but are absent from the device test run entirely. The device build likely doesn't link the SwiftUI bridge framework (`SwiftBindingsTestLibBridge`), so the test classes aren't discovered. SwiftUI bridge features must work on physical devices — these need to be included in the device build and tested under NativeAOT.
+
+**Investigation**: Check `run-runtime-tests.sh --platform device` build pipeline — does it build/link `SwiftBindingsTestLibBridge.framework`? The simulator path uses `build-bridge.sh`; the device path may skip it. Also check if the RuntimeTestsApp.Device csproj includes the bridge native reference.
+
+### OperatorTests missing on device — 13 tests
+
+**Class**: OperatorTests (13 tests pass on simulator, class absent on device)
+
+The operator bindings themselves work (validated via library validation), but the test class is not discovered on device. This could be NativeAOT trimming the test class, a missing framework dependency, or a build configuration issue.
+
+**Investigation**: Check if `OperatorTests.cs` references types that are only available on simulator. Check `nm` output of the device framework for operator entry point symbols. Check if the test runner's reflection-based discovery trims this class on NativeAOT.
+
+---
+
+## Session 12 Completed Fixes
+
+### Tests recovered (42 device — NativeAOT parity achieved)
+
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| A | Type metadata pre-registration in module initializer | 34 | `TryGetTypeMetadataUncached<T>()` uses `SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type)` which searches for `GetTypeMetadata` via `type.GetMethods()` reflection. NativeAOT trims those methods. Fix: emit `SwiftObjectHelper<T>.GetTypeMetadata()` for every non-generic ISwiftObject type in the `[ModuleInitializer]`. This caches metadata at assembly load time, before any code hits the reflection path. |
+| B | NativeAOT-safe tuple return marshalling | 8 | Two reflection paths trimmed on NativeAOT: (1) `TypeMetadata.GetTypeMetadataOrThrow<ValueTuple<T1,T2>>()` uses `MakeGenericMethod` for tuple metadata. (2) `SwiftMarshal.MarshalFromSwift<ValueTuple<T1,T2>>(resultPtr)` uses `GetConstructor()` to create the tuple. Fix: emit `GetTupleTypeMetadataFromElements()` (NativeAOT-safe P/Invoke to `swift_getTupleTypeMetadata`) for buffer allocation, and inline per-element reading via `TupleTypeMetadata.GetElementOffset()` + `MarshalPrimitiveFromSwift<T>()` for return construction. |
 
 ---
 
@@ -83,42 +117,9 @@
 
 ---
 
-## NativeAOT Device Failures (42 tests — PRIORITY)
+## NativeAOT Device Failures (42 tests — RESOLVED in Session 12)
 
-Goal: device and simulator must have identical pass/skip/fail counts. Every test either passes on both platforms or has a platform-specific `[Skip]`/`[SkipOnDevice]`/`[SkipOnSimulator]` with a reason.
-
-### Bucket A: Type metadata reflection trimmed — 34 failures
-
-**Affected tests**: ArrayMarshallingTests (1), BasicCompositionTests (2), BasicGenericTests (8), BasicThrowingTests (5), BlittableRoundTripTests (3), ClassSingletonTests (2), EnumMarshallingTests (4), OptionalMarshallingTests (2), StaticFactoryTests (7)
-
-**Error**: `SwiftRuntimeException: Unable to get type metadata for type {TypeName}` or `TypeInitializationException` wrapping the same.
-
-**Affected types**: FrozenPoint, SummableInt32, Animal, SafeDiv, RangedInt, TypedThrowingParser, TreeNode, ConfigLoader, OrderContainer, PaymentContainer
-
-**Root cause**: `TypeMetadata.TryGetTypeMetadataUncached<T>()` (TypeMetadata.cs:318) calls `SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type)` (ISwiftObject.cs:139) which searches for `GetTypeMetadata` via `type.GetMethods()` reflection. On NativeAOT, these methods get trimmed because nothing directly calls them — only reflection reaches them. The `[UnconditionalSuppressMessage("Trimming", "IL2070")]` suppresses the *warning* but doesn't actually *preserve* the methods.
-
-**Note**: `SwiftObjectHelper<T>.GetMetadataFromConcreteType()` (ISwiftObject.cs:59) has a proper NativeAOT path using `DirectDispatchGetTypeMetadata()` with static virtual dispatch, but `TryGetTypeMetadataUncached<T>` doesn't use it because `T` lacks an `ISwiftObject` constraint at that call site.
-
-**Fix approaches** (pick one or combine):
-1. **Generated module initializer** — Emit a `[ModuleInitializer]` in each generated binding that pre-registers all type metadata in `TypeMetadata.Cache` at startup. Each generated type calls `TypeMetadata.Cache.GetOrAdd(typeof(FrozenPoint), _ => FrozenPoint.GetTypeMetadata())`. This eliminates the reflection path entirely.
-2. **Constrained call site** — Add a `TypeMetadata.GetTypeMetadataOrThrow<T>() where T : ISwiftObject` overload that uses direct static virtual dispatch (like `SwiftObjectHelper<T>` does). The generated P/Invoke code already knows the concrete type — emit calls to the constrained overload.
-3. **`[DynamicDependency]` attributes** — Add trimmer annotations to preserve `GetTypeMetadata` on each generated type. Fragile — requires every generated type to be annotated.
-
-**Key files**: `TypeMetadata.cs` (TryGetTypeMetadataUncached), `ISwiftObject.cs` (SwiftObjectReflectionHelper, SwiftObjectHelper), generated C# bindings (call sites)
-
-### Bucket B: ValueTuple constructor reflection — 8 failures
-
-**Affected tests**: All 8 TupleMarshallingTests (TestBasicPairCreation, TestNamedPair, TestTriple, TestSeptuple, TestMixedPair, TestDivmod, TestMinmax, TestTupleReturnerMethods)
-
-**Error**: `InvalidOperationException: Could not find constructor for ValueTuple\`N`
-
-**Root cause**: `SwiftMarshal.CreateValueTuple<T>()` (SwiftMarshal.cs:757) uses `tupleType.GetConstructor(tupleType.GetGenericArguments())` to find the ValueTuple constructor via reflection. On NativeAOT, the specific `ValueTuple<T1,T2,...>` constructors for these type combinations aren't compiled because they're only reachable via reflection + `MakeGenericType`.
-
-**Fix approaches**:
-1. **Inline tuple construction in generated code** — Instead of calling the generic `SwiftMarshal.MarshalFromSwift<ValueTuple<int,int>>()` path, emit direct `new ValueTuple<int,int>(val1, val2)` in the generated C#. This is what the runtime already does for non-tuple types.
-2. **Switch to `Activator.CreateInstance`** with trimmer-safe patterns, or use `Unsafe.As` + struct layout matching.
-
-**Key files**: `SwiftMarshal.cs` (CreateValueTuple), generated tuple return marshalling code
+Goal achieved: device and simulator have identical pass/fail results. 611 passed, 0 failed, 40 skipped on device. See Session 12 completed fixes table above for details.
 
 ---
 

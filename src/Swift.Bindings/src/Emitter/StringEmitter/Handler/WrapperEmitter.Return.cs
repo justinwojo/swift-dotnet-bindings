@@ -271,6 +271,17 @@ namespace BindingsGeneration
                     }
                 }
 
+                // @_cdecl tuple returns: read each element at its Swift ABI offset and construct
+                // the ValueTuple inline. Avoids MarshalFromSwift<ValueTuple<...>>() which uses
+                // reflection-based tuple construction (GetConstructor) trimmed on NativeAOT.
+                // returnMetadata is declared by MethodMarshalPlanBuilder's allocation code
+                // (GetTupleTypeMetadataFromElements) and is in scope here.
+                if (_env.MethodDecl.UsesCdeclWrapper && _env.TupleHandler.IsTuple(returnArg))
+                {
+                    EmitCdeclTupleReturn(csWriter, returnArg, resultExpr);
+                    return;
+                }
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }
@@ -664,6 +675,78 @@ namespace BindingsGeneration
                     csWriter.WriteLine(subLine);
             }
             csWriter.WriteLine($"return ({string.Join(", ", resultElements)});");
+        }
+
+        /// <summary>
+        /// Emits inline per-element reading from a @_cdecl indirect result buffer for tuple returns.
+        /// Reads each element at its Swift ABI offset (via TupleTypeMetadata) into a typed local
+        /// matching the P/Invoke type, then delegates to GetTupleElementMarshalCode for
+        /// projection-aware conversion (Optional, Array, ObjC bridged, String, enums, etc.).
+        /// Avoids the reflection-based MarshalFromSwift&lt;ValueTuple&lt;...&gt;&gt;() path which uses
+        /// GetConstructor (trimmed on NativeAOT).
+        /// </summary>
+        private void EmitCdeclTupleReturn(CSharpWriter csWriter, ArgumentDecl returnArg, string resultExpr)
+        {
+            var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(returnArg);
+            if (tupleTypeSpec == null)
+            {
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
+                return;
+            }
+
+            var elements = tupleTypeSpec.Elements;
+            csWriter.WriteLine("unsafe {");
+            csWriter.Indent++;
+            csWriter.WriteLine("var _tupleMetaPtr = returnMetadata.AsTupleMetadata();");
+
+            // Phase 1: Read each element from the buffer into a typed local matching the
+            // P/Invoke type. This produces the same typed locals that `result.ItemN` would
+            // give in the non-@_cdecl path.
+            var rawNames = new List<string>();
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                var rawName = $"_raw{i}";
+                var pinvokeType = GetPInvokeTypeForTupleElement(element);
+                var offsetExpr = $"(nint)_tupleMetaPtr->GetElementOffset({i})";
+
+                csWriter.WriteLine($"{pinvokeType} {rawName} = *({pinvokeType}*)((byte*){resultExpr} + {offsetExpr});");
+                rawNames.Add(rawName);
+            }
+
+            // Phase 2: Apply projection-aware marshalling via GetTupleElementMarshalCode.
+            // This handles all element type conversions (Optional<ObjC>, Array<T>, String,
+            // Foundation.Data, simple enums, ObjC bridged, etc.) — same logic as the
+            // non-@_cdecl tuple return path in EmitTupleReturnMarshalling.
+            var resultElements = new List<string>();
+            bool needsMarshalling = false;
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                var rawName = rawNames[i];
+                var resultName = $"_te{i}";
+                var csharpType = GetCSharpTypeForTupleElement(element);
+
+                var marshalCode = GetTupleElementMarshalCode(element, rawName, resultName, csharpType);
+                if (marshalCode != null)
+                {
+                    foreach (var subLine in marshalCode.Split('\n'))
+                        csWriter.WriteLine(subLine);
+                    if (!marshalCode.Contains($"= {rawName};"))
+                        needsMarshalling = true;
+                }
+
+                resultElements.Add(resultName);
+            }
+
+            // If no elements needed marshalling, use the raw values directly
+            if (!needsMarshalling)
+                resultElements = rawNames;
+
+            csWriter.WriteLine($"return ({string.Join(", ", resultElements)});");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         /// <summary>

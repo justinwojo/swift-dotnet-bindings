@@ -501,6 +501,26 @@ internal class MethodMarshalPlanBuilder
                             var resultPtr = (IntPtr)_cdeclBuf;
                             """;
                     }
+                    else if (returnArg.SwiftTypeSpec is TupleTypeSpec tupleSpec)
+                    {
+                        // Tuple returns: use GetTupleTypeMetadataFromElements() which is NativeAOT-safe
+                        // (direct P/Invoke to swift_getTupleTypeMetadata). The generic
+                        // GetTypeMetadataOrThrow<ValueTuple<T1,T2>>() path uses MakeGenericMethod
+                        // which gets trimmed on NativeAOT.
+                        var elementMetaCalls = new List<string>();
+                        foreach (var element in tupleSpec.Elements)
+                        {
+                            var elemTypeName = GetTupleElementMetadataTypeName(element);
+                            elementMetaCalls.Add($"TypeMetadata.GetTypeMetadataOrThrow<{elemTypeName}>()");
+                        }
+                        var elementsJoined = string.Join(",\n                    ", elementMetaCalls);
+                        allocCode = $$"""
+                            var returnMetadata = TypeMetadata.GetTupleTypeMetadataFromElements(
+                                {{elementsJoined}});
+                            _cdeclBuf = NativeMemory.Alloc((nuint)returnMetadata.Size);
+                            var resultPtr = (IntPtr)_cdeclBuf;
+                            """;
+                    }
                     else
                     {
                         allocCode = $$"""
@@ -970,5 +990,34 @@ internal class MethodMarshalPlanBuilder
             return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
         }
         return _env.ParentDecl.Name;
+    }
+
+    /// <summary>
+    /// Gets the C# type name suitable for TypeMetadata.GetTypeMetadataOrThrow&lt;T&gt;() for a tuple element.
+    /// Primitives use their C# names (int, bool, etc. — pre-registered in KnownMetadata).
+    /// ISwiftObject types use their C# type names (pre-registered via module initializer).
+    /// </summary>
+    private string GetTupleElementMetadataTypeName(TypeSpec element)
+    {
+        if (element is NamedTypeSpec namedType)
+        {
+            if (namedType.ContainsGenericParameters)
+            {
+                var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+                if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord))
+                {
+                    if (baseRecord == TypeDatabaseExtensions.IntPtrType)
+                        return baseRecord.CSharpTypeName.FullyQualifiedName;
+                    var translatedParams = namedType.GenericParameters
+                        .Select(GetTupleElementMetadataTypeName);
+                    return $"{baseRecord.CSharpTypeName.FullyQualifiedName}<{string.Join(", ", translatedParams)}>";
+                }
+            }
+
+            var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(namedType);
+            return typeRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
+        return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
     }
 }

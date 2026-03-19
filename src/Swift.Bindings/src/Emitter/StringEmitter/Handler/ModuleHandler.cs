@@ -265,7 +265,14 @@ namespace BindingsGeneration
         private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
+            var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
 
+            // Emit a single [ModuleInitializer] class that:
+            // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
+            // 2. Pre-registers NewFromPayload factories for NativeAOT
+            // 3. Pre-registers type metadata in the cache for NativeAOT (avoids trimmed reflection path)
+            // 4. Pre-registers protocol conformance factories for NativeAOT
+            // All in one initializer to guarantee ordering (framework resolver before any P/Invoke).
             csWriter.WriteLine();
             csWriter.WriteLine("#pragma warning disable CA2255 // ModuleInitializer is intentional in generated binding code");
             csWriter.WriteLines($$"""
@@ -275,35 +282,24 @@ namespace BindingsGeneration
                     internal static void Initialize()
                     {
                         global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
+                """);
+            foreach (var typeName in factoryTypes)
+            {
+                csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>();");
+                // SwiftObjectHelper<T>.GetTypeMetadata() handles both Mono (reflection) and
+                // NativeAOT (static virtual dispatch) and caches the result. This ensures
+                // TryGetTypeMetadata<T>() finds metadata in the cache without needing the
+                // reflection path (GetMethods) that NativeAOT trims.
+                csWriter.WriteLines($"        global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata();");
+            }
+            foreach (var (typeName, protocolName) in conformances)
+            {
+                csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
+            }
+            csWriter.WriteLines($$"""
                     }
                 }
                 """);
-
-            // Emit NativeAOT factory initializer if there are non-generic ISwiftObject types or conformances
-            var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
-            if (factoryTypes.Count > 0 || conformances.Count > 0)
-            {
-                csWriter.WriteLines($$"""
-
-                    internal static class __SwiftNativeAOTFactories_{{moduleName}}
-                    {
-                        [ModuleInitializer]
-                        internal static void Initialize()
-                        {
-                    """);
-                foreach (var typeName in factoryTypes)
-                {
-                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>();");
-                }
-                foreach (var (typeName, protocolName) in conformances)
-                {
-                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
-                }
-                csWriter.WriteLines($$"""
-                        }
-                    }
-                    """);
-            }
 
             csWriter.WriteLine("#pragma warning restore CA2255");
         }
