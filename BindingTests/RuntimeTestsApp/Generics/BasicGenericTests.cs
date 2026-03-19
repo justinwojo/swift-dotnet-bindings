@@ -251,7 +251,6 @@ public class BasicGenericTests : TestBase
     }
 
 
-    [Skip("Generic class @_cdecl factory: calling convention fixed but protocol metatype dispatch crashes Mono JIT")]
     public void TestGenericClassCreation()
     {
         var inner = new SummableInt32(value: 77);
@@ -261,7 +260,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"GenericClass<SummableInt32>(77).Value.Value = {val.Value}");
     }
 
-    [Skip("Generic class @_cdecl factory: calling convention fixed but protocol metatype dispatch crashes Mono JIT")]
     public void TestGenericClassGetMethod()
     {
         var inner = new SummableInt32(value: 33);
@@ -270,7 +268,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(33, result.Value, "GenericClass.Get().Value");
     }
 
-    [Skip("Generic class @_cdecl factory: calling convention fixed but protocol metatype dispatch crashes Mono JIT")]
     public void TestGenericClassValueSetter()
     {
         var gc = new GenericClass<SummableInt32>(value: new SummableInt32(value: 1));
@@ -318,7 +315,6 @@ public class BasicGenericTests : TestBase
 
     #region Pass 2 — M2: Generic Constructor with PWT (ConstrainedBox)
 
-    [Skip("Generic class constructor with T-typed params needs protocol-based static factory pattern (Session 7C pattern + constructor extension)")]
     public void TestConstrainedBoxCreation()
     {
         var item = new SimpleItem("gen-id", "test");
@@ -327,7 +323,7 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("ConstrainedBox.getDescription wrapper gap: method doesn't reference T but no @_cdecl wrapper generated — needs investigation")]
+    [Skip("ConstrainedBox.getDescription: CallConvSwift on Mono — needs @_cdecl wrapper (guard 5b rejects concrete-signature methods on generic structs)")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");
@@ -341,7 +337,6 @@ public class BasicGenericTests : TestBase
 
     #region M3: Generic Class Implementing Protocol (GenericNamedBox)
 
-    [Skip("Generic class @_cdecl factory: calling convention fixed but protocol metatype dispatch crashes Mono JIT")]
     public void TestGenericNamedBoxCreation()
     {
         var item = new SummableInt32(value: 42);
@@ -350,7 +345,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("GenericNamedBox creation passed");
     }
 
-    [Skip("GenericNamedBox.Name property getter needs protocol-based static dispatch for generic class properties")]
     public void TestGenericNamedBoxName()
     {
         var item = new SummableInt32(value: 10);
@@ -386,7 +380,6 @@ public class BasicGenericTests : TestBase
             "Disposed BaseEntity throws on access");
     }
 
-    [Skip("Generic class constructor with T-typed params needs protocol-based static factory pattern (TypedEntity<T> inherits BaseEntity)")]
     public void TestTypedEntityCreation()
     {
         var item = new SummableInt32(value: 99);

@@ -808,6 +808,9 @@ public static class MethodWrapperEmitter
             }
             """);
 
+        // Emit metadata accessor helper at module scope (before @_cdecl)
+        var methodHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx!);
+
         // Emit @_cdecl wrapper
         var cdeclParamString = string.Join(", ", cdeclParams);
         var swiftFuncName = $"_sbw_method_{EmitterUtility.DeterministicHash8(symbolName)}";
@@ -854,8 +857,10 @@ public static class MethodWrapperEmitter
                 swiftWriter.WriteLine(reconstruction);
         }
 
-        // Metatype dispatch
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+        // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor
+        var methodMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        swiftWriter.WriteLine($"let parentMeta = {methodHelperName}({methodMetaArgs})");
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 
         // Call the protocol static method
         var cdeclCallArgString = string.Join(", ", cdeclCallArgs);

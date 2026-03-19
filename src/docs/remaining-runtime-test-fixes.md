@@ -1,9 +1,25 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 10)
-**Current**: 647 passed, 0 failed, 47 skipped (simulator). Unit tests: 8331.
-**Previous**: 646 passed, 0 failed, 48 skipped (simulator). Unit tests: 8328.
+**Updated**: March 19, 2026 (Session 11)
+
+### Simulator (Mono)
+**Current**: 656 passed, 0 failed, 38 skipped.
+
+### Device (NativeAOT)
+**Current**: 569 passed, 42 failed, 40 skipped.
+**Gap**: 42 tests pass on simulator but fail on device. All are our bugs, not upstream.
+
+---
+
+## Session 11 Completed Fixes
+
+### Tests recovered (9 simulator)
+
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| 4 | Decomposed Optional property getters/setters | 2 | `SwiftOptional<T>.NewSome()` calls VWT `initializeWithCopy` on the inner type, crashing Mono for complex enums/non-frozen structs. Fix: decompose Optional into (rawPayload, hasValue) as separate params. Swift @_cdecl wrappers reconstruct `Optional<T>` on the Swift side. C# never constructs `SwiftOptional<T>` for these types. Applied to all three wrapper paths (main, generic-static, generic-class protocol dispatch). Subscript accessors excluded via `IsSubscriptAccessor` flag. |
+| 1/5/6 | Fix generic metatype dispatch in emitter | 7 | Two bugs: (1) `_metadata0` is `T.self` but protocol is conformed by `GenericClass<T>`, not `T`. Added `_sbw_meta_*` helpers that call the parent type's metadata accessor via `dlsym` to convert `T.self` → `ParentType<T>.self` before protocol cast. (2) Parameter ordering mismatch: C# P/Invoke sends `(resultPtr, TMetadata, self)` but Swift @_cdecl declared `(resultPtr, self_, _metadata0)`. Fixed getter/setter emitters. |
 
 ---
 
@@ -67,11 +83,50 @@
 
 ---
 
-## Current State
+## NativeAOT Device Failures (42 tests — PRIORITY)
 
-47 `[Skip]` + 2 `[SkipOnDevice]` = 49 total annotations. Of these:
+Goal: device and simulator must have identical pass/skip/fail counts. Every test either passes on both platforms or has a platform-specific `[Skip]`/`[SkipOnDevice]`/`[SkipOnSimulator]` with a reason.
+
+### Bucket A: Type metadata reflection trimmed — 34 failures
+
+**Affected tests**: ArrayMarshallingTests (1), BasicCompositionTests (2), BasicGenericTests (8), BasicThrowingTests (5), BlittableRoundTripTests (3), ClassSingletonTests (2), EnumMarshallingTests (4), OptionalMarshallingTests (2), StaticFactoryTests (7)
+
+**Error**: `SwiftRuntimeException: Unable to get type metadata for type {TypeName}` or `TypeInitializationException` wrapping the same.
+
+**Affected types**: FrozenPoint, SummableInt32, Animal, SafeDiv, RangedInt, TypedThrowingParser, TreeNode, ConfigLoader, OrderContainer, PaymentContainer
+
+**Root cause**: `TypeMetadata.TryGetTypeMetadataUncached<T>()` (TypeMetadata.cs:318) calls `SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type)` (ISwiftObject.cs:139) which searches for `GetTypeMetadata` via `type.GetMethods()` reflection. On NativeAOT, these methods get trimmed because nothing directly calls them — only reflection reaches them. The `[UnconditionalSuppressMessage("Trimming", "IL2070")]` suppresses the *warning* but doesn't actually *preserve* the methods.
+
+**Note**: `SwiftObjectHelper<T>.GetMetadataFromConcreteType()` (ISwiftObject.cs:59) has a proper NativeAOT path using `DirectDispatchGetTypeMetadata()` with static virtual dispatch, but `TryGetTypeMetadataUncached<T>` doesn't use it because `T` lacks an `ISwiftObject` constraint at that call site.
+
+**Fix approaches** (pick one or combine):
+1. **Generated module initializer** — Emit a `[ModuleInitializer]` in each generated binding that pre-registers all type metadata in `TypeMetadata.Cache` at startup. Each generated type calls `TypeMetadata.Cache.GetOrAdd(typeof(FrozenPoint), _ => FrozenPoint.GetTypeMetadata())`. This eliminates the reflection path entirely.
+2. **Constrained call site** — Add a `TypeMetadata.GetTypeMetadataOrThrow<T>() where T : ISwiftObject` overload that uses direct static virtual dispatch (like `SwiftObjectHelper<T>` does). The generated P/Invoke code already knows the concrete type — emit calls to the constrained overload.
+3. **`[DynamicDependency]` attributes** — Add trimmer annotations to preserve `GetTypeMetadata` on each generated type. Fragile — requires every generated type to be annotated.
+
+**Key files**: `TypeMetadata.cs` (TryGetTypeMetadataUncached), `ISwiftObject.cs` (SwiftObjectReflectionHelper, SwiftObjectHelper), generated C# bindings (call sites)
+
+### Bucket B: ValueTuple constructor reflection — 8 failures
+
+**Affected tests**: All 8 TupleMarshallingTests (TestBasicPairCreation, TestNamedPair, TestTriple, TestSeptuple, TestMixedPair, TestDivmod, TestMinmax, TestTupleReturnerMethods)
+
+**Error**: `InvalidOperationException: Could not find constructor for ValueTuple\`N`
+
+**Root cause**: `SwiftMarshal.CreateValueTuple<T>()` (SwiftMarshal.cs:757) uses `tupleType.GetConstructor(tupleType.GetGenericArguments())` to find the ValueTuple constructor via reflection. On NativeAOT, the specific `ValueTuple<T1,T2,...>` constructors for these type combinations aren't compiled because they're only reachable via reflection + `MakeGenericType`.
+
+**Fix approaches**:
+1. **Inline tuple construction in generated code** — Instead of calling the generic `SwiftMarshal.MarshalFromSwift<ValueTuple<int,int>>()` path, emit direct `new ValueTuple<int,int>(val1, val2)` in the generated C#. This is what the runtime already does for non-tuple types.
+2. **Switch to `Activator.CreateInstance`** with trimmer-safe patterns, or use `Unsafe.As` + struct layout matching.
+
+**Key files**: `SwiftMarshal.cs` (CreateValueTuple), generated tuple return marshalling code
+
+---
+
+## Current State (Simulator Skips)
+
+38 `[Skip]` + 2 `[SkipOnDevice]` = 40 total annotations. Of these:
 - **27 are unfixable** without external action (upstream bugs, missing data sources, future roadmap)
-- **22 are fixable** generator/runtime bugs, grouped into 10 categories below
+- **13 are fixable** generator/runtime bugs, grouped into 8 categories below
 
 ## Unfixable Skips (27 annotations — leave as-is)
 
@@ -84,23 +139,19 @@
 | ValueTuple StructLayout.Auto | 1 | MarshalDirectiveException on Mono, SIGSEGV on NativeAOT. Documented upstream limitation. |
 | ABI JSON lacks enum raw values (Permission) | 1 | Same root cause as string enum raw values. |
 
-## Fixable Skips (23 annotations — 11 categories)
+## Fixable Skips (13 annotations — 8 categories)
 
 ### Priority 1: Partially fixed, need remaining work
 
-#### 1. Generic static factory — Mono JIT crash — 8 tests
+#### 1. Generic struct constructors — 4 tests
 
-**Tests**: 4 struct (Wrapper, GenericPair) + 4 class (GenericClass, GenericNamedBox)
+**Tests**: 4 struct (Wrapper, GenericPair)
 
-**Status**: Calling convention mismatch **fixed** (Session 8: CallConvCdecl + 2-param signature). But protocol metatype dispatch (`unsafeBitCast(_metadata0, to: Any.Type.self) as! any Protocol.Type`) still crashes Mono JIT at `jit-info.c:918`. The `as!` existential cast is the trigger.
+**Status**: Class sub-issues all **fixed** (Session 11: metatype dispatch via `_sbw_meta_*` helpers + parameter ordering fix). Struct constructors remain: no @_cdecl wrapper emitted — C# uses `CallConvSwift` directly to mangled symbols. Generator doesn't emit wrappers for generic struct constructors.
 
-**Sub-issues**:
-- 4 struct tests (Wrapper, GenericPair): No @_cdecl wrapper emitted — C# uses `CallConvSwift` directly to mangled symbols. Generator doesn't emit wrappers for generic struct constructors.
-- 4 class tests (GenericClass, GenericNamedBox): @_cdecl wrapper exists and calling convention is now correct, but the Swift wrapper's protocol metatype dispatch crashes Mono.
+**Fix approach**: Emit @_cdecl wrappers for generic struct constructors, similar to the class pattern.
 
-**Fix approach**: Replace `as! any Protocol.Type` existential cast with a function pointer table or direct metatype resolution that doesn't trigger the Mono JIT assertion.
-
-**Key files**: `ConstructorWrapperEmitter.cs` (EmitGenericStaticFactoryConstructor), `MethodWrapperEmitter.cs`, `PropertyWrapperEmitter.cs`
+**Key files**: `ConstructorWrapperEmitter.cs` (EmitGenericStaticFactoryConstructor)
 
 #### ~~2. IntContainer array marshalling — 3 tests~~ **FIXED (Session 9)**
 
@@ -108,37 +159,19 @@
 
 ### Priority 2: Medium complexity
 
-#### 4. OptionalShape setter — 2 tests
+#### ~~4. OptionalShape setter — 2 tests~~ **FIXED (Session 11)**
 
-**Tests**: TestEnumPropertyHolder_SetOptionalShape, TestEnumPropertyHolder_ClearOptionalShape
+#### ~~5. Generic class T-typed constructors — 2 tests~~ **FIXED (Session 11)**
 
-**Status**: Session 9 generalized `SwiftOptional<T>` tag byte fast path to cover complex enums (comparing `Optional<T>.Size` vs `T.Size`). Tag operations now bypass VWT correctly. However, `Shape.MarshalToSwift()` uses VWT `initializeWithCopy` which crashes Mono before the tag byte path is reached. Not tested on NativeAOT.
+#### 6. Generic struct method dispatch — 1 test
 
-**Root cause**: `SwiftOptional<Shape>.NewSome()` calls `MarshalToSwift` to copy the Shape payload into the Optional buffer. `MarshalToSwift` for complex enums uses VWT `initializeWithCopy` which crashes Mono. The tag byte fix is correct but the payload copy crashes first.
+**Tests**: TestConstrainedBoxGetDescription
 
-**Fix approach**: Avoid constructing `SwiftOptional<Shape>` on C# side entirely. Change the setter @_cdecl wrapper to accept raw Shape bytes + `hasValue` flag, then construct `Optional<Shape>` in Swift. This bypasses all C#-side VWT operations.
+**Root cause**: Guard 5b in wrapper emission rejects concrete-signature methods on generic structs. Method doesn't reference T but no @_cdecl wrapper generated — C# uses `CallConvSwift` on Mono which crashes.
 
-**Key files**: `PropertyWrapperEmitter.cs` (setter emission), `OptionalProjection.cs`
+**Fix approach**: Relax guard 5b to allow methods with concrete signatures on generic types, or emit @_cdecl wrappers for them.
 
-#### 5. Generic class T-typed constructors — 2 tests
-
-**Tests**: TestConstrainedBoxCreation, TestTypedEntityCreation
-
-**Root cause**: `CanEmitGenericClassConstructorWrapper()` rejects constructors where parameters reference the parent's generic type parameter.
-
-**Fix approach**: Extend `EmitGenericStaticFactoryConstructor` to handle class constructors with T-typed params. Needs `AnyObject` constraint on the protocol or different dispatch mechanism.
-
-**Key files**: `ConstructorWrapperEmitter.cs`
-
-#### 6. Generic class property/method dispatch — 2 tests
-
-**Tests**: TestGenericNamedBoxName, TestConstrainedBoxGetDescription
-
-**Root cause**: Two sub-issues:
-- `TestGenericNamedBoxName`: Property getter needs protocol-based static dispatch for generic class properties.
-- `TestConstrainedBoxGetDescription`: Method doesn't reference T but no @_cdecl wrapper generated — guard rejection in wrapper emission.
-
-**Key files**: `PropertyWrapperEmitter.cs`, `MethodWrapperEmitter.cs`, `WrapperValidation.cs`
+**Key files**: `MethodWrapperEmitter.cs`, `WrapperValidation.cs`
 
 ### Priority 3: Requires investigation or deep infrastructure
 

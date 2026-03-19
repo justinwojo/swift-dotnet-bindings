@@ -506,6 +506,13 @@ public static class ConstructorWrapperEmitter
             callExpr = $"{moduleQualifiedSwiftName}({callArgString})";
         }
 
+        // For generic parent types: emit metadata accessor helper at module scope (before @_cdecl)
+        string? metaHelperName = null;
+        if (isGenericClassParent && protocolName != null)
+        {
+            metaHelperName = EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl!, ctx);
+        }
+
         // Emit the @_cdecl function
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -541,10 +548,13 @@ public static class ConstructorWrapperEmitter
         }
 
         // For generic parent types: reconstruct metatype from metadata pointer
-        if (isGenericClassParent && protocolName != null)
+        // _metadata0 is T.self, not GenericClass<T>.self — call the parent type's metadata accessor
+        // via dlsym to convert T.self → GenericClass<T>.self before protocol dispatch.
+        if (isGenericClassParent && protocolName != null && metaHelperName != null)
         {
-            swiftWriter.WriteLine($"let anyType: Any.Type = unsafeBitCast(_metadata0, to: Any.Type.self)");
-            swiftWriter.WriteLine($"let initType = anyType as! any {protocolName}.Type");
+            var metaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl!.GenericParameters.Count).Select(i => $"_metadata{i}"));
+            swiftWriter.WriteLine($"let parentMeta = {metaHelperName}({metaArgs})");
+            swiftWriter.WriteLine($"let initType = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         }
 
         // Emit the body based on constructor type
@@ -604,6 +614,53 @@ public static class ConstructorWrapperEmitter
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a private Swift helper function that calls the metadata accessor for a generic parent
+    /// type via dlsym. This converts T.self metadata into GenericType&lt;T&gt;.self metadata, which is
+    /// needed for protocol metatype dispatch. Deduplicates by type mangled name.
+    /// Returns the helper function name (e.g., "_sbw_meta_GenericClass").
+    /// </summary>
+    internal static string EmitMetadataAccessorHelperIfNeeded(
+        SwiftWriter swiftWriter,
+        TypeDecl parentTypeDecl,
+        ModuleEmissionContext ctx)
+    {
+        var typeName = parentTypeDecl.Name.Replace(".", "_");
+        var helperName = $"_sbw_meta_{typeName}";
+        var mangledName = parentTypeDecl.MangledName;
+
+        if (!ctx.TryAddMetadataAccessorHelper(mangledName))
+            return helperName; // Already emitted, just return the name
+
+        var metaSymbol = $"{mangledName}Ma";
+        var genericCount = parentTypeDecl.GenericParameters.Count;
+
+        // Build parameter list: one UnsafeRawPointer per generic parameter
+        var paramList = string.Join(", ",
+            Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: UnsafeRawPointer"));
+
+        // Build function type: (Int, UnsafeRawPointer, ...) -> (UnsafeRawPointer, Int)
+        var fnParamTypes = string.Join(", ",
+            new[] { "Int" }.Concat(
+                Enumerable.Range(0, genericCount).Select(_ => "UnsafeRawPointer")));
+
+        // Build call arguments: (0, t0, t1, ...)
+        var callArgs = string.Join(", ",
+            new[] { "0" }.Concat(
+                Enumerable.Range(0, genericCount).Select(i => $"t{i}")));
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
+                typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (UnsafeRawPointer, Int)
+                let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
+                return fn({{callArgs}}).0
+            }
+            """);
+
+        return helperName;
     }
 
     /// <summary>
@@ -1598,6 +1655,9 @@ public static class ConstructorWrapperEmitter
             }
             """);
 
+        // Emit metadata accessor helper at module scope (before @_cdecl wrapper)
+        var gsfHelperName = EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
+
         // Emit @_cdecl wrapper
         var cdeclParamString = string.Join(", ", cdeclParams);
         var swiftFuncName = $"_sbw_init_{EmitterUtility.DeterministicHash8(symbolName)}";
@@ -1650,8 +1710,10 @@ public static class ConstructorWrapperEmitter
                 swiftWriter.WriteLine(reconstruction);
         }
 
-        // Metatype dispatch
-        swiftWriter.WriteLine("let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any _SBW_GSF_" +
+        // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor
+        var metaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        swiftWriter.WriteLine($"let parentMeta = {gsfHelperName}({metaArgs})");
+        swiftWriter.WriteLine("let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any _SBW_GSF_" +
             EmitterUtility.DeterministicHash8(symbolName) + ".Type");
 
         // Call the protocol static factory

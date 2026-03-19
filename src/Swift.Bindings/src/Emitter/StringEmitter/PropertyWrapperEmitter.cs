@@ -263,7 +263,7 @@ public static class PropertyWrapperEmitter
         // For generic types needing static dispatch, delegate to specialized emitter
         if (needsStaticGetterDispatch)
         {
-            EmitGenericStaticGetterWrapper(swiftWriter, propertyDecl, symbolName, env,
+            EmitGenericStaticGetterWrapper(swiftWriter, propertyDecl, symbolName, env, ctx,
                 parentTypeDecl!, moduleQualifiedName, isClass, isStatic, isString, needsResultPtr,
                 propertyReferencesT, returnMapping);
             return;
@@ -438,7 +438,7 @@ public static class PropertyWrapperEmitter
         // For generic static dispatch setters, delegate to specialized emitter
         if (needsStaticSetterDispatch)
         {
-            EmitGenericStaticSetterWrapper(swiftWriter, propertyDecl, symbolName, env,
+            EmitGenericStaticSetterWrapper(swiftWriter, propertyDecl, symbolName, env, ctx,
                 parentTypeDecl!, moduleQualifiedName, isClass, isStatic, isString, propertyReferencesT);
             return;
         }
@@ -821,6 +821,7 @@ public static class PropertyWrapperEmitter
         PropertyDecl propertyDecl,
         string symbolName,
         MethodEnvironment env,
+        ModuleEmissionContext ctx,
         TypeDecl parentTypeDecl,
         string moduleQualifiedName,
         bool isClass,
@@ -858,17 +859,18 @@ public static class PropertyWrapperEmitter
             }
         }
 
+        // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
+        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+        {
+            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+        }
+
         if (isClass)
             cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
         else
             cdeclParams.Add("_ self_: UnsafeRawPointer");
         protocolParams.Add(isClass ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
         cdeclCallArgs.Add("selfPtr: self_");
-
-        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
-        {
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
-        }
 
         string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
 
@@ -944,6 +946,9 @@ public static class PropertyWrapperEmitter
             }
             """);
 
+        // Emit metadata accessor helper at module scope (before @_cdecl)
+        var getHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
+
         // Emit @_cdecl
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{hash}";
         string cdeclReturnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
@@ -964,7 +969,9 @@ public static class PropertyWrapperEmitter
             """);
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+        var getMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        swiftWriter.WriteLine($"let parentMeta = {getHelperName}({getMetaArgs})");
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 
         if (needsResultPtr || protocolReturnType == "")
             swiftWriter.WriteLine($"metatype.{getMethodName}({string.Join(", ", cdeclCallArgs)})");
@@ -1006,6 +1013,7 @@ public static class PropertyWrapperEmitter
         PropertyDecl propertyDecl,
         string symbolName,
         MethodEnvironment env,
+        ModuleEmissionContext ctx,
         TypeDecl parentTypeDecl,
         string moduleQualifiedName,
         bool isClass,
@@ -1066,13 +1074,13 @@ public static class PropertyWrapperEmitter
             cdeclCallArgs.Add("newValue: newValueVal");
         }
 
-        // Self and metadata
+        // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
+        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
+            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+
         cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
         protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
         cdeclCallArgs.Add("selfPtr: self_");
-
-        for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
 
         // Build extension body
         var bodyLines = new List<string>();
@@ -1119,6 +1127,9 @@ public static class PropertyWrapperEmitter
             }
             """);
 
+        // Emit metadata accessor helper at module scope (before @_cdecl)
+        var setHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
+
         // Emit @_cdecl
         var swiftFuncName = $"_sbw_set_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
         var cdeclParamString = string.Join(", ", cdeclParams);
@@ -1163,7 +1174,9 @@ public static class PropertyWrapperEmitter
             }
         }
 
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
+        var setMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        swiftWriter.WriteLine($"let parentMeta = {setHelperName}({setMetaArgs})");
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         swiftWriter.WriteLine($"metatype.{setMethodName}({string.Join(", ", cdeclCallArgs)})");
 
         swiftWriter.Indent--;

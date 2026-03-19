@@ -1433,6 +1433,45 @@ public class MethodWrapperEmitterTests
         Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
     }
 
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClassParent_TReturnType_UsesMetadataAccessorHelper()
+    {
+        // Method with T return type on generic class — triggers generic static dispatch path.
+        // Verifies _sbw_meta_ helper is emitted and used for metatype reconstruction.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Method returning T (generic param) — needs static dispatch
+        var method = CreateMethodWithReturn("getValue", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        method.MangledName = "SBW_TestModule_GenericBox_getValue";
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+
+        var output = sw.ToString();
+        // Metadata accessor helper emitted at module scope
+        Assert.Contains("_sbw_meta_GenericBox", output);
+        Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
+
+        // Metatype dispatch uses helper result, not raw _metadata0
+        Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
+        Assert.Contains("as! any _SBW_GSM_", output);
+
+        // Should NOT have the old pattern of directly casting _metadata0
+        Assert.DoesNotContain("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
+    }
+
     #endregion
 
     #region UsesCdeclWrapper Computed Property

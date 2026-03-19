@@ -2376,8 +2376,9 @@ public class ConstructorWrapperEmitterTests
         // Metadata parameter
         Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
 
-        // Metatype reconstruction
-        Assert.Contains("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
+        // Metatype reconstruction via metadata accessor helper
+        Assert.Contains("_sbw_meta_GenericCache(_metadata0)", output);
+        Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
         Assert.Contains("as! any _SBW_CI_", output);
 
         // Protocol metatype init call
@@ -2626,10 +2627,9 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
         Assert.Contains("_ _metadata1: UnsafeRawPointer", output);
 
-        // Only _metadata0 is used for metatype reconstruction
-        Assert.Contains("unsafeBitCast(_metadata0, to: Any.Type.self)", output);
-        // _metadata1 is unused (matches PInvokeSignatureBuilder but not needed for dispatch)
-        Assert.DoesNotContain("_metadata1, to:", output);
+        // Both metadata params passed to metadata accessor helper for multi-generic dispatch
+        Assert.Contains("_sbw_meta_GenericPair(_metadata0, _metadata1)", output);
+        Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
     }
 
     #endregion

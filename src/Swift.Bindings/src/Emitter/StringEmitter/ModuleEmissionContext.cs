@@ -335,6 +335,13 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddEqualityWrapperSymbol(string symbol) => _equalityWrapperSymbols.Add(symbol);
 
+    // ==================== Metadata Accessor Helper ====================
+
+    private readonly HashSet<string> _metadataAccessorHelperSymbols = new();
+
+    /// <summary>Adds a metadata accessor helper symbol. Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddMetadataAccessorHelper(string typeMangledName) => _metadataAccessorHelperSymbols.Add(typeMangledName);
+
     // ==================== Optional Tag Helper ====================
 
     private readonly HashSet<string> _optionalTagHelperSymbols = new();

@@ -617,6 +617,56 @@ public class PropertyWrapperEmitterTests
         Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
     }
 
+    [Fact]
+    public void EmitSwiftGetterWrapper_GenericClassParent_TTypedProperty_UsesMetadataAccessorAndCorrectParamOrder()
+    {
+        // Property type references generic param T — triggers generic static dispatch path.
+        // Verifies: (1) _sbw_meta_ helper emitted, (2) metadata params come BEFORE self in @_cdecl.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericClass", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var getterMethod = CreateAccessorMethod("getter:value", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Get_TestModule_GenericClass_value";
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Metadata accessor helper emitted at module scope
+        Assert.Contains("_sbw_meta_GenericClass", output);
+        Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
+        Assert.Contains("Ma", output); // metadata accessor suffix
+
+        // Metatype dispatch uses helper result
+        Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
+        Assert.Contains("as! any _SBW_GSPG_", output);
+
+        // Parameter ordering: metadata BEFORE self in @_cdecl signature
+        var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_get_value_"));
+        var metaIdx = cdeclLine.IndexOf("_metadata0");
+        var selfIdx = cdeclLine.IndexOf("self_");
+        Assert.True(metaIdx < selfIdx, "Metadata param must come before self in @_cdecl signature");
+    }
+
     #endregion
 
     #region Setter Wrapper Swift Emission Tests
@@ -771,6 +821,55 @@ public class PropertyWrapperEmitterTests
         Assert.Contains("obj.count = newValue", output);
         // Should NOT use concrete type for self
         Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_GenericClassParent_TTypedProperty_UsesMetadataAccessorAndCorrectParamOrder()
+    {
+        // Property type references generic param T — triggers generic static dispatch path.
+        // Verifies: (1) _sbw_meta_ helper emitted, (2) metadata params come BEFORE self in @_cdecl.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("GenericClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericClass", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var setterMethod = CreateAccessorMethod("setter:value", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Set_TestModule_GenericClass_value";
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Metadata accessor helper emitted at module scope
+        Assert.Contains("_sbw_meta_GenericClass", output);
+        Assert.Contains("dlsym(dlopen(nil, RTLD_LAZY)", output);
+
+        // Metatype dispatch uses helper result
+        Assert.Contains("unsafeBitCast(parentMeta, to: Any.Type.self)", output);
+        Assert.Contains("as! any _SBW_GSPS_", output);
+
+        // Parameter ordering: metadata BEFORE self in @_cdecl signature
+        var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_set_value_"));
+        var metaIdx = cdeclLine.IndexOf("_metadata0");
+        var selfIdx = cdeclLine.IndexOf("self_");
+        Assert.True(metaIdx < selfIdx, "Metadata param must come before self in @_cdecl signature");
     }
 
     #endregion
