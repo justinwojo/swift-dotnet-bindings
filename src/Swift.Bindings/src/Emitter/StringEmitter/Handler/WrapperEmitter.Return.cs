@@ -174,6 +174,34 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Decomposed Optional getter: read hasValue from separate buffer, construct T? directly.
+                // Avoids SwiftOptional<T> / VWT operations entirely — the Swift wrapper already
+                // decomposed the Optional into (rawPayload, hasValue) in separate buffers.
+                // Buffer allocation and hasValuePtr are set up by MethodMarshalPlanBuilder.
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    !_env.MethodDecl.IsSubscriptAccessor &&
+                    WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
+                        new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                            GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                            CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                    if (projection is OptionalProjection optProj)
+                    {
+                        var innerType = optProj.InnerProjection.MarshalFromSwiftType;
+                        csWriter.WriteLines($$"""
+                            unsafe {
+                                byte _hasValue = ((byte*)hasValuePtr)[0];
+                                if (_hasValue == 0) return null;
+                                var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                _cdeclBuf = null; // NewFromPayload took ownership
+                                return _result;
+                            }
+                            """);
+                        return;
+                    }
+                }
+
                 // @_cdecl Optional<value-type>: marshal via SwiftOptional<T>.ToNullable()
                 if (_env.MethodDecl.UsesCdeclWrapper &&
                     MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&

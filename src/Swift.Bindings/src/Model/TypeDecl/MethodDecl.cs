@@ -68,6 +68,12 @@ namespace BindingsGeneration
         public bool IsAccessor { get; set; } = false;
 
         /// <summary>
+        /// Indicates if this method is a subscript accessor (getter or setter).
+        /// Used to exclude subscripts from decomposed Optional property patterns.
+        /// </summary>
+        public bool IsSubscriptAccessor { get; set; } = false;
+
+        /// <summary>
         /// Indicates if the method is mutating (modifies self on value types).
         /// Parsed from funcSelfKind in the ABI JSON.
         /// </summary>

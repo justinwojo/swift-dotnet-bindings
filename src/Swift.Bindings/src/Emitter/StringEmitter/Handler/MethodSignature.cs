@@ -399,6 +399,29 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Decomposed Optional getter: return the inner type as nullable (T?) directly.
+            // The Swift wrapper passes (rawPayload, hasValue) separately; C# reads the inner value
+            // and constructs T? without going through SwiftOptional<T> / VWT operations.
+            if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                !_env.MethodDecl.IsSubscriptAccessor &&
+                WrapperValidation.IsDecomposedOptionalType(argument.SwiftTypeSpec, _env.TypeDatabase))
+            {
+                var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
+                {
+                    TypeDatabase = _env.TypeDatabase,
+                    IsParameter = false,
+                    GenericContext = _genericContext,
+                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
+                });
+                if (projection is OptionalProjection optProj)
+                {
+                    // Use the inner type's MarshalFromSwift type as nullable
+                    SetReturnType($"{optProj.InnerProjection.MarshalFromSwiftType}?");
+                    return;
+                }
+            }
+
             // Try factory-based projection for non-tuple types.
             // Tuples use legacy handling to preserve element labels and match marshalling
             // (factory TupleProjection does deep conversion; marshalling hasn't been updated yet).
@@ -543,6 +566,29 @@ namespace BindingsGeneration
                     AddParameter("IntPtr", csParamName + "Utf8Ptr");
                     AddParameter("nint", csParamName + "Utf8Len");
                     continue;
+                }
+
+                // Decomposed Optional setter: parameter is (IntPtr payload, bool hasValue).
+                // The accessor method signature shows the inner type as nullable (T?),
+                // matching the property type. P/Invoke decomposes to raw pointer + flag.
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    !_env.MethodDecl.IsSubscriptAccessor &&
+                    WrapperValidation.IsDecomposedOptionalType(argument.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = _env.TypeDatabase,
+                        IsParameter = true,
+                        GenericContext = _genericContext,
+                        ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
+                    });
+                    if (projection is OptionalProjection optProj)
+                    {
+                        AddParameter("IntPtr", "payload");
+                        AddParameter("bool", "hasValue");
+                        continue;
+                    }
                 }
 
                 // Try factory-based projection for non-tuple types (same guards as HandleReturnType)

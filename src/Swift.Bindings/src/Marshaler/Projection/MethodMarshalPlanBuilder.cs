@@ -470,10 +470,30 @@ internal class MethodMarshalPlanBuilder
                 }
                 else
                 {
+                    // Decomposed Optional getter: allocate inner type buffer + 1 byte for hasValue flag.
+                    // The Swift wrapper writes inner payload and hasValue separately (no Optional<T> VWT).
+                    if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                        !_env.MethodDecl.IsSubscriptAccessor &&
+                        WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    {
+                        var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
+                        var innerProjection = s_projectionFactory.Project(innerSpec,
+                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        var innerTypeName = innerProjection?.MarshalFromSwiftType ?? allocTypeName;
+                        allocCode = $$"""
+                            var innerMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
+                            var _bufSize = Math.Max((nuint)innerMetadata.Size + 1, 16);
+                            _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
+                            var resultPtr = (IntPtr)_cdeclBuf;
+                            var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + innerMetadata.Size);
+                            """;
+                    }
                     // For Optional returns, ensure the buffer is large enough for the tag byte.
                     // VWT metadata.Size may return incorrect values for Optional<Int32> on some
                     // runtimes (Mono iOS Simulator). Use AllocZeroed with minimum of 16 bytes.
-                    if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec))
+                    else if (MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec))
                     {
                         allocCode = $$"""
                             var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{allocTypeName}}>();
@@ -496,7 +516,19 @@ internal class MethodMarshalPlanBuilder
                 // SwiftSafeHandle.ReleaseHandle() frees the buffer when disposed.
                 // All other types (Utf8Slice, closures, frozen structs, collections) copy the
                 // data out, so the temp buffer must be freed.
-                string? cleanupCode = "NativeMemory.Free(_cdeclBuf);";
+                // Decomposed Optional: conditionally freed — the return emitter sets _cdeclBuf = null
+                // when NewFromPayload takes ownership (Some case). Use conditional free.
+                string? cleanupCode;
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    !_env.MethodDecl.IsSubscriptAccessor &&
+                    WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    cleanupCode = "if (_cdeclBuf != null) NativeMemory.Free(_cdeclBuf);";
+                }
+                else
+                {
+                    cleanupCode = "NativeMemory.Free(_cdeclBuf);";
+                }
                 if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts && returnNts.HasModule())
                 {
                     var returnTypeName = SwiftTypeName.FromTypeSpec(returnNts);

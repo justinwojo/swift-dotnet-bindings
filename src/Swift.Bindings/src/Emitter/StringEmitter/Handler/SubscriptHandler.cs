@@ -220,6 +220,7 @@ namespace BindingsGeneration
                                 typeDecl.SwiftTypeName.Module, typeDecl.Name, accessor.Method.MangledName, isGetter);
 
                             accessor.Method.UsesCdeclPropertyWrapper = true;
+                            accessor.Method.IsSubscriptAccessor = true;
                             accessor.Method.UsesWrapperLibrary = true;
                             accessor.Method.UsesFreeFunctionWrapper = true;
                             accessor.Method.MangledName = symbol;

@@ -24,7 +24,9 @@ source "$SCRIPT_DIR/scripts/lib.sh"
 
 MANIFEST="$SCRIPT_DIR/validation-libraries.json"
 PROJ="$SCRIPT_DIR/src/Swift.Bindings/src/Swift.Bindings.csproj"
-OUTPUT_BASE="/tmp/binding-validation"
+# Use branch-specific temp dir so parallel worktrees don't clobber each other
+_BRANCH=$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
+OUTPUT_BASE="/tmp/binding-validation-${_BRANCH:-default}"
 BASELINE_FILE="$SCRIPT_DIR/.validation-baseline.json"
 LIBRARIES_DIR="$SCRIPT_DIR/.libraries"
 RESULTS_DIR=$(mktemp -d)
@@ -60,7 +62,7 @@ while [[ $# -gt 0 ]]; do
             echo "                      1 = established libraries (32 targets)"
             echo "                      2 = additional coverage libraries (21 targets)"
             echo "                      all = both tiers"
-            echo "  --quick           Recompile from existing /tmp/binding-validation/"
+            echo "  --quick           Recompile from existing cache (branch-specific /tmp/ dir)"
             echo "  --filter <pat>    Only libraries matching pattern (case-insensitive)"
             echo "  --verbose         Show generator warnings and first 10 compile errors"
             echo "  --fetch           Run scripts/fetch-libraries.sh before validating"

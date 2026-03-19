@@ -188,6 +188,14 @@ namespace BindingsGeneration
                 {
                     // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register
                     AddParameter("IntPtr", "resultPtr");
+                    // Decomposed Optional getter: add hasValuePtr after resultPtr.
+                    // The Swift wrapper writes the inner payload to resultPtr and the hasValue flag to hasValuePtr.
+                    if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                        !_env.MethodDecl.IsSubscriptAccessor &&
+                        WrapperValidation.IsDecomposedOptionalType(returnType.SwiftTypeSpec, _env.TypeDatabase))
+                    {
+                        AddParameter("IntPtr", "hasValuePtr");
+                    }
                 }
                 else
                 {
@@ -274,6 +282,18 @@ namespace BindingsGeneration
                     continue;
 
                 var csName = NameProvider.GetCSharpParameterName(argument);
+
+                // Decomposed Optional setter: pass raw inner payload pointer + hasValue bool separately.
+                // Must come before IsBoundGeneric (Optional<T> IS a bound generic) to intercept.
+                // Uses bool with [MarshalAs(UnmanagedType.U1)] for correct byte-level marshalling.
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    !_env.MethodDecl.IsSubscriptAccessor &&
+                    WrapperValidation.IsDecomposedOptionalType(argument.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    AddParameter("IntPtr", "payload");
+                    AddParameter("bool", "hasValue");
+                    continue;
+                }
 
                 if (_env.BoundGenericsHandler.IsBoundGeneric(argument))
                 {

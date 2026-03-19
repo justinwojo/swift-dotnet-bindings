@@ -225,6 +225,40 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when an Optional type needs decomposed getter/setter wrappers.
+    /// This applies to Optional&lt;T&gt; where T is a complex enum or non-frozen struct
+    /// (both use opaque SafeHandle payloads where VWT InitializeWithCopy crashes Mono).
+    /// The decomposed pattern passes (rawPayload, hasValue) as separate parameters,
+    /// with the Optional being reconstructed on the Swift side.
+    /// </summary>
+    public static bool IsDecomposedOptionalType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec named || named.Name != "Swift.Optional" || named.GenericParameters.Count != 1)
+            return false;
+        var inner = named.GenericParameters[0];
+        if (inner is not NamedTypeSpec innerNamed)
+            return false;
+        if (!typeDatabase.TryGetTypeRecord(innerNamed, out var typeRecord))
+            return false;
+        // Exclude ObjC bridged/rooted types — they use .Handle, not .Payload.DangerousGetHandle()
+        if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCRooted(typeRecord))
+            return false;
+        // Exclude native-remapped types (URL → NSUrl, Data → NSData) — they use conversion methods
+        if (typeRecord.NativeTypeName != null)
+            return false;
+        // Exclude classes — they use nullable pointer ABI (IntPtr.Zero = None)
+        if (typeRecord.Kind == TypeRecordKind.Class)
+            return false;
+        // Complex enums (non-simple) use opaque SafeHandle payloads
+        if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return true;
+        // Non-frozen structs also use opaque SafeHandle payloads
+        if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return true;
+        return false;
+    }
+
+    /// <summary>
     /// Returns true if the type spec represents a nested Apple framework type that can't
     /// be represented in @_cdecl wrapper parameters (e.g., OuterType.InnerType).
     /// C-compatible structs (CGSize, UIEdgeInsets) work fine, but pure Swift nested types

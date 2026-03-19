@@ -158,6 +158,13 @@ namespace BindingsGeneration
                 if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))
                     continue;
 
+                // Skip decomposed Optional setter params — P/Invoke uses (IntPtr, byte) directly,
+                // no bound generic buffer extraction needed. PropertyHandler.EmitSetter passes
+                // payload + hasValue directly to the accessor method.
+                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                    !_env.MethodDecl.IsSubscriptAccessor &&
+                    WrapperValidation.IsDecomposedOptionalType(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
+                    continue;
 
                 // Optional<ObjC> accessor setter: parameter is already IntPtr (nullable pointer ABI).
                 // Just alias to the buffer name that the P/Invoke expects.

@@ -205,9 +205,18 @@ public static class PropertyWrapperEmitter
             needsResultPtr = true;
         }
 
+        // Track whether this is a decomposed Optional getter (separate resultPtr + hasValuePtr)
+        bool isDecomposedOptionalGetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+
         if (needsResultPtr)
         {
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        }
+
+        // Decomposed Optional getter: add hasValuePtr after resultPtr
+        if (isDecomposedOptionalGetter)
+        {
+            swiftParams.Add("_ hasValuePtr: UnsafeMutableRawPointer");
         }
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env,
@@ -314,6 +323,23 @@ public static class PropertyWrapperEmitter
         if (isString)
         {
             EmitStringGetterBody(swiftWriter, propAccess);
+        }
+        else if (isDecomposedOptionalGetter)
+        {
+            // Decomposed Optional getter: write inner payload to resultPtr, hasValue flag to hasValuePtr.
+            // Avoids initializeMemory(as: Optional<T>.self) which uses VWT InitializeWithCopy — crashes Mono
+            // for complex enum / non-frozen struct payloads.
+            var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+            var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            swiftWriter.WriteLine($"let result = {propAccess}");
+            swiftWriter.WriteLines($$"""
+                if let value = result {
+                    resultPtr.initializeMemory(as: {{innerSwiftType}}.self, repeating: value, count: 1)
+                    hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)
+                } else {
+                    hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)
+                }
+                """);
         }
         else if (needsResultPtr)
         {
@@ -430,6 +456,16 @@ public static class PropertyWrapperEmitter
                         swiftParams.Add("_ utf8Ptr: UnsafePointer<UInt8>");
                         swiftParams.Add("_ utf8Len: Int");
                         reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
+                    }
+                    else if (WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase))
+                    {
+                        // Decomposed Optional setter: pass raw inner payload + hasValue flag separately.
+                        // Swift reconstructs Optional<T> from these, avoiding C#-side VWT operations.
+                        var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+                        var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+                        swiftParams.Add("_ newValue: UnsafeRawPointer");
+                        swiftParams.Add("_ hasValue: Int8");
+                        reconstructionLines.Add($"let newValueVal: {innerSwiftType}? = hasValue != 0 ? newValue.assumingMemoryBound(to: {innerSwiftType}.self).pointee : nil");
                     }
                     else
                     {
@@ -805,11 +841,21 @@ public static class PropertyWrapperEmitter
         var cdeclParams = new List<string>();
         var cdeclCallArgs = new List<string>();
 
+        bool isDecomposedOptionalGetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+
         if (needsResultPtr)
         {
             cdeclParams.Add("_ resultPtr: UnsafeMutableRawPointer");
             protocolParams.Add("resultPtr: UnsafeMutableRawPointer");
             cdeclCallArgs.Add("resultPtr: resultPtr");
+
+            // Decomposed Optional getter: add hasValuePtr after resultPtr
+            if (isDecomposedOptionalGetter)
+            {
+                cdeclParams.Add("_ hasValuePtr: UnsafeMutableRawPointer");
+                protocolParams.Add("hasValuePtr: UnsafeMutableRawPointer");
+                cdeclCallArgs.Add("hasValuePtr: hasValuePtr");
+            }
         }
 
         if (isClass)
@@ -846,6 +892,21 @@ public static class PropertyWrapperEmitter
             bodyLines.Add("let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)");
             bodyLines.Add("ptr.initialize(from: utf8, count: utf8.count)");
             bodyLines.Add("resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)");
+        }
+        else if (needsResultPtr && isDecomposedOptionalGetter)
+        {
+            // Decomposed Optional: write inner payload and hasValue flag separately
+            var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+            var innerSwiftType = propertyReferencesT
+                ? WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(innerSpec, abiToSugaredName)
+                : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            bodyLines.Add($"let result = {propAccess}");
+            bodyLines.Add("if let value = result {");
+            bodyLines.Add($"    resultPtr.initializeMemory(as: {innerSwiftType}.self, repeating: value, count: 1)");
+            bodyLines.Add("    hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)");
+            bodyLines.Add("} else {");
+            bodyLines.Add("    hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)");
+            bodyLines.Add("}");
         }
         else if (needsResultPtr && propertyReferencesT)
         {
@@ -962,6 +1023,8 @@ public static class PropertyWrapperEmitter
         var cdeclParams = new List<string>();
         var cdeclCallArgs = new List<string>();
 
+        bool isDecomposedOptionalSetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+
         // NewValue param
         if (propertyReferencesT)
         {
@@ -977,6 +1040,16 @@ public static class PropertyWrapperEmitter
             protocolParams.Add("utf8Len: Int");
             cdeclCallArgs.Add("utf8Ptr: utf8Ptr");
             cdeclCallArgs.Add("utf8Len: utf8Len");
+        }
+        else if (isDecomposedOptionalSetter)
+        {
+            // Decomposed Optional setter: raw inner payload + hasValue flag
+            var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+            var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            cdeclParams.Add("_ newValue: UnsafeRawPointer");
+            cdeclParams.Add("_ hasValue: Int8");
+            protocolParams.Add($"newValue: {innerSwiftType}?");
+            cdeclCallArgs.Add("newValue: newValueVal");
         }
         else
         {
@@ -1069,15 +1142,25 @@ public static class PropertyWrapperEmitter
         // Reconstruct non-T concrete params for protocol dispatch
         if (!propertyReferencesT && !isString)
         {
-            var newValueArg = new ArgumentDecl
+            if (isDecomposedOptionalSetter)
             {
-                SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
-                Name = "newValue", PrivateName = "newValue",
-                IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
-            };
-            var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
-            if (reconstruction != null)
-                swiftWriter.WriteLine(reconstruction);
+                // Decomposed Optional: reconstruct T? from (payload, hasValue) for protocol dispatch
+                var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+                var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+                swiftWriter.WriteLine($"let newValueVal: {innerSwiftType}? = hasValue != 0 ? newValue.assumingMemoryBound(to: {innerSwiftType}.self).pointee : nil");
+            }
+            else
+            {
+                var newValueArg = new ArgumentDecl
+                {
+                    SwiftTypeSpec = propertyDecl.SwiftTypeSpec,
+                    Name = "newValue", PrivateName = "newValue",
+                    IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
+                };
+                var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+                if (reconstruction != null)
+                    swiftWriter.WriteLine(reconstruction);
+            }
         }
 
         swiftWriter.WriteLine($"let metatype = unsafeBitCast(_metadata0, to: Any.Type.self) as! any {protocolName}.Type");
