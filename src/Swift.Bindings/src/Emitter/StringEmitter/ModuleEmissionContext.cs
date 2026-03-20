@@ -255,12 +255,19 @@ public sealed class ModuleEmissionContext
     // ==================== Protocol Proxy Sub-Namespace ====================
 
     private readonly List<string> _deferredProxyClasses = new();
+    private readonly HashSet<string> _suppressedProxyClassNames = new(StringComparer.Ordinal);
 
     /// <summary>Accumulated proxy class source blocks for deferred emission in SwiftInterop sub-namespace.</summary>
     public IReadOnlyList<string> DeferredProxyClasses => _deferredProxyClasses;
 
     /// <summary>Adds a proxy class source block for deferred emission.</summary>
     public void AddDeferredProxyClass(string proxySource) => _deferredProxyClasses.Add(proxySource);
+
+    /// <summary>Records a proxy class name that was suppressed because its EveryProtocol conformance was not emitted.</summary>
+    public void RecordSuppressedProxy(string proxyClassName) => _suppressedProxyClassNames.Add(proxyClassName);
+
+    /// <summary>Set of proxy class names suppressed due to missing EveryProtocol conformance.</summary>
+    public IReadOnlySet<string> SuppressedProxyClassNames => _suppressedProxyClassNames;
 
     // ==================== Deferred Enum Extension Classes ====================
 

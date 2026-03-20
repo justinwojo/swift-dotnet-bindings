@@ -429,14 +429,22 @@ namespace BindingsGeneration
                     protocolDecl, SkipReason.SwiftUIConstraint,
                     "Protocol proxy skipped: required members reference unsupported module types.");
             }
-            // NOTE: When EveryProtocol conformance is skipped (class-bound, genericSig constraint,
-            // method type conflict, etc.), the proxy's NativeMethods still reference
-            // Set{Protocol}_vtable / Get_EveryProtocol_{Protocol}_WitnessTable symbols that
-            // don't exist in the Swift wrapper. This is a pre-existing latent issue that manifests
-            // as a runtime P/Invoke failure when the proxy is first used. Gating the proxy here
-            // would fix the runtime issue but causes C# compile regressions — method bodies that
-            // reference the proxy (e.g., optional property unwrappers) aren't co-gated.
-            // TODO: Gate proxy emission AND co-gate all method bodies that reference the proxy.
+            // Gate proxy emission when EveryProtocol conformance was not emitted (class-bound,
+            // genericSig constraint, method type conflict, static methods, etc.). Without the
+            // conformance, the proxy's NativeMethods would reference non-existent Swift symbols
+            // (SetVtable, GetWitnessTable), causing TypeInitializationException at runtime.
+            // Method bodies in other types that reference the proxy (e.g., existential return
+            // unwrappers) are co-gated by CSharpWrapperCoGater.ProcessSuppressedProxyReferences.
+            else if (context.EmissionContext != null &&
+                     context.EmissionContext.ConformanceDecisions.Count > 0 &&
+                     !context.EmissionContext.WasConformanceEmitted(protocolDecl.Name))
+            {
+                var proxyClassName = $"{protocolDecl.Name}Proxy";
+                context.EmissionContext.RecordSuppressedProxy(proxyClassName);
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, proxyClassName,
+                    protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
+                    $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({context.EmissionContext.GetConformanceSkipReason(protocolDecl.Name) ?? "no decision recorded"}).");
+            }
             else
             {
                 // Intentionally nullable — null triggers direct-emit fallback in EmitProtocolProxy

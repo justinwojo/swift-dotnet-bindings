@@ -798,5 +798,214 @@ namespace BindingsGeneration
         }
 
         #endregion
+
+        #region Proxy Reference Co-Gating
+
+        /// <summary>
+        /// Processes a single C# source file, removing method bodies that construct
+        /// suppressed proxy classes (whose EveryProtocol conformance was not emitted).
+        /// Uses the same transitive closure approach as the main co-gater.
+        /// Interface member implementations are protected: their bodies are replaced with
+        /// throw NotSupportedException instead of being stripped (prevents CS0535).
+        /// </summary>
+        public static CoGatingResult ProcessSuppressedProxyReferences(string content, IReadOnlySet<string> suppressedProxyClassNames)
+        {
+            if (suppressedProxyClassNames.Count == 0 || string.IsNullOrEmpty(content))
+                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+
+            var lines = SplitLines(content);
+            var removals = new HashSet<int>();
+            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback)>();
+
+            // Build interface member protection (same as main co-gater)
+            var interfaceMembers = ParseInterfaceMembers(lines);
+            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers);
+            var lineToType = BuildLineToTypeMap(lines);
+
+            // Find method bodies that construct suppressed proxy classes.
+            // Pattern: "new {ProxyClassName}(" in a method/property body.
+            var strippedCallerNames = new HashSet<string>();
+            int i = 0;
+            while (i < lines.Count)
+            {
+                if (removals.Contains(i)) { i++; continue; }
+
+                var trimmed = lines[i].TrimStart();
+                if (IsTypeOrNamespaceDeclaration(trimmed)) { i++; continue; }
+                if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
+
+                int braceOpenLine = FindOpeningBrace(lines, i);
+                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+
+                int blockEnd = FindBlockEnd(lines, braceOpenLine);
+                if (blockEnd < braceOpenLine) { i++; continue; }
+
+                // Check if the block body contains a proxy construction
+                bool referencesProxy = false;
+                for (int j = i; j <= blockEnd && !referencesProxy; j++)
+                {
+                    foreach (var proxyName in suppressedProxyClassNames)
+                    {
+                        if (lines[j].Contains($"new {proxyName}(", StringComparison.Ordinal) ||
+                            lines[j].Contains($"new SwiftInterop.{proxyName}(", StringComparison.Ordinal))
+                        {
+                            referencesProxy = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!referencesProxy)
+                {
+                    i = blockEnd + 1;
+                    continue;
+                }
+
+                // [UnmanagedCallersOnly] methods are proxy receiver callbacks referenced by
+                // function pointers in vtable assignments. They can't be stripped (breaks vtable),
+                // but their body may reference a suppressed proxy type. Replace the body with a
+                // no-op stub (these are always static void callbacks from Swift).
+                bool hasUnmanagedCallersOnly = false;
+                for (int j = ScanBackwardForPreamble(lines, i); j < i; j++)
+                {
+                    if (lines[j].Contains("UnmanagedCallersOnly", StringComparison.Ordinal))
+                    {
+                        hasUnmanagedCallersOnly = true;
+                        break;
+                    }
+                }
+                if (hasUnmanagedCallersOnly)
+                {
+                    var declLine = lines[i];
+                    var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true);
+                    i = blockEnd + 1;
+                    continue;
+                }
+
+                // Check if this is an interface member implementation
+                bool isInterfaceMember = false;
+                if (typeProtectedMembers.Count > 0)
+                {
+                    var containingType = i < lineToType.Length ? lineToType[i] : null;
+                    if (containingType != null &&
+                        typeProtectedMembers.TryGetValue(containingType, out var protectedNames))
+                    {
+                        var memberName = ExtractMemberName(trimmed);
+                        if (memberName != null)
+                        {
+                            var publicApiName = IsPropertyHelperName(memberName)
+                                ? memberName.Substring(0, memberName.LastIndexOf('_'))
+                                : memberName;
+                            isInterfaceMember = protectedNames.Contains(publicApiName);
+                        }
+                    }
+                }
+
+                if (isInterfaceMember)
+                {
+                    // Replace body with throw instead of stripping — preserves interface compliance.
+                    // Compute the indentation from the declaration line.
+                    var declLine = lines[i];
+                    var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false);
+                }
+                else
+                {
+                    // Extract member name for Level 2 transitive stripping
+                    var memberName = ExtractMemberName(trimmed);
+                    if (memberName != null && IsPropertyHelperName(memberName))
+                        strippedCallerNames.Add(memberName);
+
+                    int preambleStart = ScanBackwardForPreamble(lines, i);
+                    for (int j = preambleStart; j <= blockEnd; j++)
+                        removals.Add(j);
+                }
+
+                i = blockEnd + 1;
+            }
+
+            // Level 2: strip property forwarders that delegate to stripped helpers
+            if (strippedCallerNames.Count > 0)
+            {
+                var _ = new HashSet<string>();
+                FindAndMarkCallers(lines, strippedCallerNames, _, removals);
+            }
+
+            if (removals.Count == 0 && replacements.Count == 0)
+                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+
+            var sb = new StringBuilder();
+            for (int j = 0; j < lines.Count; j++)
+            {
+                if (removals.Contains(j))
+                    continue;
+
+                // Check if this line starts a replacement block
+                if (replacements.TryGetValue(j, out var replacement))
+                {
+                    // Keep the declaration line(s) up to the opening brace
+                    for (int k = j; k <= replacement.blockStart; k++)
+                        sb.Append(lines[k]);
+                    if (replacement.isCallback)
+                    {
+                        // UnmanagedCallersOnly callback: no-op stub (void return, called from Swift)
+                        sb.Append($"{replacement.indent}    // Protocol proxy unavailable — no-op callback\n");
+                    }
+                    else
+                    {
+                        // Interface member: throw to preserve interface compliance
+                        sb.Append($"{replacement.indent}    throw new NotSupportedException(\"Protocol proxy not available: EveryProtocol conformance was not emitted.\");\n");
+                    }
+                    // Keep the closing brace
+                    sb.Append(lines[replacement.blockEnd]);
+                    j = replacement.blockEnd;
+                    continue;
+                }
+
+                sb.Append(lines[j]);
+            }
+
+            int totalAffected = removals.Count > 0 ? 1 + strippedCallerNames.Count + replacements.Count : replacements.Count;
+            return new CoGatingResult
+            {
+                Content = sb.ToString(),
+                StrippedMemberCount = totalAffected > 0 ? totalAffected : 1
+            };
+        }
+
+        /// <summary>
+        /// Processes all .cs files in a directory, removing methods that reference suppressed proxy classes.
+        /// Files are modified in-place.
+        /// </summary>
+        public static int ProcessSuppressedProxyReferencesInDirectory(string directory, IReadOnlySet<string> suppressedProxyClassNames, ILogger? logger = null)
+        {
+            if (suppressedProxyClassNames.Count == 0)
+                return 0;
+
+            var csFiles = Directory.GetFiles(directory, "*.cs");
+            int totalStripped = 0;
+
+            foreach (var file in csFiles)
+            {
+                var content = File.ReadAllText(file);
+                var result = ProcessSuppressedProxyReferences(content, suppressedProxyClassNames);
+                if (result.StrippedMemberCount > 0)
+                {
+                    File.WriteAllText(file, result.Content);
+                    totalStripped += result.StrippedMemberCount;
+                    logger?.LogInformation("  Co-gated {Count} proxy reference(s) from {File}",
+                        result.StrippedMemberCount, Path.GetFileName(file));
+                }
+            }
+
+            if (totalStripped > 0)
+                logger?.LogInformation("Co-gated {Count} total method(s) referencing suppressed proxy classes.",
+                    totalStripped);
+
+            return totalStripped;
+        }
+
+        #endregion
     }
 }

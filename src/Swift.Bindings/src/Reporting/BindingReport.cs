@@ -65,6 +65,7 @@ public enum SkipReason
     ModuleInternal,
     ExtensionDefault,
     NonBlittableCallConvSwift,
+    EveryProtocolConformanceSkipped,
     Unknown,
 }
 

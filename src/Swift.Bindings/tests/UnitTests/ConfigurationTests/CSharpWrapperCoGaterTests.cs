@@ -721,4 +721,315 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region J. Suppressed Proxy Reference Co-Gating
+
+    public class CoGaterSuppressedProxyReferenceTests
+    {
+        [Fact]
+        public void ProcessProxyReferences_MethodConstructingProxy_Removed()
+        {
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IMyProtocol GetValue()\n" +
+                "    {\n" +
+                "        var result = PInvoke_getValue();\n" +
+                "        return new MyProtocolProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "MyProtocolProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("GetValue", result.Content);
+            Assert.DoesNotContain("MyProtocolProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_QualifiedProxy_Removed()
+        {
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IFooProtocol MakeFoo()\n" +
+                "    {\n" +
+                "        var result = PInvoke_makeFoo();\n" +
+                "        return new SwiftInterop.FooProtocolProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProtocolProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("MakeFoo", result.Content);
+            Assert.DoesNotContain("FooProtocolProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_NonSuppressedProxy_Preserved()
+        {
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IMyProtocol GetValue()\n" +
+                "    {\n" +
+                "        var result = PInvoke_getValue();\n" +
+                "        return new MyProtocolProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "OtherProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.Contains("MyProtocolProxy", result.Content);
+            Assert.Contains("GetValue", result.Content);
+            Assert.Equal(0, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_EmptySet_ReturnsUnchanged()
+        {
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IFoo Get() { return new FooProxy(x); }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string>();
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.Equal(input, result.Content);
+            Assert.Equal(0, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_PropertyHelper_TransitiveStripping()
+        {
+            // When a property helper (Value_Get) constructs a suppressed proxy,
+            // it should be stripped AND its property forwarder should also be stripped.
+            var input =
+                "public partial class MyClass {\n" +
+                "    private IMyProto Value_Get()\n" +
+                "    {\n" +
+                "        var result = PInvoke_getValue();\n" +
+                "        return new MyProtoProxy(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public IMyProto Value\n" +
+                "    {\n" +
+                "        get { return Value_Get(); }\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("Value_Get", result.Content);
+            Assert.DoesNotContain("MyProtoProxy", result.Content);
+            Assert.DoesNotContain("public IMyProto Value", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_OptionalExistentialGetter_Removed()
+        {
+            // Optional<existential> getter: checks for default container, then constructs proxy
+            var input =
+                "public partial class MyClass {\n" +
+                "    private IMyProto? OptValue_Get()\n" +
+                "    {\n" +
+                "        var result = PInvoke_optValue();\n" +
+                "        if (result.Equals(default(ExistentialContainer1))) return null;\n" +
+                "        return new MyProtoProxy(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public IMyProto? OptValue\n" +
+                "    {\n" +
+                "        get { return OptValue_Get(); }\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("OptValue_Get", result.Content);
+            Assert.DoesNotContain("MyProtoProxy", result.Content);
+            Assert.DoesNotContain("public IMyProto? OptValue", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_MethodNotConstructingProxy_Preserved()
+        {
+            // Methods that don't construct the proxy should be preserved even if
+            // they mention the proxy name in a comment or string
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static int GetCount()\n" +
+                "    {\n" +
+                "        return PInvoke_getCount();\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.Contains("GetCount", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_MultipleProxies_AllStripped()
+        {
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IFoo GetFoo()\n" +
+                "    {\n" +
+                "        return new FooProxy(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public static IBar GetBar()\n" +
+                "    {\n" +
+                "        return new BarProxy(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public static int GetCount()\n" +
+                "    {\n" +
+                "        return 42;\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy", "BarProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("FooProxy", result.Content);
+            Assert.DoesNotContain("BarProxy", result.Content);
+            Assert.Contains("GetCount", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_InterfaceMember_ReplacedWithThrow()
+        {
+            // Interface member implementations must NOT be stripped (CS0535).
+            // Instead, their body is replaced with throw NotSupportedException.
+            var input =
+                "public interface IObjectScopeProtocol {\n" +
+                "    IStorageProtocol MakeStorage();\n" +
+                "}\n" +
+                "public partial class ObjectScope : IObjectScopeProtocol {\n" +
+                "    public IStorageProtocol MakeStorage()\n" +
+                "    {\n" +
+                "        var result = PInvoke_makeStorage();\n" +
+                "        return new StorageProtocolProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "StorageProtocolProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Method declaration is preserved (interface compliance)
+            Assert.Contains("MakeStorage", result.Content);
+            // Body is replaced with throw
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Original body is gone
+            Assert.DoesNotContain("PInvoke_makeStorage", result.Content);
+            Assert.DoesNotContain("StorageProtocolProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_NonInterfaceMember_StillStripped()
+        {
+            // Methods NOT implementing an interface should still be fully stripped
+            var input =
+                "public interface IObjectScopeProtocol {\n" +
+                "    IStorageProtocol MakeStorage();\n" +
+                "}\n" +
+                "public partial class ObjectScope : IObjectScopeProtocol {\n" +
+                "    public IStorageProtocol MakeStorage()\n" +
+                "    {\n" +
+                "        return new StorageProtocolProxy(result);\n" +
+                "    }\n" +
+                "    public static IFoo GetSomething()\n" +
+                "    {\n" +
+                "        return new FooProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "StorageProtocolProxy", "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Interface member preserved with throw
+            Assert.Contains("MakeStorage", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Non-interface member fully stripped
+            Assert.DoesNotContain("GetSomething", result.Content);
+            Assert.DoesNotContain("FooProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_CdeclExistentialReturn_Removed()
+        {
+            // @_cdecl existential return: reads from resultPtr then wraps in proxy
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IMyProto CreateProto()\n" +
+                "    {\n" +
+                "        var resultPtr = PInvoke_create();\n" +
+                "        var existentialResult = SwiftMarshal.MarshalFromSwift<ExistentialContainer1>(resultPtr);\n" +
+                "        return new SwiftInterop.MyProtoProxy(existentialResult);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("MyProtoProxy", result.Content);
+            Assert.DoesNotContain("CreateProto", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_UnmanagedCallersOnlyReceiver_BodyReplaced()
+        {
+            // [UnmanagedCallersOnly] receiver callbacks inside proxy classes must NOT be stripped.
+            // They're referenced by function pointers in vtable assignments.
+            // Their body is replaced with a no-op comment.
+            var input =
+                "public partial class AssemblyProxy {\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void Receive_loaded_1(IntPtr vtHandle, IntPtr selfContainer, IntPtr arg0)\n" +
+                "    {\n" +
+                "        var resolver = new ResolverProxy(arg0Container);\n" +
+                "        impl.Loaded(resolver);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "ResolverProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Receiver declaration is preserved (not stripped)
+            Assert.Contains("Receive_loaded_1", result.Content);
+            // Body is replaced with no-op
+            Assert.Contains("no-op callback", result.Content);
+            // Original body with suppressed proxy type is gone
+            Assert.DoesNotContain("ResolverProxy", result.Content);
+        }
+    }
+
+    #endregion
+
+    #region K. Proxy Emission Gating (ProtocolHandler)
+
+    public class ProxyEmissionGatingTests
+    {
+        [Fact]
+        public void SuppressedProxyClassNames_TrackedInEmissionContext()
+        {
+            var ctx = new ModuleEmissionContext();
+            Assert.Empty(ctx.SuppressedProxyClassNames);
+
+            ctx.RecordSuppressedProxy("FooProxy");
+            ctx.RecordSuppressedProxy("BarProxy");
+
+            Assert.Equal(2, ctx.SuppressedProxyClassNames.Count);
+            Assert.Contains("FooProxy", ctx.SuppressedProxyClassNames);
+            Assert.Contains("BarProxy", ctx.SuppressedProxyClassNames);
+        }
+
+        [Fact]
+        public void SuppressedProxyClassNames_DeduplicatesEntries()
+        {
+            var ctx = new ModuleEmissionContext();
+            ctx.RecordSuppressedProxy("FooProxy");
+            ctx.RecordSuppressedProxy("FooProxy");
+            Assert.Single(ctx.SuppressedProxyClassNames);
+        }
+
+        [Fact]
+        public void WasConformanceEmitted_ControlsProxySuppression()
+        {
+            var ctx = new ModuleEmissionContext();
+            // When no decisions recorded, WasConformanceEmitted returns false
+            Assert.False(ctx.WasConformanceEmitted("SomeProtocol"));
+
+            // Record an emitted conformance — proxy should NOT be suppressed
+            ctx.RecordConformanceDecision("GoodProtocol", true, null);
+            Assert.True(ctx.WasConformanceEmitted("GoodProtocol"));
+
+            // Record a skipped conformance — proxy SHOULD be suppressed
+            ctx.RecordConformanceDecision("BadProtocol", false, "class-bound");
+            Assert.False(ctx.WasConformanceEmitted("BadProtocol"));
+        }
+    }
+
+    #endregion
 }

@@ -1131,6 +1131,19 @@ namespace BindingsGeneration
                 }
                 ReportCollector.Reset();
 
+                // Co-gate method bodies that reference suppressed proxy classes.
+                // When EveryProtocol conformance is skipped, the proxy class is not emitted.
+                // Method bodies in other types that construct the proxy (existential return
+                // unwrappers, optional property getters) must also be removed.
+                if (emissionContext.SuppressedProxyClassNames.Count > 0)
+                {
+                    var proxyCoGated = CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory(
+                        outputDirectory, emissionContext.SuppressedProxyClassNames, logger);
+                    if (proxyCoGated > 0)
+                        logger.LogInformation("Suppressed {Count} method(s) referencing {ProxyCount} suppressed proxy class(es).",
+                            proxyCoGated, emissionContext.SuppressedProxyClassNames.Count);
+                }
+
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
 
