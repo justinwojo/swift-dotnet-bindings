@@ -336,6 +336,40 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    [Fact]
+    public void ValidateMethodEmission_VariadicMethod_ReturnsSkip()
+    {
+        // Variadic methods (T...) cannot be bound — ABI JSON represents T... as Array<T>.
+        // Neither @_cdecl nor CallConvSwift can dispatch correctly.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("append", TupleTypeSpec.Empty);
+        method.HasVariadicParameter = true;
+        method.IsConstructor = false;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("Variadic", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_VariadicConstructor_NotSuppressed()
+    {
+        // Variadic constructors are handled separately by ConstructorWrapperEmitter,
+        // not by MemberValidationPipeline. Constructors should pass pipeline validation.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("init", TupleTypeSpec.Empty);
+        method.HasVariadicParameter = true;
+        method.IsConstructor = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
     #endregion
 
     #region Parity Tests (pipeline matches old behavior)

@@ -129,6 +129,16 @@ namespace BindingsGeneration
             {
                 _needsUnsafeBody = true;
             }
+
+            // @_cdecl blittable tuple params use stackalloc + pointer casts which require unsafe context
+            if (_env.MethodDecl.UsesCdeclWrapper &&
+                _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+                    _env.TupleHandler.IsTuple(arg) &&
+                    _env.TupleHandler.GetTupleTypeSpec(arg) is TupleTypeSpec tts &&
+                    tts.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e))))
+            {
+                _needsUnsafeBody = true;
+            }
         }
 
         /// <summary>

@@ -1419,6 +1419,56 @@ public class AbiSafetyTests
     }
 
     [Fact]
+    public void IsReturnTypeCdeclRequired_ClosureReturn_ReturnsTrue()
+    {
+        // Closure returns (16-byte SwiftClosureData) crash Mono JIT via CallConvSwift.
+        // Must route through @_cdecl with indirect result buffer.
+        var (_, typeDb) = CreateTestEnvironment();
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("Swift.Int32"));
+        Assert.True(WrapperValidation.IsReturnTypeCdeclRequired(closureSpec, typeDb));
+    }
+
+    [Fact]
+    public void IsCdeclSafeTuple_AllPrimitives_ReturnsTrue()
+    {
+        // Tuple with all blittable primitives is safe for CdeclTuple buffer marshalling.
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("Swift.Int32")
+        });
+        Assert.True(tupleSpec.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e)));
+    }
+
+    [Fact]
+    public void IsCdeclSafeTuple_WithString_ReturnsFalse()
+    {
+        // Tuple containing String is NOT safe for Unsafe.Write — String needs
+        // per-element marshalling that CdeclTuple doesn't support.
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("Swift.String")
+        });
+        Assert.False(tupleSpec.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e)));
+    }
+
+    [Fact]
+    public void IsCdeclSafeTuple_WithGenericParam_ReturnsFalse()
+    {
+        // Tuple with generic type parameter is NOT safe — can't Unsafe.Write a projected type.
+        var tupleSpec = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("τ_0_0")
+        });
+        Assert.False(tupleSpec.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e)));
+    }
+
+    [Fact]
     public void IsReturnTypeCdeclRequired_LargeIntegerStruct_ReturnsFalse()
     {
         // Large integer struct return → NOT flagged by return check (only params have the > 16 byte gate)

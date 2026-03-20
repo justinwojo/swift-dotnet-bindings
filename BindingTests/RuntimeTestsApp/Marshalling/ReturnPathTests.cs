@@ -56,7 +56,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("TransformFactory construction passed");
     }
 
-    [Skip("coverage gap: closure return crashes — 16-byte closure struct marshalling via @_cdecl indirect result")]
+    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
     public void TestTransformFactoryClosureReturn()
     {
         var factory = new TransformFactory(multiplier: 3);
@@ -78,7 +78,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("OptionalHandlerFactory construction passed");
     }
 
-    [Skip("coverage gap: Optional<closure> return crashes — 16-byte closure struct marshalling via @_cdecl indirect result")]
+    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
     public void TestOptionalHandlerReturnsValue()
     {
         var factory = new OptionalHandlerFactory(enabled: true);
@@ -89,7 +89,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info($"OptionalHandlerFactory.MakeHandler(10) = {result}");
     }
 
-    [Skip("coverage gap: Optional<closure> return crashes — 16-byte closure struct marshalling via @_cdecl indirect result")]
+    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
     public void TestOptionalHandlerReturnsNil()
     {
         var factory = new OptionalHandlerFactory(enabled: false);
@@ -110,7 +110,6 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("Buildable construction passed");
     }
 
-    [Skip("coverage gap: DynamicSelf return crashes — @_cdecl wrapper for non-final class Self dispatch")]
     public void TestBuildableDynamicSelfReturn()
     {
         var b = new Buildable(tag: 1);

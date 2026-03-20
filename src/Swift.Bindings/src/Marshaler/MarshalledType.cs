@@ -49,6 +49,11 @@ public abstract record MarshalledType
     /// Carries the public C# type name for wrapper signature, while P/Invoke uses IntPtr.</summary>
     public sealed record CdeclFrozenStruct(string CSharpTypeName) : MarshalledType;
 
+    /// <summary>Tuple parameter passed as IntPtr (UnsafeRawPointer) in @_cdecl wrappers.
+    /// ValueTuple has StructLayout.Auto which is incompatible with P/Invoke marshalling.
+    /// Marshalling creates a buffer with elements at ABI offsets.</summary>
+    public sealed record CdeclTuple(string CSharpTupleType) : MarshalledType;
+
     /// <summary>@convention(c) function pointer with full delegate* type string.</summary>
     public sealed record ConventionCFuncPtr(string FuncPtrType) : MarshalledType;
 
@@ -133,6 +138,7 @@ public abstract record MarshalledType
         NativeRemappedFrozen(var swiftWrapperType) => swiftWrapperType,
         FrozenBuffer(var typeName) => typeName + ".Buffer",
         CdeclFrozenStruct(var csharpTypeName) => csharpTypeName,
+        CdeclTuple(var tupleType) => tupleType,
         ConventionCFuncPtr(var funcPtrType) => funcPtrType,
         SwiftSelfTyped(var innerType) => $"SwiftSelf<{innerType}>",
         BoolType => "bool",

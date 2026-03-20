@@ -143,6 +143,39 @@ public static class CdeclParamMapper
             }
         }
 
+        // Optional<OpaqueType> (complex enums, non-frozen structs): C# wraps these in
+        // SwiftOptional<IntPtr> which stores a POINTER to the inner value's VWT buffer.
+        // The buffer has Optional<IntPtr> layout (extra-inhabitant nil=0x0), NOT Optional<T>
+        // layout (tag-byte encoding where 0=some). Reading as Optional<T> misinterprets
+        // the tag byte → nil appears as "some". Read as Optional<UnsafeMutableRawPointer>
+        // (pointer-optional) to correctly interpret nil/non-nil, then reconstruct the inner
+        // type from the pointer.
+        if (swiftTypeSpec is NamedTypeSpec optOpaqueSpec && optOpaqueSpec.Name == "Swift.Optional"
+            && optOpaqueSpec.GenericParameters.Count == 1)
+        {
+            var innerSpec = optOpaqueSpec.GenericParameters[0];
+            if (innerSpec is NamedTypeSpec innerOpaqueNamed &&
+                env.TypeDatabase.TryGetTypeRecord(innerOpaqueNamed, out var innerOpaqueRecord))
+            {
+                // Exclude NativeRemapped types (URL, Data, etc.) — they have their own
+                // marshalling via ObjC bridging and don't use SwiftOptional<IntPtr>.
+                bool isNativeRemapped = innerOpaqueRecord.NativeTypeName != null;
+                bool isOpaqueType = !isNativeRemapped &&
+                                    ((innerOpaqueRecord.Kind == TypeRecordKind.Enum &&
+                                      !innerOpaqueRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum)) ||
+                                    (innerOpaqueRecord.Kind == TypeRecordKind.Struct &&
+                                      !MarshallingHelpers.IsTypeFrozen(innerOpaqueRecord)));
+                if (isOpaqueType)
+                {
+                    var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+                    var reconstruction = $"let {label}Val: {innerSwiftType}? = {label}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
+                    return ($"_ {label}: UnsafeRawPointer",
+                            reconstruction,
+                            $"{argLabel}{label}Val");
+                }
+            }
+        }
+
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))

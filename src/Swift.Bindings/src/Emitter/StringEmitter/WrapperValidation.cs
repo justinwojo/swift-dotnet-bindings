@@ -1141,6 +1141,12 @@ public static class WrapperValidation
         if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
             return true;
 
+        // Closures → 16-byte SwiftClosureData struct returned via CallConvSwift crashes Mono JIT
+        // (`!ji->async` assertion on multi-register struct return) and NativeAOT (SIGSEGV).
+        // Route through @_cdecl with indirect result (resultPtr buffer).
+        if (typeSpec is ClosureTypeSpec)
+            return true;
+
         // Generic containers → in CallConvSwift, returns use SwiftIndirectResult → safe
         // (Array, Dict, Set, Optional all go through indirect result)
         // But they use SafeHandle in the CallConvSwift param path, which is different from return.

@@ -114,13 +114,15 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info($"VariadicHolder.Sum() = {sum}");
     }
 
-    [Skip("coverage gap: variadic method Append crashes Mono JIT — IEnumerable→variadic marshalling")]
-    public void TestVariadicHolderAppend()
+    public void TestVariadicMethodSuppressed()
     {
-        var holder = new VariadicHolder(values: new[] { 1, 2 });
-        var result = holder.Append(more: new[] { 3, 4 });
-        AssertEqual(4, result.Count, "Append produces 4 elements");
-        TestLogger.Info($"VariadicHolder.Append count = {result.Count}");
+        // Variadic methods (T...) cannot be bound — ABI JSON represents T... as Array<T>,
+        // and neither @_cdecl (can't spread array into variadic) nor CallConvSwift can dispatch.
+        // Verify the method is correctly suppressed from emission.
+        var type = typeof(VariadicHolder);
+        var appendMethod = type.GetMethod("Append");
+        AssertNull(appendMethod, "Variadic method Append should not be emitted");
+        TestLogger.Info("VariadicHolder.Append correctly suppressed");
     }
 
     #endregion

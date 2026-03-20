@@ -1,5 +1,5 @@
 {
-  "git_sha": "4744f3b7",
+  "git_sha": "181cac37",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 94440,
+        "lines": 93922,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -91,26 +91,26 @@
         "errors": 0,
         "lines": 22613,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
         "lines": 22613,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
         "lines": 22613,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13216,
+        "lines": 13025,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8105,
+        "lines": 7490,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,14 +313,14 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14524,
+        "lines": 14477,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17804,
+        "lines": 17773,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

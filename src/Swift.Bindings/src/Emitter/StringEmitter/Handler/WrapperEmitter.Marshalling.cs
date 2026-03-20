@@ -786,6 +786,41 @@ namespace BindingsGeneration
                 }
             }
 
+            // @_cdecl tuple params: create a buffer with elements at ABI offsets.
+            // ValueTuple has StructLayout.Auto which is incompatible with P/Invoke marshalling.
+            // Allocate via tuple metadata, write elements at GetElementOffset positions, pass IntPtr.
+            if (_env.MethodDecl.UsesCdeclWrapper)
+            {
+                foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
+                    .Where(a => _env.TupleHandler.IsTuple(a)))
+                {
+                    var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(arg)!;
+                    // Only emit buffer marshalling for blittable-primitive tuples.
+                    // Non-blittable elements need per-element marshalling (not yet implemented).
+                    if (!tupleTypeSpec.Elements.All(e => CdeclParamMapper.IsCdeclPrimitive(e)))
+                        continue;
+                    var csName = NameProvider.GetCSharpParameterName(arg);
+                    var elements = tupleTypeSpec.Elements;
+
+                    // Build metadata accessor calls for each element type
+                    var metadataArgs = new List<string>();
+                    for (int i = 0; i < elements.Count; i++)
+                    {
+                        var elemType = _env.TupleHandler.TranslateElementTypeToCSharp(elements[i]);
+                        metadataArgs.Add($"TypeMetadata.GetTypeMetadataOrThrow<{elemType}>()");
+                    }
+
+                    csWriter.WriteLine($"var {csName}TupleMeta = TypeMetadata.GetTupleTypeMetadataFromElements(");
+                    csWriter.WriteLine($"    {string.Join(", ", metadataArgs)});");
+                    csWriter.WriteLine($"byte* {csName}Buf = stackalloc byte[(int){csName}TupleMeta.Size];");
+                    for (int i = 0; i < elements.Count; i++)
+                    {
+                        csWriter.WriteLine($"System.Runtime.CompilerServices.Unsafe.Write({csName}Buf + (int){csName}TupleMeta.AsTupleMetadata()->GetElementOffset({i}), {csName}.Item{i + 1});");
+                    }
+                    csWriter.WriteLine($"var {csName}Ptr = (IntPtr){csName}Buf;");
+                }
+            }
+
             // NOTE: For async methods, non-frozen parameter copy buffers are created in EmitAsync
             // (before the GCHandle holder) using InitializeWithCopy. The {param}Handle and
             // {param}CopyBuffer variables are already declared there. Nothing more to do here.

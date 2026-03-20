@@ -155,6 +155,7 @@ After Session 6: **24 skips remain** (5 confirmed Mono upstream, 8 string enum b
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque. |
 | Stripe validation config fixes | StripeCryptoOnramp, StripeIssuing | Small | Config-only: add `StripeCameraCore` transitive dep, add `Stripe3DS2` as `--framework-dependency`. |
 | Protocol proxy co-gating | Correctness (runtime) | Medium | When EveryProtocol conformance is skipped (class-bound, genericSig constraint, static methods, etc.), the C# proxy still emits `NativeMethods` referencing non-existent Swift symbols (`SetVtable`, `GetWitnessTable`). Causes runtime P/Invoke crash on first proxy use. Fix requires co-gating proxy emission AND all method bodies that reference the proxy (existential return unwrappers, optional property getters). Pre-existing issue exposed during validation wrapper fix work. See `ProtocolHandler.cs` TODO comment. |
+| Protocol type-resolution consolidation | Maintainability | Medium | Three near-identical type-resolution paths exist: `ProtocolProxyEmitter.Helpers.GetCSharpTypeName()`, `ProtocolSignatureHelper.ProjectTypeToCSharp()`, and `GetInterfaceCompatiblePropertyTypeName()`. Each has subtle differences (ExistentialHandler only in the first, NativeInt narrowing only in the third, Self-requirement generic context only in the second). Drift between these produces proxy/interface signature mismatches. Consolidate into a single `ProjectTypeToCSharp` entry point with mode flags. |
 
 ---
 

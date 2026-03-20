@@ -49,7 +49,6 @@ public class TupleMarshallingTests : TestBase
         TestLogger.Info("MakeSeptuple passed");
     }
 
-    [Skip("MarshalDirectiveException: StructLayout.Auto through CallConvSwift")]
     public void TestSumPair()
     {
         var sum = TestLibFunctions.SumPair((3, 7));

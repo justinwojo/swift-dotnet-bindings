@@ -624,7 +624,13 @@ public static class ExistentialContainerFactory
         var container = new ExistentialContainer1();
         var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         container.ObjectMetadata = metadata;
-        container[0] = ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol>().Handle;
+        // GetOrThrowDirect uses static abstract dispatch which crashes Mono JIT
+        // (jit-info.c:918 !ji->async assertion). Use GetOrThrow on Mono which
+        // goes through the reflection-safe TryGet path.
+        var witnessTable = System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported
+            ? ProtocolWitnessTable.GetOrThrow<T, TProtocol>()
+            : ProtocolWitnessTable.GetOrThrowDirect<T, TProtocol>();
+        container[0] = witnessTable.Handle;
         MarshalPayload(value, metadata, ref container);
         return container;
     }

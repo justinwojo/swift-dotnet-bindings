@@ -278,7 +278,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [Skip("Closure return from @_cdecl wrapper crashes NativeAOT device (SIGSEGV) and Mono 16-byte struct return ABI")]
+    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

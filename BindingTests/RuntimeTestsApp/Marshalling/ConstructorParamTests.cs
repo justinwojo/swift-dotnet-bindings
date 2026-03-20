@@ -26,7 +26,7 @@ public class ConstructorParamTests : TestBase
 
     #region DescriptionPrinter — Protocol Existential Constructor Param
 
-    [Skip("coverage gap: protocol existential constructor param crashes Mono JIT — ExistentialContainer marshalling in @_cdecl wrapper")]
+    [SkipOnSimulator("Mono JIT !ji->async assertion on ref ExistentialContainer1 P/Invoke — needs investigation whether this is upstream or our ExistentialContainer layout")]
     public void TestProtocolExistentialParamConstruction()
     {
         // DescriptionPrinter(source: any Describable) — exercises IsProtocolExistentialType branch.
@@ -37,7 +37,7 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info("DescriptionPrinter(IDescribable) construction passed");
     }
 
-    [Skip("coverage gap: protocol existential constructor param crashes Mono JIT")]
+    [SkipOnSimulator("Mono JIT !ji->async assertion on ref ExistentialContainer1 P/Invoke — needs investigation whether this is upstream or our ExistentialContainer layout")]
     public void TestProtocolExistentialParamGetText()
     {
         var item = new SimpleItem(id: "ex-1", label: "Existential test");
@@ -51,12 +51,10 @@ public class ConstructorParamTests : TestBase
 
     #region LinkedNode — Optional<Class> Constructor Param
 
-    [Skip("coverage gap: Optional<Class> constructor param — causes dyld symbol-not-found crash (wrapper stripping bug)")]
     public void TestOptionalClassParamNil()
     {
-        // LinkedNode constructor references Animal? which triggers wrapper stripping.
-        // dyld: Symbol not found: _$s20SwiftBindingsTestLib10LinkedNodeC5value8previousACs5Int32V_AA6AnimalCSgtcfC
-        // This is Category 1 failure from the audit — wrapper was stripped but C# still references it.
+        // LinkedNode constructor with Optional<Animal> param — nullable pointer ABI.
+        // @_cdecl wrapper accepts UnsafeMutableRawPointer? (nil for .none, object pointer for .some).
         var node = new LinkedNode(value: 1, previous: null);
         AssertNotNull(node, "LinkedNode constructed with nil previous");
         var desc = node.GetDescribe();
@@ -64,7 +62,6 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info($"LinkedNode(1, nil) = {desc}");
     }
 
-    [Skip("coverage gap: Optional<Class> constructor param — causes dyld symbol-not-found crash")]
     public void TestOptionalClassParamWithValue()
     {
         var animal = new Animal(name: "Rex", sound: "Woof");
@@ -100,11 +97,25 @@ public class ConstructorParamTests : TestBase
 
     #region ValidatedName — Non-Frozen Failable Init
 
-    [Skip("coverage gap: non-frozen failable init — check if generator emits init?")]
     public void TestFailableInitSuccess()
     {
-        // Non-frozen struct with init?(name:) — failable.
-        TestLogger.Info("ValidatedName failable init — checking generator support");
+        // Non-frozen struct failable init is emitted as TryCreate (CallConvSwift path).
+        // The @_cdecl guard in ConstructorWrapperEmitter prevents wrapper emission to avoid
+        // memory corruption, but CallConvSwift works correctly for failable inits.
+        var success = ValidatedName.TryCreate(name: "Alice", out var validated);
+        AssertTrue(success, "TryCreate should succeed for non-empty name");
+        AssertNotNull(validated, "ValidatedName should be non-null");
+        var desc = validated!.GetDescribe();
+        AssertTrue(desc.Contains("Alice"), "Description contains name");
+        TestLogger.Info($"ValidatedName.TryCreate succeeded: {desc}");
+    }
+
+    public void TestFailableInitFailure()
+    {
+        // Failable init with empty string should return nil (TryCreate returns false).
+        var success = ValidatedName.TryCreate(name: "", out var validated);
+        AssertFalse(success, "TryCreate should fail for empty name");
+        TestLogger.Info("ValidatedName.TryCreate correctly failed for empty name");
     }
 
     #endregion

@@ -60,6 +60,8 @@ namespace BindingsGeneration
             MarshalledType.CdeclExistential(var containerType, _) => $"ref {containerType} {Name}",
             // @_cdecl frozen struct: pass as IntPtr (pointer to marshalled buffer)
             MarshalledType.CdeclFrozenStruct => $"IntPtr {Name}",
+            // @_cdecl tuple: pass as IntPtr (pointer to buffer with elements at ABI offsets)
+            MarshalledType.CdeclTuple => $"IntPtr {Name}",
             // Bool requires explicit [MarshalAs] with LibraryImport + DisableRuntimeMarshalling
             MarshalledType.BoolType => $"[MarshalAs(UnmanagedType.U1)] {modifier} bool {Name}",
             // All other types delegate to SignatureString
@@ -179,6 +181,8 @@ namespace BindingsGeneration
                     $"ref {parameter.Name}Container",
                 // @_cdecl frozen struct: use the marshalled pointer local variable
                 { Type: MarshalledType.CdeclFrozenStruct } => $"{parameter.Name}Ptr",
+                // @_cdecl tuple: use the marshalled buffer pointer
+                { Type: MarshalledType.CdeclTuple } => $"{parameter.Name}Ptr",
                 { Type: MarshalledType.NonFrozenIntPtrType } => $"{parameter.Name}Handle",
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: MarshalledType.FrozenBuffer, modifier: "ref" } => $"ref {parameter.Name}Disposable.BufferRef",

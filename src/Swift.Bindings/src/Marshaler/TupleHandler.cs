@@ -332,7 +332,7 @@ public class TupleHandler
     /// <summary>
     /// Translates a TypeSpec element to its C# equivalent type.
     /// </summary>
-    private string TranslateElementTypeToCSharp(TypeSpec typeSpec)
+    internal string TranslateElementTypeToCSharp(TypeSpec typeSpec)
     {
         // Handle existential types — use public type (interface/object), not ExistentialContainer
         if (_existentialHandler.IsExistential(typeSpec))
