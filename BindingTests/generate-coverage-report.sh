@@ -657,6 +657,21 @@ def build_declaration_map(source_dir, source_files):
 # Only required when multiple features share a source file; features not listed
 # here fall back to file-level matching (all skips in the file apply).
 FEATURE_DECLARATIONS = {
+    # Types/Enums.swift — 3 features share one file
+    # Note: MathUtils.Counter shares a name with the Counter actor in Async/Actors.swift.
+    # Without declaration-level ownership, file-level fallback mis-attributes actor skips
+    # (unownedExecutor) to enum features.
+    "raw_value_enum": {
+        "Color", "StatusCode", "Priority", "colorForIndex", "MediaSource",
+        "describeMediaSource", "AnimationSource", "describeAnimationSource",
+        "DataValue", "describeDataValue",
+    },
+    "associated_value_enum": {
+        "Shape", "EnumPropertyHolder", "MediaSource", "describeMediaSource",
+        "AnimationSource", "describeAnimationSource", "DataValue", "describeDataValue",
+    },
+    "generic_enum": {"GenericResult"},
+
     # Generics/Types.swift — 3 features share one file
     "generic_struct": {"Wrapper", "GenericPair"},
     "generic_class": {"GenericClass"},
