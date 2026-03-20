@@ -1370,12 +1370,14 @@ public static class ProtocolExtensionEmitter
                 // Class return: passRetained transfers +1 ownership to the caller so the object
                 // stays alive after this wrapper returns. The C# SafeHandle calls
                 // Arc.Release on Dispose to balance.
+                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs
+                // (e.g., IndexPath). Unmanaged.passRetained requires T: AnyObject.
                 ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
                 if (needsWriteBack)
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result as AnyObject).toOpaque()");
             }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))
@@ -1699,12 +1701,13 @@ public static class ProtocolExtensionEmitter
             }
             else
             {
+                // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
                 ctx.AddProtocolExtWrapperLine($"    let result = {callStr}");
                 if (needsWriteBack)
                 {
                     ctx.AddProtocolExtWrapperLine($"    self_.assumingMemoryBound(to: {qualifiedTypeName}.self).pointee = instance");
                 }
-                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result).toOpaque()");
+                ctx.AddProtocolExtWrapperLine($"    return Unmanaged.passRetained(result as AnyObject).toOpaque()");
             }
         }
         else if (string.IsNullOrEmpty(swiftReturnType))

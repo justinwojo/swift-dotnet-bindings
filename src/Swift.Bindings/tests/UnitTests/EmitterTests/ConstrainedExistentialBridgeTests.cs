@@ -176,7 +176,7 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains("@_silgen_name(\"SBW_ScannerModel_init_", swift);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swift);
         Assert.Contains("as! any TestModule.CameraFrameAnalyzer<TestModule.CameraFrame, TestModule.UIEvent>", swift);
-        Assert.Contains("Unmanaged.passRetained(result).toOpaque()", swift);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", swift);
     }
 
     [Fact]

@@ -91,6 +91,23 @@ public static class SwiftInterfaceAccessParser
         @"(?:public|open)\s+(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
+    // Bare func/var/init regexes for protocol member declarations.
+    // Protocol requirements in .swiftinterface files have no access modifier:
+    //   @_Concurrency.MainActor func removeContent()
+    //   var identifier: Int { get }
+    // Used as fallbacks when PublicFuncRegex/PublicVarRegex/PublicInitRegex don't match.
+    private static readonly Regex BareFuncRegex = new(
+        @"(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    private static readonly Regex BareVarRegex = new(
+        @"(?:var|let)\s+(\w+)",
+        RegexOptions.Compiled);
+
+    private static readonly Regex BareInitRegex = new(
+        @"(?:convenience\s+)?init\s*\(",
+        RegexOptions.Compiled);
+
     // Regex for public/open subscript declarations
     private static readonly Regex PublicSubscriptRegex = new(
         @"(?:public|open)\s+(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",
@@ -433,10 +450,14 @@ public static class SwiftInterfaceAccessParser
             pendingActorIsolated = false;
             pendingIsMainActor = false;
 
-            // Check for pending annotation (attribute on its own line)
+            // Check for pending annotation (attribute on its own line).
+            // Also check bare regexes — protocol members have no access modifier and no braces:
+            //   @_Concurrency.MainActor func removeContent()
             if (hasActorAnnotation && !TypeDeclRegex.IsMatch(trimmed) &&
                 !PublicFuncRegex.IsMatch(trimmed) && !PublicVarRegex.IsMatch(trimmed) &&
-                !PublicInitRegex.IsMatch(trimmed) && openBraces == 0)
+                !PublicInitRegex.IsMatch(trimmed) &&
+                !BareFuncRegex.IsMatch(trimmed) && !BareVarRegex.IsMatch(trimmed) &&
+                !BareInitRegex.IsMatch(trimmed) && openBraces == 0)
             {
                 pendingActorIsolated = true;
                 pendingIsMainActor = isMainActor;
@@ -470,8 +491,9 @@ public static class SwiftInterfaceAccessParser
             // Check for member-level actor isolation (within a type context)
             if (hasActorAnnotation && typeStack.Count > 0 && !pushedScope)
             {
-                // Check for multi-line signature
-                if ((PublicFuncRegex.IsMatch(trimmed) || PublicInitRegex.IsMatch(trimmed)) &&
+                // Check for multi-line signature (includes bare protocol members)
+                if ((PublicFuncRegex.IsMatch(trimmed) || PublicInitRegex.IsMatch(trimmed) ||
+                     BareFuncRegex.IsMatch(trimmed) || BareInitRegex.IsMatch(trimmed)) &&
                     HasUnmatchedOpenParen(trimmed))
                 {
                     continuation = (trimmed, true, isMainActor);
@@ -539,6 +561,30 @@ public static class SwiftInterfaceAccessParser
         }
 
         if (PublicInitRegex.IsMatch(line))
+        {
+            var printedName = ExtractPrintedName(line, "init");
+            result.Add($"{qualifiedType}.{printedName}");
+            return;
+        }
+
+        // Fallback: protocol member declarations have no access modifier in .swiftinterface files
+        // (e.g., "@_Concurrency.MainActor func removeContent()" inside a protocol body)
+        var bareFuncMatch = BareFuncRegex.Match(line);
+        if (bareFuncMatch.Success)
+        {
+            var printedName = ExtractPrintedName(line, bareFuncMatch.Groups[1].Value);
+            result.Add($"{qualifiedType}.{printedName}");
+            return;
+        }
+
+        var bareVarMatch = BareVarRegex.Match(line);
+        if (bareVarMatch.Success)
+        {
+            result.Add($"{qualifiedType}.{bareVarMatch.Groups[1].Value}");
+            return;
+        }
+
+        if (BareInitRegex.IsMatch(line))
         {
             var printedName = ExtractPrintedName(line, "init");
             result.Add($"{qualifiedType}.{printedName}");

@@ -275,7 +275,7 @@ public class ProtocolExtensionStructConformerTests
 
         Assert.Single(conformingType.Methods);
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        Assert.Contains("Unmanaged.passRetained(result).toOpaque()", wrapperLines);
+        Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", wrapperLines);
         Assert.DoesNotContain("UnsafeMutableRawPointer.allocate", wrapperLines);
     }
 

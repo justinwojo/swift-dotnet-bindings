@@ -2401,6 +2401,170 @@ public class DisposeBag {
 
     #endregion
 
+    // === Protocol member @MainActor detection tests ===
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_DetectedWithoutAccessModifier()
+    {
+        // Protocol members in .swiftinterface have no access modifier (no public/open).
+        // The parser must detect @MainActor on bare func/var/init declarations.
+        var swiftInterface = """
+            public protocol PagingMenuDelegate : AnyObject {
+              @_Concurrency.MainActor func selectContent(pagingItem: any Parchment.PagingItem, direction: Parchment.PagingDirection, animated: Swift.Bool)
+              @_Concurrency.MainActor func removeContent()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("PagingMenuDelegate.removeContent()", result);
+            Assert.Contains("PagingMenuDelegate.removeContent()", mainActorMembers);
+            Assert.Contains("PagingMenuDelegate.selectContent(pagingItem:direction:animated:)", result);
+            Assert.Contains("PagingMenuDelegate.selectContent(pagingItem:direction:animated:)", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_BareVarDetected()
+    {
+        // Protocol property requirements have no access modifier.
+        var swiftInterface = """
+            public protocol MyDelegate {
+              @_Concurrency.MainActor var title: Swift.String { get }
+              @_Concurrency.MainActor var count: Swift.Int { get set }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyDelegate.title", result);
+            Assert.Contains("MyDelegate.title", mainActorMembers);
+            Assert.Contains("MyDelegate.count", result);
+            Assert.Contains("MyDelegate.count", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_BareInitDetected()
+    {
+        // Protocol init requirements have no access modifier.
+        var swiftInterface = """
+            public protocol MyFactory {
+              @_Concurrency.MainActor init(value: Swift.Int)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyFactory.init(value:)", result);
+            Assert.Contains("MyFactory.init(value:)", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_NonAnnotatedNotDetected()
+    {
+        // Protocol members without @MainActor should NOT appear in results.
+        var swiftInterface = """
+            public protocol MyProtocol : AnyObject {
+              @_Concurrency.MainActor func isolatedMethod()
+              func normalMethod()
+              var normalProp: Swift.Int { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyProtocol.isolatedMethod()", result);
+            Assert.DoesNotContain("MyProtocol.normalMethod()", result);
+            Assert.DoesNotContain("MyProtocol.normalProp", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_MultiLineSignature()
+    {
+        // Protocol members with multi-line signatures.
+        var swiftInterface = """
+            public protocol MyDelegate {
+              @_Concurrency.MainActor func configure(title: Swift.String,
+                                                     count: Swift.Int,
+                                                     enabled: Swift.Bool)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyDelegate.configure(title:count:enabled:)", result);
+            Assert.Contains("MyDelegate.configure(title:count:enabled:)", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_AnnotationOnOwnLine()
+    {
+        // @MainActor annotation on its own line, followed by bare func on next line.
+        var swiftInterface = """
+            public protocol MyDelegate {
+              @_Concurrency.MainActor
+              func doWork(value: Swift.Int)
+              @_Concurrency.MainActor
+              var title: Swift.String { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyDelegate.doWork(value:)", result);
+            Assert.Contains("MyDelegate.doWork(value:)", mainActorMembers);
+            Assert.Contains("MyDelegate.title", result);
+            Assert.Contains("MyDelegate.title", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetActorIsolatedMembers_ProtocolMemberMainActor_MixedWithPublicMembers()
+    {
+        // Mix of protocol members (bare) and class members (public) — both should be detected.
+        var swiftInterface = """
+            public protocol MyDelegate {
+              @_Concurrency.MainActor func protocolMethod()
+            }
+            public class MyClass {
+              @_Concurrency.MainActor public func classMethod()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetActorIsolatedMembers(
+                path, customActorTypeNames: null, out var mainActorMembers);
+            Assert.Contains("MyDelegate.protocolMethod()", result);
+            Assert.Contains("MyDelegate.protocolMethod()", mainActorMembers);
+            Assert.Contains("MyClass.classMethod()", result);
+            Assert.Contains("MyClass.classMethod()", mainActorMembers);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

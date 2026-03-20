@@ -285,7 +285,8 @@ public static class ConstrainedExistentialBridge
         }
 
         swiftWriter.WriteLine($"let result = {swiftTypeName}({string.Join(", ", updatedCallArgs)})");
-        swiftWriter.WriteLine("return Unmanaged.passRetained(result).toOpaque()");
+        // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
+        swiftWriter.WriteLine("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
     }
