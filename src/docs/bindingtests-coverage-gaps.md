@@ -517,8 +517,8 @@ The +14/–6 delta reflects skip recoveries from the previous commit (generator 
 | Category | Failures | Status | What's Needed |
 |----------|----------|--------|---------------|
 | Cat 1: DllNotFoundException | 39 | **CLOSED** | Co-gating implemented |
-| Cat 2: CallConvSwift non-blittable | 6 | Open | Expand `RequiresCdeclForAbiSafety` or suppress |
+| Cat 2: CallConvSwift non-blittable | 6 | **DETECTED** | `HasNonBlittablePInvokeTypes()` reports in binding report (f5664551). Full suppression deferred — breaks protocol conformance (CS0535). |
 | Cat 3: Mono JIT SIGSEGV | 4 | Open (partially mitigated) | Upstream Mono `calli` issue for closures; struct cases pass |
 | Cat 4: NativeAOT metadata trimming | 13 | Open | Module initializer generic instantiation |
-| Cat 5: TypeInitializationException | 5 | Open | Proxy init graceful failure |
+| Cat 5: TypeInitializationException | 5 | **CLOSED** | Protocol proxy co-gating (06660e08). 6 libraries improved. |
 | Cat 6: Optional setter mismatch | 1 | **CLOSED** | Fixed in prior commit |

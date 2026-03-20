@@ -166,17 +166,13 @@ Goal achieved: device and simulator have identical pass/fail results. 611 passed
 
 #### ~~5. Generic class T-typed constructors — 2 tests~~ **FIXED (Session 11)**
 
-#### 6. Generic class concrete-signature method — 1 test
+#### ~~6. Generic class concrete-signature method — 1 test~~ **FIXED (7a9db6c4)**
 
-**Tests**: TestConstrainedBoxGetDescription
+**Fix**: `MethodDecl.IsGeneric` over-reported — Swift ABI JSON includes parent generic signature in every method's `GenericSig`, blocking @_cdecl wrapper emission. Added `HasMethodOwnGenericParameters()` to distinguish method-own vs parent-inherited generics. Also fixed PWT parameter alignment for @_cdecl method wrappers.
 
-**Status**: NOT a stale skip — crashes Mono JIT. The @_cdecl wrapper IS emitted (Path 1: generic class instance dispatch with protocol cast), but the dispatched method call crashes. Needs investigation of the generated wrapper's `Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any _SBW_P_*` protocol cast path.
+#### ~~6b. Generic struct method dispatch — 1 test~~ **FIXED (7a9db6c4)**
 
-#### 6b. Generic struct method dispatch — 1 test
-
-**Tests**: TestWrapperUnwrap
-
-**Root cause**: `Wrapper<T>.Unwrap()` crashes Mono JIT. The @_cdecl wrapper uses the generic static protocol dispatch path (protocol with static method, metatype dispatch). Constructor works but method dispatch crashes. Needs investigation.
+**Fix**: Same root cause as item 6 — `IsGeneric` blocked `Wrapper<T>.Unwrap()`. `HasMethodOwnGenericParameters()` correctly identifies this as a parent-inherited generic, allowing @_cdecl wrapper emission.
 
 #### ~~7. Async optional nil detection — 1 test~~ **FIXED (Session 14)**
 
@@ -184,27 +180,15 @@ Goal achieved: device and simulator have identical pass/fail results. 611 passed
 
 ### Remaining fixable
 
-#### 9. Method-level generic free function — 1 test
+#### ~~9. Method-level generic free function — 1 test~~ **Reclassified (03c229a5)**
 
-**Tests**: TestGetPairSameType (BasicGenericTests.cs)
-
-**Root cause**: Guard 6 in `MethodWrapperEmitter.ShouldEmitWrapper()` blocks all method-level generics. Session 7C's protocol pattern relies on extending a parent type, which free functions don't have.
-
-**Fix approach**: New wrapper pattern needed: dummy struct host, function pointer trampolines, or specialized wrappers per instantiation.
-
-**Key files**: `MethodWrapperEmitter.cs` (guard 6)
+**Status**: Reclassified from `[Skip]` to `[SkipOnSimulator]`. The binding already works via CallConvSwift (all blittable IntPtr params). Mono JIT crashes with `jit-info.c:918` assertion on 2-generic-param CallConvSwift. Expected to pass on NativeAOT device.
 
 #### ~~10. Optional array layout mismatch — 1 test~~ **FIXED (Session 14)**
 
-#### 11. ExistentialCallbackTests — 1 test (class-level skip)
+#### ~~11. ExistentialCallbackTests — 1 test~~ **FIXED (03c229a5)**
 
-**Tests**: TestExistentialParamCallbackDelivery (ExistentialCallbackTests.cs)
-
-**Root cause**: `EntryPointNotFoundException` — EveryProtocol conformance extension is stripped by the Swift post-processor because it references internal types from the target library.
-
-**Fix approach**: Fix the post-processor to preserve EveryProtocol conformances that are needed, or generate the conformance differently to avoid internal type references.
-
-**Key files**: Existential callback wrapper emission, Swift post-processor
+**Fix**: Three root causes: (1) Parser `IsClassBound` not detected from ABI JSON `genericSig` — protocols with `: AnyObject` via `genericSig` but not in conformances. (2) EveryProtocol gate blocked ALL class-bound protocols — relaxed to only block NSObjectProtocol. (3) Witness table offset hardcoded 5-word opaque layout — fixed to dynamic `MemoryLayout<any P>.size - MemoryLayout<Int>.size`. Test enabled with `[SkipOnSimulator]` (Mono JIT crashes on ExistentialContainer1 via CallConvSwift).
 
 #### 12. Existential container ref params (device-only) — 2 tests
 
