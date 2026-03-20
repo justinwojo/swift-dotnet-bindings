@@ -207,6 +207,30 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when a method has its own generic type parameters that are NOT inherited
+    /// from the parent type. In Swift ABI JSON, methods on generic types include the parent's
+    /// generic signature (e.g., &lt;τ_0_0 where τ_0_0 : Describable&gt;) in GenericSig. This means
+    /// <see cref="MethodDecl.IsGeneric"/> returns true for ALL methods on generic types, not just
+    /// methods with their own generic params (like <c>func pair&lt;T,U&gt;(...)</c>).
+    ///
+    /// This helper distinguishes the two cases: parent-inherited generics (which the generic
+    /// dispatch emitter handles) vs method-own generics (which require different wrapper patterns).
+    /// </summary>
+    public static bool HasMethodOwnGenericParameters(MethodDecl methodDecl)
+    {
+        if (!methodDecl.IsGeneric)
+            return false;
+
+        // Collect parent type generic parameter names
+        var parentTypeParamNames = methodDecl.ParentDecl is TypeDecl td && td.IsGeneric
+            ? new HashSet<string>(td.GenericParameters.Select(p => p.TypeName))
+            : new HashSet<string>();
+
+        // A method has its own generics if any of its generic params are NOT in the parent's set
+        return methodDecl.GenericParameters.Any(p => !parentTypeParamNames.Contains(p.TypeName));
+    }
+
+    /// <summary>
     /// Returns true if a type is a generic container that can't be handled by @_cdecl wrappers.
     /// Allows: Optional&lt;value-type&gt; (IndirectResult), Optional&lt;reference&gt; (nullable pointer),
     /// Array, Dictionary, Set (UnsafeRawPointer transport).
@@ -643,8 +667,8 @@ public static class WrapperValidation
                 return "generic_parent";
         }
 
-        // 6. No method-level generics
-        if (env.MethodDecl.IsGeneric)
+        // 6. No method-level generics (only those with method-own generic params)
+        if (HasMethodOwnGenericParameters(env.MethodDecl))
             return "method_level_generics";
 
         // 6a. Raw generic type params in signature (e.g., from parent generics leaking)

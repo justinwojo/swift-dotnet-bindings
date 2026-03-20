@@ -113,6 +113,12 @@ internal class MethodMarshalPlanBuilder
     /// </summary>
     private IReadOnlyList<string> BuildWitnessTableStatements()
     {
+        // @_cdecl METHOD wrappers don't accept PWT parameters — protocol conformance is
+        // baked in at compile time through the Swift extension. Skip PWT resolution.
+        // Constructor wrappers still need PWT for the metadata accessor.
+        if (_env.MethodDecl.UsesCdeclMethodWrapper)
+            return Array.Empty<string>();
+
         var lines = new List<string>();
         foreach (var genericParameter in _env.MethodDecl.GenericParameters)
         {

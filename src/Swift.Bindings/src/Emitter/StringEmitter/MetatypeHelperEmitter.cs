@@ -20,6 +20,10 @@ public static class MetatypeHelperEmitter
     /// type via dlsym. This converts T.self metadata into GenericType&lt;T&gt;.self metadata, which is
     /// needed for protocol metatype dispatch. Deduplicates by type mangled name.
     /// Returns the helper function name (e.g., "_sbw_meta_ABCD1234").
+    ///
+    /// For constrained generic types (e.g., ConstrainedBox&lt;T: Describable&gt;), the metadata accessor
+    /// also requires protocol witness table (PWT) pointers for each conformance. The helper accepts
+    /// these as additional UnsafeRawPointer parameters after the type metadata parameters.
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="parentTypeDecl">The generic parent type declaration.</param>
@@ -41,19 +45,40 @@ public static class MetatypeHelperEmitter
         var metaSymbol = $"{mangledName}Ma";
         var genericCount = parentTypeDecl.GenericParameters.Count;
 
-        // Build parameter list: one UnsafeRawPointer per generic parameter
-        var paramList = string.Join(", ",
-            Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: UnsafeRawPointer"));
+        // Count PWT parameters: one per protocol conformance per generic parameter.
+        // Swift metadata accessors for constrained generic types require these after
+        // the type metadata parameters.
+        var pwtParams = new List<string>();
+        var pwtFnTypes = new List<string>();
+        var pwtCallArgs = new List<string>();
+        int pwtIndex = 0;
+        foreach (var genericParam in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in genericParam.GenericConformances)
+            {
+                pwtParams.Add($"_ pwt{pwtIndex}: UnsafeRawPointer");
+                pwtFnTypes.Add("UnsafeRawPointer");
+                pwtCallArgs.Add($"pwt{pwtIndex}");
+                pwtIndex++;
+            }
+        }
 
-        // Build function type: (Int, UnsafeRawPointer, ...) -> (UnsafeRawPointer, Int)
+        // Build parameter list: type metadata + PWT
+        var allParams = Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: UnsafeRawPointer")
+            .Concat(pwtParams);
+        var paramList = string.Join(", ", allParams);
+
+        // Build function type: (Int, T_metadata..., PWT...) -> (UnsafeRawPointer, Int)
+        var allFnTypes = Enumerable.Range(0, genericCount).Select(_ => "UnsafeRawPointer")
+            .Concat(pwtFnTypes);
         var fnParamTypes = string.Join(", ",
-            new[] { "Int" }.Concat(
-                Enumerable.Range(0, genericCount).Select(_ => "UnsafeRawPointer")));
+            new[] { "Int" }.Concat(allFnTypes));
 
-        // Build call arguments: (0, t0, t1, ...)
+        // Build call arguments: (0, t0, t1, ..., pwt0, pwt1, ...)
+        var allCallArgs = Enumerable.Range(0, genericCount).Select(i => $"t{i}")
+            .Concat(pwtCallArgs);
         var callArgs = string.Join(", ",
-            new[] { "0" }.Concat(
-                Enumerable.Range(0, genericCount).Select(i => $"t{i}")));
+            new[] { "0" }.Concat(allCallArgs));
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -65,5 +90,15 @@ public static class MetatypeHelperEmitter
             """);
 
         return helperName;
+    }
+
+    /// <summary>
+    /// Returns the total number of PWT parameters for a generic type's metadata accessor.
+    /// This is the sum of all protocol conformances across all generic parameters.
+    /// </summary>
+    public static int GetPwtParameterCount(TypeDecl parentTypeDecl)
+    {
+        return parentTypeDecl.GenericParameters
+            .Sum(gp => gp.GenericConformances.Count);
     }
 }

@@ -218,7 +218,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info($"Wrapper<SummableInt32>(42).Wrapped.Value = {unwrapped.Value}");
     }
 
-    [Skip("Wrapper<T>.Unwrap() crashes Mono JIT — generic struct method dispatch via static protocol needs investigation")]
     public void TestWrapperUnwrap()
     {
         var inner = new SummableInt32(value: 99);
@@ -320,7 +319,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("ConstrainedBox<T>.getDescription() crashes Mono JIT — generic class concrete-signature method wrapper needs investigation")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");

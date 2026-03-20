@@ -72,8 +72,11 @@ public static class MethodWrapperEmitter
                 return false;
         }
 
-        // 6. No method-level generics
-        if (env.MethodDecl.IsGeneric)
+        // 6. No method-level generics (e.g., func pair<T,U>(...)).
+        // MethodDecl.IsGeneric is true for ALL methods on generic types because the ABI JSON
+        // includes the parent's generic signature in each method's GenericSig. Only block methods
+        // that have their OWN generic parameters (not inherited from the parent type).
+        if (WrapperValidation.HasMethodOwnGenericParameters(env.MethodDecl))
             return false;
 
         // 6b. Custom actor types / per-member custom actor: require async dispatch
@@ -586,25 +589,10 @@ public static class MethodWrapperEmitter
             cdeclCallArgs.Add("resultPtr: resultPtr");
         }
 
-        if (throws)
-        {
-            cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-            protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
-            cdeclCallArgs.Add("errorOut: errorOut");
-        }
+        // CdeclSignatureContract for regular methods: [ResultPtr] [Arguments] [Metadata] [Self] [ErrorOut]
+        // Protocol params and cdeclCallArgs use labeled arguments, so their order is independent.
 
-        // Self parameter
-        if (isClass)
-            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-        else if (isMutating)
-            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
-        else
-            cdeclParams.Add("_ self_: UnsafeRawPointer");
-
-        protocolParams.Add(isMutating ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
-        cdeclCallArgs.Add("selfPtr: self_");
-
-        // Method arguments
+        // Method arguments (CdeclPhase.Arguments)
         int argIndex = 0;
         for (int i = 0; i < keptArgs.Count; i++)
         {
@@ -669,10 +657,29 @@ public static class MethodWrapperEmitter
             argIndex++;
         }
 
-        // Metadata parameters for @_cdecl
+        // Metadata parameters for @_cdecl (CdeclPhase.Metadata)
         for (int mi = 0; mi < parentTypeDecl.GenericParameters.Count; mi++)
         {
             cdeclParams.Add($"_ _metadata{mi}: UnsafeRawPointer");
+        }
+
+        // Self parameter (CdeclPhase.Self — after Metadata per CdeclSignatureContract)
+        if (isClass)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else if (isMutating)
+            cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
+        else
+            cdeclParams.Add("_ self_: UnsafeRawPointer");
+
+        protocolParams.Add(isMutating ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
+        cdeclCallArgs.Add("selfPtr: self_");
+
+        // ErrorOut (CdeclPhase.ErrorOut — last per CdeclSignatureContract)
+        if (throws)
+        {
+            cdeclParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            protocolParams.Add("errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            cdeclCallArgs.Add("errorOut: errorOut");
         }
 
         // Build protocol method declaration

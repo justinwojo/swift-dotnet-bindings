@@ -2910,4 +2910,117 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    #region HasMethodOwnGenericParameters Tests
+
+    [Fact]
+    public void HasMethodOwnGenericParameters_NonGenericMethod_ReturnsFalse()
+    {
+        var (moduleDecl, _) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+
+        Assert.False(WrapperValidation.HasMethodOwnGenericParameters(method));
+    }
+
+    [Fact]
+    public void HasMethodOwnGenericParameters_MethodOnGenericType_InheritedOnly_ReturnsFalse()
+    {
+        // Method on generic type inherits parent's τ_0_0/T but has no own generic params.
+        // ABI JSON includes parent's GenericSig on every method, making IsGeneric true.
+        // HasMethodOwnGenericParameters should still return false.
+        var (moduleDecl, _) = CreateTestEnvironment("Wrapper");
+        var parentDecl = CreateStructDecl("Wrapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("unwrap", parentDecl, moduleDecl);
+        // Simulate ABI JSON including parent's generic signature
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        Assert.True(method.IsGeneric, "IsGeneric should be true (inherited from parent)");
+        Assert.False(WrapperValidation.HasMethodOwnGenericParameters(method));
+    }
+
+    [Fact]
+    public void HasMethodOwnGenericParameters_MethodWithOwnGenericParam_ReturnsTrue()
+    {
+        // Method func pair<U>(...) on a non-generic type — U is method's own generic param.
+        var (moduleDecl, _) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("pair", parentDecl, moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("U", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        Assert.True(WrapperValidation.HasMethodOwnGenericParameters(method));
+    }
+
+    [Fact]
+    public void HasMethodOwnGenericParameters_MethodWithOwnAndInherited_ReturnsTrue()
+    {
+        // Method func pair<U>(...) on GenericType<T> — has both inherited T and own U.
+        var (moduleDecl, _) = CreateTestEnvironment("GenericBox");
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("pair", parentDecl, moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new("U", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        Assert.True(WrapperValidation.HasMethodOwnGenericParameters(method));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericTypeMethod_InheritedGenericsOnly_NotBlockedByGuard6()
+    {
+        // Regression test: methods on generic types were incorrectly blocked by guard 6
+        // because MethodDecl.IsGeneric includes parent-inherited generic params.
+        // Guard 6 now uses HasMethodOwnGenericParameters to only block methods with
+        // their own generic params (e.g., func pair<U>(...)).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ConstrainedBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ConstrainedBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("getDescription", parentDecl, moduleDecl);
+        // Simulate ABI JSON including parent's GenericSig
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Concrete return type (String) — uses instance dispatch path
+        method.CSSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            }
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env),
+            "Methods on generic types with only inherited generic params should not be blocked by guard 6");
+    }
+
+    #endregion
 }

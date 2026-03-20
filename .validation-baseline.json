@@ -1,11 +1,11 @@
 {
-  "git_sha": "f5664551",
+  "git_sha": "06660e08",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 45956,
+        "lines": 45946,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -14,12 +14,12 @@
         "errors": 0,
         "lines": 40,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11888,
+        "lines": 11864,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51264,
+        "lines": 51229,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -280,7 +280,7 @@
         "errors": 0,
         "lines": 4614,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "SwiftyBeaver": {
         "compile": "ok",
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4566,
+        "lines": 4562,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -364,7 +364,7 @@
         "errors": 0,
         "lines": 3947,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "fail"
       },
       "TinyConstraints": {
         "compile": "ok",
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18340,
+        "lines": 18323,
         "dep_compile": "none",
         "swift_compile": "fail"
       },

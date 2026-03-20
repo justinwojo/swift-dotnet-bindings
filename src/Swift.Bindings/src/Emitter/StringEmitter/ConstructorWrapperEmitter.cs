@@ -447,6 +447,17 @@ public static class ConstructorWrapperEmitter
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
                         }
+                        // Add PWT parameters for constrained generic types.
+                        // The metadata accessor requires PWT pointers for each conformance.
+                        int pwtIdx = 0;
+                        foreach (var gp in parentTypeDecl.GenericParameters)
+                        {
+                            foreach (var _ in gp.GenericConformances)
+                            {
+                                swiftParams.Add($"_ _pwt{pwtIdx}: UnsafeRawPointer");
+                                pwtIdx++;
+                            }
+                        }
                     }
                     break;
             }
@@ -545,7 +556,10 @@ public static class ConstructorWrapperEmitter
         // via dlsym to convert T.self → GenericClass<T>.self before protocol dispatch.
         if (isGenericClassParent && protocolName != null && metaHelperName != null)
         {
-            var metaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl!.GenericParameters.Count).Select(i => $"_metadata{i}"));
+            var metaArgsList = Enumerable.Range(0, parentTypeDecl!.GenericParameters.Count).Select(i => $"_metadata{i}");
+            // Include PWT arguments for constrained generic types
+            var pwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetPwtParameterCount(parentTypeDecl)).Select(i => $"_pwt{i}");
+            var metaArgs = string.Join(", ", metaArgsList.Concat(pwtArgsList));
             swiftWriter.WriteLine($"let parentMeta = {metaHelperName}({metaArgs})");
             swiftWriter.WriteLine($"let initType = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         }
@@ -900,6 +914,18 @@ public static class ConstructorWrapperEmitter
             cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
         }
 
+        // Add PWT parameter(s) for constrained generic types.
+        // The metadata accessor requires PWT pointers for each protocol conformance.
+        int pwtIndex = 0;
+        foreach (var genericParam in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in genericParam.GenericConformances)
+            {
+                cdeclParams.Add($"_ _pwt{pwtIndex}: UnsafeRawPointer");
+                pwtIndex++;
+            }
+        }
+
         // Build protocol factory method signature
         var ctorHash = EmitterUtility.DeterministicHash8(symbolName);
         var factoryMethodName = $"_sbw_create_{ctorHash}";
@@ -1058,8 +1084,11 @@ public static class ConstructorWrapperEmitter
         }
 
         // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor
-        var metaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
-        swiftWriter.WriteLine($"let parentMeta = {gsfHelperName}({metaArgs})");
+        var gsfMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
+        // Include PWT arguments for constrained generic types
+        var gsfPwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetPwtParameterCount(parentTypeDecl)).Select(i => $"_pwt{i}");
+        var gsfMetaArgs = string.Join(", ", gsfMetaArgsList.Concat(gsfPwtArgsList));
+        swiftWriter.WriteLine($"let parentMeta = {gsfHelperName}({gsfMetaArgs})");
         swiftWriter.WriteLine("let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any _SBW_GSF_" +
             EmitterUtility.DeterministicHash8(symbolName) + ".Type");
 
