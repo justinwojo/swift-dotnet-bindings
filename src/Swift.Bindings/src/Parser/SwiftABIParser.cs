@@ -1171,10 +1171,13 @@ namespace BindingsGeneration
             // Check for Self requirement in the generic signature
             bool hasSelfRequirement = node.GenericSig?.Contains("Self") == true;
 
-            // Check if class-bound (requires AnyObject)
+            // Check if class-bound (requires AnyObject).
+            // AnyObject may appear in conformances OR in the generic signature
+            // (e.g. "<τ_0_0 : AnyObject>" for protocols declared as ": AnyObject").
             bool isClassBound = inheritedProtocols.Any(p =>
                 p.Name == "AnyObject" ||
-                p.Name == "Swift.AnyObject");
+                p.Name == "Swift.AnyObject") ||
+                node.GenericSig?.Contains("AnyObject") == true;
 
             var decl = new ProtocolDecl
             {

@@ -860,11 +860,13 @@ public class EveryProtocolEmitterTests
     #region EC-3: Class-Bound and CaseIterable Gate Tests
 
     [Fact]
-    public void IsClassBoundProtocol_WithIsClassBound_ReturnsTrue()
+    public void IsClassBoundProtocol_WithIsClassBound_ReturnsFalse()
     {
+        // Pure AnyObject class-bound protocols are allowed — EveryProtocol is a class
+        // and satisfies the AnyObject constraint. Only NSObjectProtocol is blocked.
         var protocol = CreateSimpleProtocol("MyProtocol");
         protocol.IsClassBound = true;
-        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+        Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
     }
 
     [Fact]
@@ -876,11 +878,12 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void IsClassBoundProtocol_WithAnyObjectInheritance_ReturnsTrue()
+    public void IsClassBoundProtocol_WithAnyObjectInheritance_ReturnsFalse()
     {
+        // AnyObject inheritance is allowed — EveryProtocol is a class.
         var protocol = CreateSimpleProtocol("MyProtocol");
         protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.AnyObject"));
-        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
+        Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(protocol));
     }
 
     [Fact]
@@ -891,8 +894,10 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_ClassBoundProtocol_SkipsEmission()
+    public void EmitProtocolConformance_ClassBoundProtocol_EmitsConformance()
     {
+        // Class-bound (AnyObject) protocols now emit conformances —
+        // EveryProtocol is a class and satisfies AnyObject.
         var protocol = CreateProtocolWithMethod("ClassBoundProto", "doSomething");
         protocol.IsClassBound = true;
 
@@ -901,8 +906,8 @@ public class EveryProtocolEmitterTests
         _emitter.EmitProtocolConformance(writer, protocol);
         var output = stringWriter.ToString();
 
-        Assert.DoesNotContain("EveryProtocol", output);
-        Assert.DoesNotContain("vtable", output);
+        Assert.Contains("EveryProtocol", output);
+        Assert.Contains("vtable", output);
     }
 
     [Fact]
@@ -950,8 +955,10 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void IsClassBoundProtocol_TransitiveAnyObject_ReturnsTrue()
+    public void IsClassBoundProtocol_TransitiveAnyObject_ReturnsFalse()
     {
+        // Transitive AnyObject class-binding is NOT a blocker.
+        // EveryProtocol is a class and satisfies AnyObject at any depth.
         var baseProto = CreateSimpleProtocol("Connectable");
         baseProto.IsClassBound = true;
 
@@ -960,7 +967,7 @@ public class EveryProtocolEmitterTests
 
         var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
 
-        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+        Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
     }
 
     [Fact]
@@ -974,6 +981,51 @@ public class EveryProtocolEmitterTests
         var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
 
         Assert.False(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void IsClassBoundProtocol_TransitiveNSObjectProtocol_StillBlocked()
+    {
+        // Even though AnyObject is now allowed, NSObjectProtocol is still blocked.
+        // Transitive NSObjectProtocol inheritance should return true.
+        var baseProto = CreateSimpleProtocol("ObjCDelegate");
+        baseProto.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
+
+        var derivedProto = CreateSimpleProtocol("AppDelegate");
+        derivedProto.InheritedProtocols.Add(new NamedTypeSpec("TestModule.ObjCDelegate"));
+
+        var allProtocols = new List<ProtocolDecl> { baseProto, derivedProto };
+
+        Assert.True(EveryProtocolEmitter.IsClassBoundProtocol(derivedProto, allProtocols));
+    }
+
+    [Fact]
+    public void WitnessTableGetter_ClassBoundProtocol_UsesDynamicOffset()
+    {
+        // Class-bound protocols have a 2-word existential container,
+        // so the witness table offset should be computed dynamically using
+        // MemoryLayout<any Protocol>.size - MemoryLayout<Int>.size
+        var protocol = CreateProtocolWithMethod("ClassBoundDelegate", "didReceive");
+        protocol.IsClassBound = true;
+
+        var output = EmitWitnessTableGetter(protocol);
+
+        Assert.Contains("MemoryLayout<any", output);
+        Assert.Contains(">.size - MemoryLayout<Int>.size", output);
+        // Should NOT use hardcoded 4 * MemoryLayout<Int>.size
+        Assert.DoesNotContain("4 * MemoryLayout<Int>.size", output);
+    }
+
+    [Fact]
+    public void WitnessTableGetter_NonClassBoundProtocol_UsesDynamicOffset()
+    {
+        // Non-class-bound protocols should also use the dynamic formula
+        var protocol = CreateProtocolWithMethod("ValueDelegate", "process");
+
+        var output = EmitWitnessTableGetter(protocol);
+
+        Assert.Contains("MemoryLayout<any", output);
+        Assert.Contains(">.size - MemoryLayout<Int>.size", output);
     }
 
     [Fact]
@@ -1382,6 +1434,28 @@ public class EveryProtocolEmitterTests
         var output = EmitFullConformance(secondProtocol, globalSignatures);
         Assert.Contains("extension EveryProtocol: TestModule.ProtoB", output);
         Assert.Contains("public func finish", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_OverloadedMethodsSameNameDifferentLabels_EmitsBothMethods()
+    {
+        // Protocol has two methods with the same base name and same parameter types
+        // but different argument labels (e.g. pageViewController(_:viewControllerBefore:)
+        // and pageViewController(_:viewControllerAfter:)). Both must be emitted.
+        var protocol = CreateSimpleProtocol("PageDataSource");
+        protocol.Methods.Add(CreateMethodDeclWithParam("pageVC", "before", "UIKit.UIViewController"));
+        protocol.Methods.Add(CreateMethodDeclWithParam("pageVC", "after", "UIKit.UIViewController"));
+
+        var vtableOutput = EmitVtableStruct(protocol);
+        var extensionOutput = EmitConformance(protocol);
+
+        // Vtable must have TWO distinct entries
+        Assert.Contains("func_pageVC_0", vtableOutput);
+        Assert.Contains("func_pageVC_1", vtableOutput);
+
+        // Extension must implement BOTH overloads
+        Assert.Contains("func pageVC(before", extensionOutput);
+        Assert.Contains("func pageVC(after", extensionOutput);
     }
 
     #endregion

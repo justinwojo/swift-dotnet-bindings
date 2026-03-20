@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using BindingsGeneration.Demangling;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -842,6 +843,54 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Protocol IsClassBound Detection Tests
+
+    [Fact]
+    public void ParseModule_ProtocolWithAnyObjectGenericSig_SetsIsClassBound()
+    {
+        // Mirrors real ABI JSON where ": AnyObject" appears in genericSig,
+        // not in conformances (e.g. ExistentialParamDelegate).
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "MyClassBoundProtocol",
+            mangledName: "$s10TestModule21MyClassBoundProtocolP",
+            genericSig: "<\u03c4_0_0 : AnyObject>");
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+
+        var protocols = result.ModuleDecl.Types
+            .OfType<ProtocolDecl>()
+            .ToList();
+        var protocol = Assert.Single(protocols);
+        Assert.True(protocol.IsClassBound,
+            "Protocol with AnyObject in genericSig should be class-bound");
+    }
+
+    [Fact]
+    public void ParseModule_ProtocolWithoutAnyObject_IsNotClassBound()
+    {
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "MyValueProtocol",
+            mangledName: "$s10TestModule15MyValueProtocolP",
+            genericSig: "<\u03c4_0_0>");
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+
+        var protocols = result.ModuleDecl.Types
+            .OfType<ProtocolDecl>()
+            .ToList();
+        var protocol = Assert.Single(protocols);
+        Assert.False(protocol.IsClassBound,
+            "Protocol without AnyObject constraint should not be class-bound");
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode
@@ -905,7 +954,8 @@ public class SwiftABIParserRuntimeTests
         string moduleName = "TestModule",
         string mangledName = "$s",
         IEnumerable<Node>? children = null,
-        string[]? declAttributes = null)
+        string[]? declAttributes = null,
+        string? genericSig = null)
     {
         return new Node
         {
@@ -918,7 +968,7 @@ public class SwiftABIParserRuntimeTests
             DeclAttributes = declAttributes ?? [],
             @static = false,
             IsInternal = false,
-            GenericSig = null,
+            GenericSig = genericSig,
             sugared_genericSig = null,
             throwing = false,
             AccessorKind = null,

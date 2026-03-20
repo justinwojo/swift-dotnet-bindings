@@ -448,10 +448,12 @@ public class EveryProtocolEmitter
                 return withExtendedLifetime(instance) {
                     var proto: any {{protocolName}} = instance
                     return withUnsafeBytes(of: &proto) { buffer in
-                        // Existential layout for class-bound protocols:
-                        // [payload0] [payload1] [payload2] [metadata] [witness_tables...]
-                        // For a single-protocol existential, witness table is at offset 4 * pointer size
-                        let witnessTableOffset = 4 * MemoryLayout<Int>.size
+                        // Witness table is the last pointer-sized word in the existential container.
+                        // Layout depends on class-bound vs opaque:
+                        //   Opaque:      [payload0] [payload1] [payload2] [metadata] [WT] (5 words)
+                        //   Class-bound: [classRef] [WT] (2 words)
+                        // Using MemoryLayout<any Protocol>.size - pointer size handles both.
+                        let witnessTableOffset = MemoryLayout<any {{protocolName}}>.size - MemoryLayout<Int>.size
                         return buffer.baseAddress!.advanced(by: witnessTableOffset)
                             .assumingMemoryBound(to: UnsafeRawPointer.self).pointee
                     }
@@ -670,13 +672,13 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip class-bound protocols — EveryProtocol is a class, but protocols that
-        // inherit from NSObjectProtocol or AnyObject require NSObject methods/identity
-        // that EveryProtocol can't provide (e.g., isEqual:, hash, description).
+        // Skip protocols that require NSObjectProtocol identity semantics.
+        // Pure AnyObject (class-bound) protocols are allowed since EveryProtocol is a class.
+        // Only NSObjectProtocol requires NSObject methods (isEqual:, hash, description).
         if (IsClassBoundProtocol(protocolDecl))
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: class-bound protocol (NSObjectProtocol/AnyObject)");
-            RecordSkip("ClassBound");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires NSObjectProtocol identity semantics");
+            RecordSkip("NSObjectProtocolRequired");
             return;
         }
 
@@ -1280,8 +1282,13 @@ public class EveryProtocolEmitter
 
     private static string GetMethodKey(MethodDecl method)
     {
-        // Create a unique key for method overloading based on name and parameter types
-        return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
+        // Create a unique key for method overloading based on name, argument labels, and parameter types.
+        // Argument labels are needed to distinguish Swift overloads like:
+        //   pageViewController(_:viewControllerBeforeViewController:)
+        //   pageViewController(_:viewControllerAfterViewController:)
+        // which have the same name and parameter types but different labels.
+        return method.Name + "(" + string.Join(",", method.CSSignature.Skip(1).Select(p =>
+            (p.GetSwiftName() ?? p.Name) + ":" + (p.SwiftTypeSpec?.ToString() ?? ""))) + ")";
     }
 
     private static string GetSubscriptKey(SubscriptDecl subscript, int index)
@@ -1344,9 +1351,10 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Checks if a protocol is class-bound (inherits from NSObjectProtocol, AnyObject, or is marked class-bound),
-    /// either directly or transitively through inherited protocols.
-    /// Class-bound protocols require NSObject identity semantics that EveryProtocol can't provide.
+    /// Checks if a protocol requires NSObjectProtocol identity semantics that EveryProtocol can't provide.
+    /// Pure AnyObject (class-bound) protocols are allowed — EveryProtocol is a Swift class and
+    /// satisfies the AnyObject constraint. Only NSObjectProtocol requires NSObject methods
+    /// (isEqual:, hash, description, etc.) that EveryProtocol doesn't implement.
     /// </summary>
     /// <param name="protocolDecl">The protocol to check.</param>
     /// <param name="allProtocols">All protocols in the module for intra-module transitive lookup.
@@ -1362,16 +1370,16 @@ public class EveryProtocolEmitter
         if (!visited.Add(qualifiedName))
             return false;
 
-        if (protocolDecl.IsClassBound)
-            return true;
+        // Note: protocolDecl.IsClassBound (AnyObject / : class) is NOT a skip reason.
+        // EveryProtocol is a Swift class and trivially satisfies the AnyObject constraint.
+        // Only NSObjectProtocol requires NSObject identity methods that EveryProtocol can't provide.
 
-        // Check GenericSignature for NSObjectProtocol/AnyObject constraints.
+        // Check GenericSignature for NSObjectProtocol constraints.
         // ObjC protocols often declare constraints like "<τ_0_0 : ObjectiveC.NSObjectProtocol>"
         // in genericSig instead of listing NSObjectProtocol in inheritedProtocols.
         if (!string.IsNullOrEmpty(protocolDecl.GenericSignature))
         {
-            if (protocolDecl.GenericSignature.Contains("NSObjectProtocol") ||
-                protocolDecl.GenericSignature.Contains("AnyObject"))
+            if (protocolDecl.GenericSignature.Contains("NSObjectProtocol"))
                 return true;
         }
 
@@ -1379,10 +1387,12 @@ public class EveryProtocolEmitter
         {
             var name = inherited.Name;
             var simpleName = GetSimpleName(name);
-            if (simpleName is "NSObjectProtocol" or "AnyObject")
+            // Only NSObjectProtocol is a true blocker. AnyObject is satisfied by EveryProtocol.
+            if (simpleName is "NSObjectProtocol")
                 return true;
 
-            // Intra-module transitive check
+            // Intra-module transitive check: if an inherited protocol requires NSObjectProtocol,
+            // this protocol transitively requires it too.
             if (allProtocols != null)
             {
                 var inheritedDecl = allProtocols.FirstOrDefault(p =>

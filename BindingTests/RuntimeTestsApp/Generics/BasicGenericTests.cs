@@ -296,7 +296,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("Method-level generic free function pair<T,U>: @_cdecl wrapper emission not yet supported for method-level generics")]
+    [SkipOnSimulator("Mono JIT jit-info.c:918 assertion on CallConvSwift with 2 generic type params (same pattern as identity<T> but with T+U metadata)")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);

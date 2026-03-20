@@ -581,8 +581,9 @@ namespace BindingsGeneration
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
                 // Note: InheritsCodable filter removed — EveryProtocol now emits Codable/Error
                 // stub conformances so protocols that inherit Decodable/Encodable are supported.
-                // Skip class-bound protocols (NSObjectProtocol, AnyObject) — EveryProtocol
-                // can't provide NSObject identity semantics. Transitive check.
+                // Skip protocols requiring NSObjectProtocol identity semantics —
+                // EveryProtocol can't provide NSObject methods (isEqual:, hash, etc.).
+                // Pure AnyObject class-bound protocols are allowed (EveryProtocol is a class).
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
                 // Skip CaseIterable — requires compiler-synthesized allCases. Transitive check.
                 .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))

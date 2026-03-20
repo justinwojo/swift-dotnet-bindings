@@ -1,9 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// Compiled out: references ExistentialParamDelegateProxy which the generator doesn't emit yet.
-// Re-enable when existential parameter proxy emission is implemented (Session 5 work item).
-#if EXISTENTIAL_CALLBACKS
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLib.SwiftInterop;
@@ -14,14 +11,9 @@ namespace RuntimeTestsApp.Protocols;
 /// Tests that Swift can call back into C# protocol implementations passing
 /// existential parameters (any Protocol) through proxy receiver dispatch.
 ///
-/// Session 6: Existential parameter marshalling in protocol proxy receivers.
 /// The proxy receiver unmarshals ExistentialContainer1 → HasValueProxy and
 /// dispatches to the C# implementation.
-///
-/// Tier 3: Proxy object passes through CallConvSwift P/Invoke.
-/// NativeAOT (device builds) should work.
 /// </summary>
-[Skip("EntryPointNotFoundException: missing Swift wrapper export")]
 public class ExistentialCallbackTests : TestBase
 {
     public ExistentialCallbackTests(TestResults results) : base(results) { }
@@ -30,6 +22,7 @@ public class ExistentialCallbackTests : TestBase
     /// Tests that Swift can call a C# protocol implementation passing
     /// an existential parameter (any HasValue) through proxy receiver dispatch.
     /// </summary>
+    [SkipOnSimulator("Mono JIT jit-info.c:918 assertion: ExistentialContainer1 (40 bytes) passed via CallConvSwift to fireExistentialDelegate")]
     public void TestExistentialParamCallbackDelivery()
     {
         var impl = new TestExistentialDelegate();
@@ -60,4 +53,3 @@ internal class TestExistentialDelegate : IExistentialParamDelegate
         ReceivedValue = value.Value;
     }
 }
-#endif

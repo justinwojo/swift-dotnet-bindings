@@ -728,6 +728,16 @@ public partial class ProtocolProxyEmitter
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
 
+        // Class-bound protocols (: AnyObject) use a 2-word existential layout:
+        //   [classRef] [witnessTable]
+        // Opaque protocols use a 5-word layout:
+        //   [payload0] [payload1] [payload2] [metadata] [witnessTable]
+        // We always allocate ExistentialContainer1 (5 words) but fill the first N words
+        // according to the protocol's existential layout.
+        var containerInitLines = protocolDecl.IsClassBound
+            ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"
+            : "_swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";
+
         // Constructor for C# implementation
         writer.WriteLines($$"""
             /// <summary>
@@ -751,11 +761,9 @@ public partial class ProtocolProxyEmitter
                         EveryProtocol.SetTypeMetadata(NativeMethods.GetEveryProtocolMetadata());
 
                     // Create existential container manually
-                    // The container holds: payload (EveryProtocol pointer), metadata, and witness table
                     _swiftContainer = new ExistentialContainer1();
                     _swiftContainer.Payload0 = _everyProtocol.Handle;
-                    _swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();
-                    _swiftContainer[0] = ProtocolWitnessTableHandle;
+                    {{containerInitLines}}
 
                     // Register this proxy so Swift callbacks can find us
                     SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this);
