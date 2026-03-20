@@ -13,7 +13,7 @@ namespace BindingsGeneration;
 /// - Constructs the enum case value
 /// - Writes the result to a result pointer via initializeMemory(as:)
 ///
-/// Associated value param mapping reuses ConstructorWrapperEmitter.GetCdeclParamMapping().
+/// Associated value param mapping reuses CdeclParamMapper.Map().
 /// State tracked on <see cref="ModuleEmissionContext"/>.
 /// </summary>
 public static class EnumCaseWrapperEmitter
@@ -102,7 +102,7 @@ public static class EnumCaseWrapperEmitter
             return false;
 
         // Generic containers (Optional<T>, Array<T>, etc.): C# uses lowered IntPtr
-        if (ConstructorWrapperEmitter.IsGenericContainerType(element))
+        if (CdeclParamMapper.IsGenericContainerType(element))
             return false;
 
         // Nested tuples: would need recursive layout matching
@@ -117,7 +117,7 @@ public static class EnumCaseWrapperEmitter
         if (element is NamedTypeSpec namedElement)
         {
             // Primitives (Int, Bool, Float, etc.) are always bit-for-bit ABI-identical
-            if (ConstructorWrapperEmitter.IsCdeclPrimitive(element))
+            if (CdeclParamMapper.IsCdeclPrimitive(element))
                 return true;
 
             // Non-primitive named types must be in the database to verify their kind
@@ -211,7 +211,7 @@ public static class EnumCaseWrapperEmitter
                 ModuleDecl = moduleDecl
             };
 
-            var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+            var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
                 argDecl, label, env, omitLabels: false, useUtf8Strings: true);
 
             swiftParams.Add(cdeclParam);

@@ -2394,7 +2394,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UITableView"));
 
-        Assert.True(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.True(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
@@ -2406,7 +2406,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIEdgeInsets"));
 
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
@@ -2417,14 +2417,14 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.UnsafeMutablePointer"));
 
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
     public void IsOptionalWithReferenceInner_NonOptionalType_ReturnsFalse()
     {
         var typeDb = new TypeDatabase();
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(new NamedTypeSpec("Swift.Int"), typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(new NamedTypeSpec("Swift.Int"), typeDb));
     }
 
     [Fact]
@@ -2451,7 +2451,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("QuartzCore.CALayerContentsGravity"));
 
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
@@ -2476,7 +2476,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIFont.Weight"));
 
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
@@ -2500,7 +2500,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("PhotosUI.PHPickerResult"));
 
-        Assert.False(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]
@@ -2524,7 +2524,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIImage"));
 
-        Assert.True(MethodWrapperEmitter.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.True(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]

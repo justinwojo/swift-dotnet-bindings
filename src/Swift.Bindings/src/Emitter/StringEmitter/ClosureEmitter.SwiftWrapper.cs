@@ -517,7 +517,7 @@ public static partial class ClosureEmitter
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
                 continue;
             if (arg.IsGeneric) return false;
-            if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
+            if (CdeclParamMapper.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
                 return false;
@@ -591,7 +591,7 @@ public static partial class ClosureEmitter
                 // Non-closure, non-large param in @_cdecl mode: convert to C-compatible type
                 var label_ = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                 var (cdeclParam, reconstruction, callArg) =
-                    ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label_, env, omitLabels: true);
+                    CdeclParamMapper.Map(arg, label_, env, omitLabels: true);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) adapterCode.Add(reconstruction);
                 var swiftArgLabel = GetSwiftArgLabel(arg);
@@ -634,15 +634,15 @@ public static partial class ClosureEmitter
         string throwsStr;
         bool cdeclNeedsResultPtr = false;
         bool cdeclIsStringReturn = false;
-        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
+        CdeclReturnMapping? cdeclReturnMapping = null;
         if (useCdecl && hasReturn && !hasLargeOptionalReturn)
         {
-            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
             cdeclReturnMapping = returnMapping;
             cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
             if (cdeclIsStringReturn) needsResultPtr = true;
             cdeclNeedsResultPtr = needsResultPtr;
-            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
             if (needsResultPtr)
             {
                 // ResultPtr must be FIRST per CdeclSignatureContract:

@@ -259,7 +259,7 @@ public static class PropertyWrapperEmitter
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Return clause
-        string returnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+        string returnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
 
@@ -347,9 +347,9 @@ public static class PropertyWrapperEmitter
             if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
                 propertyDecl.SwiftTypeSpec is NamedTypeSpec optNts && optNts.GenericParameters.Count == 1 &&
                 optNts.GenericParameters[0] is NamedTypeSpec innerNts &&
-                ConstructorWrapperEmitter.IsBlittablePrimitiveSwiftType(innerNts.Name))
+                CdeclParamMapper.IsBlittablePrimitiveSwiftType(innerNts.Name))
             {
-                var rawType = ConstructorWrapperEmitter.GetSwiftRawValueType(innerNts.Name);
+                var rawType = CdeclParamMapper.GetSwiftRawValueType(innerNts.Name);
                 var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNts.Name) ?? "8";
                 swiftWriter.WriteLine($"let result = {propAccess}");
                 swiftWriter.WriteLines($$"""
@@ -474,7 +474,7 @@ public static class PropertyWrapperEmitter
                         };
                         // omitLabels: false — property setters always need .load(as:) reconstruction
                         // for large Optionals. omitLabels: true would trigger ShouldWidenParam bypass.
-                        var (cdeclParam, reconstruction, callArgExpr) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArgExpr) = CdeclParamMapper.Map(
                             newValueArg, "newValue", env, omitLabels: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
@@ -569,97 +569,11 @@ public static class PropertyWrapperEmitter
 
     /// <summary>
     /// Maps a property type to its @_cdecl-compatible return type and whether it needs a result pointer.
+    /// Delegates to <see cref="CdeclReturnMapping.Classify"/>.
     /// </summary>
     internal static (CdeclReturnMapping mapping, bool needsResultPtr) GetCdeclReturnMapping(
         TypeSpec typeSpec, ITypeDatabase typeDatabase)
-    {
-        // DynamicSelf (Self): resolves to parent class type at call site.
-        // Return as class pointer (Unmanaged.passRetained().toOpaque()).
-        if (typeSpec.IsDynamicSelf)
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
-
-        // Tuple returns: route through indirect result (resultPtr buffer).
-        // initializeMemory(as: (T1, T2).self) handles all tuple element types.
-        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-        // Primitives: pass through directly
-        if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
-        {
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-            if (MarshallingHelpers.IsBoolType(swiftType) || swiftType == "Bool")
-                return (new CdeclReturnMapping("Int8", CdeclReturnKind.Bool), false);
-            return (new CdeclReturnMapping(swiftType, CdeclReturnKind.Direct), false);
-        }
-
-        // String: SBW_Utf8Slice via result pointer (@_cdecl can't return Swift structs)
-        if (typeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
-            return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
-
-        // AnyObject: IS a class reference by definition — use Unmanaged.passRetained().toOpaque().
-        // AnyObject may appear as ProtocolListTypeSpec (from existential parsing) or as plain
-        // NamedTypeSpec (from TypeSpecParser). Without this gate, it falls through to IndirectResult
-        // and emits `any AnyObject.self` which is not valid Swift.
-        if (ConstructorWrapperEmitter.IsAnyObjectType(typeSpec))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
-
-        // Closure returns: write to resultPtr buffer
-        if (typeSpec is ClosureTypeSpec)
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-        // Optional<reference type>: nullable pointer ABI (no result buffer needed)
-        if (MethodWrapperEmitter.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
-
-        // Generic containers (Optional, Array, etc.): need result pointer
-        if (ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-        // Protocol existentials: need result pointer (not C-representable in @_cdecl)
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, typeDatabase))
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-        // Try TypeRecord-based mapping
-        if (typeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
-        {
-            // NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType) are ObjC-bridged
-            // in the type database but are Swift structs wrapping NSString — not class instances.
-            // Unmanaged.passRetained() requires a class, so these must NOT use ClassPointer.
-            // Route through indirect result like other structs.
-            if (MarshallingHelpers.IsObjCBridged(typeRecord) &&
-                typeSpec is NamedTypeSpec nsTypedef &&
-                AppleFrameworkRegistry.TryGetNetTypeName(nsTypedef.Name, out var remapped) &&
-                remapped == "Foundation.NSString")
-                return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-            // Classes and ObjC-bridged: return as retained pointer.
-            // Guard: Unmanaged.passRetained() requires a class type — ObjC-rooted/bridged struct
-            // types (e.g., PHPickerResult) must fall through to IndirectResult instead.
-            if (typeRecord.Kind == TypeRecordKind.Class ||
-                ((MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCRooted(typeRecord))
-                 && typeRecord.Kind != TypeRecordKind.Struct))
-                return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
-
-            // Simple enums: return raw value type
-            if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-            {
-                var rawType = ConstructorWrapperEmitter.GetSwiftRawValueType(typeRecord.RawValueTypeName);
-                return (new CdeclReturnMapping(rawType, CdeclReturnKind.SimpleEnum), false);
-            }
-
-            // Complex enums: need result pointer
-            if (typeRecord.Kind == TypeRecordKind.Enum)
-                return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-
-            // All structs (frozen and non-frozen): need result pointer.
-            // @_cdecl can't return Swift structs — even @frozen ones fail with
-            // "result type cannot be represented in Objective-C".
-            return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-        }
-
-        // Fallback: indirect result
-        return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);
-    }
+        => CdeclReturnMapping.Classify(typeSpec, typeDatabase);
 
     /// <summary>
     /// Emits the self reconstruction line for the getter/setter body.
@@ -696,14 +610,14 @@ public static class PropertyWrapperEmitter
                 if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
                     !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
                 {
-                    swiftWriter.WriteLine($"return {mapping.cdeclReturnType}({propAccess}.rawValue)");
+                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}({propAccess}.rawValue)");
                 }
                 else
                 {
                     // Tag-only enum: use withUnsafePointer to extract tag bits
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
                     swiftWriter.WriteLine($"var result = {propAccess}");
-                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.cdeclReturnType}.self) }}");
+                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.CdeclReturnType}.self) }}");
                 }
                 break;
 
@@ -841,7 +755,7 @@ public static class PropertyWrapperEmitter
         protocolParams.Add(isClass ? "selfPtr: UnsafeMutableRawPointer" : "selfPtr: UnsafeRawPointer");
         cdeclCallArgs.Add("selfPtr: self_");
 
-        string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+        string protocolReturnType = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         // Build extension body lines
         var bodyLines = new List<string>();
@@ -920,7 +834,7 @@ public static class PropertyWrapperEmitter
 
         // Emit @_cdecl
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{hash}";
-        string cdeclReturnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+        string cdeclReturnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
         var cdeclParamString = string.Join(", ", cdeclParams);
 
         swiftWriter.WriteLine();
@@ -1024,7 +938,7 @@ public static class PropertyWrapperEmitter
                 Name = "newValue", PrivateName = "newValue",
                 IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
             };
-            var (cdeclParam, reconstruction1, callArgExpr1) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+            var (cdeclParam, reconstruction1, callArgExpr1) = CdeclParamMapper.Map(newValueArg, "newValue", env, false);
             cdeclParams.Add(cdeclParam);
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
             protocolParams.Add($"newValue: {swiftType}");
@@ -1126,7 +1040,7 @@ public static class PropertyWrapperEmitter
                     Name = "newValue", PrivateName = "newValue",
                     IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
                 };
-                var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+                var (_, reconstruction, _) = CdeclParamMapper.Map(newValueArg, "newValue", env, false);
                 if (reconstruction != null)
                     swiftWriter.WriteLine(reconstruction);
             }
@@ -1158,22 +1072,4 @@ public static class PropertyWrapperEmitter
         return protocolName;
     }
 
-    /// <summary>
-    /// Describes the @_cdecl return type mapping for a property getter.
-    /// </summary>
-    internal record CdeclReturnMapping(string cdeclReturnType, CdeclReturnKind Kind);
-
-    /// <summary>
-    /// Categories of @_cdecl return type handling.
-    /// </summary>
-    internal enum CdeclReturnKind
-    {
-        Direct,               // Primitive, frozen struct — return by value
-        Bool,                 // Bool → Int8 conversion
-        String,               // String → SBW_Utf8Slice
-        SimpleEnum,           // Enum → raw value type
-        ClassPointer,         // Class → Unmanaged.passRetained().toOpaque()
-        OptionalClassPointer, // Optional<Class> → result.map { Unmanaged.passRetained($0).toOpaque() }
-        IndirectResult        // Non-frozen struct, complex enum → writes to resultPtr
-    }
 }

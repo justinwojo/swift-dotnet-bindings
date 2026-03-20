@@ -205,7 +205,7 @@ namespace BindingsGeneration
                 // @_cdecl Optional<value-type>: marshal via SwiftOptional<T>.ToNullable()
                 if (_env.MethodDecl.UsesCdeclWrapper &&
                     MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
-                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    !CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,

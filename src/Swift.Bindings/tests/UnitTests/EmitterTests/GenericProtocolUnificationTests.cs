@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
+#nullable enable
 
 using Xunit;
 
@@ -602,11 +603,13 @@ public class GenericProtocolUnificationTests
         };
         inner.ParentDecl = outer;
 
-        var ctor = CreateMethodDecl("init", isConstructor: true, moduleDecl: moduleDecl);
-        ctor.ParentDecl = inner;
-        ctor.MethodType = MethodType.Instance;
+        // Use a regular method (not constructor) to test GetRejectionReason,
+        // which rejects constructors at guard 1 before reaching inherited_generic_context.
+        var method = CreateMethodDecl("doSomething", isConstructor: false, moduleDecl: moduleDecl);
+        method.ParentDecl = inner;
+        method.MethodType = MethodType.Instance;
 
-        var env = new MethodEnvironment(ctor, typeDb);
+        var env = new MethodEnvironment(method, typeDb);
 
         // IsInheritedGenericContext should detect the nested type's params come from outer
         Assert.True(WrapperValidation.IsInheritedGenericContext(inner),

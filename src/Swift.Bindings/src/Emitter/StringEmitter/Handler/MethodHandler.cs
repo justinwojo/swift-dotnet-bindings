@@ -762,7 +762,7 @@ namespace BindingsGeneration
                 asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
                     if (p.IsGeneric) return false;
                     if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
-                    if (ConstructorWrapperEmitter.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
+                    if (CdeclParamMapper.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
                     // Async emitter has no CdeclFrozenStruct marshalling path — keep blocking.
                     // stackalloc buffers are not safe after await (plan risk #2).

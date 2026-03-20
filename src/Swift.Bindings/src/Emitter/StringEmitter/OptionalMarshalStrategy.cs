@@ -99,7 +99,7 @@ public static class OptionalMarshalClassifier
         // 3. BlittableFastPath: known-size primitive inner type (tag byte at compile-time offset).
         var innerSpec = GetInnerSpec(typeSpec);
         if (innerSpec is NamedTypeSpec innerNamed &&
-            ConstructorWrapperEmitter.IsBlittablePrimitiveSwiftType(innerNamed.Name))
+            CdeclParamMapper.IsBlittablePrimitiveSwiftType(innerNamed.Name))
         {
             // Verify the blittable size is < 8 bytes (for the fast path).
             // Types with size >= 8 go to LargeOptionalPointer.
@@ -196,7 +196,7 @@ public static class OptionalMarshalClassifier
         if (typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
             innerRecord.Kind == TypeRecordKind.Protocol)
             return false;
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(optionalSpec, typeDatabase))
+        if (CdeclParamMapper.IsProtocolExistentialType(optionalSpec, typeDatabase))
             return false;
 
         // Small value types (< 8 bytes) fit in IntPtr — not large.

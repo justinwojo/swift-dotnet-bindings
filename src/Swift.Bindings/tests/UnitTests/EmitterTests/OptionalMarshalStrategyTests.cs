@@ -444,7 +444,7 @@ public class OptionalMarshalStrategyTests
 
         foreach (var type in blittableTypes)
         {
-            Assert.True(ConstructorWrapperEmitter.IsBlittablePrimitiveSwiftType(type),
+            Assert.True(CdeclParamMapper.IsBlittablePrimitiveSwiftType(type),
                 $"{type} should be recognized as blittable primitive");
             Assert.NotNull(OptionalMarshalClassifier.GetSwiftTagByteOffset(type));
         }

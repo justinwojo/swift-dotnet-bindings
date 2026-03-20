@@ -444,7 +444,7 @@ public static class ArraySliceNormalizationEmitter
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
                 continue;
             if (arg.IsGeneric) return false;
-            if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
+            if (CdeclParamMapper.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
                 return false;
@@ -489,7 +489,7 @@ public static class ArraySliceNormalizationEmitter
             {
                 // @_cdecl mode: convert to C-compatible type
                 var (cdeclParam, reconstruction, _) =
-                    ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels: true);
+                    CdeclParamMapper.Map(arg, label, env, omitLabels: true);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) derefLines.Add(reconstruction);
             }
@@ -574,16 +574,16 @@ public static class ArraySliceNormalizationEmitter
         // @_cdecl return mapping
         bool cdeclNeedsResultPtr = false;
         bool cdeclIsStringReturn = false;
-        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
+        CdeclReturnMapping? cdeclReturnMapping = null;
         string returnClause;
         if (useCdecl && !isVoid && !hasLargeOptionalReturn)
         {
-            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
             cdeclReturnMapping = returnMapping;
             cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
             if (cdeclIsStringReturn) needsResultPtr = true;
             cdeclNeedsResultPtr = needsResultPtr;
-            returnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+            returnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
             if (needsResultPtr)
             {
                 // ResultPtr must be FIRST per CdeclSignatureContract:
@@ -732,7 +732,7 @@ public static class ArraySliceNormalizationEmitter
     private static void EmitCdeclReturnLine(SwiftWriter swiftWriter, string callExpr,
         bool isVoid, bool cdeclIsStringReturn, bool cdeclNeedsResultPtr,
         TypeSpec returnTypeSpec, ITypeDatabase typeDatabase,
-        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping)
+        CdeclReturnMapping? cdeclReturnMapping)
     {
         if (isVoid)
         {

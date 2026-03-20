@@ -100,7 +100,7 @@ public static class SubscriptWrapperEmitter
         // 13. No non-primitive frozen struct index parameters
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            if (ConstructorWrapperEmitter.IsCdeclPrimitive(param.SwiftTypeSpec))
+            if (CdeclParamMapper.IsCdeclPrimitive(param.SwiftTypeSpec))
                 continue;
             if (param.SwiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
                 continue;
@@ -173,7 +173,7 @@ public static class SubscriptWrapperEmitter
         }
         foreach (var param in subscriptDecl.IndexParameters)
         {
-            if (ConstructorWrapperEmitter.IsCdeclPrimitive(param.SwiftTypeSpec)) continue;
+            if (CdeclParamMapper.IsCdeclPrimitive(param.SwiftTypeSpec)) continue;
             if (param.SwiftTypeSpec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String") continue;
             if (env.TypeDatabase.TryGetTypeRecord(param.SwiftTypeSpec, out var typeRecord) &&
                 typeRecord.Kind == TypeRecordKind.Struct &&
@@ -228,8 +228,8 @@ public static class SubscriptWrapperEmitter
 
         // Determine return mapping
         var (returnMapping, needsResultPtr) = isString
-            ? (new PropertyWrapperEmitter.CdeclReturnMapping("SBW_Utf8Slice", PropertyWrapperEmitter.CdeclReturnKind.String), true)
-            : PropertyWrapperEmitter.GetCdeclReturnMapping(subscriptDecl.ReturnTypeSpec, env.TypeDatabase);
+            ? (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true)
+            : CdeclReturnMapping.Classify(subscriptDecl.ReturnTypeSpec, env.TypeDatabase);
 
         if (isString)
             needsResultPtr = true;
@@ -266,7 +266,7 @@ public static class SubscriptWrapperEmitter
                             continue;
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
-                        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
                             param, label, env, omitLabels: false, useUtf8Strings: true);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
@@ -297,7 +297,7 @@ public static class SubscriptWrapperEmitter
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Return clause
-        string returnClause = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+        string returnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         var swiftFuncName = $"_sbw_subget_{EmitterUtility.DeterministicHash8(symbolName)}";
 
@@ -430,7 +430,7 @@ public static class SubscriptWrapperEmitter
                             ModuleDecl = null
                         };
                         // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
-                        var (cdeclParam, reconstruction, callArgExpr) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArgExpr) = CdeclParamMapper.Map(
                             newValueArg, "newValue", env, omitLabels: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
@@ -449,7 +449,7 @@ public static class SubscriptWrapperEmitter
                             continue;
 
                         var label = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
-                        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
                             param, label, env, omitLabels: false, useUtf8Strings: true);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
@@ -614,41 +614,41 @@ public static class SubscriptWrapperEmitter
     }
 
     private static void EmitDirectReturn(SwiftWriter swiftWriter, string expr,
-        TypeSpec typeSpec, ITypeDatabase typeDatabase, PropertyWrapperEmitter.CdeclReturnMapping mapping)
+        TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
     {
         switch (mapping.Kind)
         {
-            case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+            case CdeclReturnKind.Bool:
                 swiftWriter.WriteLine($"return ({expr}) ? 1 : 0");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+            case CdeclReturnKind.SimpleEnum:
                 if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
                     !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
                 {
-                    swiftWriter.WriteLine($"return {mapping.cdeclReturnType}(({expr}).rawValue)");
+                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}(({expr}).rawValue)");
                 }
                 else
                 {
                     swiftWriter.WriteLine($"var result = {expr}");
-                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.cdeclReturnType}.self) }}");
+                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.CdeclReturnType}.self) }}");
                 }
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+            case CdeclReturnKind.ClassPointer:
                 // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
                 // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
                 // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
                 swiftWriter.WriteLine($"return Unmanaged.passRetained({expr} as AnyObject).toOpaque()");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+            case CdeclReturnKind.OptionalClassPointer:
                 // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
                 // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
                 swiftWriter.WriteLine($"return ({expr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.Direct:
+            case CdeclReturnKind.Direct:
             default:
                 swiftWriter.WriteLine($"return {expr}");
                 break;

@@ -731,28 +731,28 @@ public class ExistentialBypassEmitterTests
     public void IsAnyObjectType_ProtocolList_ReturnsTrue()
     {
         var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("AnyObject") });
-        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+        Assert.True(CdeclParamMapper.IsAnyObjectType(anyObject));
     }
 
     [Fact]
     public void IsAnyObjectType_QualifiedProtocolList_ReturnsTrue()
     {
         var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.AnyObject") });
-        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+        Assert.True(CdeclParamMapper.IsAnyObjectType(anyObject));
     }
 
     [Fact]
     public void IsAnyObjectType_NamedType_ReturnsTrue()
     {
         var anyObject = new NamedTypeSpec("AnyObject");
-        Assert.True(ConstructorWrapperEmitter.IsAnyObjectType(anyObject));
+        Assert.True(CdeclParamMapper.IsAnyObjectType(anyObject));
     }
 
     [Fact]
     public void IsAnyObjectType_RegularProtocol_ReturnsFalse()
     {
         var proto = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Equatable") });
-        Assert.False(ConstructorWrapperEmitter.IsAnyObjectType(proto));
+        Assert.False(CdeclParamMapper.IsAnyObjectType(proto));
     }
 
     [Fact]
@@ -760,9 +760,9 @@ public class ExistentialBypassEmitterTests
     {
         var typeDb = new TypeDatabase();
         var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("AnyObject") });
-        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(anyObject, typeDb);
+        var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(anyObject, typeDb);
 
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.ClassPointer, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.ClassPointer, mapping.Kind);
         Assert.False(needsResultPtr);
     }
 }

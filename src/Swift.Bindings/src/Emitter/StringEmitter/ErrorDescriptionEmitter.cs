@@ -225,4 +225,199 @@ public static class ErrorDescriptionEmitter
     {
         return swiftErrorTypeName.Replace(".", "_");
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // C# P/Invoke emission — consolidated from WrapperEmitter.Marshalling,
+    // GenericClosureBridgeEmitter, and ProtocolProxyEmitter.SwiftObject
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Emits base error P/Invokes (SBW_GetErrorDescription, SBW_ReleaseError, SBW_Free) for a C# type.
+    /// Handles both generic types (via PInvokeHelperContext) and non-generic types (via LibraryImport).
+    /// Deduped per C# type via <see cref="ModuleEmissionContext"/>.
+    /// </summary>
+    /// <param name="csWriter">The C# writer to emit to (used for non-generic LibraryImport path).</param>
+    /// <param name="typeKey">The C# type key for dedup (typically ModuleQualifiedName or module name).</param>
+    /// <param name="moduleName">The module name for symbol resolution.</param>
+    /// <param name="wrapperLibPath">The wrapper library path for LibraryImport.</param>
+    /// <param name="pInvokeHelperContext">Non-null for generic types (CS7042 workaround); null for direct emission.</param>
+    /// <param name="ctx">The per-module emission context.</param>
+    public static void EmitCSharpBaseErrorPInvokesIfNeeded(
+        CSharpWriter csWriter, string typeKey, string moduleName,
+        string wrapperLibPath, PInvokeHelperContext? pInvokeHelperContext,
+        ModuleEmissionContext ctx)
+    {
+        if (HasErrorPInvokeForType(typeKey, ctx))
+            return;
+
+        MarkErrorPInvokeEmittedForType(typeKey, ctx);
+
+        var descSymbol = GetDescriptionSymbolName(moduleName);
+        var releaseSymbol = GetReleaseSymbolName(moduleName);
+        var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+
+        if (pInvokeHelperContext != null)
+        {
+            // CS7042: DllImport/LibraryImport cannot appear inside generic types.
+            // Collect into PInvokeHelperContext for emission in non-generic helper class.
+            pInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = descSymbol,
+                MethodName = "SBW_GetErrorDescription",
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr error",
+                OmitCallingConvention = true,
+                UsePrivateVisibility = false,
+            });
+            pInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = releaseSymbol,
+                MethodName = "SBW_ReleaseError",
+                ReturnType = "void",
+                ParametersString = "IntPtr error",
+                OmitCallingConvention = true,
+                UsePrivateVisibility = false,
+            });
+
+            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
+                pInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = freeSymbol,
+                    MethodName = "SBW_Free",
+                    ReturnType = "void",
+                    ParametersString = "IntPtr ptr",
+                    OmitCallingConvention = true,
+                    UsePrivateVisibility = false,
+                });
+            }
+        }
+        else
+        {
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
+                private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
+
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
+                private static partial void SBW_ReleaseError(IntPtr error);
+
+                """);
+
+            // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
+            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
+            {
+                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
+                csWriter.WriteLines($"""
+                    [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
+                    private static partial void SBW_Free(IntPtr ptr);
+
+                    """);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits the typed-throws extractor P/Invoke (SBW_ExtractTypedError_{suffix}) for a C# type.
+    /// Handles both generic types (via PInvokeHelperContext) and non-generic types (via LibraryImport).
+    /// Deduped per (C# type, Swift error type) pair via <see cref="ModuleEmissionContext"/>.
+    /// </summary>
+    public static void EmitCSharpTypedErrorExtractorIfNeeded(
+        CSharpWriter csWriter, string typeKey, string moduleName,
+        string wrapperLibPath, string swiftErrorTypeName, string typedErrorSafeSuffix,
+        PInvokeHelperContext? pInvokeHelperContext,
+        ModuleEmissionContext ctx)
+    {
+        var extractorKey = typeKey + ":extractor:" + swiftErrorTypeName;
+        if (HasExtractorPInvokeForType(extractorKey, ctx))
+            return;
+
+        MarkExtractorPInvokeEmittedForType(extractorKey, ctx);
+        var extractorSymbol = GetExtractorSymbolName(moduleName, swiftErrorTypeName);
+
+        if (pInvokeHelperContext != null)
+        {
+            pInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = extractorSymbol,
+                MethodName = $"SBW_ExtractTypedError_{typedErrorSafeSuffix}",
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr error",
+                OmitCallingConvention = true,
+                UsePrivateVisibility = false,
+            });
+        }
+        else
+        {
+            csWriter.WriteLines($"""
+                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
+                private static partial IntPtr SBW_ExtractTypedError_{typedErrorSafeSuffix}(IntPtr error);
+
+                """);
+        }
+    }
+
+    /// <summary>
+    /// Emits error P/Invokes via <see cref="PInvokeEmitHelper"/> for protocol proxy classes.
+    /// Uses the PInvokeEmitHelper API (different emission style from LibraryImport string templates).
+    /// Deduped per proxy class name via <see cref="ModuleEmissionContext"/>.
+    /// </summary>
+    public static void EmitCSharpErrorPInvokesViaPInvokeEmitHelper(
+        CSharpWriter writer, string proxyClassName, string moduleName,
+        string wrapperLibPath, ModuleEmissionContext ctx)
+    {
+        if (HasErrorPInvokeForType(proxyClassName, ctx))
+            return;
+
+        MarkErrorPInvokeEmittedForType(proxyClassName, ctx);
+
+        var descSymbol = GetDescriptionSymbolName(moduleName);
+        var releaseSymbol = GetReleaseSymbolName(moduleName);
+
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = descSymbol,
+            MethodName = "SBW_GetErrorDescription",
+            ReturnType = "IntPtr",
+            ParametersString = "IntPtr error",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+
+        writer.WriteLine();
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = releaseSymbol,
+            MethodName = "SBW_ReleaseError",
+            ReturnType = "void",
+            ParametersString = "IntPtr error",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public
+        });
+
+        if (!Utf8SliceEmitter.HasFreePInvokeForType(proxyClassName, ctx))
+        {
+            Utf8SliceEmitter.MarkFreePInvokeEmittedForType(proxyClassName, ctx);
+            var freeSwiftSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+
+            writer.WriteLine();
+            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = freeSwiftSymbol,
+                MethodName = "SBW_Free",
+                ReturnType = "void",
+                ParametersString = "IntPtr ptr",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Public
+            });
+        }
+    }
 }

@@ -153,7 +153,7 @@ namespace BindingsGeneration
 
             // Optional<value-type>: @_cdecl can't return generics directly.
             if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
-                !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                !CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 
             // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
@@ -244,7 +244,7 @@ namespace BindingsGeneration
                 // @_cdecl Optional<value-type>: force IndirectResult instead of IntPtr marshalling.
                 if (isCdeclNonSetter &&
                     MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
-                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
+                    !CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
                 {
                     return true;
                 }
@@ -276,7 +276,7 @@ namespace BindingsGeneration
 
             // @_cdecl: frozen structs also need indirect result (except primitives).
             if (isCdeclNonSetter &&
-                !ConstructorWrapperEmitter.IsCdeclPrimitive(returnType.SwiftTypeSpec))
+                !CdeclParamMapper.IsCdeclPrimitive(returnType.SwiftTypeSpec))
                 return true;
 
             return false;

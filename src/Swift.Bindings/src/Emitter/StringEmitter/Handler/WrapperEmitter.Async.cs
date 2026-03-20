@@ -569,7 +569,7 @@ namespace BindingsGeneration
                     {
                         var label = !string.IsNullOrEmpty(p.PrivateName) ? p.PrivateName : p.Name;
                         var (cdeclParam, reconstruction, _) =
-                            ConstructorWrapperEmitter.GetCdeclParamMapping(p, label, _env, omitLabels: true);
+                            CdeclParamMapper.Map(p, label, _env, omitLabels: true);
                         if (reconstruction != null) cdeclReconstructionLines.Add(reconstruction);
                         return cdeclParam;
                     }

@@ -35,7 +35,7 @@ namespace BindingsGeneration
                 // MethodRequiresIndirectResult returns true for these, adding resultPtr below.
                 if (_env.MethodDecl.UsesCdeclWrapper &&
                     MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
-                    !MethodWrapperEmitter.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase))
+                    !CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     // Fall through to MethodRequiresIndirectResult check below
                 }

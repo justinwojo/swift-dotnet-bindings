@@ -155,10 +155,10 @@ public class PropertyWrapperEmitterTests
         var optionalClosureType = new NamedTypeSpec("Swift.Optional");
         optionalClosureType.GenericParameters.Add(closureType);
 
-        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalClosureType, typeDb);
+        var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalClosureType, typeDb);
 
-        Assert.Equal("Void", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal("Void", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
         Assert.True(needsResultPtr);
     }
 
@@ -915,36 +915,36 @@ public class PropertyWrapperEmitterTests
     public void GetCdeclReturnMapping_Int_DirectReturn()
     {
         var (_, typeDb) = CreateTestEnvironment("MyType");
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("Swift.Int"), typeDb);
 
         Assert.False(needsPtr);
-        Assert.Equal("Int", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.Direct, mapping.Kind);
+        Assert.Equal("Int", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.Direct, mapping.Kind);
     }
 
     [Fact]
     public void GetCdeclReturnMapping_Bool_Int8()
     {
         var (_, typeDb) = CreateTestEnvironment("MyType");
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("Swift.Bool"), typeDb);
 
         Assert.False(needsPtr);
-        Assert.Equal("Int8", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.Bool, mapping.Kind);
+        Assert.Equal("Int8", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.Bool, mapping.Kind);
     }
 
     [Fact]
     public void GetCdeclReturnMapping_String_SBWUtf8Slice()
     {
         var (_, typeDb) = CreateTestEnvironment("MyType");
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("Swift.String"), typeDb);
 
         Assert.True(needsPtr); // String returns via resultPtr (@_cdecl can't return Swift structs)
-        Assert.Equal("SBW_Utf8Slice", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.String, mapping.Kind);
+        Assert.Equal("SBW_Utf8Slice", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.String, mapping.Kind);
     }
 
     [Fact]
@@ -952,12 +952,12 @@ public class PropertyWrapperEmitterTests
     {
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.ChildObj", TypeRecordFlags.None, TypeRecordKind.Class));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.ChildObj"), typeDb);
 
         Assert.False(needsPtr);
-        Assert.Equal("UnsafeMutableRawPointer", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.ClassPointer, mapping.Kind);
+        Assert.Equal("UnsafeMutableRawPointer", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.ClassPointer, mapping.Kind);
     }
 
     [Fact]
@@ -965,12 +965,12 @@ public class PropertyWrapperEmitterTests
     {
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.ContentMode", TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum, TypeRecordKind.Enum, "Swift.Int"));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.ContentMode"), typeDb);
 
         Assert.False(needsPtr);
-        Assert.Equal("Int", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum, mapping.Kind);
+        Assert.Equal("Int", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.SimpleEnum, mapping.Kind);
     }
 
     [Fact]
@@ -978,11 +978,11 @@ public class PropertyWrapperEmitterTests
     {
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.Config", TypeRecordFlags.None, TypeRecordKind.Struct));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.Config"), typeDb);
 
         Assert.True(needsPtr);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -992,11 +992,11 @@ public class PropertyWrapperEmitterTests
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.Cacheable", TypeRecordFlags.None, TypeRecordKind.Protocol));
         var protocolListSpec = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Cacheable") });
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(protocolListSpec, typeDb);
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(protocolListSpec, typeDb);
 
         Assert.True(needsPtr);
-        Assert.Equal("Void", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal("Void", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1004,11 +1004,11 @@ public class PropertyWrapperEmitterTests
     {
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.ResultType", TypeRecordFlags.None, TypeRecordKind.Enum));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.ResultType"), typeDb);
 
         Assert.True(needsPtr);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1017,10 +1017,10 @@ public class PropertyWrapperEmitterTests
         var (_, typeDb) = CreateTestEnvironment("MyType");
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalSpec, typeDb);
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
 
         Assert.True(needsPtr);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1029,12 +1029,12 @@ public class PropertyWrapperEmitterTests
         // @_cdecl can't return Swift structs (even @frozen ones), so all structs use resultPtr
         var (_, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.Point", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.Point"), typeDb);
 
         Assert.True(needsPtr);
-        Assert.Equal("Void", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal("Void", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1060,13 +1060,13 @@ public class PropertyWrapperEmitterTests
             });
         typeDb.AddModuleDatabase(quartzModule);
 
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("QuartzCore.CALayerContentsGravity"), typeDb);
 
         // Must NOT be ClassPointer (would emit Unmanaged.passRetained which crashes on a struct)
         Assert.True(needsPtr);
-        Assert.Equal("Void", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal("Void", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1209,12 +1209,12 @@ public class PropertyWrapperEmitterTests
             });
         typeDb.AddModuleDatabase(testModule);
 
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.PHPickerResult"), typeDb);
 
         // Must use IndirectResult, NOT ClassPointer
         Assert.True(needsPtr);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
     }
 
     [Fact]
@@ -1238,11 +1238,11 @@ public class PropertyWrapperEmitterTests
             });
         typeDb.AddModuleDatabase(testModule);
 
-        var (mapping, needsPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(
+        var (mapping, needsPtr) = CdeclReturnMapping.Classify(
             new NamedTypeSpec("TestModule.UIImage"), typeDb);
 
         Assert.False(needsPtr);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.ClassPointer, mapping.Kind);
+        Assert.Equal(CdeclReturnKind.ClassPointer, mapping.Kind);
     }
 
     #endregion
@@ -1822,10 +1822,10 @@ public class PropertyWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.Animation"));
 
-        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalSpec, typeDb);
+        var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
 
-        Assert.Equal("UnsafeMutableRawPointer?", mapping.cdeclReturnType);
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer, mapping.Kind);
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
+        Assert.Equal(CdeclReturnKind.OptionalClassPointer, mapping.Kind);
         Assert.False(needsResultPtr);
     }
 

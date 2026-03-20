@@ -1748,7 +1748,7 @@ public class ConstructorWrapperEmitterTests
     [InlineData("Int32", "Int32")]
     public void GetSwiftRawValueType_ReturnsCorrectSwiftType(string input, string expected)
     {
-        var result = ConstructorWrapperEmitter.GetSwiftRawValueType(input);
+        var result = CdeclParamMapper.GetSwiftRawValueType(input);
         Assert.Equal(expected, result);
     }
 
@@ -2025,7 +2025,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, keyword, env);
+        var (cdeclParam, _, _) = CdeclParamMapper.Map(arg, keyword, env);
 
         // The cdecl param must use the escaped label, not the raw keyword
         Assert.Contains($"{keyword}Param", cdeclParam);
@@ -2054,7 +2054,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "count", env);
+        var (cdeclParam, _, _) = CdeclParamMapper.Map(arg, "count", env);
 
         Assert.Contains("count", cdeclParam);
         Assert.DoesNotContain("countParam", cdeclParam);
@@ -3305,7 +3305,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
             arg, "child", env, omitLabels: false);
 
         // Swift param should be UnsafeMutableRawPointer? (nullable)
@@ -3342,7 +3342,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (_, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+        var (_, reconstruction, callArg) = CdeclParamMapper.Map(
             arg, "child", env, omitLabels: false);
 
         // Reconstruction uses Optional.map with Unmanaged.fromOpaque
@@ -3373,10 +3373,10 @@ public class ConstructorWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyClass"));
 
-        var (mapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(optionalSpec, typeDb);
+        var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalSpec, typeDb);
 
-        Assert.Equal(PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer, mapping.Kind);
-        Assert.Equal("UnsafeMutableRawPointer?", mapping.cdeclReturnType);
+        Assert.Equal(CdeclReturnKind.OptionalClassPointer, mapping.Kind);
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
         Assert.False(needsResultPtr);
     }
 
@@ -3410,7 +3410,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(
             arg, "zone", env, omitLabels: false);
 
         // Swift param should be UnsafeMutableRawPointer? (nullable)
@@ -3451,7 +3451,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+        var (_, reconstruction, _) = CdeclParamMapper.Map(
             arg, "child", env, omitLabels: false);
 
         // True class: Unmanaged<MyClass> is safe (no AnyObject bridge needed)
@@ -3492,7 +3492,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("test", isConstructor: true, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels: true);
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: true);
 
         // The param should use a valid identifier, not `_`
         Assert.Contains("arg0", cdeclParam);
@@ -3535,7 +3535,7 @@ public class ConstructorWrapperEmitterTests
         var env = new MethodEnvironment(dummyMethod, typeDb);
 
         var (cdeclParam, reconstruction, callArg) =
-            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "items", env);
+            CdeclParamMapper.Map(arg, "items", env);
 
         // Swift side: must use UnsafeRawPointer and .assumingMemoryBound(to:).pointee to read the container value
         Assert.Contains("UnsafeRawPointer", cdeclParam);
@@ -3567,7 +3567,7 @@ public class ConstructorWrapperEmitterTests
         var env = new MethodEnvironment(dummyMethod, typeDb);
 
         var (cdeclParam, reconstruction, callArg) =
-            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "dict", env);
+            CdeclParamMapper.Map(arg, "dict", env);
 
         // Swift side: must use UnsafeRawPointer and .assumingMemoryBound(to:).pointee to read the container value
         Assert.Contains("UnsafeRawPointer", cdeclParam);
@@ -3607,7 +3607,7 @@ public class ConstructorWrapperEmitterTests
         var env = new MethodEnvironment(dummyMethod, typeDb);
 
         var (cdeclParam, reconstruction, callArg) =
-            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "data", env);
+            CdeclParamMapper.Map(arg, "data", env);
 
         // Swift @_cdecl must accept two Int words, not Foundation.Data (ObjC bridging)
         Assert.Contains("_dW0_data: Int", cdeclParam);
@@ -3650,7 +3650,7 @@ public class ConstructorWrapperEmitterTests
         var env = new MethodEnvironment(dummyMethod, typeDb);
 
         var (cdeclParam, reconstruction, callArg) =
-            ConstructorWrapperEmitter.GetCdeclParamMapping(arg, "payload", env);
+            CdeclParamMapper.Map(arg, "payload", env);
 
         // Argument label should be preserved
         Assert.Equal("payload: payloadVal", callArg);

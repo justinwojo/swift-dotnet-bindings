@@ -873,7 +873,7 @@ namespace BindingsGeneration
             if (!MarshallingHelpers.IsTypeFrozen(record)) return false;
             if (MarshallingHelpers.RequiresMemoryManagement(record)) return false;
             // System structs pass by-value — only custom structs need pointer
-            if (ConstructorWrapperEmitter.IsSystemFrozenStruct(named)) return false;
+            if (CdeclParamMapper.IsSystemFrozenStruct(named)) return false;
             return true;
         }
 

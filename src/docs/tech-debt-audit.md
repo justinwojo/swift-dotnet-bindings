@@ -574,22 +574,40 @@ All work is organized into 3 sessions. Each session is designed to be completabl
 
 ---
 
-### Session 3: Emitter Architecture
+### Session 3: Emitter Architecture ✅ COMPLETE
 
-**Scope**: The large structural refactoring items. These change how the emitter is organized internally. Depends on Session 2's shared utilities being in place.
+**Date completed**: March 19, 2026
+**Branch**: `tech-debt-session-1` (continued from Sessions 1-2)
 
-**Agent team structure**: 2 parallel agents (items have more interdependencies)
+**Scope**: Large structural refactoring that reorganizes how the emitter is internally structured. Depends on Session 2's shared utilities.
 
-| Agent | Items | Files Touched |
-|-------|-------|---------------|
-| **Agent A: Parameter & Return Marshalling** | Break `GetCdeclParamMapping` into type-specific strategy handlers; Unified return value dispatcher (promote `CdeclReturnKind` to shared enum); `MarshalSequencer` for constructor/method/ObjC ordering | ConstructorWrapperEmitter (major refactor), WrapperEmitter.cs, WrapperEmitter.Return.cs, new strategy handler files |
-| **Agent B: Coordination & Infrastructure** | `ErrorInfrastructureEmitter` (consolidate error P/Invoke setup); `ClosureCallbackOrchestrator` (unify closure marshalling across Property/Method); Unified `GenericDispatchEmitter` (3 strategies → 1 configurable, building on Session 2's GenericProtocolEmitter) | WrapperEmitter.Marshalling.cs, ClosureEmitter.cs, Method/Property/ConstructorWrapperEmitter, new coordinator files |
+**Items completed** (4 of 6 — 2 intentionally dropped after exploration):
 
-**Validation gates**: `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` (full rebuild — major emitter changes)
+| # | Item | Status | New/Modified Files |
+|---|------|--------|-------------------|
+| 1 | Extract `CdeclParamMapper` from ConstructorWrapperEmitter | ✅ Done | New `CdeclParamMapper.cs`, 21 files updated |
+| 2 | Promote `CdeclReturnKind`/`CdeclReturnMapping` to shared types | ✅ Done | New `CdeclReturnMapping.cs`, 8 files updated |
+| 3 | Expand `ErrorDescriptionEmitter` with full C# P/Invoke emission | ✅ Done | ErrorDescriptionEmitter.cs, 3 consumer files simplified |
+| 4 | Create `GenericDispatchEmitter` with unified eligibility rules | ✅ Done | New `GenericDispatchEmitter.cs`, WrapperValidation + 2 emitters updated |
+| — | `MarshalSequencer` | Dropped | Sequences are well-structured after Session 2; differences are structural, not parametric |
+| — | `ClosureCallbackOrchestrator` | Dropped | ClosureEmitter.cs is already a centralized static utility; no duplication to consolidate |
 
-**Risk**: Higher. `GetCdeclParamMapping` breakup is the single largest change (~1,000 lines reorganized). GenericDispatchEmitter touches all 4 wrapper emitters. Run `build-and-test.sh` after each agent completes, not just at the end.
+**Validation gates**: All green
+- `run-tests.sh`: 8161 passed, 0 failed
+- `validate-libraries.sh`: 90/90 passed, no regressions
+- `build-and-test.sh`: Full rebuild successful, bindings compile
 
-**Note**: The "wrapper emitter base class" item from Phase 4 is deliberately excluded. After Sessions 1-3, reassess whether it's still needed — the shared utilities may provide enough structure without a class hierarchy.
+**New shared utilities**:
+- `CdeclParamMapper.cs` — `Map()` + 8 type classification helpers, extracted from ConstructorWrapperEmitter (~480 lines moved)
+- `CdeclReturnMapping.cs` — record + enum + `Classify()`, extracted from PropertyWrapperEmitter (~105 lines moved)
+- `GenericDispatchEmitter.cs` — unified `CanEmitGenericDispatch`, `NeedsStaticDispatch`, `CanEmitStaticDispatch` eligibility rules
+
+**Key decisions**:
+- `CdeclParamMapper.Map()` keeps the same signature as the original `GetCdeclParamMapping` — NOT a strategy pattern with 16 classes (the categories share the same return type and inputs)
+- `GenericDispatchEmitter` owns eligibility only; emission stays in individual emitters because each kind has structurally different output (metadata ordering, self handling, return handling, error paths)
+- `ErrorDescriptionEmitter` expansion consolidated 3 consumer sites: WrapperEmitter.Marshalling (120→15 lines), ProtocolProxyEmitter.SwiftObject (2 blocks, ~100→8 lines), GenericClosureBridgeEmitter (35→5 lines)
+
+**Note**: The "wrapper emitter base class" item from Phase 4 is deliberately excluded. After Sessions 1-3, the shared utilities provide enough structure without a class hierarchy.
 
 ---
 
@@ -599,8 +617,8 @@ All work is organized into 3 sessions. Each session is designed to be completabl
 |---------|------:|:-----------------:|------|----------------|--------|
 | 1 | 14 | 3 agents | Low | `run-tests.sh` + `validate-libraries.sh` + `run-runtime-tests.sh --skip-regen` | **Done** |
 | 2 | 9 | 3 agents | Medium | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` | **Done** |
-| 3 | 5 | 2 agents | Higher | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` (per-agent) | Pending |
-| **Total** | **28** | | | | |
+| 3 | 4 (+2 dropped) | 1 agent | Higher | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` | **Done** |
+| **Total** | **27** (+2 dropped) | | | | **All Done** |
 
 ### Dependencies Between Sessions
 

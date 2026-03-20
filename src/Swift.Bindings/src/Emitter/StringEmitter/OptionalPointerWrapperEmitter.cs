@@ -29,7 +29,7 @@ public static class OptionalPointerWrapperEmitter
             // that @_cdecl GetCdeclParamMapping doesn't support. Fall back to @_silgen_name
             // where closures pass as native Swift types.
             if (env.ClosureHandler.IsClosure(arg)) return false;
-            if (ConstructorWrapperEmitter.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
+            if (CdeclParamMapper.IsProtocolExistentialType(arg.SwiftTypeSpec, env.TypeDatabase))
                 return false;
             if (MethodWrapperEmitter.IsNestedFrozenStructParam(arg, env.TypeDatabase))
                 return false;
@@ -66,15 +66,15 @@ public static class OptionalPointerWrapperEmitter
         string throwsStr;
         bool cdeclNeedsResultPtr = false;
         bool cdeclIsStringReturn = false;
-        PropertyWrapperEmitter.CdeclReturnMapping? cdeclReturnMapping = null;
+        CdeclReturnMapping? cdeclReturnMapping = null;
         if (useCdecl && hasReturn && !hasLargeOptionalReturn)
         {
-            var (returnMapping, needsResultPtr) = PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            var (returnMapping, needsResultPtr) = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
             cdeclReturnMapping = returnMapping;
             cdeclIsStringReturn = WitnessDispatchEmitter.IsStringType(returnTypeSpec);
             if (cdeclIsStringReturn) needsResultPtr = true;
             cdeclNeedsResultPtr = needsResultPtr;
-            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.cdeclReturnType}";
+            returnTypeStr = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
             if (cdeclIsStringReturn)
                 Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
         }
@@ -129,7 +129,7 @@ public static class OptionalPointerWrapperEmitter
                 if (label_ == "_")
                     label_ = $"arg{argIndex}";
                 var (cdeclParam, reconstruction, callArg) =
-                    ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label_, env, omitLabels: true);
+                    CdeclParamMapper.Map(arg, label_, env, omitLabels: true);
                 swiftParams.Add(cdeclParam);
                 if (reconstruction != null) derefCode.Add(reconstruction);
                 var swiftArgLabel = GetSwiftArgLabel(arg);
@@ -518,31 +518,31 @@ public static class OptionalPointerWrapperEmitter
     /// </summary>
     internal static void EmitCdeclDirectReturn(SwiftWriter swiftWriter, string callExpr,
         TypeSpec returnTypeSpec, ITypeDatabase typeDatabase,
-        PropertyWrapperEmitter.CdeclReturnMapping? mapping, string indent)
+        CdeclReturnMapping? mapping, string indent)
     {
-        var kind = mapping?.Kind ?? PropertyWrapperEmitter.CdeclReturnKind.Direct;
+        var kind = mapping?.Kind ?? CdeclReturnKind.Direct;
         switch (kind)
         {
-            case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+            case CdeclReturnKind.Bool:
                 swiftWriter.WriteLine($"{indent}return ({callExpr}) ? 1 : 0");
                 break;
-            case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+            case CdeclReturnKind.SimpleEnum:
                 if (typeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
                     !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
                 {
-                    swiftWriter.WriteLine($"{indent}return {mapping!.cdeclReturnType}(({callExpr}).rawValue)");
+                    swiftWriter.WriteLine($"{indent}return {mapping!.CdeclReturnType}(({callExpr}).rawValue)");
                 }
                 else
                 {
                     swiftWriter.WriteLine($"{indent}var result = {callExpr}");
-                    swiftWriter.WriteLine($"{indent}return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping!.cdeclReturnType}.self) }}");
+                    swiftWriter.WriteLine($"{indent}return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping!.CdeclReturnType}.self) }}");
                 }
                 break;
-            case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+            case CdeclReturnKind.ClassPointer:
                 // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
                 swiftWriter.WriteLine($"{indent}return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
                 break;
-            case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+            case CdeclReturnKind.OptionalClassPointer:
                 // Use `as AnyObject` — ObjC-bridged structs (e.g., NSZone, IndexPath) need bridge cast.
                 swiftWriter.WriteLine($"{indent}if let result = {callExpr} {{ return Unmanaged.passRetained(result as AnyObject).toOpaque() }}");
                 swiftWriter.WriteLine($"{indent}return nil");
@@ -557,20 +557,20 @@ public static class OptionalPointerWrapperEmitter
     /// Emits a sentinel return value in the catch block for non-void direct @_cdecl returns.
     /// </summary>
     internal static void EmitCdeclSentinelReturn(SwiftWriter swiftWriter,
-        PropertyWrapperEmitter.CdeclReturnMapping? mapping, string indent)
+        CdeclReturnMapping? mapping, string indent)
     {
-        var kind = mapping?.Kind ?? PropertyWrapperEmitter.CdeclReturnKind.Direct;
+        var kind = mapping?.Kind ?? CdeclReturnKind.Direct;
         switch (kind)
         {
-            case PropertyWrapperEmitter.CdeclReturnKind.Bool:
-            case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
-            case PropertyWrapperEmitter.CdeclReturnKind.Direct:
+            case CdeclReturnKind.Bool:
+            case CdeclReturnKind.SimpleEnum:
+            case CdeclReturnKind.Direct:
                 swiftWriter.WriteLine($"{indent}return 0");
                 break;
-            case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+            case CdeclReturnKind.ClassPointer:
                 swiftWriter.WriteLine($"{indent}return UnsafeMutableRawPointer(bitPattern: 1)!");
                 break;
-            case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+            case CdeclReturnKind.OptionalClassPointer:
                 swiftWriter.WriteLine($"{indent}return nil");
                 break;
         }

@@ -214,7 +214,7 @@ public static class WrapperValidation
     /// </summary>
     public static bool IsUnsupportedGenericContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
-        if (!ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
+        if (!CdeclParamMapper.IsGenericContainerType(typeSpec))
             return false;
         if (IsOptionalSupportedForCdecl(typeSpec, typeDatabase))
             return false;  // Optional<value-type/reference>: IndirectResult or nullable pointer
@@ -257,7 +257,7 @@ public static class WrapperValidation
         if (!IsOptionalType(typeSpec))
             return false;
         // Optional<protocol existential> needs special proxy conversion
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, typeDatabase))
+        if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, typeDatabase))
             return false;
         return true;
     }
@@ -400,7 +400,7 @@ public static class WrapperValidation
     public static bool IsNonPrimitiveFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
         var spec = arg.SwiftTypeSpec;
-        if (ConstructorWrapperEmitter.IsCdeclPrimitive(spec))
+        if (CdeclParamMapper.IsCdeclPrimitive(spec))
             return false;
         if (spec is NamedTypeSpec strNamed && strNamed.Name == "Swift.String")
             return false;
@@ -411,7 +411,7 @@ public static class WrapperValidation
             // System/Apple framework frozen structs (CGRect, CGSize, Foundation.Date, etc.)
             // are blittable and safe for @_cdecl by-value passing. Only custom frozen structs
             // from third-party/user libraries need UnsafeRawPointer marshalling.
-            if (spec is NamedTypeSpec namedSpec && ConstructorWrapperEmitter.IsSystemFrozenStruct(namedSpec))
+            if (spec is NamedTypeSpec namedSpec && CdeclParamMapper.IsSystemFrozenStruct(namedSpec))
                 return false;
             return true;
         }
@@ -433,7 +433,7 @@ public static class WrapperValidation
         var parentTypeDecl = env.ParentDecl as TypeDecl;
         if (parentTypeDecl?.IsGeneric == true)
         {
-            if (!MethodWrapperEmitter.CanEmitGenericClassWrapper(env, parentTypeDecl))
+            if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
                 return false;
         }
         // Guard 5c: No inout parameters — write-back semantics incompatible with @_cdecl wrappers.
@@ -476,7 +476,7 @@ public static class WrapperValidation
         // appear in function bodies (initializeMemory(as:), rawValue casts), which is valid Swift.
 
         // Guard 10: No protocol existential return
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
+        if (CdeclParamMapper.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
             return false;
         return true;
     }
@@ -533,29 +533,15 @@ public static class WrapperValidation
         switch (memberKind)
         {
             case MemberKind.Method:
-                return MethodWrapperEmitter.NeedsGenericStaticDispatch(env, parentTypeDecl);
+                return GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
 
             case MemberKind.Property:
-            {
-                bool isGenericClassParent = IsGenericClassParent(env.ParentDecl);
-
-                // Generic struct (not class) always needs static dispatch
-                if (!isGenericClassParent)
-                    return true;
-
-                // Generic class: needs static dispatch only if property type references T
                 if (propertyDecl != null)
-                {
-                    var genericParamNames = parentTypeDecl.GenericParameters
-                        .Select(p => p.TypeName)
-                        .ToHashSet();
-                    return TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
-                }
-                return false;
-            }
+                    return GenericDispatchEmitter.NeedsStaticDispatchForProperty(env, parentTypeDecl, propertyDecl);
+                return GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.PropertyGetter);
 
             case MemberKind.Constructor:
-                return ConstructorWrapperEmitter.NeedsGenericStaticFactory(env, parentTypeDecl);
+                return GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Constructor);
 
             default:
                 return false;
@@ -653,7 +639,7 @@ public static class WrapperValidation
         {
             if (IsInheritedGenericContext(parentTypeDecl))
                 return "inherited_generic_context";
-            if (!MethodWrapperEmitter.CanEmitGenericClassWrapper(env, parentTypeDecl))
+            if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
                 return "generic_parent";
         }
 
@@ -1052,7 +1038,7 @@ public static class WrapperValidation
             return false;
 
         // System frozen structs (CGRect, etc.) have special runtime handling — safe
-        if (ConstructorWrapperEmitter.IsSystemFrozenStruct(parentNamedSpec))
+        if (CdeclParamMapper.IsSystemFrozenStruct(parentNamedSpec))
             return false;
 
         // Custom frozen struct with float/bool fields → incompatible with .NET CallConvSwift
@@ -1086,7 +1072,7 @@ public static class WrapperValidation
     internal static bool IsParamTypeCdeclRequired(TypeSpec typeSpec, MethodEnvironment env)
     {
         // Primitives are always safe
-        if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
             return false;
 
         // ValueTuple → StructLayout.Auto → @_cdecl required
@@ -1094,7 +1080,7 @@ public static class WrapperValidation
             return true;
 
         // Generic containers (Array, Dict, Set, Optional) → non-blittable in CallConvSwift
-        if (ConstructorWrapperEmitter.IsGenericContainerType(typeSpec))
+        if (CdeclParamMapper.IsGenericContainerType(typeSpec))
             return true;
 
         // Look up TypeRecord for further classification
@@ -1117,7 +1103,7 @@ public static class WrapperValidation
             // Evidence matrix: CGRect (32B) passes on both Mono and NativeAOT.
             // Only Swift-module system types (String = 16 bytes) need the > 8 byte restriction
             // because Mono JIT can't generate correct CallConvSwift stubs for them.
-            if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+            if (typeSpec is NamedTypeSpec named && CdeclParamMapper.IsSystemFrozenStruct(named))
             {
                 if (IsCBridgingModuleType(named))
                     return false;  // Pure C struct — safe at any size
@@ -1148,7 +1134,7 @@ public static class WrapperValidation
     internal static bool IsReturnTypeCdeclRequired(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
         // Primitives are always safe
-        if (ConstructorWrapperEmitter.IsCdeclPrimitive(typeSpec))
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
             return false;
 
         // ValueTuple → StructLayout.Auto → @_cdecl required
@@ -1184,7 +1170,7 @@ public static class WrapperValidation
         {
             // System types from C-bridging modules (CoreGraphics, etc.) — safe at any size.
             // Only Swift-module system types (String = 16 bytes) need the > 8 byte restriction.
-            if (typeSpec is NamedTypeSpec named && ConstructorWrapperEmitter.IsSystemFrozenStruct(named))
+            if (typeSpec is NamedTypeSpec named && CdeclParamMapper.IsSystemFrozenStruct(named))
             {
                 if (IsCBridgingModuleType(named))
                     return false;  // Pure C struct — safe at any size
@@ -1202,7 +1188,7 @@ public static class WrapperValidation
         // only applies to Swift-module types like String.
         if (typeRecord.Kind == TypeRecordKind.Struct &&
             MarshallingHelpers.IsTypeFrozen(typeRecord) &&
-            typeSpec is NamedTypeSpec namedRet && ConstructorWrapperEmitter.IsSystemFrozenStruct(namedRet) &&
+            typeSpec is NamedTypeSpec namedRet && CdeclParamMapper.IsSystemFrozenStruct(namedRet) &&
             !IsCBridgingModuleType(namedRet) &&
             typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8)
             return true;

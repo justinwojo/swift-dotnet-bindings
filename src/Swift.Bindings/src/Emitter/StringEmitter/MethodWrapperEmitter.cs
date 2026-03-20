@@ -226,8 +226,8 @@ public static class MethodWrapperEmitter
         bool isString = !isVoidReturn && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
         var (returnMapping, needsResultPtr) = isVoidReturn
-            ? (new PropertyWrapperEmitter.CdeclReturnMapping("Void", PropertyWrapperEmitter.CdeclReturnKind.Direct), false)
-            : PropertyWrapperEmitter.GetCdeclReturnMapping(returnTypeSpec, env.TypeDatabase);
+            ? (new CdeclReturnMapping("Void", CdeclReturnKind.Direct), false)
+            : CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
 
         // String returns always need result ptr (SBW_Utf8Slice)
         if (isString)
@@ -334,7 +334,7 @@ public static class MethodWrapperEmitter
                         var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                         if (label == "_")
                             label = $"arg{i}";
-                        var (cdeclParam, reconstruction, callArg) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, omitLabels);
+                        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels);
 
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
@@ -362,7 +362,7 @@ public static class MethodWrapperEmitter
         if (isVoidReturn || needsResultPtr)
             returnClause = "";
         else
-            returnClause = $" -> {returnMapping.cdeclReturnType}";
+            returnClause = $" -> {returnMapping.CdeclReturnType}";
 
         // Build the Swift function name
         var swiftFuncName = $"_sbw_method_{EmitterUtility.DeterministicHash8(symbolName)}";
@@ -545,7 +545,7 @@ public static class MethodWrapperEmitter
         bool isVoidReturn,
         bool isString,
         bool needsResultPtr,
-        PropertyWrapperEmitter.CdeclReturnMapping returnMapping)
+        CdeclReturnMapping returnMapping)
     {
         var methodDecl = env.MethodDecl;
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
@@ -650,7 +650,7 @@ public static class MethodWrapperEmitter
             }
             else
             {
-                var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, false);
+                var (cdeclParam, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 protocolParams.Add($"{argLabel} {label}: {swiftType}");
                 cdeclParams.Add(cdeclParam);
@@ -680,7 +680,7 @@ public static class MethodWrapperEmitter
         if (isVoidReturn || cdeclNeedsResultPtr)
             protocolReturnType = "";
         else
-            protocolReturnType = $" -> {returnMapping.cdeclReturnType}";
+            protocolReturnType = $" -> {returnMapping.CdeclReturnType}";
 
         var throwsClause = throws ? " throws" : "";
         var protocolMethodSig = $"static func {dispatchMethodName}({string.Join(", ", protocolParams)}){throwsClause}{protocolReturnType}";
@@ -748,30 +748,30 @@ public static class MethodWrapperEmitter
             var callExpr = $"{tryPrefix}obj.{swiftMethodName}({methodCallArgString})";
             switch (returnMapping.Kind)
             {
-                case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+                case CdeclReturnKind.Bool:
                     extensionBodyLines.Add($"let result = {callExpr}");
                     extensionBodyLines.Add("return result ? 1 : 0");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+                case CdeclReturnKind.SimpleEnum:
                     // Tag-only enums have no rawValue — extract tag bits via pointer.
                     // Matches EmitDirectGetterReturn in PropertyWrapperEmitter.
                     if (env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
                         !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
                     {
                         extensionBodyLines.Add($"let result = {callExpr}");
-                        extensionBodyLines.Add($"return {returnMapping.cdeclReturnType}(result.rawValue)");
+                        extensionBodyLines.Add($"return {returnMapping.CdeclReturnType}(result.rawValue)");
                     }
                     else
                     {
                         extensionBodyLines.Add($"var result = {callExpr}");
-                        extensionBodyLines.Add($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {returnMapping.cdeclReturnType}.self) }}");
+                        extensionBodyLines.Add($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {returnMapping.CdeclReturnType}.self) }}");
                     }
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+                case CdeclReturnKind.ClassPointer:
                     extensionBodyLines.Add($"let result = {callExpr}");
                     extensionBodyLines.Add("return Unmanaged.passRetained(result as AnyObject).toOpaque()");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+                case CdeclReturnKind.OptionalClassPointer:
                     extensionBodyLines.Add($"let result = {callExpr}");
                     extensionBodyLines.Add("return result.map { Unmanaged.passRetained($0 as AnyObject).toOpaque() }");
                     break;
@@ -827,7 +827,7 @@ public static class MethodWrapperEmitter
         if (isVoidReturn || cdeclNeedsResultPtr)
             cdeclReturnClause = "";
         else
-            cdeclReturnClause = $" -> {returnMapping.cdeclReturnType}";
+            cdeclReturnClause = $" -> {returnMapping.CdeclReturnType}";
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
@@ -855,7 +855,7 @@ public static class MethodWrapperEmitter
             if (NameProvider.IsSwiftKeyword(label)) label = $"{label}Param";
             label = SwiftBuilder.SanitizeIdentifier(label);
 
-            var (_, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(arg, label, env, false);
+            var (_, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
             if (reconstruction != null)
                 swiftWriter.WriteLine(reconstruction);
         }
@@ -916,7 +916,7 @@ public static class MethodWrapperEmitter
         SwiftWriter swiftWriter,
         string callExpr,
         TypeSpec returnTypeSpec,
-        PropertyWrapperEmitter.CdeclReturnMapping returnMapping,
+        CdeclReturnMapping returnMapping,
         bool needsResultPtr,
         bool isVoidReturn,
         bool isString,
@@ -965,19 +965,19 @@ public static class MethodWrapperEmitter
             // Return a sentinel value matching the return type
             switch (returnMapping.Kind)
             {
-                case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+                case CdeclReturnKind.Bool:
                     swiftWriter.WriteLine("    return 0");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+                case CdeclReturnKind.SimpleEnum:
                     swiftWriter.WriteLine("    return 0");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+                case CdeclReturnKind.ClassPointer:
                     swiftWriter.WriteLine("    return UnsafeMutableRawPointer(bitPattern: 1)!");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+                case CdeclReturnKind.OptionalClassPointer:
                     swiftWriter.WriteLine("    return nil");
                     break;
-                case PropertyWrapperEmitter.CdeclReturnKind.Direct:
+                case CdeclReturnKind.Direct:
                     swiftWriter.WriteLine("    return 0");
                     break;
             }
@@ -999,41 +999,41 @@ public static class MethodWrapperEmitter
     /// Emits a direct return statement for non-string, non-indirect-result returns.
     /// </summary>
     private static void EmitDirectReturn(SwiftWriter swiftWriter, string callExpr,
-        TypeSpec typeSpec, ITypeDatabase typeDatabase, PropertyWrapperEmitter.CdeclReturnMapping mapping)
+        TypeSpec typeSpec, ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
     {
         switch (mapping.Kind)
         {
-            case PropertyWrapperEmitter.CdeclReturnKind.Bool:
+            case CdeclReturnKind.Bool:
                 swiftWriter.WriteLine($"return ({callExpr}) ? 1 : 0");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.SimpleEnum:
+            case CdeclReturnKind.SimpleEnum:
                 if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord) &&
                     !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
                 {
-                    swiftWriter.WriteLine($"return {mapping.cdeclReturnType}(({callExpr}).rawValue)");
+                    swiftWriter.WriteLine($"return {mapping.CdeclReturnType}(({callExpr}).rawValue)");
                 }
                 else
                 {
                     swiftWriter.WriteLine($"var result = {callExpr}");
-                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.cdeclReturnType}.self) }}");
+                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.CdeclReturnType}.self) }}");
                 }
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.ClassPointer:
+            case CdeclReturnKind.ClassPointer:
                 // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
                 // Unmanaged.passRetained requires T: AnyObject; ObjC-bridged structs (e.g., IndexPath)
                 // need the bridge cast. For true classes, `as AnyObject` is a no-op upcast.
                 swiftWriter.WriteLine($"return Unmanaged.passRetained({callExpr} as AnyObject).toOpaque()");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.OptionalClassPointer:
+            case CdeclReturnKind.OptionalClassPointer:
                 // Use `as AnyObject` in the .map closure — ObjC-bridged structs (e.g., NSZone,
                 // IndexPath) are Swift structs and Unmanaged<T> requires T: AnyObject.
                 swiftWriter.WriteLine($"return ({callExpr}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
                 break;
 
-            case PropertyWrapperEmitter.CdeclReturnKind.Direct:
+            case CdeclReturnKind.Direct:
             default:
                 swiftWriter.WriteLine($"return {callExpr}");
                 break;
@@ -1168,145 +1168,36 @@ public static class MethodWrapperEmitter
     internal static bool IsOptionalSupportedForCdecl(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         => WrapperValidation.IsOptionalSupportedForCdecl(typeSpec, typeDatabase);
 
-    /// <summary>
-    /// Returns true for Optional&lt;T&gt; where T is a reference-like type (Class, ObjC-bridged, ObjC-rooted).
-    /// These use nullable pointer ABI (UnsafeMutableRawPointer?) in @_cdecl wrappers.
-    /// </summary>
-    internal static bool IsOptionalWithReferenceInner(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-        => WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase);
-
     // ═══════════════════════════════════════════════════════════════════════
     // Generic parent class support — protocol-based type erasure
     // ═══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Returns true when a method on a generic parent type can be wrapped via @_cdecl
-    /// using protocol-based type erasure.
-    ///
-    /// Two paths:
-    /// 1. Generic class with concrete params/return — existing protocol instance dispatch
-    /// 2. Generic struct/class with T-typed params/return — protocol with static method
+    /// Returns true when a method on a generic parent type can be wrapped via @_cdecl.
+    /// Delegates to <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
     /// </summary>
     internal static bool CanEmitGenericWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        // Path 1: Generic class with concrete (non-T-referencing) signature — existing approach
-        if (parentTypeDecl is ClassDecl && env.MethodDecl.MethodType != MethodType.Static)
-        {
-            if (!HasGenericTypeParamInSignature(env, parentTypeDecl))
-                return true; // Path 1: concrete signature, use existing instance dispatch
-        }
-
-        // Path 2: Generic struct or class with T-typed params/return — static protocol dispatch
-        return CanEmitGenericStaticMethodWrapper(env, parentTypeDecl);
-    }
+        => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
 
     /// <summary>
-    /// Backward-compatible alias for external callers.
+    /// Backward-compatible alias. Delegates to <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
     /// </summary>
     internal static bool CanEmitGenericClassWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-        => CanEmitGenericWrapper(env, parentTypeDecl);
+        => GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
 
     /// <summary>
-    /// Returns true when a generic method can use the static protocol dispatch pattern.
-    /// This pattern creates a protocol with a static method whose signature uses
-    /// UnsafeRawPointer for T-typed parameters and UnsafeMutableRawPointer for T-typed returns.
-    ///
-    /// Requirements:
-    /// - Must be an instance method (not static — static dispatch needs different approach)
-    /// - T-typed params must be simple direct generic params (τ_0_0), not complex compositions
-    /// - T-typed returns are handled via resultPtr (UnsafeMutableRawPointer)
-    /// </summary>
-    internal static bool CanEmitGenericStaticMethodWrapper(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        // Instance methods only for now — static methods lack self pointer for dispatch
-        if (env.MethodDecl.MethodType == MethodType.Static)
-            return false;
-
-        var genericParamNames = parentTypeDecl.GenericParameters
-            .Select(p => p.TypeName)
-            .ToHashSet();
-
-        // For non-class parents (structs), only allow methods that reference T in their
-        // signature. Methods with concrete-only signatures may come from constrained extensions
-        // (e.g., `extension Wrapper where T: Equatable`), and unconditional protocol conformances
-        // can't access conditionally-available members. Fall back to CallConvSwift for these.
-        if (parentTypeDecl is not ClassDecl)
-        {
-            bool signatureReferencesT = env.MethodDecl.CSSignature
-                .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
-            if (!signatureReferencesT)
-                return false;
-        }
-
-        // Check params: T-typed must be simple direct generic params
-        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
-        {
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
-                continue;
-            if (arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
-            {
-                // Allow direct generic param (e.g., T itself)
-                if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
-                    continue;
-                // Block complex generic compositions for now
-                return false;
-            }
-        }
-
-        // Check return: T-typed returns are OK (routed through resultPtr)
-        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames))
-        {
-            // Allow direct generic param return
-            if (returnSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
-            { /* OK */ }
-            else
-                return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Returns true when a method needs the generic static protocol dispatch approach
-    /// (as opposed to the existing concrete-signature instance dispatch approach).
+    /// Returns true when a method needs the generic static protocol dispatch approach.
+    /// Delegates to <see cref="GenericDispatchEmitter.NeedsStaticDispatch"/>.
     /// </summary>
     internal static bool NeedsGenericStaticDispatch(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        if (!parentTypeDecl.IsGeneric) return false;
-
-        // Path 1 check: generic class with concrete signature uses existing instance dispatch
-        if (parentTypeDecl is ClassDecl && env.MethodDecl.MethodType != MethodType.Static)
-        {
-            if (!HasGenericTypeParamInSignature(env, parentTypeDecl))
-                return false; // Existing instance dispatch works
-        }
-
-        // All generic struct methods need static dispatch; class methods with T in signature need it too
-        return true;
-    }
+        => GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
 
     /// <summary>
-    /// Checks whether any parameter or the return type references the parent type's generic
-    /// type parameters (e.g., τ_0_0, τ_0_1). Methods where T appears in the signature
-    /// can't use protocol-based type erasure because the protocol would need to be generic.
+    /// Checks whether any parameter or return type references generic type parameters.
+    /// Delegates to <see cref="GenericDispatchEmitter.HasGenericTypeParamInSignature"/>.
     /// </summary>
     internal static bool HasGenericTypeParamInSignature(MethodEnvironment env, TypeDecl parentTypeDecl)
-    {
-        var genericParamNames = parentTypeDecl.GenericParameters
-            .Select(p => p.TypeName)
-            .ToHashSet();
-
-        foreach (var arg in env.MethodDecl.CSSignature)
-        {
-            if (TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
-                return true;
-        }
-        return false;
-    }
+        => GenericDispatchEmitter.HasGenericTypeParamInSignature(env, parentTypeDecl);
 
     /// <summary>
     /// Recursively checks whether a TypeSpec references any of the given generic type parameter names.

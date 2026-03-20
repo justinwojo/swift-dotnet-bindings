@@ -1179,7 +1179,7 @@ public class BoundGenericsHandler
             return false;
 
         // Reference types (classes, ObjC-bridged) → Optional is pointer-sized → NOT large.
-        if (MethodWrapperEmitter.IsOptionalWithReferenceInner(typeSpec, _typeDatabase))
+        if (CdeclParamMapper.IsOptionalWithReferenceInner(typeSpec, _typeDatabase))
             return false;
 
         // Protocol existentials → Optional uses nullable pointer ABI → NOT large.
@@ -1190,7 +1190,7 @@ public class BoundGenericsHandler
             innerRecord.Kind == TypeRecordKind.Protocol)
             return false;
         // Also check for unresolved protocol existentials (not in TypeDatabase but in ProtocolList form).
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, _typeDatabase))
+        if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, _typeDatabase))
             return false;
 
         // Small value types (< 8 bytes) → Optional fits in IntPtr → NOT large.
@@ -1248,7 +1248,7 @@ public class BoundGenericsHandler
         // Check for protocol existentials including ProtocolListTypeSpec (any P & Q)
         // and other non-NamedTypeSpec forms. IsProtocolExistentialType handles both
         // Optional<ProtocolListTypeSpec> and Optional<NamedTypeSpec> protocol forms.
-        if (ConstructorWrapperEmitter.IsProtocolExistentialType(typeSpec, _typeDatabase))
+        if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, _typeDatabase))
             return true;
 
         return false;

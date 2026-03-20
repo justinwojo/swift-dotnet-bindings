@@ -463,56 +463,9 @@ public partial class ProtocolProxyEmitter
                 // Emit error helper P/Invokes for throwing methods
                 if (isThrowingKind)
                 {
-                    var proxyClassName = GetProxyClassName(protocolDecl);
-                    if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))
-                    {
-                        ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(proxyClassName, _emissionContext);
-
-                        var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(_moduleName);
-                        var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(_moduleName);
-
-                        writer.WriteLine();
-                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                        {
-                            LibraryPath = wrapperLibPath,
-                            EntryPoint = descSymbol,
-                            MethodName = "SBW_GetErrorDescription",
-                            ReturnType = "IntPtr",
-                            ParametersString = "IntPtr error",
-                            CallingConvention = PInvokeCallingConvention.Cdecl,
-                            Visibility = PInvokeVisibility.Public
-                        });
-
-                        writer.WriteLine();
-                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                        {
-                            LibraryPath = wrapperLibPath,
-                            EntryPoint = releaseSymbol,
-                            MethodName = "SBW_ReleaseError",
-                            ReturnType = "void",
-                            ParametersString = "IntPtr error",
-                            CallingConvention = PInvokeCallingConvention.Cdecl,
-                            Visibility = PInvokeVisibility.Public
-                        });
-
-                        if (!Utf8SliceEmitter.HasFreePInvokeForType(proxyClassName, _emissionContext))
-                        {
-                            Utf8SliceEmitter.MarkFreePInvokeEmittedForType(proxyClassName, _emissionContext);
-                            var freeSwiftSymbol = Utf8SliceEmitter.GetFreeSymbolName(_moduleName);
-
-                            writer.WriteLine();
-                            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                            {
-                                LibraryPath = wrapperLibPath,
-                                EntryPoint = freeSwiftSymbol,
-                                MethodName = "SBW_Free",
-                                ReturnType = "void",
-                                ParametersString = "IntPtr ptr",
-                                CallingConvention = PInvokeCallingConvention.Cdecl,
-                                Visibility = PInvokeVisibility.Public
-                            });
-                        }
-                    }
+                    ErrorDescriptionEmitter.EmitCSharpErrorPInvokesViaPInvokeEmitHelper(
+                        writer, GetProxyClassName(protocolDecl), _moduleName,
+                        wrapperLibPath, _emissionContext);
                 }
             }
             else if (dispatchKind == MethodDispatchKind.StructReturn)
@@ -547,56 +500,9 @@ public partial class ProtocolProxyEmitter
                 // Emit error helper P/Invokes for throwing struct return methods
                 if (isThrowingStruct)
                 {
-                    var proxyClassName = GetProxyClassName(protocolDecl);
-                    if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(proxyClassName, _emissionContext))
-                    {
-                        ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(proxyClassName, _emissionContext);
-
-                        var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(_moduleName);
-                        var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(_moduleName);
-
-                        writer.WriteLine();
-                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                        {
-                            LibraryPath = wrapperLibPath,
-                            EntryPoint = descSymbol,
-                            MethodName = "SBW_GetErrorDescription",
-                            ReturnType = "IntPtr",
-                            ParametersString = "IntPtr error",
-                            CallingConvention = PInvokeCallingConvention.Cdecl,
-                            Visibility = PInvokeVisibility.Public
-                        });
-
-                        writer.WriteLine();
-                        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                        {
-                            LibraryPath = wrapperLibPath,
-                            EntryPoint = releaseSymbol,
-                            MethodName = "SBW_ReleaseError",
-                            ReturnType = "void",
-                            ParametersString = "IntPtr error",
-                            CallingConvention = PInvokeCallingConvention.Cdecl,
-                            Visibility = PInvokeVisibility.Public
-                        });
-
-                        if (!Utf8SliceEmitter.HasFreePInvokeForType(proxyClassName, _emissionContext))
-                        {
-                            Utf8SliceEmitter.MarkFreePInvokeEmittedForType(proxyClassName, _emissionContext);
-                            var freeSwiftSymbol = Utf8SliceEmitter.GetFreeSymbolName(_moduleName);
-
-                            writer.WriteLine();
-                            PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
-                            {
-                                LibraryPath = wrapperLibPath,
-                                EntryPoint = freeSwiftSymbol,
-                                MethodName = "SBW_Free",
-                                ReturnType = "void",
-                                ParametersString = "IntPtr ptr",
-                                CallingConvention = PInvokeCallingConvention.Cdecl,
-                                Visibility = PInvokeVisibility.Public
-                            });
-                        }
-                    }
+                    ErrorDescriptionEmitter.EmitCSharpErrorPInvokesViaPInvokeEmitHelper(
+                        writer, GetProxyClassName(protocolDecl), _moduleName,
+                        wrapperLibPath, _emissionContext);
                 }
             }
             else

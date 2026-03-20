@@ -560,39 +560,10 @@ public static class GenericClosureBridgeEmitter
     private static void EmitErrorHelperPInvokes(CSharpWriter csWriter, string moduleName, string asyncLibName,
         MethodEnvironment env, ModuleEmissionContext ctx)
     {
-        // Use ErrorDescriptionEmitter's per-type tracking to avoid duplicating P/Invokes
-        // already emitted by the regular code path (WrapperEmitter.Marshalling).
         var typeKey = (env.ParentDecl as TypeDecl)?.SwiftTypeName.ModuleQualifiedName ?? moduleName;
-
-        if (!ErrorDescriptionEmitter.HasErrorPInvokeForType(typeKey, ctx))
-        {
-            ErrorDescriptionEmitter.MarkErrorPInvokeEmittedForType(typeKey, ctx);
-
-            var descSymbol = ErrorDescriptionEmitter.GetDescriptionSymbolName(moduleName);
-            var releaseSymbol = ErrorDescriptionEmitter.GetReleaseSymbolName(moduleName);
-
-            csWriter.WriteLines($"""
-                [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{descSymbol}")]
-                private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-
-                [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{releaseSymbol}")]
-                private static partial void SBW_ReleaseError(IntPtr error);
-
-                """);
-
-            // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
-            if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
-            {
-                Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
-                var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-
-                csWriter.WriteLines($"""
-                    [global::System.Runtime.InteropServices.LibraryImport("{asyncLibName}", EntryPoint = "{freeSymbol}")]
-                    private static partial void SBW_Free(IntPtr ptr);
-
-                    """);
-            }
-        }
+        ErrorDescriptionEmitter.EmitCSharpBaseErrorPInvokesIfNeeded(
+            csWriter, typeKey, moduleName, asyncLibName,
+            pInvokeHelperContext: null, ctx);
     }
 
     private static void EmitPInvokeDeclarations(

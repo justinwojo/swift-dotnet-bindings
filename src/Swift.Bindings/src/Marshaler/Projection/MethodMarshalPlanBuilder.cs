@@ -422,7 +422,7 @@ internal class MethodMarshalPlanBuilder
                 // MarshalFromSwiftType is the real type name that has TypeMetadata.
                 // Skip Optional<reference-type> which uses IntPtr (no indirect result buffer).
                 else if (!(MethodWrapperEmitter.IsOptionalType(returnArg.SwiftTypeSpec) &&
-                    MethodWrapperEmitter.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
+                    CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
