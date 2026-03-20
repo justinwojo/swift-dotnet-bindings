@@ -28,6 +28,21 @@ public enum WrapperDecision
 }
 
 /// <summary>
+/// Identifies which kind of member is being evaluated for generic dispatch decisions.
+/// Used by <see cref="WrapperValidation.NeedsGenericDispatch"/> to apply the correct
+/// dispatch logic, since the guard conditions differ by member kind.
+/// </summary>
+public enum MemberKind
+{
+    /// <summary>Instance or static method (non-constructor, non-accessor).</summary>
+    Method,
+    /// <summary>Property getter or setter accessor.</summary>
+    Property,
+    /// <summary>Constructor (init).</summary>
+    Constructor
+}
+
+/// <summary>
 /// Shared guard predicates for the four wrapper emitters (Method, Constructor, Property, Subscript).
 /// Each method is the single source of truth for its predicate — wrapper emitters should call
 /// these instead of duplicating the logic. All methods are pure queries with no side effects.
@@ -485,6 +500,69 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Centralized generic dispatch guard: determines whether a member on a generic parent
+    /// type needs the static protocol dispatch pattern (protocol with static method + metatype cast)
+    /// as opposed to instance protocol dispatch (protocol conformance + existential cast).
+    ///
+    /// The decision differs by member kind:
+    /// - Method: delegates to <see cref="MethodWrapperEmitter.NeedsGenericStaticDispatch"/> —
+    ///   needs static dispatch when parent is generic struct, or class with T in signature.
+    /// - Property: needs static dispatch when parent is generic struct (not class),
+    ///   OR when parent is generic class but the property type references T.
+    /// - Constructor: delegates to <see cref="ConstructorWrapperEmitter.NeedsGenericStaticFactory"/> —
+    ///   needs static factory when parent is generic struct, or class with T in constructor params.
+    ///
+    /// Returns false if the parent is not generic, or if the parent type declaration is null.
+    /// </summary>
+    /// <param name="env">The method environment (contains ParentDecl, MethodDecl).</param>
+    /// <param name="memberKind">Which kind of member is being checked.</param>
+    /// <param name="propertyDecl">Required for Property kind — the property being checked.</param>
+    /// <returns>True if static dispatch is needed; false if instance dispatch suffices or no generic dispatch is needed.</returns>
+    public static bool NeedsGenericDispatch(
+        MethodEnvironment env,
+        MemberKind memberKind,
+        PropertyDecl? propertyDecl = null)
+    {
+        if (!IsGenericParent(env.ParentDecl))
+            return false;
+
+        var parentTypeDecl = env.ParentDecl as TypeDecl;
+        if (parentTypeDecl == null)
+            return false;
+
+        switch (memberKind)
+        {
+            case MemberKind.Method:
+                return MethodWrapperEmitter.NeedsGenericStaticDispatch(env, parentTypeDecl);
+
+            case MemberKind.Property:
+            {
+                bool isGenericClassParent = IsGenericClassParent(env.ParentDecl);
+
+                // Generic struct (not class) always needs static dispatch
+                if (!isGenericClassParent)
+                    return true;
+
+                // Generic class: needs static dispatch only if property type references T
+                if (propertyDecl != null)
+                {
+                    var genericParamNames = parentTypeDecl.GenericParameters
+                        .Select(p => p.TypeName)
+                        .ToHashSet();
+                    return TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
+                }
+                return false;
+            }
+
+            case MemberKind.Constructor:
+                return ConstructorWrapperEmitter.NeedsGenericStaticFactory(env, parentTypeDecl);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Recursively checks whether a TypeSpec references any of the given generic type parameter names.
     /// Handles NamedTypeSpec (including generic parameters), ClosureTypeSpec, TupleTypeSpec,
     /// ProtocolListTypeSpec, and AssociatedTypeReferenceSpec.
@@ -573,6 +651,8 @@ public static class WrapperValidation
         // 5b. Generic parent type
         if (parentTypeDecl?.IsGeneric == true)
         {
+            if (IsInheritedGenericContext(parentTypeDecl))
+                return "inherited_generic_context";
             if (!MethodWrapperEmitter.CanEmitGenericClassWrapper(env, parentTypeDecl))
                 return "generic_parent";
         }
@@ -910,8 +990,13 @@ public static class WrapperValidation
     /// parent rather than declared on the type itself. For example, AuthenticationInterceptor&lt;A&gt;.RefreshWindow
     /// inherits A from its parent — the @_cdecl extension can't bind the parent's unresolved context.
     /// A truly generic nested type like Outer.Inner&lt;T&gt; declares its own T independent of Outer.
+    ///
+    /// Used by constructor, method, and property wrapper emission to skip @_cdecl wrappers for
+    /// nested types with inherited generic context. The protocol conformance extension
+    /// (e.g., "extension Outer.Inner: Protocol {}") won't compile when the outer type has
+    /// unresolved generic parameters.
     /// </summary>
-    private static bool IsInheritedGenericContext(TypeDecl typeDecl)
+    internal static bool IsInheritedGenericContext(TypeDecl typeDecl)
     {
         if (typeDecl.ParentDecl is not TypeDecl outerType)
             return false; // Top-level type → own generic params

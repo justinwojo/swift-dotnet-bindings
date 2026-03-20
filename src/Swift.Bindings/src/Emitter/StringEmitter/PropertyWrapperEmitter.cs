@@ -32,6 +32,13 @@ public static class PropertyWrapperEmitter
         // 2. Generic parent type — allow non-final class instance properties with concrete types
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
         {
+            // Skip nested types that inherit generic context from an outer parent
+            // (e.g., AuthenticationInterceptor<A>.RefreshWindow). The @_cdecl wrapper
+            // emits "extension Outer.Inner: Protocol {}" which won't compile when
+            // Outer has unresolved generic parameters.
+            if (WrapperValidation.IsInheritedGenericContext(td))
+                return false;
+
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
                 return false;
         }
@@ -106,9 +113,13 @@ public static class PropertyWrapperEmitter
         if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
             return null; // not in xcframework mode — not a skip, just N/A
 
-        if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric &&
-            !CanEmitGenericClassPropertyWrapper(propertyDecl, td))
-            return "generic_parent_type";
+        if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
+        {
+            if (WrapperValidation.IsInheritedGenericContext(td))
+                return "inherited_generic_context";
+            if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
+                return "generic_parent_type";
+        }
         if (propertyDecl.IsModuleInternal)
             return "internal_property";
         if (propertyDecl.IsSpiProtected)
@@ -206,7 +217,7 @@ public static class PropertyWrapperEmitter
         }
 
         // Track whether this is a decomposed Optional getter (separate resultPtr + hasValuePtr)
-        bool isDecomposedOptionalGetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        bool isDecomposedOptionalGetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
 
         if (needsResultPtr)
         {
@@ -256,9 +267,8 @@ public static class PropertyWrapperEmitter
         // needsStaticGetterDispatch: generic struct OR generic class with T-typed property
         // (T-typed properties can't use the instance protocol pattern because the property type
         // is a generic param that's only available inside the conforming extension body)
-        bool needsStaticGetterDispatch = isGenericParent && !isGenericClassParent;
-        if (isGenericClassParent && propertyReferencesT)
-            needsStaticGetterDispatch = true;
+        bool needsStaticGetterDispatch = WrapperValidation.NeedsGenericDispatch(
+            env, MemberKind.Property, propertyDecl);
 
         // For generic types needing static dispatch, delegate to specialized emitter
         if (needsStaticGetterDispatch)
@@ -296,7 +306,7 @@ public static class PropertyWrapperEmitter
         {
             if (isGenericClassParent && protocolName != null)
             {
-                swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
             }
             else
             {
@@ -323,9 +333,9 @@ public static class PropertyWrapperEmitter
             swiftWriter.WriteLines($$"""
                 if let value = result {
                     resultPtr.initializeMemory(as: {{innerSwiftType}}.self, repeating: value, count: 1)
-                    hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)
+                    {{OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", true)}}
                 } else {
-                    hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)
+                    {{OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", false)}}
                 }
                 """);
         }
@@ -340,13 +350,7 @@ public static class PropertyWrapperEmitter
                 ConstructorWrapperEmitter.IsBlittablePrimitiveSwiftType(innerNts.Name))
             {
                 var rawType = ConstructorWrapperEmitter.GetSwiftRawValueType(innerNts.Name);
-                var tagOffset = innerNts.Name switch
-                {
-                    "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
-                    "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
-                    "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
-                    _ => "8"
-                };
+                var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNts.Name) ?? "8";
                 swiftWriter.WriteLine($"let result = {propAccess}");
                 swiftWriter.WriteLines($$"""
                     let tagPtr = resultPtr.assumingMemoryBound(to: UInt8.self).advanced(by: {{tagOffset}})
@@ -419,9 +423,8 @@ public static class PropertyWrapperEmitter
             propertyReferencesT = WrapperValidation.TypeSpecReferencesGenericParam(propertyDecl.SwiftTypeSpec, genericParamNames);
         }
 
-        bool needsStaticSetterDispatch = isGenericParent && !isGenericClassParent;
-        if (isGenericClassParent && propertyReferencesT)
-            needsStaticSetterDispatch = true;
+        bool needsStaticSetterDispatch = WrapperValidation.NeedsGenericDispatch(
+            env, MemberKind.Property, propertyDecl);
 
         // For generic static dispatch setters, delegate to specialized emitter
         if (needsStaticSetterDispatch)
@@ -446,15 +449,16 @@ public static class PropertyWrapperEmitter
                         swiftParams.Add("_ utf8Len: Int");
                         reconstructionLines.Add("let newValue = String(bytes: UnsafeBufferPointer(start: utf8Ptr, count: utf8Len), encoding: .utf8)!");
                     }
-                    else if (WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase))
+                    else if (OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase))
                     {
                         // Decomposed Optional setter: pass raw inner payload + hasValue flag separately.
                         // Swift reconstructs Optional<T> from these, avoiding C#-side VWT operations.
                         var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
                         var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
                         swiftParams.Add("_ newValue: UnsafeRawPointer");
-                        swiftParams.Add("_ hasValue: Int8");
-                        reconstructionLines.Add($"let newValueVal: {innerSwiftType}? = hasValue != 0 ? newValue.assumingMemoryBound(to: {innerSwiftType}.self).pointee : nil");
+                        swiftParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
+                        reconstructionLines.Add(OptionalMarshalClassifier.SwiftReconstructOptional(
+                            OptionalMarshalClassifier.SwiftHasValueParam, "newValue", innerSwiftType, "newValueVal"));
                     }
                     else
                     {
@@ -544,7 +548,7 @@ public static class PropertyWrapperEmitter
         else if (isGenericClassParent && protocolName != null)
         {
             // Generic class: use protocol-based type erasure
-            swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: true);
             swiftWriter.WriteLine($"obj.{propertyDecl.Name} = {valueExpr}");
         }
         else if (isClass)
@@ -659,36 +663,20 @@ public static class PropertyWrapperEmitter
 
     /// <summary>
     /// Emits the self reconstruction line for the getter/setter body.
+    /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
     private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isMutable)
     {
-        if (isClass)
-        {
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
-        }
-        else
-        {
-            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
-        }
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName);
     }
 
     /// <summary>
     /// Emits the string getter body using SBW_Utf8Slice pattern.
-    /// Writes result to resultPtr because @_cdecl can't return Swift structs.
+    /// Delegates to <see cref="StringReturnEmitter.EmitGetterBody"/>.
     /// </summary>
     private static void EmitStringGetterBody(SwiftWriter swiftWriter, string propAccess)
     {
-        swiftWriter.WriteLines($$"""
-            let result = {{propAccess}}
-            let utf8 = Array(result.utf8)
-            if utf8.isEmpty {
-                resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
-                return
-            }
-            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
-            ptr.initialize(from: utf8, count: utf8.count)
-            resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-            """);
+        StringReturnEmitter.EmitGetterBody(swiftWriter, propAccess);
     }
 
     /// <summary>
@@ -823,7 +811,7 @@ public static class PropertyWrapperEmitter
         var cdeclParams = new List<string>();
         var cdeclCallArgs = new List<string>();
 
-        bool isDecomposedOptionalGetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        bool isDecomposedOptionalGetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
 
         if (needsResultPtr)
         {
@@ -886,9 +874,9 @@ public static class PropertyWrapperEmitter
             bodyLines.Add($"let result = {propAccess}");
             bodyLines.Add("if let value = result {");
             bodyLines.Add($"    resultPtr.initializeMemory(as: {innerSwiftType}.self, repeating: value, count: 1)");
-            bodyLines.Add("    hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)");
+            bodyLines.Add($"    {OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", true)}");
             bodyLines.Add("} else {");
-            bodyLines.Add("    hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)");
+            bodyLines.Add($"    {OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", false)}");
             bodyLines.Add("}");
         }
         else if (needsResultPtr && propertyReferencesT)
@@ -960,22 +948,15 @@ public static class PropertyWrapperEmitter
 
     /// <summary>
     /// Emits protocol declaration and conformance for a property getter on a generic class type.
+    /// Delegates to <see cref="GenericProtocolEmitter"/> for the shared protocol+conformance pattern.
     /// </summary>
     private static string EmitGetterProtocolAndConformance(
         SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
     {
-        var protocolName = $"_SBW_PG_{EmitterUtility.DeterministicHash8(symbolName)}";
-        var propertySwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
-
-        swiftWriter.WriteLine();
-        swiftWriter.WriteLines($$"""
-            private protocol {{protocolName}} {
-                var {{propertyDecl.Name}}: {{propertySwiftType}} { get }
-            }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
-            """);
-
-        return protocolName;
+        var memberDecl = GenericProtocolEmitter.BuildPropertyGetterMemberDeclaration(
+            propertyDecl.Name, propertyDecl.SwiftTypeSpec);
+        return GenericProtocolEmitter.EmitProtocolAndConformance(
+            swiftWriter, "PG", symbolName, memberDecl, moduleQualifiedName);
     }
 
     /// <summary>
@@ -1007,7 +988,7 @@ public static class PropertyWrapperEmitter
         var cdeclParams = new List<string>();
         var cdeclCallArgs = new List<string>();
 
-        bool isDecomposedOptionalSetter = WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        bool isDecomposedOptionalSetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
 
         // NewValue param
         if (propertyReferencesT)
@@ -1031,7 +1012,7 @@ public static class PropertyWrapperEmitter
             var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
             var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
             cdeclParams.Add("_ newValue: UnsafeRawPointer");
-            cdeclParams.Add("_ hasValue: Int8");
+            cdeclParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
             protocolParams.Add($"newValue: {innerSwiftType}?");
             cdeclCallArgs.Add("newValue: newValueVal");
         }
@@ -1134,7 +1115,8 @@ public static class PropertyWrapperEmitter
                 // Decomposed Optional: reconstruct T? from (payload, hasValue) for protocol dispatch
                 var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
                 var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
-                swiftWriter.WriteLine($"let newValueVal: {innerSwiftType}? = hasValue != 0 ? newValue.assumingMemoryBound(to: {innerSwiftType}.self).pointee : nil");
+                swiftWriter.WriteLine(OptionalMarshalClassifier.SwiftReconstructOptional(
+                    OptionalMarshalClassifier.SwiftHasValueParam, "newValue", innerSwiftType, "newValueVal"));
             }
             else
             {

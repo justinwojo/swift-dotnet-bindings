@@ -163,7 +163,7 @@ namespace BindingsGeneration
                 // payload + hasValue directly to the accessor method.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
-                    WrapperValidation.IsDecomposedOptionalType(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
+                    OptionalMarshalClassifier.IsDecomposed(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
                     continue;
 
                 // Optional<ObjC> accessor setter: parameter is already IntPtr (nullable pointer ABI).

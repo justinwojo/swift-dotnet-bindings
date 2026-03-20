@@ -345,7 +345,7 @@ public static class SubscriptWrapperEmitter
         // Reconstruct self
         if (isGenericParent && protocolName != null)
         {
-            swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
         }
         else
         {
@@ -528,7 +528,7 @@ public static class SubscriptWrapperEmitter
         var setterIndexArgs = string.Join(", ", callArgs);
         if (isGenericParent && protocolName != null)
         {
-            swiftWriter.WriteLine($"var obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+            SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: true);
             swiftWriter.WriteLine($"obj[{setterIndexArgs}] = {valueExpr}");
         }
         else if (isClass)
@@ -595,27 +595,22 @@ public static class SubscriptWrapperEmitter
         return callArg;
     }
 
+    /// <summary>
+    /// Emits self reconstruction for subscript getter/setter.
+    /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
+    /// </summary>
     private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName)
     {
-        if (isClass)
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedName}>.fromOpaque(self_).takeUnretainedValue()");
-        else
-            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName);
     }
 
+    /// <summary>
+    /// Emits the string getter body using SBW_Utf8Slice pattern.
+    /// Delegates to <see cref="StringReturnEmitter.EmitGetterBody"/>.
+    /// </summary>
     private static void EmitStringGetterBody(SwiftWriter swiftWriter, string propAccess)
     {
-        swiftWriter.WriteLines($$"""
-            let result = {{propAccess}}
-            let utf8 = Array(result.utf8)
-            if utf8.isEmpty {
-                resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
-                return
-            }
-            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
-            ptr.initialize(from: utf8, count: utf8.count)
-            resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-            """);
+        StringReturnEmitter.EmitGetterBody(swiftWriter, propAccess);
     }
 
     private static void EmitDirectReturn(SwiftWriter swiftWriter, string expr,

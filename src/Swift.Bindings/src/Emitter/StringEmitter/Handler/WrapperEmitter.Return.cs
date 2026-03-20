@@ -180,7 +180,7 @@ namespace BindingsGeneration
                 // Buffer allocation and hasValuePtr are set up by MethodMarshalPlanBuilder.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
-                    WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = s_projectionFactory.Project(returnArg.SwiftTypeSpec,
                         new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
@@ -191,8 +191,8 @@ namespace BindingsGeneration
                         var innerType = optProj.InnerProjection.MarshalFromSwiftType;
                         csWriter.WriteLines($$"""
                             unsafe {
-                                byte _hasValue = ((byte*)hasValuePtr)[0];
-                                if (_hasValue == 0) return null;
+                                {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
                                 var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
                                 _cdeclBuf = null; // NewFromPayload took ownership
                                 return _result;

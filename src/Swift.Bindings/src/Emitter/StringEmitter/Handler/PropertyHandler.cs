@@ -856,7 +856,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Decomposed Optional setter: pass raw payload pointer + hasValue flag directly.
         // The accessor method takes (IntPtr payload, bool hasValue) — Swift reconstructs Optional<T>.
         if (setter.Method.UsesCdeclPropertyWrapper &&
-            WrapperValidation.IsDecomposedOptionalType(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
+            OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
         {
             csWriter.WriteLine($"set => {methodName}(value?.Payload.DangerousGetHandle() ?? IntPtr.Zero, value != null);");
             return;

@@ -61,6 +61,13 @@ public static class MethodWrapperEmitter
         // 2. Generic struct/class with T-typed params/return → protocol with static method
         if (parentTypeDecl?.IsGeneric == true)
         {
+            // Skip nested types that inherit generic context from an outer parent
+            // (e.g., AuthenticationInterceptor<A>.RefreshWindow). The @_cdecl wrapper
+            // emits "extension Outer.Inner: Protocol {}" which won't compile when
+            // Outer has unresolved generic parameters.
+            if (WrapperValidation.IsInheritedGenericContext(parentTypeDecl))
+                return false;
+
             if (!CanEmitGenericWrapper(env, parentTypeDecl))
                 return false;
         }
@@ -253,8 +260,7 @@ public static class MethodWrapperEmitter
         bool omitLabels = silgenTarget != null;
 
         bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
-        bool needsStaticDispatch = isGenericParent && parentTypeDecl != null &&
-            NeedsGenericStaticDispatch(env, parentTypeDecl);
+        bool needsStaticDispatch = WrapperValidation.NeedsGenericDispatch(env, MemberKind.Method);
 
         // For generic static dispatch methods, delegate to the specialized emitter.
         if (needsStaticDispatch && !isStatic)
@@ -406,7 +412,7 @@ public static class MethodWrapperEmitter
         string? protocolName = null;
         if (isGenericClassParent && !string.IsNullOrEmpty(moduleQualifiedSwiftName))
         {
-            protocolName = $"_SBW_P_{EmitterUtility.DeterministicHash8(symbolName)}";
+            protocolName = GenericProtocolEmitter.GetProtocolName("P", symbolName);
             EmitGenericClassProtocolAndConformance(
                 swiftWriter, methodDecl, env, symbolName, moduleQualifiedSwiftName);
         }
@@ -450,7 +456,7 @@ public static class MethodWrapperEmitter
             if (isGenericClassParent && protocolName != null)
             {
                 // Generic parent class: use AnyObject + protocol cast for type erasure
-                swiftWriter.WriteLine($"let obj = Unmanaged<AnyObject>.fromOpaque(self_).takeUnretainedValue() as! any {protocolName}");
+                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
             }
             else
             {
@@ -896,22 +902,11 @@ public static class MethodWrapperEmitter
 
     /// <summary>
     /// Emits self reconstruction for instance methods.
+    /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
     private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedSwiftName)
     {
-        if (isClass)
-        {
-            swiftWriter.WriteLine($"let obj = Unmanaged<{moduleQualifiedSwiftName}>.fromOpaque(self_).takeUnretainedValue()");
-        }
-        else if (isMutating)
-        {
-            // Mutating method: use through-pointer access (self_.assumingMemoryBound(...).pointee)
-            // so mutations write back. No separate obj variable needed — callExpr uses pointer directly.
-        }
-        else
-        {
-            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).pointee");
-        }
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName);
     }
 
     /// <summary>
@@ -993,23 +988,11 @@ public static class MethodWrapperEmitter
 
     /// <summary>
     /// Emits the string return body using SBW_Utf8Slice pattern.
-    /// Writes result to resultPtr because @_cdecl can't return Swift structs.
+    /// Delegates to <see cref="StringReturnEmitter.EmitReturnBody"/>.
     /// </summary>
     private static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr)
     {
-        // Explicit `: String` annotation disambiguates overloaded methods with different return types
-        // (e.g., URLEncodedFormEncoder.encode(_:) returning String vs Data).
-        swiftWriter.WriteLines($$"""
-            let result: String = {{callExpr}}
-            let utf8 = Array(result.utf8)
-            if utf8.isEmpty {
-                resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)
-                return
-            }
-            let ptr = UnsafeMutablePointer<UInt8>.allocate(capacity: utf8.count)
-            ptr.initialize(from: utf8, count: utf8.count)
-            resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: ptr, len: utf8.count), as: SBW_Utf8Slice.self)
-            """);
+        StringReturnEmitter.EmitReturnBody(swiftWriter, callExpr);
     }
 
     /// <summary>
@@ -1385,21 +1368,15 @@ public static class MethodWrapperEmitter
     /// <summary>
     /// Emits the protocol declaration, conformance extension, and modified self reconstruction
     /// for a method on a generic class type.
+    /// Delegates to <see cref="GenericProtocolEmitter"/> for the shared protocol+conformance pattern.
     /// </summary>
     internal static void EmitGenericClassProtocolAndConformance(
         SwiftWriter swiftWriter, MethodDecl methodDecl, MethodEnvironment env,
         string symbolName, string moduleQualifiedSwiftName)
     {
-        var protocolName = $"_SBW_P_{EmitterUtility.DeterministicHash8(symbolName)}";
         var methodSig = BuildProtocolMethodDeclaration(methodDecl, env);
-
-        swiftWriter.WriteLine();
-        swiftWriter.WriteLines($$"""
-            private protocol {{protocolName}} {
-                {{methodSig}}
-            }
-            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {}
-            """);
+        GenericProtocolEmitter.EmitProtocolAndConformance(
+            swiftWriter, "P", symbolName, methodSig, moduleQualifiedSwiftName);
     }
 
     /// <summary>

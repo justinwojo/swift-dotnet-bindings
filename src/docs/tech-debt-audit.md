@@ -537,7 +537,10 @@ All work is organized into 3 sessions. Each session is designed to be completabl
 
 ---
 
-### Session 2: Shared Emitter Utilities + Optional Unification
+### Session 2: Shared Emitter Utilities + Optional Unification ✅ COMPLETE
+
+**Date completed**: March 19, 2026
+**Branch**: `tech-debt-session-1` (continued from Session 1)
 
 **Scope**: Extract cross-cutting emitter patterns into shared utilities. Unify Optional handling. This is the highest-value session — eliminates the most duplication and the biggest source of "fix it in one emitter, forget the others" risk.
 
@@ -545,13 +548,29 @@ All work is organized into 3 sessions. Each session is designed to be completabl
 
 | Agent | Items | Files Touched |
 |-------|-------|---------------|
-| **Agent A: Swift Wrapper Helpers** | `SelfReconstructionEmitter` utility (class/struct/protocol cast — 4+ files); `StringReturnEmitter` utility; Move metatype helper emission from ConstructorWrapperEmitter to shared `MetatypeHelperEmitter` | New shared utility files, Method/Property/Constructor/SubscriptWrapperEmitter, OperatorHandler |
-| **Agent B: Optional Strategy** | `OptionalMarshalStrategy` enum + single classifier; Consolidate Optional tag byte computation (runtime + emitter → single source of truth); Standardize decomposed Optional naming/access patterns | SwiftOptional.cs, OptionalProjection.cs, WrapperValidation.cs, WrapperEmitter.Return.cs, WrapperEmitter.Marshalling.cs, BoundGenericsHandler.cs, PropertyWrapperEmitter.cs |
-| **Agent C: Generic Protocol Unification** | Shared `GenericProtocolEmitter` (deduplicate emission across Method/Property); Centralize generic dispatch guard logic in `WrapperValidation.NeedsGenericDispatch()`; Audit `IsInheritedGenericContext` applicability beyond constructors | Property/MethodWrapperEmitter, WrapperValidation.cs, ModuleEmissionContext.cs |
+| **Agent A: Swift Wrapper Helpers** | `SelfReconstructionEmitter` utility (class/struct/protocol cast — 4+ files); `StringReturnEmitter` utility; Move metatype helper emission from ConstructorWrapperEmitter to shared `MetatypeHelperEmitter` | New shared utility files, Method/Property/Constructor/SubscriptWrapperEmitter |
+| **Agent B: Optional Strategy** | `OptionalMarshalStrategy` enum + single classifier; Consolidate Optional tag byte computation (runtime + emitter → single source of truth); Standardize decomposed Optional naming/access patterns | OptionalProjection.cs, WrapperEmitter.Return.cs, WrapperEmitter.Marshalling.cs, BoundGenericsHandler.cs, PropertyWrapperEmitter.cs, MethodMarshalPlanBuilder.cs, MethodSignature.cs, PInvokeEmitter.cs, PropertyHandler.cs |
+| **Agent C: Generic Protocol Unification** | Shared `GenericProtocolEmitter` (deduplicate emission across Method/Property/Constructor); Centralize generic dispatch guard logic in `WrapperValidation.NeedsGenericDispatch()`; `IsInheritedGenericContext` extended to Method and Property validation | Property/Method/ConstructorWrapperEmitter, WrapperValidation.cs |
 
-**Validation gates**: `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` (full rebuild — emitter output may change)
+**Validation gates**: All green
+- `run-tests.sh`: All unit tests pass (coverage report shows 3 pre-existing enum feature degradations from a `Counter` naming collision in `generate-coverage-report.sh` — not a regression)
+- `validate-libraries.sh`: 90/90 passed, no regressions
+- `build-and-test.sh`: Full rebuild successful, bindings compile
+- `run-runtime-tests.sh`: 663 passed, 31 skipped, 0 failures
 
-**Risk**: Medium. Emitter output changes require full rebuild validation. Each agent's work is file-isolated, but the combined effect needs end-to-end testing.
+**Changes**: 22 files (12 modified, 5 new utilities, 5 new test files), +191/-224 lines in source, ~175 new tests.
+
+**New shared utilities**:
+- `SelfReconstructionEmitter.cs` — class (Unmanaged.fromOpaque), struct (assumingMemoryBound, let vs var), protocol cast
+- `StringReturnEmitter.cs` — SBW_Utf8Slice return pattern for getters and method returns
+- `MetatypeHelperEmitter.cs` — `_sbw_meta_*` helper emission (moved from ConstructorWrapperEmitter)
+- `OptionalMarshalStrategy.cs` — enum (6 strategies) + `ClassifyOptional()` + tag byte helpers + decomposed naming constants
+- `GenericProtocolEmitter.cs` — protocol+conformance emission with unified naming, documents all 7 prefixes
+
+**Key decisions**:
+- `IsInheritedGenericContext` extended to block Method and Property wrapper emission (was constructor-only) — prevents uncompilable `extension Outer.Inner: Protocol {}` when Outer has unresolved generics
+- Optional tag byte: runtime (`SwiftOptional.cs`) and emitter (`OptionalProjection.cs`) kept as separate implementations (different assemblies, different key types) with consistency tests verifying they agree
+- `OptionalMarshalClassifier.Classify()` priority: NullablePointer > DecomposedBuffers > BlittableFastPath > LargeOptionalPointer > FullSwiftOptional
 
 ---
 
@@ -579,7 +598,7 @@ All work is organized into 3 sessions. Each session is designed to be completabl
 | Session | Items | Agent Parallelism | Risk | Key Validation | Status |
 |---------|------:|:-----------------:|------|----------------|--------|
 | 1 | 14 | 3 agents | Low | `run-tests.sh` + `validate-libraries.sh` + `run-runtime-tests.sh --skip-regen` | **Done** |
-| 2 | 9 | 3 agents | Medium | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` | Pending |
+| 2 | 9 | 3 agents | Medium | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` | **Done** |
 | 3 | 5 | 2 agents | Higher | `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` (per-agent) | Pending |
 | **Total** | **28** | | | | |
 

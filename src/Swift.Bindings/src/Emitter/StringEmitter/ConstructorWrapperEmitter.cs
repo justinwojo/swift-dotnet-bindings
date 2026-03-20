@@ -368,8 +368,7 @@ public static class ConstructorWrapperEmitter
         bool omitLabels = silgenTarget != null;
 
         bool isGenericParent = WrapperValidation.IsGenericParent(env.ParentDecl);
-        bool needsStaticFactory = isGenericParent && parentTypeDecl != null &&
-            NeedsGenericStaticFactory(env, parentTypeDecl);
+        bool needsStaticFactory = WrapperValidation.NeedsGenericDispatch(env, MemberKind.Constructor);
 
         // For generic static factory constructors, delegate to the specialized emitter.
         // This emitter creates a protocol with a static _sbw_create method, extends the generic
@@ -612,50 +611,15 @@ public static class ConstructorWrapperEmitter
 
     /// <summary>
     /// Emits a private Swift helper function that calls the metadata accessor for a generic parent
-    /// type via dlsym. This converts T.self metadata into GenericType&lt;T&gt;.self metadata, which is
-    /// needed for protocol metatype dispatch. Deduplicates by type mangled name.
-    /// Returns the helper function name (e.g., "_sbw_meta_GenericClass").
+    /// type via dlsym. Delegates to <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>.
+    /// Kept as a forwarding method for backward compatibility with existing callers.
     /// </summary>
     internal static string EmitMetadataAccessorHelperIfNeeded(
         SwiftWriter swiftWriter,
         TypeDecl parentTypeDecl,
         ModuleEmissionContext ctx)
     {
-        var mangledName = parentTypeDecl.MangledName;
-        // Use mangled name hash for uniqueness — two types with the same short name
-        // (e.g., DiskStorage.Backend<T> and MemoryStorage.Backend<T>) need distinct helpers.
-        var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(mangledName)}";
-
-        if (!ctx.TryAddMetadataAccessorHelper(mangledName))
-            return helperName; // Already emitted, just return the name
-
-        var metaSymbol = $"{mangledName}Ma";
-        var genericCount = parentTypeDecl.GenericParameters.Count;
-
-        // Build parameter list: one UnsafeRawPointer per generic parameter
-        var paramList = string.Join(", ",
-            Enumerable.Range(0, genericCount).Select(i => $"_ t{i}: UnsafeRawPointer"));
-
-        // Build function type: (Int, UnsafeRawPointer, ...) -> (UnsafeRawPointer, Int)
-        var fnParamTypes = string.Join(", ",
-            new[] { "Int" }.Concat(
-                Enumerable.Range(0, genericCount).Select(_ => "UnsafeRawPointer")));
-
-        // Build call arguments: (0, t0, t1, ...)
-        var callArgs = string.Join(", ",
-            new[] { "0" }.Concat(
-                Enumerable.Range(0, genericCount).Select(i => $"t{i}")));
-
-        swiftWriter.WriteLine();
-        swiftWriter.WriteLines($$"""
-            private func {{helperName}}({{paramList}}) -> UnsafeRawPointer {
-                typealias _Fn = @convention(thin) ({{fnParamTypes}}) -> (UnsafeRawPointer, Int)
-                let fn = unsafeBitCast(dlsym(dlopen(nil, RTLD_LAZY), "{{metaSymbol}}")!, to: _Fn.self)
-                return fn({{callArgs}}).0
-            }
-            """);
-
-        return helperName;
+        return MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
     }
 
     /// <summary>
@@ -773,14 +737,8 @@ public static class ConstructorWrapperEmitter
             if (innerSpec is NamedTypeSpec innerNamed && IsBlittablePrimitiveSwiftType(innerNamed.Name))
             {
                 var rawType = GetSwiftRawValueType(innerNamed.Name);
-                // Compute the tag byte offset = size of the inner type
-                var tagOffset = innerNamed.Name switch
-                {
-                    "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
-                    "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
-                    "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
-                    _ => "8" // Int, UInt, Int64, UInt64, Double, CGFloat
-                };
+                // Compute the tag byte offset = size of the inner type (centralized in OptionalMarshalClassifier)
+                var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
                 // Read payload and tag separately, reconstruct Optional
                 var reconstruction = $"let {label}Opt: {rawType}? = {label}.advanced(by: {tagOffset}).load(as: UInt8.self) == 0 ? {label}.load(as: {rawType}.self) : nil";
                 return ($"_ {label}: UnsafeRawPointer",
@@ -1260,49 +1218,17 @@ public static class ConstructorWrapperEmitter
     /// <summary>
     /// Emits protocol declaration and conformance for a constructor on a generic class type.
     /// Uses AnyObject constraint so protocol existential metatype dispatch works for class inits.
+    /// Delegates to <see cref="GenericProtocolEmitter"/> for the shared protocol+conformance pattern.
     /// </summary>
     private static string EmitConstructorProtocolAndConformance(
         SwiftWriter swiftWriter, MethodDecl methodDecl, string symbolName,
         string moduleQualifiedName, bool isFailable, bool throws)
     {
-        var protocolName = $"_SBW_CI_{EmitterUtility.DeterministicHash8(symbolName)}";
-
-        // Build init parameter declaration
-        var initParams = new List<string>();
-        var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
-
-        for (int i = 0; i < keptArgs.Count; i++)
-        {
-            var arg = keptArgs[i];
-            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
-                continue;
-            if (arg.SwiftTypeSpec.IsEmptyTuple)
-                continue;
-
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-            var label = arg.Name switch
-            {
-                var n when n.StartsWith("arg") => "_",
-                var n when n.StartsWith("_") => n.Substring(1),
-                var n when string.IsNullOrEmpty(n) => "_",
-                var n => n
-            };
-            initParams.Add($"{label}: {swiftType}");
-        }
-
-        var paramString = string.Join(", ", initParams);
-        var throwsClause = throws ? " throws" : "";
-        var failableQ = isFailable ? "?" : "";
-
-        swiftWriter.WriteLine();
-        swiftWriter.WriteLines($$"""
-            private protocol {{protocolName}}: AnyObject {
-                init{{failableQ}}({{paramString}}){{throwsClause}}
-            }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
-            """);
-
-        return protocolName;
+        var memberDecl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
+            methodDecl, methodDecl.ModuleDecl!, isFailable, throws);
+        return GenericProtocolEmitter.EmitProtocolAndConformance(
+            swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
+            protocolConstraint: "AnyObject");
     }
 
     /// <summary>
@@ -1775,13 +1701,7 @@ public static class ConstructorWrapperEmitter
             if (innerSpec is not NamedTypeSpec innerNamed) continue;
             if (!IsBlittablePrimitiveSwiftType(innerNamed.Name)) continue;
 
-            var tagOffset = innerNamed.Name switch
-            {
-                "Swift.Bool" or "Bool" or "Swift.Int8" or "Int8" or "Swift.UInt8" or "UInt8" => "1",
-                "Swift.Int16" or "Int16" or "Swift.UInt16" or "UInt16" => "2",
-                "Swift.Int32" or "Int32" or "Swift.UInt32" or "UInt32" or "Swift.Float" or "Float" => "4",
-                _ => "8" // Int, UInt, Int64, UInt64, Double, CGFloat
-            };
+            var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
             result.Add((prop.Name, innerNamed.Name, tagOffset));
         }
         return result;

@@ -404,7 +404,7 @@ namespace BindingsGeneration
             // and constructs T? without going through SwiftOptional<T> / VWT operations.
             if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                 !_env.MethodDecl.IsSubscriptAccessor &&
-                WrapperValidation.IsDecomposedOptionalType(argument.SwiftTypeSpec, _env.TypeDatabase))
+                OptionalMarshalClassifier.IsDecomposed(argument.SwiftTypeSpec, _env.TypeDatabase))
             {
                 var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                 {
@@ -573,7 +573,7 @@ namespace BindingsGeneration
                 // matching the property type. P/Invoke decomposes to raw pointer + flag.
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
-                    WrapperValidation.IsDecomposedOptionalType(argument.SwiftTypeSpec, _env.TypeDatabase))
+                    OptionalMarshalClassifier.IsDecomposed(argument.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     var projection = _factory.Project(argument.SwiftTypeSpec, new ProjectionContext
                     {

@@ -474,7 +474,7 @@ internal class MethodMarshalPlanBuilder
                     // The Swift wrapper writes inner payload and hasValue separately (no Optional<T> VWT).
                     if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                         !_env.MethodDecl.IsSubscriptAccessor &&
-                        WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                        OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
                         var innerProjection = s_projectionFactory.Project(innerSpec,
@@ -541,7 +541,7 @@ internal class MethodMarshalPlanBuilder
                 string? cleanupCode;
                 if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
-                    WrapperValidation.IsDecomposedOptionalType(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                 {
                     cleanupCode = "if (_cdeclBuf != null) NativeMemory.Free(_cdeclBuf);";
                 }

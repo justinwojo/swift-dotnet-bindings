@@ -1144,6 +1144,8 @@ public class BoundGenericsHandler
     // Swift value types < 8 bytes whose Optional<T> fits within IntPtr (8 bytes).
     // Optional<T> = T + discriminant byte for value types. Only types < 8 bytes are safe.
     // Types ≥ 8 bytes (Int, String, URL, non-frozen structs, etc.) produce Optionals > 8 bytes.
+    //
+    // Also exposed via SmallOptionalInnerTypes for OptionalMarshalClassifier consistency.
     private static readonly HashSet<string> s_smallOptionalInnerTypes = new(StringComparer.Ordinal)
     {
         "Swift.Bool",       // 1 byte  → Optional = 2 bytes
@@ -1155,6 +1157,12 @@ public class BoundGenericsHandler
         "Swift.UInt32",     // 4 bytes → Optional = 5 bytes
         "Swift.Float",      // 4 bytes → Optional = 5 bytes
     };
+
+    /// <summary>
+    /// Public accessor for the small-optional inner types set, used by
+    /// <see cref="OptionalMarshalClassifier"/> to keep strategy classification in sync.
+    /// </summary>
+    public static IReadOnlyCollection<string> SmallOptionalInnerTypes => s_smallOptionalInnerTypes;
 
     /// <summary>
     /// Returns true if typeSpec is Optional&lt;T&gt; where T's size makes the Optional too large
