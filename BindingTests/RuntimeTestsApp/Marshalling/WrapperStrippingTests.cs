@@ -106,7 +106,7 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("VariadicHolder(IEnumerable) construction passed");
     }
 
-    [Skip("VariadicHolder constructor marshals Int... as Array<Int> but values are not retained — sum returns 0")]
+    [Skip("Variadic init marshalling: IEnumerable values not retained in non-frozen struct")]
     public void TestVariadicHolderSum()
     {
         var holder = new VariadicHolder(values: new[] { 10, 20, 30 });
