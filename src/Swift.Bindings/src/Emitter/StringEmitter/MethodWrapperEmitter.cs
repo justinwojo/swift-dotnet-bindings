@@ -823,8 +823,9 @@ public static class MethodWrapperEmitter
             }
             """);
 
-        // Emit metadata accessor helper at module scope (before @_cdecl)
-        var methodHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx!);
+        // Emit metadata accessor helper at module scope (before @_cdecl).
+        // Methods suppress PWT at the P/Invoke level (UsesCdeclMethodWrapper), so pass pwtCount=0.
+        var methodHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx!, pwtCount: 0);
 
         // Emit @_cdecl wrapper
         var cdeclParamString = string.Join(", ", cdeclParams);

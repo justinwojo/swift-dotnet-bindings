@@ -620,12 +620,31 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a line contains a call to the given method name.
-        /// Uses "name(" token matching to avoid prefix collisions
-        /// (e.g., PInvoke_foo_ABC won't match PInvoke_foo_ABC123).
+        /// Uses "name(" token matching with word-boundary check to avoid:
+        /// - Suffix collisions: PInvoke_foo_ABC won't match PInvoke_foo_ABC123
+        /// - Prefix collisions: Value_Get won't match DatabaseValue_Get
+        /// The preceding character (if any) must NOT be a letter, digit, or underscore.
         /// </summary>
         private static bool ContainsCallTo(string line, string name)
         {
-            return line.Contains(name + "(", StringComparison.Ordinal);
+            var needle = name + "(";
+            int idx = 0;
+            while (idx < line.Length)
+            {
+                int pos = line.IndexOf(needle, idx, StringComparison.Ordinal);
+                if (pos < 0)
+                    return false;
+                // Check word boundary: preceding char must not be identifier char
+                if (pos == 0 || !IsIdentifierChar(line[pos - 1]))
+                    return true;
+                idx = pos + 1;
+            }
+            return false;
+        }
+
+        private static bool IsIdentifierChar(char c)
+        {
+            return char.IsLetterOrDigit(c) || c == '_';
         }
 
         private static bool IsTypeOrNamespaceDeclaration(string trimmed)
@@ -797,6 +816,131 @@ namespace BindingsGeneration
             return lines;
         }
 
+        /// <summary>
+        /// Finds method names that appear as declarations (not just calls) in multiple locations
+        /// in the file. Unlike FindAmbiguousMethodNames (which checks partial declarations only),
+        /// this checks all method declarations. Used by the proxy co-gater to avoid false-matching
+        /// property helpers like "Subscript_Get" that exist in multiple types.
+        /// </summary>
+        private static HashSet<string> FindAmbiguousMethodDeclarations(
+            List<string> lines, IEnumerable<string> candidateNames)
+        {
+            var nameCounts = new Dictionary<string, int>();
+            foreach (var name in candidateNames)
+                nameCounts[name] = 0;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (!IsPotentialMemberDeclaration(trimmed))
+                    continue;
+
+                // Extract member name and check against candidates
+                var memberName = ExtractMemberName(trimmed);
+                if (memberName != null && nameCounts.ContainsKey(memberName))
+                    nameCounts[memberName]++;
+            }
+
+            var ambiguous = new HashSet<string>();
+            foreach (var (name, count) in nameCounts)
+            {
+                if (count > 1)
+                    ambiguous.Add(name);
+            }
+            return ambiguous;
+        }
+
+        /// <summary>
+        /// Scope-aware variant of FindAndMarkCallers. Only strips callers of the given method
+        /// name if they are within one of the specified containing types.
+        /// Prevents false-matching "Subscript_Get" in TypeB when only TypeA's version was stripped.
+        /// </summary>
+        private static void FindAndMarkCallersInScopes(
+            List<string> lines, string methodName, HashSet<string> allowedTypes,
+            string?[] lineToType, HashSet<int> removals)
+        {
+            int i = 0;
+            while (i < lines.Count)
+            {
+                if (removals.Contains(i)) { i++; continue; }
+
+                var trimmed = lines[i].TrimStart();
+                if (IsTypeOrNamespaceDeclaration(trimmed)) { i++; continue; }
+                if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
+
+                int braceOpenLine = FindOpeningBrace(lines, i);
+                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+
+                int blockEnd = FindBlockEnd(lines, braceOpenLine);
+                if (blockEnd < braceOpenLine) { i++; continue; }
+
+                // Check scope: only strip if in an allowed type
+                var containingType = i < lineToType.Length ? lineToType[i] : null;
+                if (containingType == null || !allowedTypes.Contains(containingType))
+                {
+                    i = blockEnd + 1;
+                    continue;
+                }
+
+                // Check if the block body calls the method
+                bool callsMethod = false;
+                for (int j = i; j <= blockEnd; j++)
+                {
+                    if (ContainsCallTo(lines[j], methodName))
+                    {
+                        callsMethod = true;
+                        break;
+                    }
+                }
+
+                if (callsMethod)
+                {
+                    int preambleStart = ScanBackwardForPreamble(lines, i);
+                    for (int j = preambleStart; j <= blockEnd; j++)
+                        removals.Add(j);
+                }
+
+                i = blockEnd + 1;
+            }
+        }
+
+        /// <summary>
+        /// Strips single-line narrowing overloads (e.g., "this[int x] => this[(nint)x];")
+        /// whose target (the nint overload) was removed. These become compile errors (CS1503)
+        /// when their delegate target no longer exists.
+        /// Pattern: "public TYPE this[int NAME] => this[(nint)NAME];"
+        /// </summary>
+        private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals)
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (removals.Contains(i)) continue;
+                var trimmed = lines[i].TrimStart();
+                // Match narrowing pattern: "this[int x] => this[(nint)x];"
+                if (!trimmed.Contains("this[int ") || !trimmed.Contains("=> this[(nint)"))
+                    continue;
+                // This is a narrowing overload. Check if the target nint overload exists.
+                // Search backward/forward in the same class for "this[nint ..." declaration.
+                bool targetExists = false;
+                for (int j = Math.Max(0, i - 200); j < Math.Min(lines.Count, i + 200); j++)
+                {
+                    if (removals.Contains(j)) continue;
+                    if (j == i) continue;
+                    if (lines[j].Contains("this[nint "))
+                    {
+                        targetExists = true;
+                        break;
+                    }
+                }
+                if (!targetExists)
+                {
+                    int preambleStart = ScanBackwardForPreamble(lines, i);
+                    for (int j = preambleStart; j <= i; j++)
+                        removals.Add(j);
+                }
+            }
+        }
+
         #endregion
 
         #region Proxy Reference Co-Gating
@@ -825,6 +969,7 @@ namespace BindingsGeneration
             // Find method bodies that construct suppressed proxy classes.
             // Pattern: "new {ProxyClassName}(" in a method/property body.
             var strippedCallerNames = new HashSet<string>();
+            var strippedCallerScopes = new List<(string name, string type)>();
             int i = 0;
             while (i < lines.Count)
             {
@@ -912,10 +1057,15 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    // Extract member name for Level 2 transitive stripping
+                    // Extract member name and containing type for scope-aware Level 2 stripping
                     var memberName = ExtractMemberName(trimmed);
                     if (memberName != null && IsPropertyHelperName(memberName))
+                    {
+                        var containingType = i < lineToType.Length ? lineToType[i] : null;
                         strippedCallerNames.Add(memberName);
+                        if (containingType != null)
+                            strippedCallerScopes.Add((memberName, containingType));
+                    }
 
                     int preambleStart = ScanBackwardForPreamble(lines, i);
                     for (int j = preambleStart; j <= blockEnd; j++)
@@ -925,12 +1075,39 @@ namespace BindingsGeneration
                 i = blockEnd + 1;
             }
 
-            // Level 2: strip property forwarders that delegate to stripped helpers
+            // Level 2: strip property forwarders that delegate to stripped helpers.
+            // Use scope-aware matching when the same method name appears in multiple types
+            // to avoid false-matching innocent methods in other types. E.g., "Subscript_Get"
+            // may exist in both PersistenceContainer (proxy ref) and Row (no proxy) —
+            // the Row version must be preserved.
             if (strippedCallerNames.Count > 0)
             {
-                var _ = new HashSet<string>();
-                FindAndMarkCallers(lines, strippedCallerNames, _, removals);
+                var ambiguous = FindAmbiguousMethodDeclarations(lines, strippedCallerNames);
+                // For non-ambiguous names, use standard file-wide matching
+                var safeNames = new HashSet<string>(strippedCallerNames);
+                safeNames.ExceptWith(ambiguous);
+                if (safeNames.Count > 0)
+                {
+                    var _ = new HashSet<string>();
+                    FindAndMarkCallers(lines, safeNames, _, removals);
+                }
+                // For ambiguous names, use scope-aware matching
+                foreach (var ambName in ambiguous)
+                {
+                    var types = strippedCallerScopes
+                        .Where(s => s.name == ambName)
+                        .Select(s => s.type)
+                        .ToHashSet();
+                    if (types.Count == 0) continue;
+                    FindAndMarkCallersInScopes(lines, ambName, types, lineToType, removals);
+                }
             }
+
+            // Level 3: Remove orphaned subscript/property narrowing overloads.
+            // These are single-line forwarders like "this[int x] => this[(nint)x];" that
+            // delegate to a broader overload. If the target was removed, the narrowing
+            // becomes a compile error (CS1503). Strip them.
+            StripOrphanedNarrowingOverloads(lines, removals);
 
             if (removals.Count == 0 && replacements.Count == 0)
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };

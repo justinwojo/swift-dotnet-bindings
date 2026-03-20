@@ -18,49 +18,59 @@ public static class MetatypeHelperEmitter
     /// <summary>
     /// Emits a private Swift helper function that calls the metadata accessor for a generic parent
     /// type via dlsym. This converts T.self metadata into GenericType&lt;T&gt;.self metadata, which is
-    /// needed for protocol metatype dispatch. Deduplicates by type mangled name.
+    /// needed for protocol metatype dispatch. Deduplicates by type mangled name + PWT count.
     /// Returns the helper function name (e.g., "_sbw_meta_ABCD1234").
     ///
     /// For constrained generic types (e.g., ConstrainedBox&lt;T: Describable&gt;), the metadata accessor
     /// also requires protocol witness table (PWT) pointers for each conformance. The helper accepts
     /// these as additional UnsafeRawPointer parameters after the type metadata parameters.
+    ///
+    /// The <paramref name="pwtCount"/> parameter controls how many PWT parameters are included.
+    /// Callers must match the PWT count to what the C# P/Invoke side passes:
+    /// - Constructor wrappers: include PWT for all resolvable conformances
+    /// - Property/method wrappers: include PWT for all resolvable conformances
+    /// - Unresolvable conformances (protocols with associated types/Self requirements): excluded
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="parentTypeDecl">The generic parent type declaration.</param>
     /// <param name="ctx">The per-module emission context for deduplication.</param>
+    /// <param name="pwtCount">Number of PWT parameters to include (0 = no PWT).</param>
     /// <returns>The helper function name to use in subsequent call sites.</returns>
     public static string EmitMetadataAccessorHelperIfNeeded(
         SwiftWriter swiftWriter,
         TypeDecl parentTypeDecl,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        int pwtCount = -1)
     {
+        // Default: compute PWT count from all conformances (backward compat for constructors)
+        if (pwtCount < 0)
+            pwtCount = GetPwtParameterCount(parentTypeDecl);
+
         var mangledName = parentTypeDecl.MangledName;
+        // Include PWT count in the dedup key so callers with different PWT needs get separate helpers.
+        var dedupKey = pwtCount > 0 ? $"{mangledName}:pwt{pwtCount}" : mangledName;
+
         // Use mangled name hash for uniqueness — two types with the same short name
         // (e.g., DiskStorage.Backend<T> and MemoryStorage.Backend<T>) need distinct helpers.
-        var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(mangledName)}";
+        // Include PWT count in the hash to differentiate PWT vs non-PWT variants.
+        var hashInput = pwtCount > 0 ? $"{mangledName}:pwt{pwtCount}" : mangledName;
+        var helperName = $"_sbw_meta_{EmitterUtility.DeterministicHash8(hashInput)}";
 
-        if (!ctx.TryAddMetadataAccessorHelper(mangledName))
+        if (!ctx.TryAddMetadataAccessorHelper(dedupKey))
             return helperName; // Already emitted, just return the name
 
         var metaSymbol = $"{mangledName}Ma";
         var genericCount = parentTypeDecl.GenericParameters.Count;
 
-        // Count PWT parameters: one per protocol conformance per generic parameter.
-        // Swift metadata accessors for constrained generic types require these after
-        // the type metadata parameters.
+        // Build PWT parameter lists based on the explicit count
         var pwtParams = new List<string>();
         var pwtFnTypes = new List<string>();
         var pwtCallArgs = new List<string>();
-        int pwtIndex = 0;
-        foreach (var genericParam in parentTypeDecl.GenericParameters)
+        for (int i = 0; i < pwtCount; i++)
         {
-            foreach (var conformance in genericParam.GenericConformances)
-            {
-                pwtParams.Add($"_ pwt{pwtIndex}: UnsafeRawPointer");
-                pwtFnTypes.Add("UnsafeRawPointer");
-                pwtCallArgs.Add($"pwt{pwtIndex}");
-                pwtIndex++;
-            }
+            pwtParams.Add($"_ pwt{i}: UnsafeRawPointer");
+            pwtFnTypes.Add("UnsafeRawPointer");
+            pwtCallArgs.Add($"pwt{i}");
         }
 
         // Build parameter list: type metadata + PWT
@@ -95,10 +105,38 @@ public static class MetatypeHelperEmitter
     /// <summary>
     /// Returns the total number of PWT parameters for a generic type's metadata accessor.
     /// This is the sum of all protocol conformances across all generic parameters.
+    /// Note: This counts ALL conformances. For conformances filtered by type database
+    /// availability, use <see cref="GetResolvablePwtParameterCount"/>.
     /// </summary>
     public static int GetPwtParameterCount(TypeDecl parentTypeDecl)
     {
         return parentTypeDecl.GenericParameters
             .Sum(gp => gp.GenericConformances.Count);
+    }
+
+    /// <summary>
+    /// Returns the number of PWT parameters that the C# P/Invoke side will actually emit.
+    /// Only counts conformances where the protocol is resolvable (no associated types or
+    /// Self requirements). This matches <see cref="PInvokeEmitter.HandleProtocolConformance"/>.
+    /// </summary>
+    public static int GetResolvablePwtParameterCount(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        int count = 0;
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in gp.GenericConformances)
+            {
+                if (typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                {
+                    if (record.Kind == TypeRecordKind.Protocol &&
+                        !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
+                        !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                    {
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
     }
 }

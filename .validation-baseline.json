@@ -1,11 +1,11 @@
 {
-  "git_sha": "a99aac7d",
+  "git_sha": "8cb03209",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46415,
+        "lines": 46447,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -14,7 +14,7 @@
         "errors": 0,
         "lines": 40,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkIDUX": {
         "compile": "ok",
@@ -38,9 +38,9 @@
         "swift_compile": "fail"
       },
       "GRDB": {
-        "compile": "fail",
-        "errors": 3,
-        "lines": 80089,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 81103,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -138,15 +138,15 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13630,
+        "lines": 13664,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Stripe": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 51,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripeApplePay": {
@@ -185,10 +185,10 @@
         "swift_compile": "ok"
       },
       "StripeCryptoOnramp": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 165,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "fail"
       },
       "StripeFinancialConnections": {
@@ -206,31 +206,31 @@
         "swift_compile": "ok"
       },
       "StripeIssuing": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 2019,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripePayments": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 2,
         "lines": 66111,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 32376,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripePaymentsUI": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 7306,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripeUICore": {
@@ -280,7 +280,7 @@
         "errors": 0,
         "lines": 4614,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SwiftyBeaver": {
         "compile": "ok",
@@ -334,7 +334,7 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8205,
+        "lines": 8311,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -364,7 +364,7 @@
         "errors": 0,
         "lines": 3944,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "TinyConstraints": {
         "compile": "ok",
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18323,
+        "lines": 18688,
         "dep_compile": "none",
         "swift_compile": "fail"
       },

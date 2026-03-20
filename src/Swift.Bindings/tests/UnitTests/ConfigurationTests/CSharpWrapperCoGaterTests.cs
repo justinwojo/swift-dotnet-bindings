@@ -1032,4 +1032,94 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region F. ContainsCallTo Word Boundary
+
+    public class CoGaterContainsCallToWordBoundaryTests
+    {
+        [Fact]
+        public void ProxyCoGater_ValueGet_DoesNotFalseMatchDatabaseValueGet()
+        {
+            // Regression test: Value_Get was stripping DatabaseValue_Get due to substring match.
+            // The fix ensures ContainsCallTo uses word-boundary checking.
+            var input =
+                "public interface IDatabaseValueConvertible {\n" +
+                "    GRDB.DatabaseValue DatabaseValue { get; }\n" +
+                "}\n" +
+                "public partial class SomeType {\n" +
+                "    private GRDB.DatabaseValue Value_Get()\n" +
+                "    {\n" +
+                "        var x = new DatabaseValueConvertibleProxy(result);\n" +
+                "        return x;\n" +
+                "    }\n" +
+                "\n" +
+                "    public GRDB.DatabaseValue Value\n" +
+                "    {\n" +
+                "        get => Value_Get();\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class FTS3Pattern : IDatabaseValueConvertible {\n" +
+                "    private GRDB.DatabaseValue DatabaseValue_Get()\n" +
+                "    {\n" +
+                "        PInvoke_databaseValue_Get(resultPtr, selfPtr);\n" +
+                "        return SwiftMarshal.MarshalFromSwift<GRDB.DatabaseValue>(resultPtr);\n" +
+                "    }\n" +
+                "\n" +
+                "    public GRDB.DatabaseValue DatabaseValue\n" +
+                "    {\n" +
+                "        get => DatabaseValue_Get();\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "DatabaseValueConvertibleProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            // SomeType.Value_Get references the proxy — should be stripped
+            Assert.DoesNotContain("GRDB.DatabaseValue Value_Get()", result.Content);
+            Assert.DoesNotContain("get => Value_Get()", result.Content);
+
+            // FTS3Pattern.DatabaseValue_Get does NOT reference any proxy — must be PRESERVED
+            Assert.Contains("DatabaseValue_Get()", result.Content);
+            Assert.Contains("get => DatabaseValue_Get()", result.Content);
+        }
+
+        [Fact]
+        public void ProxyCoGater_SubscriptGet_DoesNotFalseMatchOtherGetSuffixed()
+        {
+            // "Subscript_Get" should not match "SomeSubscript_Get" (prefix collision)
+            var input =
+                "public partial class TypeA {\n" +
+                "    private int Subscript_Get()\n" +
+                "    {\n" +
+                "        var x = new FooProxy(result);\n" +
+                "        return x;\n" +
+                "    }\n" +
+                "    public int Subscript\n" +
+                "    {\n" +
+                "        get => Subscript_Get();\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    private int SomeSubscript_Get()\n" +
+                "    {\n" +
+                "        return 42;\n" +
+                "    }\n" +
+                "    public int SomeSubscript\n" +
+                "    {\n" +
+                "        get => SomeSubscript_Get();\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            // TypeA: Subscript_Get references proxy — stripped
+            Assert.DoesNotContain("int Subscript_Get()", result.Content);
+            Assert.DoesNotContain("get => Subscript_Get()", result.Content);
+
+            // TypeB: SomeSubscript_Get does NOT reference proxy and name doesn't match — preserved
+            Assert.Contains("SomeSubscript_Get()", result.Content);
+            Assert.Contains("get => SomeSubscript_Get()", result.Content);
+        }
+    }
+
+    #endregion
 }

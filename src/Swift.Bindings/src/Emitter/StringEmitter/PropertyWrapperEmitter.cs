@@ -748,6 +748,15 @@ public static class PropertyWrapperEmitter
             cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
         }
 
+        // PWT params: one per resolvable protocol conformance per generic parameter.
+        // Only include PWT for protocols that the C# side can resolve (no associated types
+        // or Self requirements). This matches PInvokeEmitter.HandleProtocolConformance.
+        int getterPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        for (int i = 0; i < getterPwtCount; i++)
+        {
+            cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+        }
+
         if (isClass)
             cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
         else
@@ -829,8 +838,9 @@ public static class PropertyWrapperEmitter
             }
             """);
 
-        // Emit metadata accessor helper at module scope (before @_cdecl)
-        var getHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
+        // Emit metadata accessor helper at module scope (before @_cdecl).
+        // Use resolvable PWT count to match what the C# P/Invoke side passes.
+        var getHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx, getterPwtCount);
 
         // Emit @_cdecl
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{hash}";
@@ -847,7 +857,9 @@ public static class PropertyWrapperEmitter
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;
-        var getMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        var getMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
+        var getPwtArgsList = Enumerable.Range(0, getterPwtCount).Select(i => $"_pwt{i}");
+        var getMetaArgs = string.Join(", ", getMetaArgsList.Concat(getPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {getHelperName}({getMetaArgs})");
         swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 
@@ -954,6 +966,12 @@ public static class PropertyWrapperEmitter
         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
             cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
 
+        // PWT params: one per protocol conformance per generic parameter.
+        // PWT params: only include resolvable conformances (matching C# P/Invoke side).
+        int setterPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        for (int i = 0; i < setterPwtCount; i++)
+            cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+
         cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
         protocolParams.Add("selfPtr: UnsafeMutableRawPointer");
         cdeclCallArgs.Add("selfPtr: self_");
@@ -1004,7 +1022,7 @@ public static class PropertyWrapperEmitter
             """);
 
         // Emit metadata accessor helper at module scope (before @_cdecl)
-        var setHelperName = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx);
+        var setHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx, setterPwtCount);
 
         // Emit @_cdecl
         var swiftFuncName = $"_sbw_set_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
@@ -1046,7 +1064,9 @@ public static class PropertyWrapperEmitter
             }
         }
 
-        var setMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        var setMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
+        var setPwtArgsList = Enumerable.Range(0, setterPwtCount).Select(i => $"_pwt{i}");
+        var setMetaArgs = string.Join(", ", setMetaArgsList.Concat(setPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {setHelperName}({setMetaArgs})");
         swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
         swiftWriter.WriteLine($"metatype.{setMethodName}({string.Join(", ", cdeclCallArgs)})");
