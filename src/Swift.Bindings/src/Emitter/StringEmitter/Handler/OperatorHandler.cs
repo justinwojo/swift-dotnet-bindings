@@ -846,12 +846,19 @@ namespace BindingsGeneration
                 MarshallingHelpers.IsFrozenStructProjectedAsClass(record))
                 return false;
 
-            // Use RequiresCdeclForAbiSafety for comprehensive check:
-            // float/double fields, Bool fields (non-blittable), large structs, etc.
-            if (methodEnv != null)
-                return WrapperValidation.RequiresCdeclForAbiSafety(methodEnv);
+            // Generic frozen structs need metadata arguments that the @_cdecl operator
+            // wrapper path doesn't emit. Fall back to RequiresCdeclForAbiSafety for those.
+            if (parentDecl.GenericParameters != null && parentDecl.GenericParameters.Count > 0)
+            {
+                if (methodEnv != null)
+                    return WrapperValidation.RequiresCdeclForAbiSafety(methodEnv);
+                return true; // Conservative fallback
+            }
 
-            // Fallback: conservative — wrap unknown structs
+            // Always emit @_cdecl wrappers for non-generic frozen struct operators.
+            // NativeAOT's ILC segfaults when compiling CallConvSwift P/Invoke stubs
+            // for static operator functions, even on simple blittable structs (Int32/UInt32).
+            // Using @_cdecl wrappers universally avoids this and is safe for both runtimes.
             return true;
         }
 

@@ -105,6 +105,16 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- SwiftUI bridge excluded for device builds — bridge framework is simulator-only.
-       SwiftUI bridge tests are gated by #if SWIFTUI_BRIDGE so they compile out safely. -->
+  <!-- SwiftUI bridge (conditional on generated output) -->
+  <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <DefineConstants>$(DefineConstants);SWIFTUI_BRIDGE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')">
+    <NativeReference Include="../SwiftBridge/device/SwiftBindingsTestLibBridge.framework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
 </Project>

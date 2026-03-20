@@ -297,11 +297,11 @@ if [ "$PLATFORM" = "device" ]; then
         echo ""
     fi
 
-    # Step 1.6: Build SwiftUI bridge (if generated)
+    # Step 1.6: Build SwiftUI bridge for device (if generated)
     BRIDGE_SWIFT="output/SwiftBindingsTestLib.SwiftUIBridge.swift"
     if [ -f "$BRIDGE_SWIFT" ]; then
-        echo "--- Step 1.6: Build SwiftUI bridge ---"
-        ./build-bridge.sh
+        echo "--- Step 1.6: Build SwiftUI bridge (device) ---"
+        ./build-bridge.sh --target device
         echo ""
     fi
 

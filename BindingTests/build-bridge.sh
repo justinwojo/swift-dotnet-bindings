@@ -8,10 +8,11 @@
 # plus test-only helpers into a framework dylib that can be referenced
 # from the .NET test app via P/Invoke.
 #
-# Usage: ./build-bridge.sh [--platform ios|macos|tvos]
+# Usage: ./build-bridge.sh [--platform ios|macos|tvos] [--target simulator|device]
 #
 # Options:
 #   --platform PLATFORM   Target platform: ios (default), macos, tvos
+#   --target TARGET       Target environment: simulator (default), device
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -23,15 +24,20 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 PLATFORM="ios"
+TARGET="simulator"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --platform)
             PLATFORM="$2"
             shift 2
             ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: ./build-bridge.sh [--platform ios|macos|tvos]"
+            echo "Usage: ./build-bridge.sh [--platform ios|macos|tvos] [--target simulator|device]"
             exit 1
             ;;
     esac
@@ -46,13 +52,35 @@ case "$PLATFORM" in
         ;;
 esac
 
+# Validate target
+case "$TARGET" in
+    simulator|device) ;;
+    *)
+        echo "Error: Unknown target '$TARGET'. Must be simulator or device."
+        exit 1
+        ;;
+esac
+
+# Device target only valid for ios
+if [ "$TARGET" = "device" ] && [ "$PLATFORM" != "ios" ]; then
+    echo "Error: --target device is only supported for --platform ios."
+    exit 1
+fi
+
 # Platform-dependent variables
 case "$PLATFORM" in
     ios)
-        SLICE_ID="ios-arm64-simulator"
-        SDK_NAME="iphonesimulator"
-        TARGET_TRIPLE="arm64-apple-ios15.0-simulator"
-        PLIST_PLATFORM="iPhoneSimulator"
+        if [ "$TARGET" = "device" ]; then
+            SLICE_ID="ios-arm64"
+            SDK_NAME="iphoneos"
+            TARGET_TRIPLE="arm64-apple-ios15.0"
+            PLIST_PLATFORM="iPhoneOS"
+        else
+            SLICE_ID="ios-arm64-simulator"
+            SDK_NAME="iphonesimulator"
+            TARGET_TRIPLE="arm64-apple-ios15.0-simulator"
+            PLIST_PLATFORM="iPhoneSimulator"
+        fi
         MIN_OS="15.0"
         ;;
     macos)
@@ -76,7 +104,14 @@ BRIDGE_MODULE="SwiftBindingsTestLibBridge"
 GENERATED_BRIDGE="output/${MODULE_NAME}.SwiftUIBridge.swift"
 TEST_HELPERS="SwiftBridge/SwiftUIBridgeTestHelpers.swift"
 XCFW_DIR=".build/${MODULE_NAME}.xcframework/$SLICE_ID"
-OUTPUT_DIR="SwiftBridge/${BRIDGE_MODULE}.framework"
+
+# Device builds go to a separate directory to prevent architecture-mismatch
+# when a simulator binary exists from a prior build.
+if [ "$TARGET" = "device" ]; then
+    OUTPUT_DIR="SwiftBridge/device/${BRIDGE_MODULE}.framework"
+else
+    OUTPUT_DIR="SwiftBridge/${BRIDGE_MODULE}.framework"
+fi
 
 # Ensure generated bridge exists
 if [ ! -f "$GENERATED_BRIDGE" ]; then

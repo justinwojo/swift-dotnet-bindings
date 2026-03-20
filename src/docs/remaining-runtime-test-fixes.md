@@ -1,37 +1,31 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 12)
+**Updated**: March 19, 2026 (Session 13)
 
 ### Simulator (Mono)
 **Current**: 656 passed, 0 failed, 38 skipped.
 
 ### Device (NativeAOT)
-**Current**: 611 passed, 0 failed, 40 skipped.
-**Gap**: 45 tests run on simulator but not device (0 failures on either). Breakdown:
-- 30 SwiftUI bridge tests (3 classes not built for device — see below)
-- 13 OperatorTests (class not discovered on device — see below)
-- 2 `[SkipOnDevice]` (existential container ref params, Session 8)
+**Current**: 654 passed, 0 failed, 40 skipped.
+**Gap**: 2 tests (both `[SkipOnDevice]` existential container ref params, Session 8).
 
 ---
 
-## Device Test Coverage Gaps (45 tests — next priority)
+## Device Test Coverage Gaps — RESOLVED (Session 13)
 
-### SwiftUI bridge tests missing on device — 30 tests
+Session 13 closed the 43-test device gap (30 SwiftUI bridge + 13 OperatorTests). See Session 13 completed fixes below.
 
-**Classes**: BridgeSimpleViewTests (18), BridgeStateUpdateTests (9), BridgeAsyncViewTests (3)
+---
 
-These 3 test classes run on simulator but are absent from the device test run entirely. The device build likely doesn't link the SwiftUI bridge framework (`SwiftBindingsTestLibBridge`), so the test classes aren't discovered. SwiftUI bridge features must work on physical devices — these need to be included in the device build and tested under NativeAOT.
+## Session 13 Completed Fixes
 
-**Investigation**: Check `run-runtime-tests.sh --platform device` build pipeline — does it build/link `SwiftBindingsTestLibBridge.framework`? The simulator path uses `build-bridge.sh`; the device path may skip it. Also check if the RuntimeTestsApp.Device csproj includes the bridge native reference.
+### Tests recovered (43 device — full device parity achieved)
 
-### OperatorTests missing on device — 13 tests
-
-**Class**: OperatorTests (13 tests pass on simulator, class absent on device)
-
-The operator bindings themselves work (validated via library validation), but the test class is not discovered on device. This could be NativeAOT trimming the test class, a missing framework dependency, or a build configuration issue.
-
-**Investigation**: Check if `OperatorTests.cs` references types that are only available on simulator. Check `nm` output of the device framework for operator entry point symbols. Check if the test runner's reflection-based discovery trims this class on NativeAOT.
+| # | Fix | Tests | Root cause |
+|---|-----|------:|------------|
+| A | SwiftUI bridge device build support | 30 | `build-bridge.sh` only built for simulator (`ios-arm64-simulator`). Added `--target device` flag that builds for `ios-arm64` with `iphoneos` SDK. Updated `run-runtime-tests.sh` device path to call `./build-bridge.sh --target device`. Added `SWIFTUI_BRIDGE` conditional define, bridge CS file include, and bridge framework NativeReference to `RuntimeTestsApp.Device.csproj`. |
+| B | Operator @_cdecl wrappers for NativeAOT | 13 | Operators on frozen structs used `CallConvSwift` P/Invoke to mangled symbols. NativeAOT ILC segfaults compiling these (even on simple blittable structs like `ArithmeticValue(Int32)`). Fix: `ShouldEmitOperatorWrapper()` now returns true for non-generic frozen struct operators, emitting @_cdecl wrappers with `CallConvCdecl`. Generic frozen structs fall back to `RequiresCdeclForAbiSafety()` since the @_cdecl path doesn't emit metadata arguments. Device bridge output separated to `SwiftBridge/device/` to prevent simulator/device binary mismatch. Also re-added `OperatorTests` to `TrimmerRoots.xml`. |
 
 ---
 

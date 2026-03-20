@@ -10,9 +10,7 @@
     <type fullname="RuntimeTestsApp.Closures.*" preserve="all" />
     <type fullname="RuntimeTestsApp.ErrorHandling.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Generics.*" preserve="all" />
-    <!-- OperatorTests excluded: ILC segfaults on ArithmeticValue/ComparableValue/BitwiseValue/UnaryValue
-         operator stubs with CallConvSwift. StructEqualityTests (Tag type) works fine. -->
-    <type fullname="RuntimeTestsApp.Operators.StructEqualityTests" preserve="all" />
+    <type fullname="RuntimeTestsApp.Operators.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Patterns.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Protocols.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Async.*" preserve="all" />
