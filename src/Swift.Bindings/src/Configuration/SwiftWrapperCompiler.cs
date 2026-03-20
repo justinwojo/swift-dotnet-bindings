@@ -30,6 +30,12 @@ namespace BindingsGeneration
         /// Number of architecture slices in the wrapper xcframework (1 = simulator only, 2 = both).
         /// </summary>
         public int SliceCount { get; init; } = 1;
+
+        /// <summary>
+        /// Set of @_cdecl / @_silgen_name symbols that were stripped from the wrapper.
+        /// Used by C# co-gater to suppress P/Invokes targeting these symbols.
+        /// </summary>
+        public IReadOnlySet<string> StrippedSymbols { get; init; } = new HashSet<string>();
     }
 
     /// <summary>
@@ -170,6 +176,7 @@ namespace BindingsGeneration
             Directory.CreateDirectory(cleanedDir);
 
             int totalStripped = 0;
+            var allStrippedSymbols = new HashSet<string>();
             var cleanedFiles = new List<string>();
 
             try
@@ -182,6 +189,7 @@ namespace BindingsGeneration
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass);
                     totalStripped += result.StrippedBlockCount;
+                    allStrippedSymbols.UnionWith(result.StrippedSymbols);
 
                     if (result.StrippedBlockCount > 0)
                     {
@@ -211,6 +219,7 @@ namespace BindingsGeneration
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
                         StrippedBlockCount = totalStripped,
+                        StrippedSymbols = allStrippedSymbols,
                         SliceCount = 0
                     };
                 }
@@ -294,11 +303,29 @@ namespace BindingsGeneration
                 logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
                     wrapperModuleName, xcframeworkPath, sliceCount);
 
+                // Write stripped symbols manifest for diagnostics
+                if (allStrippedSymbols.Count > 0)
+                {
+                    var symbolsPath = Path.Combine(outputDirectory, "stripped-symbols.json");
+                    var sorted = allStrippedSymbols.OrderBy(s => s).ToArray();
+                    var jsonLines = new List<string> { "[" };
+                    for (int idx = 0; idx < sorted.Length; idx++)
+                    {
+                        var comma = idx < sorted.Length - 1 ? "," : "";
+                        jsonLines.Add($"  \"{sorted[idx]}\"{comma}");
+                    }
+                    jsonLines.Add("]");
+                    File.WriteAllText(symbolsPath, string.Join("\n", jsonLines));
+                    logger.LogInformation("Wrote {Count} stripped symbol(s) to {Path}",
+                        allStrippedSymbols.Count, symbolsPath);
+                }
+
                 return new SwiftWrapperCompilationResult
                 {
                     XCFrameworkPath = xcframeworkPath,
                     CompiledFileCount = cleanedFiles.Count,
                     StrippedBlockCount = totalStripped,
+                    StrippedSymbols = allStrippedSymbols,
                     SliceCount = sliceCount
                 };
             }
@@ -358,6 +385,7 @@ namespace BindingsGeneration
             Directory.CreateDirectory(cleanedDir);
 
             int totalStripped = 0;
+            var allStrippedSymbols = new HashSet<string>();
             var cleanedFiles = new List<string>();
 
             try
@@ -370,6 +398,7 @@ namespace BindingsGeneration
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass);
                     totalStripped += result.StrippedBlockCount;
+                    allStrippedSymbols.UnionWith(result.StrippedSymbols);
 
                     if (result.StrippedBlockCount > 0)
                     {
@@ -399,7 +428,8 @@ namespace BindingsGeneration
                     {
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
-                        StrippedBlockCount = totalStripped
+                        StrippedBlockCount = totalStripped,
+                        StrippedSymbols = allStrippedSymbols
                     };
                 }
 
@@ -439,11 +469,29 @@ namespace BindingsGeneration
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
 
+                // Write stripped symbols manifest for diagnostics
+                if (allStrippedSymbols.Count > 0)
+                {
+                    var symbolsPath = Path.Combine(outputDirectory, "stripped-symbols.json");
+                    var sorted = allStrippedSymbols.OrderBy(s => s).ToArray();
+                    var jsonLines = new List<string> { "[" };
+                    for (int idx = 0; idx < sorted.Length; idx++)
+                    {
+                        var comma = idx < sorted.Length - 1 ? "," : "";
+                        jsonLines.Add($"  \"{sorted[idx]}\"{comma}");
+                    }
+                    jsonLines.Add("]");
+                    File.WriteAllText(symbolsPath, string.Join("\n", jsonLines));
+                    logger.LogInformation("Wrote {Count} stripped symbol(s) to {Path}",
+                        allStrippedSymbols.Count, symbolsPath);
+                }
+
                 return new SwiftWrapperCompilationResult
                 {
                     XCFrameworkPath = xcframeworkPath,
                     CompiledFileCount = cleanedFiles.Count,
-                    StrippedBlockCount = totalStripped
+                    StrippedBlockCount = totalStripped,
+                    StrippedSymbols = allStrippedSymbols
                 };
             }
             finally

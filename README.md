@@ -12,6 +12,8 @@ Swift Bindings reads the ABI metadata from a compiled Swift framework and produc
 
 Point the same tool at an Objective-C framework and it parses headers via clang, emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions, and generates a ready-to-build `.csproj` — no manual cleanup required. Drop any xcframework and the correct pipeline runs automatically.
 
+For the story behind this project — why it exists, the process of building it entirely with AI tooling, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
+
 ### Support This Project
 
 This project takes a massive amount of effort to build and maintain, and the tooling used to develop it isn't cheap. If you find it useful, please consider [sponsoring the project](https://github.com/sponsors/justinwojo).
@@ -51,7 +53,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **625+ commits and ~290K net new lines of code (7x the original codebase)**. That breaks down to ~119K lines of production code (generator, runtime, SDK) backed by ~223K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (90 framework targets — 56 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
+Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **700+ commits and ~300K net new lines of code (7x the original codebase)**. That breaks down to ~125K lines of production code (generator, runtime, SDK) backed by ~175K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (89 framework targets — 55 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
 
 ---
 
@@ -92,7 +94,7 @@ Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, SDW
 
 ### Real-World Validation
 
-Validated against **46 libraries (90 framework targets — 56 Swift, 34 Objective-C)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+Validated against **46 libraries (89 framework targets — 55 Swift, 34 Objective-C)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -103,7 +105,7 @@ Validated against **46 libraries (90 framework targets — 56 Swift, 34 Objectiv
 | **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
 | **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
 
-Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. The generator also validates Nuke across macOS and tvOS targets.
+Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. Pre-built NuGet packages for popular libraries are coming soon. The generator also validates Nuke across macOS and tvOS targets.
 
 ### Examples
 
@@ -249,7 +251,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (90 framework targets — 56 Swift, 34 ObjC) and tested with **6,000+ unit tests**, **700+ integration tests**, and **346 runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (89 framework targets — 55 Swift, 34 ObjC) and tested with **7,000+ unit tests** and **700+ runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
 
 ---
 

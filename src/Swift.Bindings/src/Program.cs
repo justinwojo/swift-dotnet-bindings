@@ -658,6 +658,15 @@ namespace BindingsGeneration
                     {
                         logger.LogWarning("{Message}", outcomeMessage);
                     }
+
+                    // Co-gate C# bindings: suppress members targeting stripped wrapper symbols
+                    if (compilationResult?.StrippedSymbols.Count > 0)
+                    {
+                        var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                            outputDirectory, compilationResult.StrippedSymbols, logger);
+                        if (coGated > 0)
+                            logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
+                    }
                 }
 
                 // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)
@@ -1301,6 +1310,15 @@ namespace BindingsGeneration
             else if (diagnosticCode == "SWIFTBIND050" || rawOutcome == WrapperCompilationOutcome.Warning)
             {
                 logger.LogWarning("{Message}", outcomeMessage);
+            }
+
+            // Co-gate C# bindings: suppress members targeting stripped wrapper symbols
+            if (compilationResult?.StrippedSymbols.Count > 0)
+            {
+                var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                    outputDirectory, compilationResult.StrippedSymbols, logger);
+                if (coGated > 0)
+                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
             }
 
             // Update binding-metadata.props with wrapper compilation result

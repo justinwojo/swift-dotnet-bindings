@@ -1434,4 +1434,135 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region K. StrippedSymbols Extraction
+
+    public class PostProcessorStrippedSymbolsTests
+    {
+        [Fact]
+        public void Process_StrippedCdeclBlock_ExtractsSymbol()
+        {
+            var input = "@_cdecl(\"SBW_broken_func\")\n" +
+                        "public func SBW_broken_func() {\n" +
+                        "    let proxy = EveryProtocol()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_broken_func", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_StrippedSilgenNameBlock_ExtractsSymbol()
+        {
+            var input = "@_silgen_name(\"wrapper_symbol\")\n" +
+                        "public func wrapper_symbol() {\n" +
+                        "    let proxy = EveryProtocol()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("wrapper_symbol", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_PreservedBlock_NoSymbolsExtracted()
+        {
+            var input = "@_cdecl(\"SBW_good_func\")\n" +
+                        "public func SBW_good_func() {\n" +
+                        "    print(\"hello\")\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Empty(result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_ExtensionWithMultipleCdecls_ExtractsAllSymbols()
+        {
+            var internalTypes = new HashSet<string> { "InternalWidget" };
+            var input = "extension SomeType {\n" +
+                        "    @_cdecl(\"SBW_getter\")\n" +
+                        "    public func SBW_getter() -> InternalWidget {\n" +
+                        "        return InternalWidget()\n" +
+                        "    }\n" +
+                        "    @_cdecl(\"SBW_setter\")\n" +
+                        "    public func SBW_setter(_ val: InternalWidget) {\n" +
+                        "    }\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_getter", result.StrippedSymbols);
+            Assert.Contains("SBW_setter", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_EveryProtocolExtensionWithInternalType_ExtractsSymbols()
+        {
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = "extension EveryProtocol: SomeProtocol {\n" +
+                        "    @_cdecl(\"SBW_conform\")\n" +
+                        "    func conform() -> InternalType { fatalError() }\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_conform", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_MainActorCdeclStripped_ExtractsSymbol()
+        {
+            var input = "@MainActor\n" +
+                        "@_cdecl(\"SBW_init_broken\")\n" +
+                        "public func SBW_init_broken() {\n" +
+                        "    let proxy = EveryProtocol()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_init_broken", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_StandaloneFuncStripped_NoSymbolsWithoutCdecl()
+        {
+            // Standalone funcs without @_cdecl have no symbol to extract
+            var input = "public func SBW_standalone() {\n" +
+                        "    let proxy = EveryProtocol()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Empty(result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void Process_StandaloneFuncWithCdeclStripped_ExtractsSymbol()
+        {
+            // Standalone funcs WITH @_cdecl DO extract symbols (Pattern 4 with annotation)
+            var input = "@_cdecl(\"SBW_standalone_symbol\")\n" +
+                        "public func SBW_standalone() {\n" +
+                        "    let proxy = EveryProtocol()\n" +
+                        "}\n";
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("SBW_standalone_symbol", result.StrippedSymbols);
+        }
+
+        [Fact]
+        public void ExtractSymbolsFromBlock_FindsCdeclAndSilgenName()
+        {
+            var lines = new List<string>
+            {
+                "@_cdecl(\"symbol_one\")\n",
+                "func one() {\n",
+                "    @_silgen_name(\"symbol_two\")\n",
+                "    func two() {}\n",
+                "}\n"
+            };
+            var symbols = new HashSet<string>();
+            SwiftWrapperPostProcessor.ExtractSymbolsFromBlock(lines, 0, 4, symbols);
+            Assert.Contains("symbol_one", symbols);
+            Assert.Contains("symbol_two", symbols);
+            Assert.Equal(2, symbols.Count);
+        }
+    }
+
+    #endregion
+
 }

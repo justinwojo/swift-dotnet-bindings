@@ -72,8 +72,9 @@ cd /tmp/output && dotnet build Library.Swift.iOS.csproj -p:EnableDefaultCompileI
 ## PR Guidelines
 
 - **All changes must have tests.** Unit tests at minimum; integration tests for new Swift patterns.
-- **Run `./run-tests.sh` before submitting.** All 7,500+ unit tests must pass.
+- **Run `./run-tests.sh` before submitting.** All 7,000+ unit tests must pass.
 - **Run `./validate-libraries.sh`** if your change affects code generation. No regressions in the validation baseline.
+- **Run `cd BindingTests && ./build-and-test.sh`** if your change affects code generation or the runtime. This rebuilds bindings from a comprehensive Swift test library and runs 700+ runtime tests on iOS Simulator — the primary end-to-end regression gate.
 - **Keep PRs focused.** One logical change per PR. Don't bundle unrelated fixes.
 - **Don't refactor surrounding code.** Fix/add what's needed, nothing more.
 
@@ -84,7 +85,7 @@ This project is developed primarily with AI tooling — [Claude Code](https://cl
 - **`CLAUDE.md`** — Project context, build commands, architecture constraints, and working guidelines for Claude Code sessions
 - **`AGENTS.md`** — Equivalent context file for OpenAI Codex
 
-The typical workflow for this repo is: plan and implement with Claude Code (Opus), then review plans and code with Codex. If you're comfortable working with AI coding tools, the repo is set up to be productive out of the box — point Claude Code or Codex at an issue and the context files provide the project knowledge needed to make meaningful contributions. The 7,500+ unit tests and 88-target validation suite serve as a strong safety net for AI-generated changes.
+The typical workflow for this repo is: plan and implement with Claude Code (Opus), then review plans and code with Codex. If you're comfortable working with AI coding tools, the repo is set up to be productive out of the box — point Claude Code or Codex at an issue and the context files provide the project knowledge needed to make meaningful contributions. The 7,000+ unit tests, 700+ runtime tests on iOS Simulator, and 89-target validation suite serve as a strong safety net for AI-generated changes.
 
 Human review remains the final gate on all changes.
 

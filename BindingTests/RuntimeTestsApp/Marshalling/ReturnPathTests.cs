@@ -35,7 +35,6 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("PairMaker construction passed");
     }
 
-    [Skip("coverage gap: tuple return crashes — ValueTuple StructLayout.Auto marshalling via @_cdecl indirect result buffer")]
     public void TestPairMakerTupleReturn()
     {
         var maker = new PairMaker(label: "item");

@@ -13,6 +13,12 @@ namespace BindingsGeneration
         public required string CleanedContent { get; init; }
         public required int StrippedBlockCount { get; init; }
         public int ModuleNameCollisionReplacements { get; init; }
+
+        /// <summary>
+        /// Set of @_cdecl / @_silgen_name symbol names that were stripped from the wrapper.
+        /// Used by C# co-gater to suppress P/Invokes targeting these symbols.
+        /// </summary>
+        public IReadOnlySet<string> StrippedSymbols { get; init; } = new HashSet<string>();
     }
 
     /// <summary>
@@ -69,6 +75,7 @@ namespace BindingsGeneration
             var lines = SplitLines(sourceContent);
             var outputLines = new List<string>();
             int removedCount = 0;
+            var strippedSymbols = new HashSet<string>();
             int i = 0;
 
             while (i < lines.Count)
@@ -99,6 +106,7 @@ namespace BindingsGeneration
                         var body = ScanBlockBody(lines, i, end);
                         if (ReferencesInternalType(body, internalTypeNames))
                         {
+                            ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -119,6 +127,7 @@ namespace BindingsGeneration
                     if (IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
+                        ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -140,6 +149,7 @@ namespace BindingsGeneration
                         if (IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning) ||
                             ReferencesInternalType(body, internalTypeNames))
                         {
+                            ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -157,6 +167,7 @@ namespace BindingsGeneration
                     if (IsExtensionBroken(lines, i, end, body, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
+                        ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -173,6 +184,7 @@ namespace BindingsGeneration
                     if (IsStandaloneFuncBroken(body, i, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames))
                     {
+                        ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -230,7 +242,8 @@ namespace BindingsGeneration
             {
                 CleanedContent = string.Join("", outputLines),
                 StrippedBlockCount = removedCount,
-                ModuleNameCollisionReplacements = collisionReplacements
+                ModuleNameCollisionReplacements = collisionReplacements,
+                StrippedSymbols = strippedSymbols
             };
         }
 
@@ -350,6 +363,26 @@ namespace BindingsGeneration
             return false;
         }
 
+
+        private static readonly Regex CdeclSymbolRegex = new(
+            @"@_(?:cdecl|silgen_name)\(""([^""]+)""\)",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// Extracts @_cdecl / @_silgen_name symbol names from a block being stripped.
+        /// Scans the entire block range since extension blocks may contain multiple functions.
+        /// </summary>
+        internal static void ExtractSymbolsFromBlock(IReadOnlyList<string> lines, int start, int end, HashSet<string> symbols)
+        {
+            for (int j = start; j <= end && j < lines.Count; j++)
+            {
+                var matches = CdeclSymbolRegex.Matches(lines[j]);
+                foreach (Match match in matches)
+                {
+                    symbols.Add(match.Groups[1].Value);
+                }
+            }
+        }
 
         /// <summary>
         /// Checks if a block body references any internal (non-public) type names.

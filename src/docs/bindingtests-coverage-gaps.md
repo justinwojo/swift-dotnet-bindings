@@ -26,17 +26,15 @@ The test suite is **deep but narrow** — it thoroughly tests one controlled lib
 
 ## 1. Failure Categories
 
-### Category 1: DllNotFoundException — Wrapper Stripped, C# Still References Symbol
+### Category 1: DllNotFoundException — Wrapper Stripped, C# Still References Symbol (CLOSED)
 
 **Failures**: 39 across ObjectMapper (12), XMLCoder (18), PhoneNumberKit (7), Kingfisher (2)
 
-**Root cause**: Swift wrapper post-processor strips broken `@_cdecl` functions (internal type references, EveryProtocol stubs) but C# P/Invoke declarations still reference the stripped symbols. No co-gating mechanism exists.
+**Root cause**: Swift wrapper post-processor strips broken `@_cdecl` functions (internal type references, EveryProtocol stubs) but C# P/Invoke declarations still reference the stripped symbols.
 
-**Generator code path**: `SwiftWrapperPostProcessor.Process()` strips functions, returns only block COUNT (not symbol names). `PInvokeEmitter.ComputeEntryPoint()` has already emitted C# targeting those symbols. In SDK mode (`--skip-wrapper-compilation`), generator and wrapper compiler run in different MSBuild targets with no handshake.
+**Fix**: `CSharpWrapperCoGater` — post-processes generated C# after wrapper compilation. Extracts stripped `@_cdecl` symbol names from `PostProcessingResult.StrippedSymbols`, then removes P/Invoke declarations + callers + property forwarders via 3-level transitive closure. Interface member implementations are exempted to prevent CS0535 compile errors. See [Section 3](#3-wrapper-stripping) for full details.
 
-**Why BindingTests misses it**: Our test library's wrapper always compiles successfully. We never test partial wrapper failure.
-
-**Test needed**: Swift type in test library that deliberately causes some wrapper functions to fail compilation while others succeed. Verify C# either suppresses P/Invokes for stripped symbols or throws a meaningful error.
+**Validation**: 90/90 library compile gate passes. 40 unit tests covering P/Invoke detection, constructor/method/property stripping, interface-aware exemptions, scope ambiguity, and prefix collision.
 
 ### Category 2: CallConvSwift Non-Blittable Crashes
 
@@ -237,20 +235,50 @@ Exhaustive audit of every branching condition in the generator that affects runt
 
 ---
 
-## 3. Wrapper Stripping & Co-Gating
+## 3. Wrapper Stripping & Co-Gating (IMPLEMENTED)
 
-### Current Architecture
+### Architecture
 
 ```
 Generator Phase                    Wrapper Compilation Phase
 ─────────────────                  ──────────────────────────
 1. Emit C# with P/Invokes    ──>  3. Post-process Swift (strip broken)
-2. Emit Swift wrappers        ──>  4. Compile remaining Swift
+2. Emit Swift wrappers        ──>     ↓ extract @_cdecl symbol names
+                                   4. Compile remaining Swift
                                    5. Package xcframework
-
-Gap: Step 1 assumes all wrappers compile. Step 3 strips some.
-     No feedback from Step 3 → Step 1.
+                                      ↓ StrippedSymbols propagated
+                              <──  6. CSharpWrapperCoGater post-processes C#
+                                      ↓ strips P/Invokes + callers + properties
 ```
+
+### Implementation (Option A — completed)
+
+**Files changed:**
+- `SwiftWrapperPostProcessor.cs` — `PostProcessingResult.StrippedSymbols` (`IReadOnlySet<string>`)
+- `SwiftWrapperCompiler.cs` — `SwiftWrapperCompilationResult.StrippedSymbols`, writes `stripped-symbols.json`
+- `CSharpWrapperCoGater.cs` — **NEW** — text-based C# post-processor
+- `Program.cs` — integrated in both `--xcframework` and `--compile-wrapper-only` modes
+
+**CSharpWrapperCoGater algorithm** (3-level transitive closure):
+
+| Level | What | Example | Removal |
+|-------|------|---------|---------|
+| 0 | P/Invoke declaration | `[LibraryImport("SwiftBindings", EntryPoint = "SBW_broken")]` + `private static partial void PInvoke_xxx(...)` | Attributes + declaration |
+| 1 | Private property helper | `private int Count_Get() { PInvoke_xxx(...); }` | Only `_Get`/`_Set` helpers |
+| 2 | Property forwarder | `public int Count { get => Count_Get(); }` | Full property block |
+
+**Safety exemptions** (P/Invoke kept intact, DllNotFoundException at runtime):
+
+| Exemption | Reason | Detection |
+|-----------|--------|-----------|
+| `SBW_Free_*` symbols | Shared across all types in module | Entry point prefix check |
+| DllNotFoundException fallback callers | GetMetadata try-catch pattern | Block contains `DllNotFoundException` |
+| Interface member implementations | Stripping would cause CS0535 compile error | Parse `public interface` declarations, match member names |
+| Scope-ambiguous names | `PInvoke_eq` in 15 scopes → cross-type false match | Count partial declarations per name |
+
+**Wrapper library detection**: regex `LibraryImport\("(\w*SwiftBindings)"` — matches both `"SwiftBindings"` and module-specific names like `"NukeSwiftBindings"`, excludes `"SwiftBindingsTestLib"`.
+
+**Caller matching**: uses `name + "("` token matching (not raw substring) to prevent prefix collisions like `PInvoke_foo_ABC` matching `PInvoke_foo_ABC123`.
 
 ### What Gets Stripped
 
@@ -262,34 +290,11 @@ Gap: Step 1 assumes all wrappers compile. Step 3 strips some.
 | Extensions with internal refs | `IsExtensionBroken()` | Namespace extensions referencing private types |
 | Standalone public SBW_ funcs | `public func SBW_*` + internal refs | Constructor wrappers for internal types |
 
-### What's Lost
+### Test Coverage
 
-Post-processor returns `PostProcessingResult` with:
-- `CleanedContent` (stripped source)
-- `StrippedBlockCount` (integer count)
-
-**Symbol names of stripped functions are NOT tracked.** The `@_cdecl("SBW_Some_Symbol")` string is parsed to detect the block but never extracted/returned.
-
-### Co-Gating Test Design
-
-**Approach**: Add a Swift type to SwiftBindingsTestLib that has SOME methods whose wrappers will compile and SOME that won't. Then verify:
-
-1. **Unit test**: The generated Swift wrapper source contains `@_cdecl` for the working methods but NOT for the broken ones (post-stripping)
-2. **Unit test**: The generated C# does NOT emit P/Invoke declarations for stripped symbols (or wraps them in try-catch with meaningful error)
-3. **Runtime test**: Calling the working methods succeeds; calling the stripped methods throws a predictable exception (not DllNotFoundException)
-
-**How to make wrapper compilation fail deliberately**:
-- Reference an `internal` type from the test library in a method signature that the wrapper needs to re-export
-- Use a pattern that `@_cdecl` can't express (e.g., `.load(as: @escaping)` metatype)
-- Have a protocol conformance that references a type the wrapper can't see
-
-### Generator Fix Needed
-
-**Option A (minimal)**: Extract stripped symbol names in `SwiftWrapperPostProcessor`, write to `stripped-symbols.json`. After wrapper compilation, generator reads this and suppresses C# P/Invokes for stripped symbols.
-
-**Option B (SDK mode)**: After `_CompileSwiftWrapper` target runs, add a new target that reads the compiled xcframework's exported symbols (via `nm -g`) and compares to the C# P/Invoke entry points. Emit build warnings for mismatches.
-
-**Option C (preventive)**: In the emitter, when setting `UsesWrapperLibrary = true`, also check if the wrapper function would reference internal types. If so, don't set the flag — emit the method as a `NotSupportedException` stub or suppress entirely.
+- **PostProcessorStrippedSymbolsTests** (9 tests): symbol extraction from all 5 stripping patterns
+- **CSharpWrapperCoGaterTests** (40 tests): P/Invoke detection, constructor/method/property stripping, GetMetadata exemption, SBW_Free exemption, interface member protection, scope ambiguity, prefix collision, module-specific library names
+- **Validation gate**: 90/90 libraries compile with co-gating active
 
 ---
 
@@ -478,11 +483,42 @@ All 7 new tests **pass** — the generator's `IsSelfTypeCdeclRequired` logic is 
 
 ### What Phase 2 Should Fix
 
-| Priority | Fix | Failing/Skipped Tests That Will Pass After |
-|----------|-----|---------------------------|
-| P0 | Fix Optional<ComplexEnum> getter nil marshalling | OptionalPropertyPathTests.TestShapeHolderGetterNil (currently FAILING) |
-| P0 | Co-gate wrapper stripping: suppress C# P/Invokes for stripped wrappers | ConstructorParamTests.LinkedNode (currently crashes) |
-| P1 | Fix tuple return Mono JIT crash (StructLayout.Auto via CallConvSwift) | ReturnPathTests.TestPairMakerTupleReturn |
-| P1 | Fix closure return Mono JIT crash (16-byte struct return ABI) | ReturnPathTests.TestTransformFactoryClosureReturn |
-| P1 | Fix Optional<closure with String return> code generation | ReturnPathTests.OptionalHandler (String variant) |
-| P2 | Fix DynamicSelf return on non-final class | ReturnPathTests.TestBuildableDynamicSelfReturn |
+| Priority | Fix | Status | Tests Affected |
+|----------|-----|--------|----------------|
+| P0 | Co-gate wrapper stripping: suppress C# P/Invokes for stripped wrappers | **DONE** | 40 unit tests, 90/90 validation |
+| P0 | Fix Optional<ComplexEnum> getter nil marshalling | Open | OptionalPropertyPathTests.TestShapeHolderGetterNil (FAILING) |
+| P1 | Fix tuple return Mono JIT crash | **DONE** (skip was stale — uses ABI offset reading, not ValueTuple) | ReturnPathTests.TestPairMakerTupleReturn (now PASSING) |
+| P1 | Fix closure return Mono JIT crash (16-byte struct return ABI) | Not actionable (upstream Mono `calli` issue) | ReturnPathTests.TestTransformFactoryClosureReturn |
+| P1 | Fix Optional<closure with String return> code generation | Open (non-blittable pattern) | ReturnPathTests.OptionalHandler (String variant) |
+| P2 | Fix DynamicSelf return on non-final class | Already passing | ReturnPathTests.TestBuildableDynamicSelfReturn |
+
+---
+
+## Phase 2 Results (Wrapper Stripping Co-Gating)
+
+**Date**: March 20, 2026
+
+### Summary
+
+Category 1 (DllNotFoundException from stripped wrappers) — the single largest failure category at 39 failures — is now closed. The co-gater post-processes generated C# to suppress members targeting stripped wrapper symbols, with interface-aware safety exemptions.
+
+### Runtime Test Counts
+
+| Metric | Phase 1 | Phase 2 | Delta |
+|--------|---------|---------|-------|
+| Pass | 717 | 731 | +14 |
+| Fail | 1 | 1 | 0 |
+| Skip | 43 | 37 | -6 |
+
+The +14/–6 delta reflects skip recoveries from the previous commit (generator fixes) plus the tuple return skip removal in this session.
+
+### Remaining Open Categories
+
+| Category | Failures | Status | What's Needed |
+|----------|----------|--------|---------------|
+| Cat 1: DllNotFoundException | 39 | **CLOSED** | Co-gating implemented |
+| Cat 2: CallConvSwift non-blittable | 6 | Open | Expand `RequiresCdeclForAbiSafety` or suppress |
+| Cat 3: Mono JIT SIGSEGV | 4 | Open (partially mitigated) | Upstream Mono `calli` issue for closures; struct cases pass |
+| Cat 4: NativeAOT metadata trimming | 13 | Open | Module initializer generic instantiation |
+| Cat 5: TypeInitializationException | 5 | Open | Proxy init graceful failure |
+| Cat 6: Optional setter mismatch | 1 | **CLOSED** | Fixed in prior commit |
