@@ -22,8 +22,6 @@ namespace Swift.Runtime
     /// </remarks>
     public static class SwiftDispose
     {
-        private static readonly bool s_isMonoRuntime = SwiftRuntimeInfo.IsMonoRuntime;
-
         /// <summary>
         /// Called from generated struct finalizers to ensure Swift ARC cleanup.
         /// On NativeAOT: calls full Dispose (triggers @_cdecl destroy action).
@@ -31,7 +29,7 @@ namespace Swift.Runtime
         /// </summary>
         public static void FinalizerCleanup<T>(SwiftSafeHandle<T>? payload) where T : ISwiftObject
         {
-            if (!s_isMonoRuntime && payload != null && !payload.IsInvalid)
+            if (!SwiftRuntimeInfo.IsMonoRuntime && payload != null && !payload.IsInvalid)
                 payload.Dispose();
         }
     }

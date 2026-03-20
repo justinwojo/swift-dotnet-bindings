@@ -296,6 +296,16 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
             }
+            // Pre-register witness tables for types conforming to ISwiftHashable.
+            // This eliminates reflection-based MakeGenericType in ProtocolWitnessTable.GetOrThrow
+            // for SwiftDictionary/SwiftSet operations on NativeAOT where TKey/Element lacks ISwiftObject constraint.
+            foreach (var (typeName, protocolName) in conformances)
+            {
+                if (protocolName == "ISwiftHashable")
+                {
+                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>();");
+                }
+            }
             csWriter.WriteLines($$"""
                     }
                 }

@@ -47,5 +47,12 @@
     <!-- Existential containers -->
     <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer2" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer3" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer4" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer5" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer6" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer7" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer8" preserve="methods" />
   </assembly>
 </linker>

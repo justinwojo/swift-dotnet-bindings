@@ -315,6 +315,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     /// <returns>true on success false otherwise</returns>
     /// <exception cref="NotImplementedException">Throws if unable to look up the ISwiftObject.GetTypeMetadata method.</exception>
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple metadata path only; non-tuple paths are AOT-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     static bool TryGetTypeMetadataUncached<T>([NotNullWhen(true)] out TypeMetadata? result)
     {
         var type = typeof(T);

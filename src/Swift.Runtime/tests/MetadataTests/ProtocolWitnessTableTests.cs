@@ -3,6 +3,7 @@
 
 using Swift;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -94,5 +95,46 @@ public class ProtocolWitnessTableTests : IClassFixture<ProtocolWitnessTableTests
         // GetOrThrowDirect should throw (metadata check fails first).
         Assert.ThrowsAny<Exception>(() =>
             ProtocolWitnessTable.GetOrThrowDirect<AnyTypeMock, ISwiftHashable>());
+    }
+
+    [Fact]
+    public static void RegisterWitnessTable_PreRegistersForGetOrThrow()
+    {
+        // Pre-register a witness table via SwiftMarshal.RegisterWitnessTable (the same
+        // call the generated [ModuleInitializer] emits). Then verify GetOrThrow returns
+        // the cached value, matching the direct dispatch result.
+        SwiftMarshal.RegisterWitnessTable<SwiftIntMock, ISwiftHashable>();
+
+        var cached = ProtocolWitnessTable.GetOrThrow<SwiftIntMock, ISwiftHashable>();
+        var direct = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+
+        Assert.True(cached.IsValid);
+        Assert.Equal(direct.Handle, cached.Handle);
+    }
+
+    [Fact]
+    public static void WitnessTableDispatcher_TryGet_ReturnsFalseForUnregisteredType()
+    {
+        // TypeNotImplementingAnyProtocols was never registered — TryGet should return false.
+        var found = WitnessTableDispatcher.TryGet(
+            typeof(TypeNotImplementingAnyProtocols), typeof(ISwiftHashable), out var witnessTable);
+
+        Assert.False(found);
+        Assert.False(witnessTable.IsValid);
+    }
+
+    [Fact]
+    public static void WitnessTableDispatcher_Register_IsIdempotent()
+    {
+        // Registering the same (type, protocol) pair twice should not throw.
+        var wt = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+        WitnessTableDispatcher.Register(typeof(SwiftIntMock), typeof(ISwiftHashable), wt);
+        WitnessTableDispatcher.Register(typeof(SwiftIntMock), typeof(ISwiftHashable), wt);
+
+        var found = WitnessTableDispatcher.TryGet(
+            typeof(SwiftIntMock), typeof(ISwiftHashable), out var cached);
+
+        Assert.True(found);
+        Assert.Equal(wt.Handle, cached.Handle);
     }
 }

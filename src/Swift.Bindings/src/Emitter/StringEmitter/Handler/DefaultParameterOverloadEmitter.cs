@@ -150,9 +150,9 @@ public static class DefaultParameterOverloadEmitter
             if (!overloadDecl.IsConstructor && silgenSymbolForMethodCdecl == null)
             {
                 overloadDecl.UsesWrapperLibrary = false;
-                bool eligible = MethodWrapperEmitter.ShouldEmitWrapper(overloadEnv);
+                bool wrapperRequired = WrapperValidation.DetermineMethodWrapperDecision(overloadEnv) == WrapperDecision.WrapperRequired;
                 overloadDecl.UsesWrapperLibrary = true;
-                if (eligible && WrapperValidation.RequiresCdeclForAbiSafety(overloadEnv))
+                if (wrapperRequired)
                 {
                     var parentType_ = overloadDecl.ParentDecl as TypeDecl;
                     silgenSymbolForMethodCdecl = overloadDecl.MangledName;

@@ -523,14 +523,8 @@ public static class ConstructorWrapperEmitter
         // Add @MainActor annotation when the parent type is @MainActor-isolated.
         // Without this, calling a @MainActor init from a non-isolated @_cdecl function
         // causes a Swift 6 compile error. Safe for synchronous functions (no runtime dispatch).
-        if (parentTypeDecl?.IsMainActorIsolated == true)
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
-
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
+            needsMainActor: parentTypeDecl?.IsMainActorIsolated == true);
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
@@ -1677,14 +1671,8 @@ public static class ConstructorWrapperEmitter
             // Routes through protocol-based type erasure to avoid CallConvSwift crash.
             """);
 
-        if (parentTypeDecl.IsMainActorIsolated)
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
-
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
+            needsMainActor: parentTypeDecl.IsMainActorIsolated);
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;

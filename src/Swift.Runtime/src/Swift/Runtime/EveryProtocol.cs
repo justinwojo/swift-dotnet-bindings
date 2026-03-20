@@ -33,7 +33,7 @@ public sealed class EveryProtocol : ISwiftObject
         ? "EveryProtocol [DISPOSED]"
         : $"EveryProtocol (0x{Handle:X})";
 
-    private static IntPtr _typeMetadataHandle;
+    private static volatile IntPtr _typeMetadataHandle;
     private static readonly object _metadataLock = new object();
 
     private readonly SwiftClassHandle<EveryProtocol> _handle;

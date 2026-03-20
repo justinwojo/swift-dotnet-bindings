@@ -77,13 +77,6 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
-    /// Cached Mono runtime detection for finalizer safety decisions.
-    /// On Mono, VWT Destroy from the finalizer thread can trigger jit-info.c:918 crashes
-    /// (the async assertion). On NativeAOT (production), VWT Destroy is safe from any thread.
-    /// </summary>
-    private static readonly bool s_isMonoRuntime = SwiftRuntimeInfo.IsMonoRuntime;
-
-    /// <summary>
     /// Tracks whether Dispose() was explicitly called.
     /// If true, we're in explicit disposal — VWT Destroy always runs (safe from user thread).
     /// If false when ReleaseHandle runs, we're in finalization — VWT Destroy runs on
@@ -155,31 +148,54 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
-        // On Mono finalizer thread, skip ALL P/Invoke calls — both VWT Destroy and
-        // NativeMemory.Free. NativeMemory.Free calls native free() via P/Invoke, and
-        // when earlier CallConvSwift compilations have contaminated Mono's JIT state
-        // with the async flag, any P/Invoke from the finalizer thread triggers
-        // jit-info.c:918 (!ji->async assertion). Accept a small memory leak on Mono
-        // simulator dev builds; explicit Dispose() from user threads still frees everything.
-        // NativeAOT (production) is unaffected — finalizer cleanup works fully.
-        if (!_explicitDispose && s_isMonoRuntime)
-        {
-            handle = IntPtr.Zero;
-            return true;
-        }
+        // Mono finalizer → skip ALL P/Invoke (jit-info.c:918 crash risk)
+        if (!_explicitDispose && SwiftRuntimeInfo.IsMonoRuntime)
+            return HandleMonoFinalizerCleanup();
 
-        // During process exit, skip Destroy for finalizer-triggered cleanup only.
-        // Explicit Dispose() still runs Destroy — Swift deinit may flush/close/persist.
-        // On NativeAOT/iOS, GC finalization can start before ProcessExit fires,
-        // and the Swift runtime may already be partially torn down.
-        // We still free the .NET-allocated buffer since NativeMemory.Free is always safe.
+        // Process exit finalizer → free buffer only (Swift runtime may be torn down)
         if (IsProcessExiting && !_explicitDispose)
-        {
-            NativeMemory.Free((void*)handle);
-            handle = IntPtr.Zero;
-            return true;
-        }
+            return HandleProcessExitCleanup();
 
+        // Normal path → VWT Destroy + free buffer
+        return HandleNormalRelease();
+    }
+
+    /// <summary>
+    /// Handles cleanup when the finalizer runs on Mono.
+    /// Skips ALL P/Invoke calls — both VWT Destroy and NativeMemory.Free.
+    /// NativeMemory.Free calls native free() via P/Invoke, and when earlier
+    /// CallConvSwift compilations have contaminated Mono's JIT state with the
+    /// async flag, any P/Invoke from the finalizer thread triggers
+    /// jit-info.c:918 (!ji->async assertion). Accepts a small memory leak on
+    /// Mono simulator dev builds; explicit Dispose() from user threads still
+    /// frees everything. NativeAOT (production) is unaffected.
+    /// </summary>
+    private bool HandleMonoFinalizerCleanup()
+    {
+        handle = IntPtr.Zero;
+        return true;
+    }
+
+    /// <summary>
+    /// Handles cleanup during process exit for finalizer-triggered releases.
+    /// Skips VWT Destroy because Swift deinit may reference torn-down runtime state,
+    /// but still frees the .NET-allocated buffer since NativeMemory.Free is always safe.
+    /// Explicit Dispose() bypasses this path — Swift deinit may flush/close/persist.
+    /// </summary>
+    private unsafe bool HandleProcessExitCleanup()
+    {
+        NativeMemory.Free((void*)handle);
+        handle = IntPtr.Zero;
+        return true;
+    }
+
+    /// <summary>
+    /// Handles the normal release path: calls VWT Destroy to decrement Swift ARC
+    /// reference counts, then frees the .NET-allocated buffer.
+    /// Used for both explicit Dispose() and NativeAOT finalizer cleanup.
+    /// </summary>
+    private unsafe bool HandleNormalRelease()
+    {
         try
         {
             // VWT Destroy is in a separate NoInlining method so that Mono's JIT

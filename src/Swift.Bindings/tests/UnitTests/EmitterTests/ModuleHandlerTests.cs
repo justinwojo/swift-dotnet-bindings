@@ -796,6 +796,120 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Witness Table Registration Emission Tests
+
+    [Fact]
+    public void Emit_EmitsRegisterWitnessTableForHashableConformance()
+    {
+        // When a type has an ISwiftHashable conformance recorded on the emission context,
+        // the emitted [ModuleInitializer] should contain a RegisterWitnessTable call.
+        var csOutput = EmitModuleWithPrePopulatedConformances(
+            "TestModule",
+            swiftObjectTypes: new[] { "MyStruct" },
+            conformances: new[] { ("MyStruct", "ISwiftHashable") });
+
+        Assert.Contains("RegisterWitnessTable<MyStruct, ISwiftHashable>()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_DoesNotEmitRegisterWitnessTableForNonHashableConformance()
+    {
+        // IEquatable and other non-ISwiftHashable conformances should NOT emit RegisterWitnessTable.
+        var csOutput = EmitModuleWithPrePopulatedConformances(
+            "TestModule",
+            swiftObjectTypes: new[] { "MyStruct" },
+            conformances: new[] { ("MyStruct", "IEquatable<MyStruct>") });
+
+        Assert.DoesNotContain("RegisterWitnessTable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EmitsRegisterWitnessTableAlongsideConformanceFactory()
+    {
+        // When a type conforms to ISwiftHashable, both RegisterConformanceFactory and
+        // RegisterWitnessTable should be emitted.
+        var csOutput = EmitModuleWithPrePopulatedConformances(
+            "TestModule",
+            swiftObjectTypes: new[] { "MyStruct" },
+            conformances: new[] { ("MyStruct", "ISwiftHashable") });
+
+        Assert.Contains("RegisterConformanceFactory<MyStruct, ISwiftHashable>()", csOutput);
+        Assert.Contains("RegisterWitnessTable<MyStruct, ISwiftHashable>()", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EmitsRegisterWitnessTableForMultipleHashableTypes()
+    {
+        // Multiple types conforming to ISwiftHashable should each get a RegisterWitnessTable call.
+        var csOutput = EmitModuleWithPrePopulatedConformances(
+            "TestModule",
+            swiftObjectTypes: new[] { "TypeA", "TypeB" },
+            conformances: new[]
+            {
+                ("TypeA", "ISwiftHashable"),
+                ("TypeB", "ISwiftHashable"),
+                ("TypeA", "IEquatable<TypeA>")
+            });
+
+        Assert.Contains("RegisterWitnessTable<TypeA, ISwiftHashable>()", csOutput);
+        Assert.Contains("RegisterWitnessTable<TypeB, ISwiftHashable>()", csOutput);
+        // Only 2 RegisterWitnessTable calls (one per Hashable conformance, not per Equatable)
+        var count = csOutput.Split("RegisterWitnessTable").Length - 1;
+        Assert.Equal(2, count);
+    }
+
+    /// <summary>
+    /// Helper that emits a module with pre-populated emission context entries (factory types + conformances),
+    /// bypassing the full type handler pipeline. This directly tests EmitFrameworkResolver output.
+    /// </summary>
+    private static string EmitModuleWithPrePopulatedConformances(
+        string moduleName,
+        string[] swiftObjectTypes,
+        (string TypeName, string ProtocolInterface)[] conformances)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = moduleName,
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase(moduleName, "/fake/path");
+        typeDatabase.AddModuleDatabase(module);
+
+        // Create a fresh emission context and populate it
+        var emissionCtx = new ModuleEmissionContext();
+        foreach (var typeName in swiftObjectTypes)
+            emissionCtx.RecordSwiftObjectType(typeName);
+        foreach (var (typeName, protocolName) in conformances)
+            emissionCtx.RecordConformance(typeName, protocolName);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+
+        var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        // Use a TypeHandlerContext with our custom emission context
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        return csStringWriter.ToString();
+    }
+
+    #endregion
+
     #region IsMangledNameFromModule Tests
 
     [Theory]

@@ -1305,4 +1305,361 @@ public class WrapperConsistencyTests
     }
 
     #endregion
+
+    #region HasIncompatibleFields Tests
+
+    [Fact]
+    public void HasIncompatibleFields_FloatFields_ReturnsTrue()
+    {
+        var record = new TypeRecord
+        {
+            Kind = TypeRecordKind.Struct,
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FloatStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FloatStruct"),
+            MetadataAccessor = "$sMa",
+        };
+        Assert.True(WrapperValidation.HasIncompatibleFields(record));
+    }
+
+    [Fact]
+    public void HasIncompatibleFields_BoolFields_ReturnsTrue()
+    {
+        var record = new TypeRecord
+        {
+            Kind = TypeRecordKind.Struct,
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.BoolStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BoolStruct"),
+            MetadataAccessor = "$sMa",
+        };
+        Assert.True(WrapperValidation.HasIncompatibleFields(record));
+    }
+
+    [Fact]
+    public void HasIncompatibleFields_IntegerOnly_ReturnsFalse()
+    {
+        var record = new TypeRecord
+        {
+            Kind = TypeRecordKind.Struct,
+            Flags = TypeRecordFlags.Frozen,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.IntStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IntStruct"),
+            MetadataAccessor = "$sMa",
+        };
+        Assert.False(WrapperValidation.HasIncompatibleFields(record));
+    }
+
+    [Fact]
+    public void HasIncompatibleFields_NoFlags_ReturnsFalse()
+    {
+        var record = new TypeRecord
+        {
+            Kind = TypeRecordKind.Struct,
+            Flags = TypeRecordFlags.None,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.EmptyStruct"),
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "EmptyStruct"),
+            MetadataAccessor = "$sMa",
+        };
+        Assert.False(WrapperValidation.HasIncompatibleFields(record));
+    }
+
+    #endregion
+
+    #region AbiSizeLimits Tests
+
+    [Fact]
+    public void AbiSizeLimits_MaxSelfSize_Is8()
+    {
+        Assert.Equal(8, WrapperValidation.AbiSizeLimits.MaxSelfSize);
+    }
+
+    [Fact]
+    public void AbiSizeLimits_MaxParamSize_Is16()
+    {
+        Assert.Equal(16, WrapperValidation.AbiSizeLimits.MaxParamSize);
+    }
+
+    #endregion
+
+    #region WrapperDecision Tests
+
+    [Fact]
+    public void DetermineMethodWrapperDecision_NoXCFramework_CannotWrap()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        // No AsyncLibraryName → no xcframework mode
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.Equal(WrapperDecision.CannotWrap, WrapperValidation.DetermineMethodWrapperDecision(env));
+    }
+
+    [Fact]
+    public void DetermineMethodWrapperDecision_Constructor_CannotWrap()
+    {
+        // MethodWrapperEmitter.ShouldEmitWrapper rejects constructors
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.Equal(WrapperDecision.CannotWrap, WrapperValidation.DetermineMethodWrapperDecision(env));
+    }
+
+    [Fact]
+    public void DetermineConstructorWrapperDecision_NoXCFramework_CannotWrap()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.Equal(WrapperDecision.CannotWrap, WrapperValidation.DetermineConstructorWrapperDecision(env));
+    }
+
+    [Fact]
+    public void DetermineConstructorWrapperDecision_NonFinalClass_WrapperRequired()
+    {
+        // Non-final class constructors require @_cdecl (Tj dispatch thunks)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        parentDecl.IsFinal = false;
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.Equal(WrapperDecision.WrapperRequired, WrapperValidation.DetermineConstructorWrapperDecision(env));
+    }
+
+    [Fact]
+    public void DeterminePropertyWrapperDecision_NoXCFramework_CannotWrap()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, propEnv) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.Equal(WrapperDecision.CannotWrap, WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, propEnv));
+    }
+
+    [Fact]
+    public void DeterminePropertyWrapperDecision_NonFinalClass_WrapperRequired()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        parentDecl.IsFinal = false;
+        var (propertyDecl, propEnv) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.Equal(WrapperDecision.WrapperRequired, WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, propEnv));
+    }
+
+    #endregion
+
+    #region HasUnsupportedTypeSignature Tests
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_MetatypeParam_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$s10TestModule_process",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "", PrivateName = "",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Any.Type"),
+                    Name = "metatype", PrivateName = "metatype",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_MetatypeReturn_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "getType",
+            MangledName = "$s10TestModule_getType",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Any.Type"),
+                    Name = "", PrivateName = "",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_OpaqueReturn_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+
+        var opaqueReturn = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("Hashable") })
+        {
+            IsOpaque = true
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "getSome",
+            MangledName = "$s10TestModule_getSome",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = opaqueReturn,
+                    Name = "", PrivateName = "",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_SimpleIntMethod_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+
+        // Simple method: void return, no params → no unsupported type signatures
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_DynamicSelfOnStruct_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyStruct");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "copy",
+            MangledName = "$s10TestModule_copy",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    Name = "", PrivateName = "",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedTypeSignature_DynamicSelfOnClass_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyClass");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "copy",
+            MangledName = "$s10TestModule_copy",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Self"),
+                    Name = "", PrivateName = "",
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+    }
+
+    #endregion
 }

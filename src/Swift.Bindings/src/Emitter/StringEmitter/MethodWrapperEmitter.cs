@@ -114,24 +114,42 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.UsesWrapperLibrary)
             return false;
 
+        // 14-15d. Type-signature checks (metatype, opaque, DynamicSelf, unsupported generics).
+        if (HasUnsupportedTypeSignature(env))
+            return false;
+
+        // 17. Nested type returns — ALLOWED. @_cdecl wrapper return types use C-compatible types
+        //     (Int32 for simple enums, void+resultPtr for indirect results, UnsafeMutableRawPointer
+        //     for class pointers). The nested type only appears in the function BODY.
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true if the method has any unsupported type signature for @_cdecl wrapping.
+    /// Covers: unsupported generic containers (Result, Optional&lt;existential&gt;), metatype
+    /// params/return, opaque return types, and DynamicSelf on non-class parents.
+    /// </summary>
+    internal static bool HasUnsupportedTypeSignature(MethodEnvironment env)
+    {
         // 14. No unsupported generic container params/returns (Array, Dictionary, Set, Optional<existential>).
         //     Optional<value-type> allowed (IndirectResult). Optional<existential> blocked (needs proxy).
         if (HasUnsupportedGenericContainerParamsOrReturn(env))
-            return false;
+            return true;
 
         // 14b. No metatype parameters (Any.Type, T.Type) — not C-representable, renders as bare "Type"
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeType(a.SwiftTypeSpec)))
-            return false;
+            return true;
 
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
 
         // 14c. No metatype return types
         if (IsMetatypeType(returnSpec))
-            return false;
+            return true;
 
         // 15. No opaque return types (some Protocol)
         if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return false;
+            return true;
 
         // 15b. Closure returns: allowed — routed through IndirectResult (resultPtr buffer).
         // @_cdecl wrapper writes closure to resultPtr via initializeMemory; C# reads SwiftClosureData.
@@ -143,13 +161,9 @@ public static class MethodWrapperEmitter
         // @_cdecl wrapper returns Unmanaged.passRetained(result).toOpaque() (class pointer).
         // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
         if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
-            return false;
+            return true;
 
-        // 17. Nested type returns — ALLOWED. @_cdecl wrapper return types use C-compatible types
-        //     (Int32 for simple enums, void+resultPtr for indirect results, UnsafeMutableRawPointer
-        //     for class pointers). The nested type only appears in the function BODY.
-
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -413,19 +427,7 @@ public static class MethodWrapperEmitter
         // constraint only (no ABI change). The C# consumer manages thread affinity.
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl ?? (BaseDecl?)parentModuleDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
-        if (needsMainActor)
-        {
-            swiftWriter.WriteLines($$"""
-                @MainActor
-                @_cdecl("{{symbolName}}")
-                """);
-        }
-        else
-        {
-            swiftWriter.WriteLines($$"""
-                @_cdecl("{{symbolName}}")
-                """);
-        }
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
@@ -829,12 +831,7 @@ public static class MethodWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
-        if (needsMainActor)
-            swiftWriter.WriteLine("@MainActor");
-
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;

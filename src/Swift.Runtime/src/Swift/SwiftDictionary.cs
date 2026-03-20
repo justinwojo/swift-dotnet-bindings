@@ -20,11 +20,29 @@ namespace Swift;
 public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOnlyDictionary<TKey, TValue>, IDisposable
     where TKey : notnull
 {
-    static nuint _payloadSize = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata().Size;
+    // Lazy initialization to avoid calling Swift runtime during static construction.
+    // This prevents crashes when TKey/TValue is an existential container type, where
+    // swift_getExistentialTypeMetadata called from .cctor triggers a Mono JIT/async assertion.
+    private static nuint? _cachedKeySize;
+    private static nuint? _cachedValueSize;
 
-    static nuint _keySize = KeyTypeMetadata.Size;
+    private static nuint KeySize
+    {
+        get
+        {
+            _cachedKeySize ??= KeyTypeMetadata.Size;
+            return _cachedKeySize.Value;
+        }
+    }
 
-    static nuint _valueSize = ValueTypeMetadata.Size;
+    private static nuint ValueSize
+    {
+        get
+        {
+            _cachedValueSize ??= ValueTypeMetadata.Size;
+            return _cachedValueSize.Value;
+        }
+    }
 
     private SwiftSafeHandle<SwiftDictionary<TKey, TValue>> _payload;
 
@@ -185,12 +203,12 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             try
             {
                 // Marshal the key
-                Span<byte> keySpan = stackalloc byte[(int)_keySize];
+                Span<byte> keySpan = stackalloc byte[(int)KeySize];
                 SwiftMarshal.MarshalToSwift(key, ref keySpan);
                 IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
 
                 // Marshal the value
-                Span<byte> valueSpan = stackalloc byte[(int)_valueSize];
+                Span<byte> valueSpan = stackalloc byte[(int)ValueSize];
                 SwiftMarshal.MarshalToSwift(value, ref valueSpan);
                 IntPtr valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valueSpan));
 
@@ -233,7 +251,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
 
         // Marshal the key to Swift
-        Span<byte> keySpan = stackalloc byte[(int)_keySize];
+        Span<byte> keySpan = stackalloc byte[(int)KeySize];
         SwiftMarshal.MarshalToSwift(key, ref keySpan);
         IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
 
@@ -453,7 +471,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         try
         {
             // Marshal the key
-            Span<byte> keySpan = stackalloc byte[(int)_keySize];
+            Span<byte> keySpan = stackalloc byte[(int)KeySize];
             SwiftMarshal.MarshalToSwift(key, ref keySpan);
             IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
 

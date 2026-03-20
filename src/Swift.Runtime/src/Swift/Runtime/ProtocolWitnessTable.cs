@@ -124,6 +124,12 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     public static ProtocolWitnessTable GetOrThrow<TType, TProtocol>()
         where TProtocol : class
     {
+        // Try pre-registered witness table first (populated by generated [ModuleInitializer] code).
+        // This avoids reflection-based MakeGenericType on NativeAOT for types lacking ISwiftObject constraint
+        // (e.g., TKey in SwiftDictionary, Element in SwiftSet).
+        if (InteropServices.WitnessTableDispatcher.TryGet(typeof(TType), typeof(TProtocol), out var cached))
+            return cached;
+
         if (!TryGet<TType, TProtocol>(out var result))
         {
             throw new SwiftRuntimeException($"Unable to get protocol witness table for {typeof(TType)} and {typeof(TProtocol)}");

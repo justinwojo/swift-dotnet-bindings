@@ -4,12 +4,94 @@
 namespace BindingsGeneration;
 
 /// <summary>
+/// Result of the combined ShouldEmitWrapper + RequiresCdeclForAbiSafety decision.
+/// Replaces the implicit AND gate pattern at call sites.
+/// </summary>
+public enum WrapperDecision
+{
+    /// <summary>
+    /// The wrapper emitter's ShouldEmitWrapper returned false — wrapping is not possible
+    /// (unsupported signature, missing xcframework mode, etc.).
+    /// </summary>
+    CannotWrap,
+
+    /// <summary>
+    /// Wrapping is possible (ShouldEmitWrapper passed) but not required for ABI safety
+    /// (RequiresCdeclForAbiSafety returned false). Use legacy CallConvSwift.
+    /// </summary>
+    NoWrapperNeeded,
+
+    /// <summary>
+    /// Wrapping is both possible and required for ABI safety. Emit the @_cdecl wrapper.
+    /// </summary>
+    WrapperRequired
+}
+
+/// <summary>
 /// Shared guard predicates for the four wrapper emitters (Method, Constructor, Property, Subscript).
 /// Each method is the single source of truth for its predicate — wrapper emitters should call
 /// these instead of duplicating the logic. All methods are pure queries with no side effects.
 /// </summary>
 public static class WrapperValidation
 {
+    /// <summary>
+    /// Named constants for ABI size thresholds used in @_cdecl safety checks.
+    /// Self parameters use SwiftSelf&lt;T&gt; register layout (different from regular params).
+    /// </summary>
+    internal static class AbiSizeLimits
+    {
+        /// <summary>
+        /// Maximum inline size for a frozen struct passed via SwiftSelf&lt;T&gt; (self parameter).
+        /// Mono JIT can't generate correct CallConvSwift stubs for multi-register self params.
+        /// </summary>
+        public const int MaxSelfSize = 8;
+
+        /// <summary>
+        /// Maximum inline size for a custom integer frozen struct passed as a regular parameter.
+        /// NativeAOT SIGSEGV for structs exceeding this size.
+        /// </summary>
+        public const int MaxParamSize = 16;
+    }
+
+    /// <summary>
+    /// Centralized decision for method @_cdecl wrapper emission.
+    /// Combines MethodWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// </summary>
+    public static WrapperDecision DetermineMethodWrapperDecision(MethodEnvironment env)
+    {
+        if (!MethodWrapperEmitter.ShouldEmitWrapper(env))
+            return WrapperDecision.CannotWrap;
+        if (!RequiresCdeclForAbiSafety(env))
+            return WrapperDecision.NoWrapperNeeded;
+        return WrapperDecision.WrapperRequired;
+    }
+
+    /// <summary>
+    /// Centralized decision for constructor @_cdecl wrapper emission.
+    /// Combines ConstructorWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// </summary>
+    public static WrapperDecision DetermineConstructorWrapperDecision(MethodEnvironment env)
+    {
+        if (!ConstructorWrapperEmitter.ShouldEmitWrapper(env))
+            return WrapperDecision.CannotWrap;
+        if (!RequiresCdeclForAbiSafety(env))
+            return WrapperDecision.NoWrapperNeeded;
+        return WrapperDecision.WrapperRequired;
+    }
+
+    /// <summary>
+    /// Centralized decision for property @_cdecl wrapper emission.
+    /// Combines PropertyWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// </summary>
+    public static WrapperDecision DeterminePropertyWrapperDecision(PropertyDecl propertyDecl, MethodEnvironment env)
+    {
+        if (!PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env))
+            return WrapperDecision.CannotWrap;
+        if (!RequiresCdeclForAbiSafety(env, propertyDecl))
+            return WrapperDecision.NoWrapperNeeded;
+        return WrapperDecision.WrapperRequired;
+    }
+
     /// <summary>
     /// Returns true when the generator is running in xcframework mode, where the wrapper
     /// library exists. This is a prerequisite for all @_cdecl wrapper emission.
@@ -849,6 +931,21 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true if a TypeRecord has float or bool field flags, which are incompatible
+    /// with .NET's CallConvSwift register assignment:
+    /// - Float fields → GPR/FPR mismatch on NativeAOT
+    /// - Bool fields → non-blittable in .NET CallConvSwift
+    /// </summary>
+    internal static bool HasIncompatibleFields(TypeRecord typeRecord)
+    {
+        if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+            return true;
+        if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
+            return true;
+        return false;
+    }
+
+    /// <summary>
     /// Determines whether the self/parent type requires @_cdecl for ABI safety.
     /// For instance methods/properties on frozen structs, SwiftSelf&lt;T&gt; passes the struct
     /// by value in registers. If the struct has float fields, the GPR/FPR register
@@ -873,19 +970,15 @@ public static class WrapperValidation
         if (ConstructorWrapperEmitter.IsSystemFrozenStruct(parentNamedSpec))
             return false;
 
-        // Custom frozen struct with float fields → GPR/FPR mismatch on both runtimes
-        if (parentRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+        // Custom frozen struct with float/bool fields → incompatible with .NET CallConvSwift
+        if (HasIncompatibleFields(parentRecord))
             return true;
 
-        // Custom frozen struct with Bool fields → non-blittable in .NET CallConvSwift
-        if (parentRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
-            return true;
-
-        // Custom frozen struct > 8 bytes passed by value via SwiftSelf<T> → multi-register
+        // Custom frozen struct > MaxSelfSize bytes passed by value via SwiftSelf<T> → multi-register
         // Mono JIT can't generate correct CallConvSwift stubs for multi-register self params.
-        // The 16-byte param threshold doesn't apply here — SwiftSelf<T> register layout is
+        // The MaxParamSize param threshold doesn't apply here — SwiftSelf<T> register layout is
         // different from regular parameter passing.
-        if (parentRecord.InlineSize.HasValue && parentRecord.InlineSize.Value > 8)
+        if (parentRecord.InlineSize.HasValue && parentRecord.InlineSize.Value > AbiSizeLimits.MaxSelfSize)
             return true;
 
         // When InlineSize is unavailable (metadata couldn't be resolved, e.g. simulator dylib on macOS),
@@ -946,16 +1039,12 @@ public static class WrapperValidation
                 return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
             }
 
-            // Custom struct with float/double fields → NativeAOT puts floats in GPR
-            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
+            // Custom struct with float/bool fields → incompatible with .NET CallConvSwift
+            if (HasIncompatibleFields(typeRecord))
                 return true;
 
-            // Custom struct with Bool fields → non-blittable in .NET CallConvSwift
-            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
-                return true;
-
-            // Custom integer struct > 16 bytes → NativeAOT SIGSEGV
-            if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 16)
+            // Custom integer struct > MaxParamSize bytes → NativeAOT SIGSEGV
+            if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > AbiSizeLimits.MaxParamSize)
                 return true;
 
             // Custom integer struct ≤ 16 bytes → safe
@@ -1017,12 +1106,8 @@ public static class WrapperValidation
                 return typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8;
             }
 
-            // Custom struct with float/double fields → Mono SIGSEGV on by-value return
-            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasFloatFields))
-                return true;
-
-            // Custom struct with Bool fields → non-blittable in .NET CallConvSwift
-            if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasBoolFields))
+            // Custom struct with float/bool fields → incompatible with .NET CallConvSwift
+            if (HasIncompatibleFields(typeRecord))
                 return true;
         }
 

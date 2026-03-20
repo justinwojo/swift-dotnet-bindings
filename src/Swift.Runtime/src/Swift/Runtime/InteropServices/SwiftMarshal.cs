@@ -73,6 +73,37 @@ internal static class ConformanceDispatcher
 }
 
 /// <summary>
+/// Registry of pre-computed protocol witness tables, populated by generated [ModuleInitializer]
+/// code at assembly load time. This eliminates the need for reflection-based
+/// ProtocolWitnessTable.GetOrThrow on NativeAOT for SwiftDictionary/SwiftSet operations
+/// where the type parameter lacks an ISwiftObject constraint (e.g., TKey in SwiftDictionary).
+/// Keyed by (Type, ProtocolType) pairs, maps to the witness table handle (IntPtr).
+/// </summary>
+internal static class WitnessTableDispatcher
+{
+    private static readonly ConcurrentDictionary<(Type, Type), ProtocolWitnessTable> _tables = new();
+
+    /// <summary>
+    /// Registers a pre-computed witness table for a (type, protocol) pair.
+    /// Called from generated [ModuleInitializer] code on NativeAOT.
+    /// Safe to call multiple times — subsequent calls are no-ops.
+    /// </summary>
+    internal static void Register(Type type, Type protocolType, ProtocolWitnessTable witnessTable)
+    {
+        _tables.TryAdd((type, protocolType), witnessTable);
+    }
+
+    /// <summary>
+    /// Attempts to get a pre-registered witness table for the given (type, protocol) pair.
+    /// Returns false if no table is registered.
+    /// </summary>
+    internal static bool TryGet(Type type, Type protocolType, out ProtocolWitnessTable witnessTable)
+    {
+        return _tables.TryGetValue((type, protocolType), out witnessTable);
+    }
+}
+
+/// <summary>
 /// Represents a class for marshaling data to and from Swift
 /// </summary>
 public static class SwiftMarshal
@@ -99,6 +130,22 @@ public static class SwiftMarshal
     {
         ConformanceDispatcher.Register(typeof(TType), typeof(TProtocol),
             () => TType.GetProtocolConformanceDescriptor<TProtocol>());
+    }
+
+    /// <summary>
+    /// Pre-registers a protocol witness table for a (type, protocol) pair so
+    /// SwiftDictionary/SwiftSet can resolve witness tables without reflection on NativeAOT.
+    /// Called by generated [ModuleInitializer] code at assembly load time.
+    /// The witness table is computed eagerly at registration time using the direct dispatch path.
+    /// </summary>
+    /// <typeparam name="TType">The ISwiftObject type (e.g., a struct conforming to Hashable).</typeparam>
+    /// <typeparam name="TProtocol">The protocol interface type (e.g., ISwiftHashable).</typeparam>
+    public static void RegisterWitnessTable<TType, TProtocol>()
+        where TType : ISwiftObject
+        where TProtocol : class
+    {
+        var witnessTable = ProtocolWitnessTable.GetOrThrowDirect<TType, TProtocol>();
+        WitnessTableDispatcher.Register(typeof(TType), typeof(TProtocol), witnessTable);
     }
 
     /// <summary>
@@ -271,6 +318,8 @@ public static class SwiftMarshal
     /// <typeparam name="T">The ISwiftObject type</typeparam>
     /// <param name="swiftSource">Memory to read from</param>
     /// <returns>The C# object created by marshaling</returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static T MarshalFromSwiftObject<T>(IntPtr swiftSource) where T : ISwiftObject
     {
         if (!RuntimeFeature.IsDynamicCodeSupported)
@@ -302,6 +351,8 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple marshalling path only; non-tuple paths are AOT-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static T MarshalFromSwift<T>(IntPtr swiftSource)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
@@ -679,6 +730,8 @@ public static class SwiftMarshal
     /// Marshals a single element from Swift memory using direct pointer access.
     /// </summary>
     [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "elementType comes from ValueTuple generic args which are preserved for tuple marshalling")]
     private static unsafe object? MarshalElementFromSwiftUnsafe(IntPtr source, Type elementType)
     {
         // Handle primitives directly without reflection

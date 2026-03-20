@@ -87,6 +87,8 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
     /// </returns>
     [UnconditionalSuppressMessage("AOT", "IL3050",
         Justification = "MakeGenericType only used on Mono JIT where dynamic code is supported; NativeAOT uses reflection helper")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(TType) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
         where TProtocol : class
     {
