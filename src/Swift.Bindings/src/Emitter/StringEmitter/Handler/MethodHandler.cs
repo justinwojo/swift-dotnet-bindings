@@ -259,6 +259,15 @@ namespace BindingsGeneration
             // Track wrapper strategy for emission report (once per constructor, after flags are locked).
             context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
+            // Report constructors that use CallConvSwift with non-blittable parameters.
+            // Cannot suppress because it would break protocol conformance (CS0535).
+            // Methods are emitted but will crash at runtime with InvalidProgramException.
+            if (!methodEnv.MethodDecl.UsesCdeclWrapper &&
+                WrapperValidation.HasNonBlittablePInvokeTypes(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift constructor P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -819,6 +828,15 @@ namespace BindingsGeneration
             // PHASE 2: PIPELINE — reads flags, emits code.
             // All @_cdecl flags are locked above this point.
             // ══════════════════════════════════════════════════════════════
+
+            // Report methods that use CallConvSwift with non-blittable parameters.
+            // Cannot suppress because it would break protocol conformance (CS0535).
+            // Methods are emitted but will crash at runtime with InvalidProgramException.
+            if (!isAccessor && !methodEnv.MethodDecl.UsesCdeclWrapper &&
+                WrapperValidation.HasNonBlittablePInvokeTypes(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
+            }
 
             var signatureHandler = new SignatureHandler(methodEnv);
 

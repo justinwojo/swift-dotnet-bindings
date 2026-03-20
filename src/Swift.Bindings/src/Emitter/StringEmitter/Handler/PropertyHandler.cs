@@ -418,6 +418,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // PropertyWrapperEmitter takes priority; ObjCOverridePropertyWrapperEmitter is fallback.
         bool needsCdeclWrapper = false;
         bool needsObjCOverrideWrapper = false;
+        MethodEnvironment? firstAccessorEnv = null;
         if (propertyDecl.Accessors.Count > 0)
         {
             // Use the first accessor for the check (ShouldEmitWrapper only looks at property + class context)
@@ -425,11 +426,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             firstAccessor.Method.IsAccessor = true;
             if (conductor.TryGetMethodHandler(firstAccessor.Method, out var checkHandler))
             {
-                var checkEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
-                needsCdeclWrapper = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, checkEnv) == WrapperDecision.WrapperRequired;
+                firstAccessorEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
+                needsCdeclWrapper = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, firstAccessorEnv) == WrapperDecision.WrapperRequired;
                 // Only check ObjC override if @_cdecl doesn't handle it
                 if (!needsCdeclWrapper)
-                    needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+                    needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, firstAccessorEnv);
             }
         }
 
@@ -443,17 +444,23 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             else
             {
                 context.GetEmissionContext().IncrementWrapperStrategy("LegacyCallConvSwift");
-                if (propertyDecl.Accessors.Count > 0)
+                if (firstAccessorEnv != null)
                 {
-                    var firstAccessor = propertyDecl.Accessors[0];
-                    if (conductor.TryGetMethodHandler(firstAccessor.Method, out var skipCheckHandler))
-                    {
-                        var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
-                        var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv);
-                        if (skipReason != null)
-                            context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
-                    }
+                    var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, firstAccessorEnv);
+                    if (skipReason != null)
+                        context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
                 }
+            }
+        }
+
+        // Report properties that use CallConvSwift with non-blittable parameters.
+        // Cannot suppress because it would break protocol conformance (CS0535).
+        // Properties are emitted but will crash at runtime with InvalidProgramException.
+        if (!needsCdeclWrapper && !needsObjCOverrideWrapper && firstAccessorEnv != null)
+        {
+            if (WrapperValidation.HasNonBlittablePInvokeTypes(firstAccessorEnv, propertyDecl))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift property P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
             }
         }
 

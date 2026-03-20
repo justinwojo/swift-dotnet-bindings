@@ -947,6 +947,117 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when a method's P/Invoke would use CallConvSwift with non-blittable
+    /// parameters AND no @_cdecl wrapper is available. Used for reporting purposes — these
+    /// methods are still emitted but will crash at runtime with InvalidProgramException.
+    /// Suppression was not feasible because it breaks protocol conformance (CS0535).
+    ///
+    /// Only triggers for actual non-blittable P/Invoke types (SafeHandle from non-frozen
+    /// structs, non-blittable generic containers, tuples). Does NOT flag closures, Tj
+    /// dispatch, or typed throws — those are separate ABI concerns.
+    /// </summary>
+    public static bool ShouldSuppressNonBlittableCallConvSwift(MethodEnvironment env)
+    {
+        // If the method already has a @_cdecl wrapper, it's safe — no suppression needed
+        if (env.MethodDecl.UsesCdeclWrapper)
+            return false;
+
+        // Check the method wrapper decision: only suppress when wrapping is needed but impossible
+        var decision = env.MethodDecl.IsConstructor
+            ? DetermineConstructorWrapperDecision(env)
+            : DetermineMethodWrapperDecision(env);
+
+        // CannotWrap: ShouldEmitWrapper=false but RequiresCdeclForAbiSafety may be true
+        // NoWrapperNeeded: RequiresCdeclForAbiSafety=false — safe for CallConvSwift
+        // WrapperRequired: will get a wrapper — safe
+        if (decision != WrapperDecision.CannotWrap)
+            return false;
+
+        // Wrapping is impossible. Check if the P/Invoke would have non-blittable types.
+        return HasNonBlittablePInvokeTypes(env);
+    }
+
+    /// <summary>
+    /// Property-specific overload: returns true when a property accessor's P/Invoke would
+    /// use CallConvSwift with non-blittable parameters AND no @_cdecl wrapper is available.
+    /// Used for reporting purposes — properties are still emitted but will crash at runtime.
+    /// </summary>
+    public static bool ShouldSuppressNonBlittableCallConvSwift(PropertyDecl propertyDecl, MethodEnvironment env)
+    {
+        // If the property already has a @_cdecl wrapper, it's safe
+        if (env.MethodDecl.UsesCdeclWrapper)
+            return false;
+
+        var decision = DeterminePropertyWrapperDecision(propertyDecl, env);
+
+        if (decision != WrapperDecision.CannotWrap)
+            return false;
+
+        // Wrapping is impossible. Check if the P/Invoke would have non-blittable types.
+        return HasNonBlittablePInvokeTypes(env, propertyDecl);
+    }
+
+    /// <summary>
+    /// Checks whether a method's P/Invoke signature would contain non-blittable types
+    /// (SafeHandle from non-frozen structs, tuples, generic containers) when using
+    /// CallConvSwift. Excludes closures, Tj dispatch, metatype, and other ABI issues
+    /// that cause different runtime crashes — those should not trigger suppression.
+    /// </summary>
+    internal static bool HasNonBlittablePInvokeTypes(MethodEnvironment env)
+    {
+        // Non-frozen struct instance members: self is IntPtr (non-blittable with CallConvSwift)
+        if (IsNonFrozenStructInstanceMember(env))
+            return true;
+
+        // Check return type for non-blittable types
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (!returnSpec.IsEmptyTuple && IsReturnTypeCdeclRequired(returnSpec, env.TypeDatabase))
+            return true;
+
+        // Check parameters for non-blittable types (skip closures — they use function
+        // pointers / IntPtr in P/Invoke, which are blittable)
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (env.ClosureHandler.IsClosure(arg))
+                continue;
+            if (IsParamTypeCdeclRequired(arg.SwiftTypeSpec, env))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Property-specific overload: checks whether a property accessor P/Invoke would
+    /// contain non-blittable types when using CallConvSwift.
+    /// </summary>
+    internal static bool HasNonBlittablePInvokeTypes(MethodEnvironment env, PropertyDecl propertyDecl)
+    {
+        // Non-frozen struct instance properties: same non-blittable self issue
+        if (!propertyDecl.IsStatic && IsNonFrozenStructInstanceMember(env))
+            return true;
+
+        var typeSpec = propertyDecl.SwiftTypeSpec;
+
+        // Check as return type (getter)
+        if (IsReturnTypeCdeclRequired(typeSpec, env.TypeDatabase))
+            return true;
+
+        // Check as parameter type (setter)
+        if (propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
+        {
+            if (IsParamTypeCdeclRequired(typeSpec, env))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Determines whether the member is an instance member on a non-frozen struct parent.
     /// Non-frozen structs are projected as ClassWithOpaquePayload in C# (SafeHandle/IntPtr self),
     /// but the Swift ABI expects SwiftSelf&lt;T&gt; (struct by value in registers). The mismatch

@@ -2012,4 +2012,220 @@ public class AbiSafetyTests
     }
 
     #endregion
+
+    #region HasNonBlittablePInvokeTypes Tests
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_MethodWithNonFrozenStructParam_ReturnsTrue()
+    {
+        // Method with non-frozen struct param → SafeHandle in P/Invoke → non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_BlittableParams_ReturnsFalse()
+    {
+        // Method with only blittable params (Int) on final class — safe for CallConvSwift
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: true);
+        var method = CreateMethodWithParam("setCount", new NamedTypeSpec("Swift.Int"), "count", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_NonFrozenStructInstanceMember_ReturnsTrue()
+    {
+        // Instance method on non-frozen struct parent: self is IntPtr (non-blittable)
+        // Register the parent struct type in the type database so IsNonFrozenStructInstanceMember resolves it
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.MyStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Create a non-frozen struct parent
+        var parentStruct = new StructDecl
+        {
+            Name = "MyStruct",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyStruct"),
+            MangledName = "$s10TestModule8MyStructVN",
+            MetadataAccessor = "$s10TestModule8MyStructVMa",
+            IsFrozen = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentStruct);
+
+        var method = CreateMethodWithParam("doSomething", new NamedTypeSpec("Swift.Int"), "count", parentStruct, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Non-frozen struct instance member → IntPtr self mismatch → non-blittable
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_ConstructorWithNonFrozenStructParam_ReturnsTrue()
+    {
+        // Constructor with non-frozen struct param → SafeHandle → non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var ctorMethod = CreateMethodWithParam("init", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        ctorMethod.IsConstructor = true;
+        var env = new MethodEnvironment(ctorMethod, typeDb);
+
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_GenericMethodWithNonFrozenStructParam_ReturnsTrue()
+    {
+        // Generic method with non-frozen struct param — param type is still non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_PropertyWithNonFrozenStructSetter_ReturnsTrue()
+    {
+        // Property with setter taking non-frozen struct → SafeHandle param → non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.OpaqueStruct"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = CreateMethod("get_value", parentDecl, moduleDecl)
+                },
+                new SetAccessorDecl
+                {
+                    Method = CreateMethod("set_value", parentDecl, moduleDecl)
+                }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+        };
+
+        var checkEnv = new MethodEnvironment(propertyDecl.Accessors[0].Method, typeDb);
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(checkEnv, propertyDecl));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_PropertyWithBlittableType_ReturnsFalse()
+    {
+        // Property with blittable type (Int) — safe for CallConvSwift
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: true);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = CreateMethod("get_count", parentDecl, moduleDecl)
+                }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+        };
+
+        var checkEnv = new MethodEnvironment(propertyDecl.Accessors[0].Method, typeDb);
+        Assert.False(WrapperValidation.HasNonBlittablePInvokeTypes(checkEnv, propertyDecl));
+    }
+
+    [Fact]
+    public void ShouldSuppressNonBlittable_CannotWrapWithNonBlittable_ReturnsTrue()
+    {
+        // CannotWrap + non-blittable params → returns true (method would crash at runtime)
+        // No AsyncLibraryName → ShouldEmitWrapper=false → CannotWrap decision
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        // Deliberately omit typeDb.AsyncLibraryName — forces CannotWrap
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void ShouldSuppressNonBlittable_WrapperRequired_ReturnsFalse()
+    {
+        // ShouldSuppressNonBlittableCallConvSwift returns false when wrapper is available
+        // (WrapperRequired decision → method will get @_cdecl wrapper)
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        // WrapperRequired → no suppression
+        Assert.False(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void ShouldSuppressNonBlittable_AlreadyHasCdeclWrapper_ReturnsFalse()
+    {
+        // Method that already has a @_cdecl wrapper set — should never suppress
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.OpaqueStruct", TypeRecordFlags.None, TypeRecordKind.Struct);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("process", new NamedTypeSpec("TestModule.OpaqueStruct"), "value", parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true; // Already has wrapper
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+    }
+
+    #endregion
 }

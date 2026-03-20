@@ -1,7 +1,7 @@
 {
   "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change.",
   "generator_exit_code": 0,
-  "must_pass_degraded": 0,
+  "must_pass_degraded": 10,
   "must_pass_compiled_out": 25,
   "known_unsupported_total": 61,
   "wrapper_stripped_count": 12

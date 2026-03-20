@@ -64,6 +64,7 @@ public enum SkipReason
     UnderscorePrefixInternal,
     ModuleInternal,
     ExtensionDefault,
+    NonBlittableCallConvSwift,
     Unknown,
 }
 
