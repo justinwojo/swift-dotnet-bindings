@@ -889,6 +889,51 @@ public class SwiftABIParserRuntimeTests
             "Protocol without AnyObject constraint should not be class-bound");
     }
 
+    [Fact]
+    public void ParseModule_ProtocolWithAnyObjectOnAssociatedType_IsNotClassBound()
+    {
+        // AnyObject constraining an associated type (τ_0_0.Element : AnyObject) does NOT
+        // make the protocol itself class-bound. Only τ_0_0 : AnyObject does.
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "CollectionOfClassesProtocol",
+            mangledName: "$s10TestModule28CollectionOfClassesProtocolP",
+            genericSig: "<\u03c4_0_0 where \u03c4_0_0.Element : AnyObject>");
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+
+        var protocols = result.ModuleDecl.Types
+            .OfType<ProtocolDecl>()
+            .ToList();
+        var protocol = Assert.Single(protocols);
+        Assert.False(protocol.IsClassBound,
+            "Protocol with AnyObject on associated type (not Self) should not be class-bound");
+    }
+
+    [Fact]
+    public void ParseModule_ProtocolWithSelfAndAssociatedAnyObject_IsClassBound()
+    {
+        // τ_0_0 : AnyObject, τ_0_0.Element : SomeProtocol — Self IS class-bound
+        var protocolNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "ClassBoundWithAssocProtocol",
+            mangledName: "$s10TestModule28ClassBoundWithAssocProtocolP",
+            genericSig: "<\u03c4_0_0 where \u03c4_0_0 : AnyObject, \u03c4_0_0.Element : Swift.Equatable>");
+
+        using var fixture = CreateParserWithNodes(protocolNode);
+        var result = fixture.Parser.ParseModule();
+
+        var protocols = result.ModuleDecl.Types
+            .OfType<ProtocolDecl>()
+            .ToList();
+        var protocol = Assert.Single(protocols);
+        Assert.True(protocol.IsClassBound,
+            "Protocol where Self conforms to AnyObject should be class-bound even with other constraints");
+    }
+
     #endregion
 
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)

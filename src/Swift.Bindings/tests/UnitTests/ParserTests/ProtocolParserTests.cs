@@ -91,6 +91,51 @@ public class ProtocolParserTests
         Assert.Contains("Self", protocolDecl.GenericSignature);
     }
 
+    [Fact]
+    public void AnyObjectDetection_SelfConformance_Matches()
+    {
+        // τ_0_0 : AnyObject — Self is class-bound
+        Assert.Matches(@"τ_0_0\s*:[^,]*\bAnyObject\b", "<τ_0_0 : AnyObject>");
+    }
+
+    [Fact]
+    public void AnyObjectDetection_SelfConformanceWithWhere_Matches()
+    {
+        // τ_0_0 : AnyObject via where clause
+        Assert.Matches(@"τ_0_0\s*:[^,]*\bAnyObject\b", "<τ_0_0 where τ_0_0 : AnyObject>");
+    }
+
+    [Fact]
+    public void AnyObjectDetection_SelfConformanceWithOtherProtocols_Matches()
+    {
+        // τ_0_0 : Foo & AnyObject — Self conforms to both
+        Assert.Matches(@"τ_0_0\s*:[^,]*\bAnyObject\b", "<τ_0_0 where τ_0_0 : SomeProtocol & AnyObject>");
+    }
+
+    [Fact]
+    public void AnyObjectDetection_AssociatedTypeConformance_DoesNotMatch()
+    {
+        // τ_0_0.Element : AnyObject — associated type is class-bound, NOT Self
+        Assert.DoesNotMatch(@"τ_0_0\s*:[^,]*\bAnyObject\b", "<τ_0_0 where τ_0_0.Element : AnyObject>");
+    }
+
+    [Fact]
+    public void AnyObjectDetection_MixedConstraints_OnlyMatchesSelf()
+    {
+        // τ_0_0 : SomeProtocol, τ_0_0.Element : AnyObject
+        // Self does NOT conform to AnyObject, only the associated type does
+        Assert.DoesNotMatch(@"τ_0_0\s*:[^,]*\bAnyObject\b",
+            "<τ_0_0 where τ_0_0 : SomeProtocol, τ_0_0.Element : AnyObject>");
+    }
+
+    [Fact]
+    public void AnyObjectDetection_SelfAndAssociatedBoth_MatchesSelf()
+    {
+        // τ_0_0 : AnyObject, τ_0_0.Element : SomeProtocol
+        Assert.Matches(@"τ_0_0\s*:[^,]*\bAnyObject\b",
+            "<τ_0_0 where τ_0_0 : AnyObject, τ_0_0.Element : SomeProtocol>");
+    }
+
     #endregion
 
     #region AssociatedTypeDecl Tests

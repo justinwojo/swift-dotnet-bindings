@@ -858,12 +858,10 @@ namespace BindingsGeneration
                             break;
                         case CdeclPhase.Metadata:
                             pInvokeSignature.HandleGenericMetadata();
-                            // @_cdecl METHOD wrappers don't accept PWT parameters — protocol conformance
-                            // is baked in at compile time through the Swift extension mechanism.
-                            // Constructor wrappers still need PWT for the metadata accessor
-                            // (which requires PWT to instantiate constrained generic types).
-                            if (!_env.MethodDecl.UsesCdeclMethodWrapper)
-                                pInvokeSignature.HandleProtocolConformance();
+                            // Both constructor and method @_cdecl wrappers need PWT for
+                            // constrained generic types — the metadata accessor requires PWT
+                            // to instantiate the specialized metatype.
+                            pInvokeSignature.HandleProtocolConformance();
                             break;
                     }
                 }

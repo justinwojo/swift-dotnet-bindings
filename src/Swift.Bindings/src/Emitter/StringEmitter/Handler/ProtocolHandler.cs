@@ -901,8 +901,11 @@ namespace BindingsGeneration
             }
             else
             {
-                // Func delegate
-                var returnTypeName = GetCSharpTypeName(returnType, typeDatabase, boundGenericsHandler, protocolContext);
+                // Func delegate — closure return types use isParameter:false (return position)
+                // to match ProtocolSignatureHelper's proxy projection. Without this, arrays in
+                // closure returns project as IEnumerable<T> here but IReadOnlyList<T> in the
+                // proxy, causing the proxy to not implement the interface (compile error).
+                var returnTypeName = GetCSharpTypeName(returnType, typeDatabase, boundGenericsHandler, protocolContext, isParameter: false);
                 if (paramTypes.Count == 0)
                     return $"Func<{returnTypeName}>";
                 return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";

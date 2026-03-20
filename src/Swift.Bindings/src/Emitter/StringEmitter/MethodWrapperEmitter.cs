@@ -663,6 +663,15 @@ public static class MethodWrapperEmitter
             cdeclParams.Add($"_ _metadata{mi}: UnsafeRawPointer");
         }
 
+        // PWT parameters for constrained generic types.
+        // The metadata accessor requires PWT pointers for each resolvable protocol conformance.
+        // Must match what the C# P/Invoke side passes (HandleProtocolConformance).
+        int methodPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        for (int pi = 0; pi < methodPwtCount; pi++)
+        {
+            cdeclParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+        }
+
         // Self parameter (CdeclPhase.Self — after Metadata per CdeclSignatureContract)
         if (isClass)
             cdeclParams.Add("_ self_: UnsafeMutableRawPointer");
@@ -824,8 +833,8 @@ public static class MethodWrapperEmitter
             """);
 
         // Emit metadata accessor helper at module scope (before @_cdecl).
-        // Methods suppress PWT at the P/Invoke level (UsesCdeclMethodWrapper), so pass pwtCount=0.
-        var methodHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx!, pwtCount: 0);
+        // Use resolvable PWT count — constrained generic types need PWT for their metadata accessor.
+        var methodHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx!, pwtCount: methodPwtCount);
 
         // Emit @_cdecl wrapper
         var cdeclParamString = string.Join(", ", cdeclParams);
@@ -869,7 +878,9 @@ public static class MethodWrapperEmitter
         }
 
         // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor
-        var methodMetaArgs = string.Join(", ", Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}"));
+        var methodMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
+        var methodPwtArgsList = Enumerable.Range(0, methodPwtCount).Select(i => $"_pwt{i}");
+        var methodMetaArgs = string.Join(", ", methodMetaArgsList.Concat(methodPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {methodHelperName}({methodMetaArgs})");
         swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
 

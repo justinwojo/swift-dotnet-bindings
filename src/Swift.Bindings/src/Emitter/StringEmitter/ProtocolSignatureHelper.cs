@@ -202,9 +202,8 @@ internal static class ProtocolSignatureHelper
             }
             else
             {
-                // TODO: The original proxy GetCSharpTypeName used isParameter:true for closure return
-                // types (the default), while ProjectTypeToCSharp used isParameter:false. Using false
-                // (more correct: return types should use IReadOnlyList, not IEnumerable for arrays).
+                // Closure return types use isParameter:false (return position) so arrays project
+                // as IReadOnlyList<T>, matching ProtocolHandler.GetClosureCSharpType for interface parity.
                 var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false, genericContext, recurMode);
                 closureResult = args.Count == 0 ? $"Func<{retName}>" : $"Func<{string.Join(", ", args)}, {retName}>";
             }

@@ -909,8 +909,10 @@ namespace BindingsGeneration
         /// whose target (the nint overload) was removed. These become compile errors (CS1503)
         /// when their delegate target no longer exists.
         /// Pattern: "public TYPE this[int NAME] => this[(nint)NAME];"
+        /// Uses lineToType to scope the search to the containing type, avoiding cross-type
+        /// false positives where a different type's subscript matches.
         /// </summary>
-        private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals)
+        private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals, string?[] lineToType)
         {
             for (int i = 0; i < lines.Count; i++)
             {
@@ -919,13 +921,17 @@ namespace BindingsGeneration
                 // Match narrowing pattern: "this[int x] => this[(nint)x];"
                 if (!trimmed.Contains("this[int ") || !trimmed.Contains("=> this[(nint)"))
                     continue;
-                // This is a narrowing overload. Check if the target nint overload exists.
-                // Search backward/forward in the same class for "this[nint ..." declaration.
+                // This is a narrowing overload. Check if the target nint overload exists
+                // within the SAME containing type (scoped by lineToType).
+                var containingType = i < lineToType.Length ? lineToType[i] : null;
                 bool targetExists = false;
-                for (int j = Math.Max(0, i - 200); j < Math.Min(lines.Count, i + 200); j++)
+                for (int j = 0; j < lines.Count; j++)
                 {
                     if (removals.Contains(j)) continue;
                     if (j == i) continue;
+                    // Only match within the same containing type
+                    if (containingType != null && j < lineToType.Length && lineToType[j] != containingType)
+                        continue;
                     if (lines[j].Contains("this[nint "))
                     {
                         targetExists = true;
@@ -959,7 +965,7 @@ namespace BindingsGeneration
 
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
-            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback)>();
+            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn)>();
 
             // Build interface member protection (same as main co-gater)
             var interfaceMembers = ParseInterfaceMembers(lines);
@@ -1023,7 +1029,10 @@ namespace BindingsGeneration
                 {
                     var declLine = lines[i];
                     var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true);
+                    // Detect return type: non-void callbacks (e.g. returning IntPtr) need
+                    // a return statement to avoid CS0161 (not all code paths return a value).
+                    bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn);
                     i = blockEnd + 1;
                     continue;
                 }
@@ -1053,7 +1062,7 @@ namespace BindingsGeneration
                     // Compute the indentation from the declaration line.
                     var declLine = lines[i];
                     var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn: false);
                 }
                 else
                 {
@@ -1107,7 +1116,7 @@ namespace BindingsGeneration
             // These are single-line forwarders like "this[int x] => this[(nint)x];" that
             // delegate to a broader overload. If the target was removed, the narrowing
             // becomes a compile error (CS1503). Strip them.
-            StripOrphanedNarrowingOverloads(lines, removals);
+            StripOrphanedNarrowingOverloads(lines, removals, lineToType);
 
             if (removals.Count == 0 && replacements.Count == 0)
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
@@ -1126,8 +1135,11 @@ namespace BindingsGeneration
                         sb.Append(lines[k]);
                     if (replacement.isCallback)
                     {
-                        // UnmanagedCallersOnly callback: no-op stub (void return, called from Swift)
+                        // UnmanagedCallersOnly callback: no-op stub (called from Swift vtable).
                         sb.Append($"{replacement.indent}    // Protocol proxy unavailable — no-op callback\n");
+                        // Non-void callbacks (e.g. returning IntPtr) need a return to avoid CS0161.
+                        if (!replacement.isVoidReturn)
+                            sb.Append($"{replacement.indent}    return default;\n");
                     }
                     else
                     {

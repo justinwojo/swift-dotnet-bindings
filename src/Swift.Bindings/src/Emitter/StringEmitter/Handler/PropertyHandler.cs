@@ -453,16 +453,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
-        // Report properties that use CallConvSwift with non-blittable parameters.
-        // Cannot suppress because it would break protocol conformance (CS0535).
-        // Properties are emitted but will crash at runtime with InvalidProgramException.
-        if (!needsCdeclWrapper && !needsObjCOverrideWrapper && firstAccessorEnv != null)
-        {
-            if (WrapperValidation.HasNonBlittablePInvokeTypes(firstAccessorEnv, propertyDecl))
-            {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift property P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
-            }
-        }
+        // Note: properties with CallConvSwift + non-blittable parameters (SafeHandle) will
+        // crash at runtime with InvalidProgramException. They are still emitted (suppression
+        // would break protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
+        // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
+        // tracking it, causing incorrect coverage data.
 
         // Now emit the accessor methods using MethodHandler
         foreach (var accessor in propertyDecl.Accessors)

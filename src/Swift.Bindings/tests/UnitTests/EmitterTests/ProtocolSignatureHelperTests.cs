@@ -1006,5 +1006,24 @@ public class ProtocolSignatureHelperTests
         };
     }
 
+    [Fact]
+    public void ProjectTypeToCSharp_ClosureReturningArray_UsesIReadOnlyListNotIEnumerable()
+    {
+        // Closure return types must use isParameter:false (return position) to project
+        // arrays as IReadOnlyList<T>, not IEnumerable<T>. This ensures parity between
+        // ProtocolSignatureHelper (proxy) and ProtocolHandler (interface).
+        var typeDatabase = CreateTypeDatabaseWithString();
+
+        // Build: () -> [Int]
+        var arrayReturnType = new NamedTypeSpec("Swift.Array");
+        arrayReturnType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, arrayReturnType);
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(closureType, typeDatabase, isParameter: false);
+
+        // Should be Func<IReadOnlyList<long>>, not Func<IEnumerable<long>>
+        Assert.Equal("Func<IReadOnlyList<long>>", result);
+    }
+
     #endregion
 }

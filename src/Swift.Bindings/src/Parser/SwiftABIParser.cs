@@ -1174,10 +1174,14 @@ namespace BindingsGeneration
             // Check if class-bound (requires AnyObject).
             // AnyObject may appear in conformances OR in the generic signature
             // (e.g. "<τ_0_0 : AnyObject>" for protocols declared as ": AnyObject").
+            // The genericSig check must be precise: only match when Self (τ_0_0) directly
+            // conforms to AnyObject, NOT when an associated type does (e.g. "τ_0_0.Element : AnyObject").
+            // τ_0_0\s*: matches "τ_0_0 :" but not "τ_0_0.Element :" (dot breaks the \s* match).
             bool isClassBound = inheritedProtocols.Any(p =>
                 p.Name == "AnyObject" ||
                 p.Name == "Swift.AnyObject") ||
-                node.GenericSig?.Contains("AnyObject") == true;
+                (node.GenericSig != null &&
+                 System.Text.RegularExpressions.Regex.IsMatch(node.GenericSig, @"τ_0_0\s*:[^,]*\bAnyObject\b"));
 
             var decl = new ProtocolDecl
             {

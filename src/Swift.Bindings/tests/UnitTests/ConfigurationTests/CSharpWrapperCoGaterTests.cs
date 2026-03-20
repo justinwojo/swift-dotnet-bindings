@@ -1119,6 +1119,89 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SomeSubscript_Get()", result.Content);
             Assert.Contains("get => SomeSubscript_Get()", result.Content);
         }
+
+        [Fact]
+        public void ProcessProxyReferences_NonVoidCallback_HasReturnDefault()
+        {
+            // [UnmanagedCallersOnly] callbacks returning IntPtr (not void) need "return default;"
+            // to avoid CS0161 when their body is replaced with a no-op stub.
+            var input =
+                "public interface IFooProtocol {\n" +
+                "    string GetName();\n" +
+                "}\n" +
+                "public partial class Foo : IFooProtocol {\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static IntPtr GetNameReceiver(IntPtr vtHandle, IntPtr self)\n" +
+                "    {\n" +
+                "        var proxy = new FooProxy(self);\n" +
+                "        return IntPtr.Zero;\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Non-void callback must have a return statement
+            Assert.Contains("return default;", result.Content);
+            // Original body replaced
+            Assert.DoesNotContain("FooProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_VoidCallback_NoReturnDefault()
+        {
+            // [UnmanagedCallersOnly] void callbacks should NOT have "return default;"
+            var input =
+                "public interface IFooProtocol {\n" +
+                "    void DoWork();\n" +
+                "}\n" +
+                "public partial class Foo : IFooProtocol {\n" +
+                "    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]\n" +
+                "    private static void DoWorkReceiver(IntPtr vtHandle, IntPtr self)\n" +
+                "    {\n" +
+                "        var proxy = new FooProxy(self);\n" +
+                "        proxy.DoWork();\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Void callback should NOT have return default
+            Assert.DoesNotContain("return default;", result.Content);
+            // Should have the no-op comment
+            Assert.Contains("no-op callback", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_NarrowingOverload_CrossTypeNotStripped()
+        {
+            // A narrowing overload in TypeA should NOT be stripped just because
+            // TypeB (a different type nearby) has a matching nint subscript that was removed.
+            // The scan must be scoped to the containing type.
+            var input =
+                "public partial class TypeA {\n" +
+                "    public int this[nint index]\n" +
+                "    {\n" +
+                "        get => Get(index);\n" +
+                "    }\n" +
+                "    public int this[int index] => this[(nint)index];\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    public string this[nint index]\n" +
+                "    {\n" +
+                "        get\n" +
+                "        {\n" +
+                "            return new BarProxy(Get(index)).Value;\n" +
+                "        }\n" +
+                "    }\n" +
+                "    public string this[int index] => this[(nint)index];\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "BarProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // TypeA's nint subscript is preserved (not proxy-related)
+            Assert.Contains("class TypeA", result.Content);
+            // TypeA's narrowing overload should still exist (its nint target exists in TypeA)
+            // Count occurrences of the narrowing pattern in TypeA context
+            var typeASection = result.Content.Split("class TypeB")[0];
+            Assert.Contains("this[int index] => this[(nint)index]", typeASection);
+        }
     }
 
     #endregion

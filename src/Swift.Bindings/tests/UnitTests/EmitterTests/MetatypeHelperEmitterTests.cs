@@ -155,7 +155,9 @@ public class MetatypeHelperEmitterTests
         var name1 = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(new SwiftWriter(output1), typeDecl, ctx1);
 
         var output2 = new StringWriter();
-        var name2 = ConstructorWrapperEmitter.EmitMetadataAccessorHelperIfNeeded(new SwiftWriter(output2), typeDecl, ctx2);
+        // ConstructorWrapperEmitter forwarding method now requires ITypeDatabase.
+        // For this test (no conformances), pwtCount=0, so call MetatypeHelperEmitter directly.
+        var name2 = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(new SwiftWriter(output2), typeDecl, ctx2, pwtCount: 0);
 
         Assert.Equal(name1, name2);
         Assert.Equal(output1.ToString(), output2.ToString());

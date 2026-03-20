@@ -259,18 +259,11 @@ namespace BindingsGeneration
             // Track wrapper strategy for emission report (once per constructor, after flags are locked).
             context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
-            // Report constructors that use CallConvSwift with non-blittable parameters.
-            // Cannot suppress because it would break protocol conformance (CS0535).
-            // Methods are emitted but will crash at runtime with InvalidProgramException.
-            // Check both UsesCdeclWrapper (post-emission flag) and wrapper eligibility
-            // (pre-emission decision) to avoid false positives for constructors that will
-            // receive @_cdecl wrappers later in the pipeline.
-            if (!methodEnv.MethodDecl.UsesCdeclWrapper &&
-                !ConstructorWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
-                WrapperValidation.HasNonBlittablePInvokeTypes(methodEnv))
-            {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift constructor P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
-            }
+            // Note: constructors with CallConvSwift + non-blittable parameters (SafeHandle) will
+            // crash at runtime with InvalidProgramException. They are still emitted (suppression
+            // would break protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
+            // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
+            // tracking it, causing incorrect coverage data.
 
             var signatureHandler = new SignatureHandler(methodEnv);
 
@@ -833,17 +826,11 @@ namespace BindingsGeneration
             // All @_cdecl flags are locked above this point.
             // ══════════════════════════════════════════════════════════════
 
-            // Report methods that use CallConvSwift with non-blittable parameters.
-            // Cannot suppress because it would break protocol conformance (CS0535).
-            // Methods are emitted but will crash at runtime with InvalidProgramException.
-            // Check both UsesCdeclWrapper and wrapper eligibility (ShouldEmitWrapper) to
-            // avoid false positives for methods that will receive wrappers later.
-            if (!isAccessor && !methodEnv.MethodDecl.UsesCdeclWrapper &&
-                !MethodWrapperEmitter.ShouldEmitWrapper(methodEnv) &&
-                WrapperValidation.HasNonBlittablePInvokeTypes(methodEnv))
-            {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.NonBlittableCallConvSwift, "CallConvSwift P/Invoke has non-blittable parameters (SafeHandle) — will crash at runtime. @_cdecl wrapper required but not available.");
-            }
+            // Note: methods with CallConvSwift + non-blittable parameters (SafeHandle) will
+            // crash at runtime with InvalidProgramException. They are still emitted (suppression
+            // would break protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
+            // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
+            // tracking it, causing incorrect coverage data.
 
             var signatureHandler = new SignatureHandler(methodEnv);
 
