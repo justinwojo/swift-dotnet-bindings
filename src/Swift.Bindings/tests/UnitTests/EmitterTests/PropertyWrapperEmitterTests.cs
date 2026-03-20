@@ -667,6 +667,126 @@ public class PropertyWrapperEmitterTests
         Assert.True(metaIdx < selfIdx, "Metadata param must come before self in @_cdecl signature");
     }
 
+    [Fact]
+    public void EmitSwiftGetterWrapper_DecomposedOptionalComplexEnum_EmitsHasValuePattern()
+    {
+        // Optional<ComplexEnum> getter should use decomposed pattern:
+        // separate resultPtr for payload and hasValuePtr for the hasValue flag.
+        // This exercises the isDecomposedOptionalGetter branch (PropertyWrapperEmitter line ~220).
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Shape", TypeRecordFlags.None, TypeRecordKind.Enum));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalShapeSpec = MakeOptionalSpec("TestModule.Shape");
+        var getterMethod = CreateAccessorMethod("getter:currentShape", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "currentShape",
+            SwiftTypeSpec = optionalShapeSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Get_TestModule_MyType_currentShape";
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Decomposed pattern: resultPtr + hasValuePtr parameters
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ hasValuePtr: UnsafeMutableRawPointer", output);
+        // Void return (no -> in signature)
+        Assert.DoesNotContain("->", output);
+        // Some case: writes payload to resultPtr and hasValue=1 to hasValuePtr
+        Assert.Contains("if let value = result", output);
+        Assert.Contains("resultPtr.initializeMemory(as: TestModule.Shape.self, repeating: value, count: 1)", output);
+        Assert.Contains("hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)", output);
+        // None case: writes hasValue=0 to hasValuePtr
+        Assert.Contains("hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftGetterWrapper_DecomposedOptionalNonFrozenStruct_EmitsHasValuePattern()
+    {
+        // Optional<NonFrozenStruct> getter should also use decomposed pattern.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Config", TypeRecordFlags.None, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalConfigSpec = MakeOptionalSpec("TestModule.Config");
+        var getterMethod = CreateAccessorMethod("getter:config", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "config",
+            SwiftTypeSpec = optionalConfigSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Get_TestModule_MyType_config";
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("_ hasValuePtr: UnsafeMutableRawPointer", output);
+        Assert.Contains("if let value = result", output);
+        Assert.Contains("resultPtr.initializeMemory(as: TestModule.Config.self, repeating: value, count: 1)", output);
+        Assert.Contains("hasValuePtr.storeBytes(of: Int8(1), as: Int8.self)", output);
+        Assert.Contains("hasValuePtr.storeBytes(of: Int8(0), as: Int8.self)", output);
+    }
+
+    [Fact]
+    public void EmitSwiftGetterWrapper_OptionalClass_DoesNotUseDecomposedPattern()
+    {
+        // Optional<Class> should NOT use decomposed pattern — classes use nullable pointer ABI.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.ChildObj", TypeRecordFlags.None, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalClassSpec = MakeOptionalSpec("TestModule.ChildObj");
+        var getterMethod = CreateAccessorMethod("getter:child", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "child",
+            SwiftTypeSpec = optionalClassSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Get_TestModule_MyType_child";
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Should NOT have hasValuePtr parameter (nullable pointer ABI, not decomposed)
+        Assert.DoesNotContain("hasValuePtr", output);
+    }
+
     #endregion
 
     #region Setter Wrapper Swift Emission Tests
@@ -870,6 +990,90 @@ public class PropertyWrapperEmitterTests
         var metaIdx = cdeclLine.IndexOf("_metadata0");
         var selfIdx = cdeclLine.IndexOf("self_");
         Assert.True(metaIdx < selfIdx, "Metadata param must come before self in @_cdecl signature");
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_DecomposedOptionalComplexEnum_EmitsHasValuePattern()
+    {
+        // Optional<ComplexEnum> setter should use decomposed pattern:
+        // UnsafeRawPointer payload + Int8 hasValue, with Swift-side Optional reconstruction.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Shape", TypeRecordFlags.None, TypeRecordKind.Enum));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalShapeSpec = MakeOptionalSpec("TestModule.Shape");
+        var setterMethod = CreateAccessorMethod("setter:currentShape", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "currentShape",
+            SwiftTypeSpec = optionalShapeSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Set_TestModule_MyType_currentShape";
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Decomposed setter: UnsafeRawPointer payload + Int8 hasValue
+        Assert.Contains("_ newValue: UnsafeRawPointer", output);
+        Assert.Contains("_ hasValue: Int8", output);
+        // Swift-side reconstruction of Optional from decomposed parts
+        Assert.Contains("let newValueVal: TestModule.Shape?", output);
+        Assert.Contains("hasValue != 0", output);
+        Assert.Contains("newValue.assumingMemoryBound(to: TestModule.Shape.self).pointee", output);
+        // Nil case: when hasValue == 0, reconstructed optional is nil
+        Assert.Contains(": nil", output);
+        Assert.Contains("obj.currentShape = newValueVal", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_DecomposedOptionalNonFrozenStruct_EmitsHasValuePattern()
+    {
+        // Optional<NonFrozenStruct> setter should also use decomposed pattern.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.Config", TypeRecordFlags.None, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalConfigSpec = MakeOptionalSpec("TestModule.Config");
+        var setterMethod = CreateAccessorMethod("setter:config", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "config",
+            SwiftTypeSpec = optionalConfigSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        var symbol = "SBW_Set_TestModule_MyType_config";
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ newValue: UnsafeRawPointer", output);
+        Assert.Contains("_ hasValue: Int8", output);
+        Assert.Contains("let newValueVal: TestModule.Config?", output);
+        Assert.Contains("hasValue != 0", output);
+        // Nil case: when hasValue == 0, reconstructed optional is nil
+        Assert.Contains(": nil", output);
+        Assert.Contains("obj.config = newValueVal", output);
     }
 
     #endregion
@@ -1319,6 +1523,13 @@ public class PropertyWrapperEmitterTests
     #endregion
 
     #region Helper Methods
+
+    private static NamedTypeSpec MakeOptionalSpec(string innerTypeName)
+    {
+        var optSpec = new NamedTypeSpec("Swift.Optional");
+        optSpec.GenericParameters.Add(new NamedTypeSpec(innerTypeName));
+        return optSpec;
+    }
 
     private static (SwiftWriter swiftWriter, StringWriter sw, PropertyDecl propertyDecl, MethodEnvironment env, ModuleEmissionContext ctx) CreateGetterTestSetup(
         string propertyName, TypeSpec typeSpec, bool isClass, bool isStatic = false, bool isMainActorIsolated = false)
