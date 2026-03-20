@@ -140,7 +140,6 @@ def run_tests(
     """
     cmd = [
         "./run-runtime-tests.sh",
-        "--tier", str(tier),
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
