@@ -620,6 +620,186 @@ public class AbiSafetyTests
 
     #endregion
 
+    #region IsSelfTypeCdeclRequired — Frozen Struct Instance Member Tests
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructWithFloatFields_InstanceMethod_ReturnsTrue()
+    {
+        // Frozen struct with float fields as PARENT (self type) for instance method
+        // → IsSelfTypeCdeclRequired detects float fields → @_cdecl required
+        // Real-world: Lottie LottieColor (r/g/b/a: Double) crashes Mono JIT
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Register the float-field struct in TypeDatabase
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.FloatPoint");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FloatPoint"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 16
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        // Create struct as parent and an instance method on it
+        var parentDecl = CreateStructDecl("FloatPoint", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("brightness", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructWithBoolFields_InstanceMethod_ReturnsTrue()
+    {
+        // Frozen struct with Bool fields as PARENT (self type) for instance method
+        // → IsSelfTypeCdeclRequired detects bool fields → @_cdecl required
+        // Bool fields use i1 which Mono JIT can't pass via CallConvSwift registers
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.BoolFlags");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "BoolFlags"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 3
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateStructDecl("BoolFlags", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("activeCount", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructLargerThan8Bytes_InstanceMethod_ReturnsTrue()
+    {
+        // Frozen struct > 8 bytes as PARENT (self type) for instance method
+        // → IsSelfTypeCdeclRequired detects InlineSize > 8 → @_cdecl required
+        // Multi-register SwiftSelf<T> crashes Mono JIT
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.LargeConfig");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LargeConfig"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 24
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateStructDecl("LargeConfig", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("volume", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FrozenStructSmall_NoSpecialFields_InstanceMethod_ReturnsFalse()
+    {
+        // Frozen struct ≤ 8 bytes with no float/bool fields → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.SmallStruct");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "SmallStruct"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 4
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateStructDecl("SmallStruct", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("getValue", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonFrozenStruct_InstanceMethod_ReturnsTrue()
+    {
+        // Non-frozen struct instance method → IsNonFrozenStructInstanceMember → @_cdecl required
+        // C# projects non-frozen as SafeHandle (IntPtr self) but Swift expects SwiftSelf<T>
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.FlexConfig");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FlexConfig"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateNonFrozenStructDecl("FlexConfig", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("shouldRetry", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonFrozenStruct_StaticMethod_ReturnsFalse()
+    {
+        // Non-frozen struct STATIC method → no SwiftSelf issue → safe (for struct statics)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var structName = SwiftTypeName.FromModuleQualifiedName("TestModule.FlexConfig");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(structName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FlexConfig"),
+            SwiftTypeName = structName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateNonFrozenStructDecl("FlexConfig", moduleDecl);
+        parentDecl.SwiftTypeName = structName;
+        var method = CreateMethod("create", parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    #endregion
+
     #region Property RequiresCdeclForAbiSafety Tests
 
     [Fact]

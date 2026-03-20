@@ -400,6 +400,7 @@ public static class SubscriptWrapperEmitter
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
         var callArgs = new List<string>();
+        string? newValueCallArgExpr = null;
         bool isGenericParent = MethodWrapperEmitter.IsGenericClassParent(env.ParentDecl);
 
         var order = CdeclSignatureContract.DetermineParameterOrder(env,
@@ -429,11 +430,16 @@ public static class SubscriptWrapperEmitter
                             ModuleDecl = null
                         };
                         // omitLabels: false — setters always need .load(as:) reconstruction for large Optionals.
-                        var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArgExpr) = ConstructorWrapperEmitter.GetCdeclParamMapping(
                             newValueArg, "newValue", env, omitLabels: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
+                        {
                             reconstructionLines.Add(reconstruction);
+                            // Capture the value expression (e.g., "newValueOpt") for the setter body
+                            var colonIdx = callArgExpr.IndexOf(':');
+                            newValueCallArgExpr = colonIdx >= 0 ? callArgExpr[(colonIdx + 2)..] : callArgExpr;
+                        }
                     }
 
                     // Index parameters
@@ -510,9 +516,9 @@ public static class SubscriptWrapperEmitter
         foreach (var line in reconstructionLines)
             swiftWriter.WriteLine(line);
 
-        // Get the value expression
+        // Get the value expression (may use suffix from GetCdeclParamMapping, e.g., "newValueOpt")
         string valueExpr = isString ? "newValue" :
-            (reconstructionLines.Any(l => l.Contains("newValueVal")) ? "newValueVal" : "newValue");
+            (newValueCallArgExpr ?? (reconstructionLines.Any(l => l.Contains("newValueVal")) ? "newValueVal" : "newValue"));
 
         // Build bracket access and emit assignment
         var subscriptAccess = BuildSubscriptAccessExpr(

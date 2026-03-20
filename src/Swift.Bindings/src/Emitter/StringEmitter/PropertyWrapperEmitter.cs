@@ -443,6 +443,7 @@ public static class PropertyWrapperEmitter
             return;
         }
 
+        string? cdeclCallArgValueExpr = null;
         var order = CdeclSignatureContract.DetermineParameterOrder(env,
             overrideNeedsResultPtr: false, overrideHasArguments: true, overrideNeedsSelf: !isStatic);
         foreach (var phase in order.Phases)
@@ -481,12 +482,16 @@ public static class PropertyWrapperEmitter
                         };
                         // omitLabels: false — property setters always need .load(as:) reconstruction
                         // for large Optionals. omitLabels: true would trigger ShouldWidenParam bypass.
-                        var (cdeclParam, reconstruction, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(
+                        var (cdeclParam, reconstruction, callArgExpr) = ConstructorWrapperEmitter.GetCdeclParamMapping(
                             newValueArg, "newValue", env, omitLabels: false);
                         swiftParams.Add(cdeclParam);
                         if (reconstruction != null)
                         {
                             reconstructionLines.Add(reconstruction);
+                            // Strip any leading "argLabel: " from callArgExpr — property setters
+                            // just need the value expression (e.g., "newValueOpt"), not "label: newValueOpt".
+                            var colonIdx = callArgExpr.IndexOf(':');
+                            cdeclCallArgValueExpr = colonIdx >= 0 ? callArgExpr[(colonIdx + 2)..] : callArgExpr;
                         }
                     }
                     break;
@@ -551,9 +556,9 @@ public static class PropertyWrapperEmitter
             swiftWriter.WriteLine(line);
         }
 
-        // Get the value expression (may be reconstructed with suffix "Val" for non-string types)
+        // Get the value expression (may be reconstructed with suffix "Val" or "Opt" depending on path)
         string valueExpr = isString ? "newValue" :
-            (reconstructionLines.Count > 0 ? "newValueVal" : "newValue");
+            (cdeclCallArgValueExpr ?? (reconstructionLines.Count > 0 ? "newValueVal" : "newValue"));
 
         // Emit assignment
         if (isStatic)
@@ -1067,11 +1072,16 @@ public static class PropertyWrapperEmitter
                 Name = "newValue", PrivateName = "newValue",
                 IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null
             };
-            var (cdeclParam, _, _) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
+            var (cdeclParam, reconstruction1, callArgExpr1) = ConstructorWrapperEmitter.GetCdeclParamMapping(newValueArg, "newValue", env, false);
             cdeclParams.Add(cdeclParam);
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
             protocolParams.Add($"newValue: {swiftType}");
-            cdeclCallArgs.Add("newValue: newValueVal");
+            // Use the call arg expression from GetCdeclParamMapping (e.g., "newValueOpt" for Optional types)
+            // Strip any leading "argLabel: " — we add our own "newValue:" prefix
+            var valExpr1 = callArgExpr1;
+            var colonIdx1 = callArgExpr1.IndexOf(':');
+            if (colonIdx1 >= 0) valExpr1 = callArgExpr1[(colonIdx1 + 2)..];
+            cdeclCallArgs.Add($"newValue: {(reconstruction1 != null ? valExpr1 : "newValueVal")}");
         }
 
         // Metadata params come BEFORE self to match C# PInvokeSignatureBuilder ordering for @_cdecl property accessors
