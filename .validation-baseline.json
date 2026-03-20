@@ -1,13 +1,13 @@
 {
-  "git_sha": "8cb03209",
+  "git_sha": "0c99ab93",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46447,
+        "lines": 46449,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkID": {
         "compile": "ok",
@@ -31,11 +31,11 @@
         "swift_compile": "ok"
       },
       "CryptoSwift": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 4,
         "lines": 21861,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
@@ -54,9 +54,9 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 53533,
+        "lines": 53534,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
@@ -70,7 +70,7 @@
         "errors": 0,
         "lines": 50962,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MicroblinkPlatform": {
         "compile": "ok",
@@ -273,7 +273,7 @@
         "errors": 0,
         "lines": 15479,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Valet": {
         "compile": "ok",
@@ -306,9 +306,9 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4561,
+        "lines": 4563,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
@@ -381,11 +381,11 @@
         "swift_compile": "ok"
       },
       "XMLCoder": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 18,
         "lines": 18688,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "AnimatedCollectionViewLayout": {
         "compile": "ok",

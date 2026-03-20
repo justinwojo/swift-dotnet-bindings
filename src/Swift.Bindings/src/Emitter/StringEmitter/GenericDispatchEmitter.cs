@@ -61,7 +61,9 @@ internal static class GenericDispatchEmitter
             case GenericDispatchKind.Constructor:
             {
                 // Path 1: Generic class with concrete (non-T-referencing) params — metatype dispatch
-                if (parentTypeDecl is ClassDecl)
+                // via _SBW_CI_ protocol with init() requirement. Only works for final classes
+                // because non-final classes can't satisfy protocol init() without `required`.
+                if (parentTypeDecl is ClassDecl classDecl)
                 {
                     var genericParamNames = parentTypeDecl.GenericParameters
                         .Select(p => p.TypeName)
@@ -69,7 +71,7 @@ internal static class GenericDispatchEmitter
                     bool hasGenericParams = env.MethodDecl.CSSignature.Skip(1)
                         .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
                     if (!hasGenericParams)
-                        return true;
+                        return classDecl.IsFinal; // Non-final can't use _SBW_CI_ protocol
                 }
                 // Path 2: Static factory dispatch
                 return CanEmitStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Constructor);
@@ -121,8 +123,15 @@ internal static class GenericDispatchEmitter
             case GenericDispatchKind.Constructor:
             {
                 // Generic class with no T in params uses existing metatype dispatch
-                if (parentTypeDecl is ClassDecl)
+                // via _SBW_CI_ protocol with init() requirement — BUT only for final
+                // classes. Non-final classes can't satisfy protocol init() without
+                // `required`, so they must NOT use the _SBW_CI_ path. This must stay
+                // in sync with CanEmitGenericDispatch which rejects non-final classes.
+                if (parentTypeDecl is ClassDecl classDecl)
                 {
+                    if (!classDecl.IsFinal)
+                        return true; // Force static factory — _SBW_CI_ won't compile
+
                     var genericParamNames = parentTypeDecl.GenericParameters
                         .Select(p => p.TypeName)
                         .ToHashSet();
@@ -235,6 +244,12 @@ internal static class GenericDispatchEmitter
 
             case GenericDispatchKind.Constructor:
             {
+                // Constrained constructors (e.g., init where Value == Data?) can't use the
+                // protocol factory pattern because the constraint can't be expressed in the protocol.
+                // Detect same-type requirements on parent generic params (τ_0_X == ConcreteType).
+                if (HasSameTypeConstraintOnParentGenericParam(env.MethodDecl))
+                    return false;
+
                 foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
                 {
                     if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
@@ -275,6 +290,23 @@ internal static class GenericDispatchEmitter
     // ═══════════════════════════════════════════════════════════════════════
     // Shared helpers
     // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns true if the method's generic signature contains a same-type constraint
+    /// on a parent generic param (e.g., "τ_0_0 == Foundation.Data?"). Such constructors
+    /// only exist for specific specializations and can't be dispatched through a protocol
+    /// factory that covers ALL specializations.
+    /// </summary>
+    private static bool HasSameTypeConstraintOnParentGenericParam(MethodDecl methodDecl)
+    {
+        var sig = methodDecl.RawGenericSig;
+        if (string.IsNullOrEmpty(sig))
+            return false;
+
+        // Match patterns like "τ_0_0 ==" which constrain parent-level generic params
+        // (depth 0) to specific types. Method-level params are depth 1+ (τ_1_0).
+        return System.Text.RegularExpressions.Regex.IsMatch(sig, @"τ_0_\d+\s*==");
+    }
 
     /// <summary>
     /// Checks whether any parameter or the return type references the parent type's generic

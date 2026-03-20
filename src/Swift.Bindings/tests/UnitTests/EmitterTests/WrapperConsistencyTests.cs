@@ -201,6 +201,7 @@ public class WrapperConsistencyTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.IsFinal = true; // Non-final classes can't satisfy protocol init() requirement
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -212,7 +213,7 @@ public class WrapperConsistencyTests
         Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
             "MethodWrapperEmitter should accept generic class parent with concrete method");
 
-        // Constructor — concrete signature
+        // Constructor — concrete signature (only final classes can use _SBW_CI_ protocol)
         var ctor = CreateConstructor("init", parentDecl, moduleDecl);
         var ctorEnv = new MethodEnvironment(ctor, typeDb);
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),

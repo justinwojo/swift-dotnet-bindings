@@ -132,6 +132,13 @@ public static class CdeclParamMapper
             var innerSpec = optSpec.GenericParameters[0];
             if (innerSpec is NamedTypeSpec innerNamed && IsBlittablePrimitiveSwiftType(innerNamed.Name))
             {
+                // When calling _dbw_init_* (omitLabels=true), the dispatch method accepts
+                // UnsafeRawPointer and decodes the Optional internally. Pass the pointer through
+                // to avoid type mismatch (Optional<Int> vs UnsafeRawPointer).
+                if (omitLabels)
+                {
+                    return ($"_ {label}: UnsafeRawPointer", null, $"{label}");
+                }
                 var rawType = GetSwiftRawValueType(innerNamed.Name);
                 // Compute the tag byte offset = size of the inner type (centralized in OptionalMarshalClassifier)
                 var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
@@ -167,6 +174,14 @@ public static class CdeclParamMapper
                                       !MarshallingHelpers.IsTypeFrozen(innerOpaqueRecord)));
                 if (isOpaqueType)
                 {
+                    // When calling _dbw_init_* (omitLabels=true), the dispatch method accepts
+                    // UnsafeRawPointer for opaque Optional params and decodes internally.
+                    // Pass the pointer through to avoid type mismatch.
+                    if (omitLabels)
+                    {
+                        return ($"_ {label}: UnsafeRawPointer", null, $"{label}");
+                    }
+
                     var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
                     var reconstruction = $"let {label}Val: {innerSwiftType}? = {label}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
                     return ($"_ {label}: UnsafeRawPointer",

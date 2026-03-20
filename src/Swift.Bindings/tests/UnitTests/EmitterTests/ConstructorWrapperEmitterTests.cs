@@ -62,12 +62,14 @@ public class ConstructorWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericClassParent_ConcreteSignature_ReturnsTrue()
     {
-        // Class generic parents with concrete (non-T-referencing) constructor signatures
-        // can use @_cdecl wrappers via protocol metatype dispatch
+        // Final class generic parents with concrete (non-T-referencing) constructor signatures
+        // can use @_cdecl wrappers via protocol metatype dispatch.
+        // Non-final classes can't satisfy protocol init() requirements (requires `required init`).
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -105,6 +107,49 @@ public class ConstructorWrapperEmitterTests
 
         var env = new MethodEnvironment(method, typeDb);
         Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_NonFinalGenericClassParent_ConcreteSignature_ReturnsFalse()
+    {
+        // Non-final generic class constructors with concrete signatures can't use
+        // the _SBW_CI_ protocol pattern (Swift requires `required init` for non-final
+        // protocol conformance). CanEmitGenericDispatch rejects this shape, so
+        // ShouldEmitWrapper must return false — otherwise the constructor would route
+        // through the _SBW_CI_ metatype dispatch path and produce invalid Swift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("EnumTransform");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("EnumTransform", moduleDecl);
+        // IsFinal defaults to false — this is the non-final case
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        // Constructor with no parameters (doesn't reference T)
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule13EnumTransformCACyxGycfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
+            "Non-final generic class with concrete constructor must NOT emit wrapper — _SBW_CI_ protocol requires `required init`");
     }
 
     [Fact]
@@ -219,9 +264,9 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void NeedsGenericStaticFactory_GenericClassConcreteParams_ReturnsFalse()
+    public void NeedsGenericStaticFactory_GenericClassConcreteParams_ReturnsTrue()
     {
-        // Generic class constructor with concrete (non-T) params uses existing metatype dispatch
+        // Non-final generic class → needs static factory (can't use _SBW_CI_)
         var (moduleDecl, typeDb) = CreateTestEnvironment("GenericCache");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -232,7 +277,7 @@ public class ConstructorWrapperEmitterTests
         };
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
 
-        Assert.False(ConstructorWrapperEmitter.NeedsGenericStaticFactory(
+        Assert.True(ConstructorWrapperEmitter.NeedsGenericStaticFactory(
             new MethodEnvironment(method, typeDb), parentDecl));
     }
 
@@ -2317,6 +2362,7 @@ public class ConstructorWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -2396,6 +2442,7 @@ public class ConstructorWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -2453,6 +2500,7 @@ public class ConstructorWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
@@ -2511,6 +2559,7 @@ public class ConstructorWrapperEmitterTests
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("GenericCache", moduleDecl);
+        parentDecl.IsFinal = true;
         parentDecl.GenericParameters = new List<GenericArgumentDecl>
         {
             new("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())

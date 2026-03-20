@@ -164,8 +164,30 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
+                    // Check both the extension header and body for internal type references.
+                    // The header (e.g., "extension XMLCoder.SharedBox: _SBW_...") names the type
+                    // being extended, which may be internal even when the body uses Self.
                     if (IsExtensionBroken(lines, i, end, body, onSafetyNetWarning) ||
-                        ReferencesInternalType(body, internalTypeNames))
+                        ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesInternalType(stripped, internalTypeNames))
+                    {
+                        ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        removedCount++;
+                        i = end + 1;
+                        continue;
+                    }
+                }
+
+                // Pattern 3c: Private protocol _SBW_ declarations referencing internal types.
+                // These are dispatch protocols for the generic factory pattern. When the protocol
+                // signature references an internal type (e.g., SharedBox<T>), the wrapper can't compile.
+                if (stripped.StartsWith("private protocol _SBW_", StringComparison.Ordinal))
+                {
+                    int end = FindBlockEnd(lines, i);
+                    var body = ScanBlockBody(lines, i, end);
+
+                    if (ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesInternalType(stripped, internalTypeNames))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;

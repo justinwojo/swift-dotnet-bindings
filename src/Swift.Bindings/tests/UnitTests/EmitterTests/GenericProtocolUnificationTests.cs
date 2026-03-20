@@ -354,7 +354,9 @@ public class GenericProtocolUnificationTests
     [Fact]
     public void NeedsGenericDispatch_GenericClass_Constructor_ConcreteParams_ReturnsFalse()
     {
-        var (env, _) = CreateGenericClassConstructorEnv(hasGenericParam: false);
+        var (env, parent) = CreateGenericClassConstructorEnv(hasGenericParam: false);
+        // Final generic class with concrete params doesn't need generic dispatch
+        ((ClassDecl)parent).IsFinal = true;
         Assert.False(WrapperValidation.NeedsGenericDispatch(env, MemberKind.Constructor));
     }
 

@@ -1252,6 +1252,7 @@ namespace BindingsGeneration
                 IsFailable = isFailable,
                 CSSignature = new List<ArgumentDecl>(),
                 GenericParameters = GenericSignatureParser.ParseGenericSignature(node.GenericSig, node.sugared_genericSig),
+                RawGenericSig = node.GenericSig,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = node.throwing ?? false,

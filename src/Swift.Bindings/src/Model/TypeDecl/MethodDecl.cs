@@ -95,6 +95,13 @@ namespace BindingsGeneration
         public bool IsOverride { get; set; } = false;
 
         /// <summary>
+        /// Raw genericSig string from ABI JSON (e.g., "&lt;τ_0_0 where τ_0_0 == Foundation.Data?&gt;").
+        /// Used to detect constructors with same-type constraints on parent generic params,
+        /// which prevent the protocol factory pattern from working.
+        /// </summary>
+        public string? RawGenericSig { get; set; }
+
+        /// <summary>
         /// Set to true during emission when this method passes all validation gates and is
         /// actually written to the C# output. Used by override resolution to verify that a
         /// base class method exists in the emitted C# hierarchy (not just the parsed model).

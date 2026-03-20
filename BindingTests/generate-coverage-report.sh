@@ -657,6 +657,20 @@ def build_declaration_map(source_dir, source_files):
 # Only required when multiple features share a source file; features not listed
 # here fall back to file-level matching (all skips in the file apply).
 FEATURE_DECLARATIONS = {
+    # Types/Structs.swift — 4 features share one file.
+    # NestedOuter.init is NonBlittableCallConvSwift (failable non-frozen init),
+    # but frozen/non-frozen struct features should not be penalized for it.
+    "frozen_struct": {
+        "FrozenPoint", "FrozenStructWithProperties",
+        "describePoint", "makeOrigin",
+    },
+    "non_frozen_struct": {
+        "NonFrozenPoint", "NonFrozenStructWithProperties",
+        "scalePoint",
+    },
+    "nested_struct": {"NestedOuter"},
+    "struct_with_ref_field": {"StructBuilder", "Converter", "ModernFeature", "FloatHolder"},
+
     # Types/Enums.swift — 3 features share one file
     # Note: MathUtils.Counter shares a name with the Counter actor in Async/Actors.swift.
     # Without declaration-level ownership, file-level fallback mis-attributes actor skips
