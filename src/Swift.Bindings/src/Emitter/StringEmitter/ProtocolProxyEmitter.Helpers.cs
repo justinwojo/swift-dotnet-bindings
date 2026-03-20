@@ -6,172 +6,40 @@ namespace BindingsGeneration;
 public partial class ProtocolProxyEmitter
 {
     /// <summary>
-    /// Resolves a Swift type to its C# name. Uses TypeProjectionFactory for public type
-    /// resolution (!forAbiMarshalling) with fallbacks for closures, existentials, and bound generics.
+    /// Resolves a Swift type to its C# name for proxy context.
+    /// Delegates to the consolidated <see cref="ProtocolSignatureHelper.ProjectTypeToCSharp"/>
+    /// with proxy-specific mode flags (ExistentialFallback + IncludeTupleLabels).
     /// When <paramref name="forAbiMarshalling"/> is true, returns the ABI type
     /// (e.g., Swift.SwiftString, ExistentialContainer0) suitable for MarshalFromSwift&lt;T&gt;.
-    /// When false (default), returns the idiomatic C# type (e.g., string, bool?)
-    /// used in interface/implementation signatures.
+    /// When false (default), returns the idiomatic C# type (e.g., string, bool?).
     /// </summary>
     private string GetCSharpTypeName(TypeSpec? typeSpec, bool forAbiMarshalling = false, bool isParameter = true)
     {
         if (typeSpec == null) return "object";
 
-        // Handle associated type references (e.g., Self.Element -> TElement)
-        if (typeSpec is AssociatedTypeReferenceSpec associatedTypeRef)
-            return $"T{associatedTypeRef.AssociatedTypeName}";
+        var mode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
+        if (forAbiMarshalling)
+            mode |= TypeResolutionMode.AbiMarshalling;
 
-        // Factory-first path for type resolution.
-        // When forAbiMarshalling=true, use MarshalFromSwiftType — the type suitable for
-        // MarshalFromSwift<T> deserialization. This composes correctly through containers:
-        //   - Existentials: ExistentialContainer1 (not AnyType)
-        //   - Classes/NonFrozenStructs: public type name (not IntPtr)
-        //   - Strings: SwiftString (ABI type)
-        //   - Arrays/Dicts/Optionals: compose inner MarshalFromSwiftType recursively
-        // When forAbiMarshalling=false, use PublicType (e.g., IReadOnlyList<ISQLSelectable>)
-        {
-            var factory = new TypeProjectionFactory();
-            var projection = factory.Project(typeSpec, new ProjectionContext
-            {
-                TypeDatabase = _typeDatabase,
-                IsParameter = isParameter,
-                GenericContext = GenericContext.Empty
-            });
-            if (projection != null)
-                return forAbiMarshalling ? projection.MarshalFromSwiftType : projection.PublicType;
-        }
-
-        // Factory fallback for unsupported types
-        if (typeSpec is ClosureTypeSpec closureTypeSpec)
-            return GetClosureCSharpType(closureTypeSpec);
-
-        if (typeSpec is TupleTypeSpec tupleTypeSpec)
-        {
-            if (tupleTypeSpec.IsEmptyTuple)
-                return "void";
-            return GetTupleCSharpType(tupleTypeSpec);
-        }
-
-        // Existentials: ABI → container type, public → interface/well-known
-        var existentialHandler = new ExistentialHandler(_typeDatabase);
-        if (existentialHandler.IsExistential(typeSpec))
-        {
-            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            if (protocolList != null)
-            {
-                if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
-                    return wellKnownType;
-
-                if (existentialHandler.IsSupportedExistential(protocolList))
-                {
-                    return forAbiMarshalling
-                        ? existentialHandler.GetCSharpExistentialType(protocolList)
-                        : existentialHandler.GetPublicExistentialType(protocolList);
-                }
-            }
-        }
-
-        // Bound generic fallback: produce full type name with generic args
-        // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types)
-        if (typeSpec is NamedTypeSpec proxyBoundGeneric && proxyBoundGeneric.ContainsGenericParameters)
-        {
-            var bgh = new BoundGenericsHandler(_typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp((TypeSpec)proxyBoundGeneric, GenericContext.Empty);
-        }
-
-        // Type record fallback
-        var record = _typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-        return record.CSharpTypeName.FullyQualifiedName;
+        return ProtocolSignatureHelper.ProjectTypeToCSharp(
+            typeSpec, _typeDatabase, protocolContext: null, isParameter: isParameter,
+            genericContext: GenericContext.Empty, mode: mode);
     }
 
     /// <summary>
     /// Resolves property types to match the emitted interface signatures from ProtocolHandler.
-    /// Uses the same resolution rules so proxy signatures always match interface declarations.
+    /// Delegates to the consolidated <see cref="ProtocolSignatureHelper.ProjectTypeToCSharp"/>
+    /// with NativeInt narrowing and the property's parent generic context.
     /// </summary>
     private string GetInterfaceCompatiblePropertyTypeName(PropertyDecl property)
     {
-        // Factory with GenericContext for all types including bound generics
         var propGenericContext = property.ParentDecl is TypeDecl propParentType && propParentType.IsGeneric
             ? GenericContext.FromType(propParentType)
             : GenericContext.Empty;
-        var propFactory = new TypeProjectionFactory();
-        var propProjection = propFactory.Project(property.SwiftTypeSpec, new ProjectionContext
-        {
-            TypeDatabase = _typeDatabase,
-            IsParameter = false,
-            GenericContext = propGenericContext
-        });
-        if (propProjection != null)
-            return NativeIntOverloadEmitter.NarrowNativeIntType(propProjection.PublicType);
 
-        // Bound generic fallback: produce full type name with generic args
-        if (property.SwiftTypeSpec is NamedTypeSpec propBoundGeneric && propBoundGeneric.ContainsGenericParameters)
-        {
-            var bgh = new BoundGenericsHandler(_typeDatabase);
-            return NativeIntOverloadEmitter.NarrowNativeIntType(
-                bgh.TranslateBoundGenericTypeToCSharp(property.SwiftTypeSpec, propGenericContext));
-        }
-
-        return NativeIntOverloadEmitter.NarrowNativeIntType(
-            _typeDatabase.GetTypeRecordOrAnyType(property.SwiftTypeSpec).CSharpTypeName.FullyQualifiedName);
-    }
-
-    /// <summary>
-    /// Translates a Swift closure type to a C# delegate type (Action or Func).
-    /// </summary>
-    private string GetClosureCSharpType(ClosureTypeSpec closureTypeSpec)
-    {
-        // Build parameter types
-        var paramTypes = new List<string>();
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            paramTypes.Add(GetCSharpTypeName(arg));
-        }
-
-        // Get return type
-        var returnType = closureTypeSpec.ReturnType;
-        bool hasReturn = !returnType.IsEmptyTuple;
-
-        if (!hasReturn)
-        {
-            // Action delegate
-            if (paramTypes.Count == 0)
-                return "Action";
-            return $"Action<{string.Join(", ", paramTypes)}>";
-        }
-        else
-        {
-            // Func delegate
-            var returnTypeName = GetCSharpTypeName(returnType);
-            if (paramTypes.Count == 0)
-                return $"Func<{returnTypeName}>";
-            return $"Func<{string.Join(", ", paramTypes)}, {returnTypeName}>";
-        }
-    }
-
-    /// <summary>
-    /// Translates a Swift tuple type to a C# ValueTuple type.
-    /// </summary>
-    private string GetTupleCSharpType(TupleTypeSpec tupleTypeSpec)
-    {
-        var elements = new List<string>();
-
-        foreach (var element in tupleTypeSpec.Elements)
-        {
-            var typeName = GetCSharpTypeName(element);
-
-            // Include label if present
-            if (!string.IsNullOrEmpty(element.TypeLabel))
-            {
-                elements.Add($"{typeName} {element.TypeLabel}");
-            }
-            else
-            {
-                elements.Add(typeName);
-            }
-        }
-
-        return $"({string.Join(", ", elements)})";
+        return ProtocolSignatureHelper.ProjectTypeToCSharp(
+            property.SwiftTypeSpec, _typeDatabase, protocolContext: null, isParameter: false,
+            genericContext: propGenericContext, mode: TypeResolutionMode.NarrowNativeInt);
     }
 
     /// <summary>

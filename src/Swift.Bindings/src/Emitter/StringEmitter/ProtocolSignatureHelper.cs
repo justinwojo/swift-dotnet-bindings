@@ -4,6 +4,29 @@
 namespace BindingsGeneration;
 
 /// <summary>
+/// Mode flags controlling how <see cref="ProtocolSignatureHelper.ProjectTypeToCSharp"/> resolves types.
+/// Consolidates the behavioral differences between proxy, interface, and property contexts.
+/// </summary>
+[Flags]
+internal enum TypeResolutionMode
+{
+    /// <summary>Default: returns PublicType from factory projection. Used by interface signatures.</summary>
+    Default = 0,
+
+    /// <summary>Returns MarshalFromSwiftType instead of PublicType (for ABI marshalling in proxy receivers).</summary>
+    AbiMarshalling = 1,
+
+    /// <summary>Applies NativeIntOverloadEmitter.NarrowNativeIntType() to the result (property interface context).</summary>
+    NarrowNativeInt = 2,
+
+    /// <summary>Includes ExistentialHandler fallback when factory can't resolve an existential (proxy context).</summary>
+    ExistentialFallback = 4,
+
+    /// <summary>Include tuple element labels in tuple type output (proxy context).</summary>
+    IncludeTupleLabels = 8,
+}
+
+/// <summary>
 /// Shared signature key generation for protocol member matching.
 /// Used by both ProtocolHandler (interface emission) and ProtocolConformanceValidator.
 /// </summary>
@@ -110,77 +133,146 @@ internal static class ProtocolSignatureHelper
     }
 
     /// <summary>
-    /// Projects a Swift TypeSpec to the C# type name that would appear in a protocol interface.
-    /// Mirrors ProtocolHandler.GetCSharpTypeName() resolution chain.
+    /// Projects a Swift TypeSpec to the C# type name for protocol contexts.
+    /// This is the single consolidated entry point for type resolution across proxy,
+    /// interface, and property contexts. Use <see cref="TypeResolutionMode"/> flags
+    /// to control context-specific behavior.
     /// </summary>
     /// <param name="typeSpec">The Swift type specification.</param>
     /// <param name="typeDatabase">Type database for lookups.</param>
-    /// <param name="protocolContext">Protocol context for associated type resolution.</param>
+    /// <param name="protocolContext">Protocol context for associated type resolution and Self-requirement detection.</param>
     /// <param name="isParameter">True for parameter types (arrays → IEnumerable), false for return types (arrays → IReadOnlyList).</param>
-    public static string ProjectTypeToCSharp(TypeSpec typeSpec, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, bool isParameter = false)
+    /// <param name="genericContext">Explicit generic context override. When null, auto-computed from protocolContext
+    /// (ForProtocolSelf when HasSelfRequirement, otherwise Empty).</param>
+    /// <param name="mode">Mode flags controlling resolution behavior. Default is interface context.</param>
+    public static string ProjectTypeToCSharp(
+        TypeSpec typeSpec,
+        ITypeDatabase typeDatabase,
+        ProtocolDecl? protocolContext = null,
+        bool isParameter = false,
+        GenericContext? genericContext = null,
+        TypeResolutionMode mode = TypeResolutionMode.Default)
     {
+        bool forAbiMarshalling = mode.HasFlag(TypeResolutionMode.AbiMarshalling);
+        bool narrowNativeInt = mode.HasFlag(TypeResolutionMode.NarrowNativeInt);
+        bool existentialFallback = mode.HasFlag(TypeResolutionMode.ExistentialFallback);
+        bool includeTupleLabels = mode.HasFlag(TypeResolutionMode.IncludeTupleLabels);
+
+        // Mode for recursive calls: strip AbiMarshalling (nested types always use public type)
+        // and NarrowNativeInt (applied once at the top level only).
+        var recurMode = mode & ~(TypeResolutionMode.AbiMarshalling | TypeResolutionMode.NarrowNativeInt);
+
         // Associated type references → generic param (factory doesn't handle these)
         if (typeSpec is AssociatedTypeReferenceSpec assocRef)
-            return MapAssociatedTypeToGenericParam(assocRef, protocolContext);
+            return MaybeNarrow(MapAssociatedTypeToGenericParam(assocRef, protocolContext), narrowNativeInt);
+
+        // Resolve generic context: explicit override, or auto-compute from protocolContext
+        var effectiveGenericContext = genericContext
+            ?? (protocolContext?.HasSelfRequirement == true
+                ? GenericContext.ForProtocolSelf()
+                : GenericContext.Empty);
 
         // Factory-first: handles existentials, closures, tuples, containers (Array, Dict, Optional),
         // string, bool, ObjC bridged, simple enum, native remapped, class, non-frozen, blittable
-        // For Self-requirement protocols, map τ_0_0 → TSelf
-        var genericContext = protocolContext?.HasSelfRequirement == true
-            ? GenericContext.ForProtocolSelf()
-            : GenericContext.Empty;
-
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(typeSpec, new ProjectionContext
         {
             TypeDatabase = typeDatabase,
             IsParameter = isParameter,
-            GenericContext = genericContext
+            GenericContext = effectiveGenericContext
         });
         if (projection != null)
-            return projection.PublicType;
+        {
+            var result = forAbiMarshalling ? projection.MarshalFromSwiftType : projection.PublicType;
+            return MaybeNarrow(result, narrowNativeInt);
+        }
 
         // Closure fallback when factory can't fully resolve (e.g., inner types not in TypeDatabase)
         if (typeSpec is ClosureTypeSpec closureType)
         {
             var args = closureType.EachArgument()
-                .Select(a => ProjectTypeToCSharp(a, typeDatabase, protocolContext, isParameter: true))
+                .Select(a => ProjectTypeToCSharp(a, typeDatabase, protocolContext, isParameter: true, genericContext, recurMode))
                 .ToList();
             bool hasReturn = !closureType.ReturnType.IsEmptyTuple;
 
+            string closureResult;
             if (!hasReturn)
             {
-                return args.Count == 0 ? "Action" : $"Action<{string.Join(", ", args)}>";
+                closureResult = args.Count == 0 ? "Action" : $"Action<{string.Join(", ", args)}>";
             }
             else
             {
-                var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false);
-                return args.Count == 0 ? $"Func<{retName}>" : $"Func<{string.Join(", ", args)}, {retName}>";
+                // TODO: The original proxy GetCSharpTypeName used isParameter:true for closure return
+                // types (the default), while ProjectTypeToCSharp used isParameter:false. Using false
+                // (more correct: return types should use IReadOnlyList, not IEnumerable for arrays).
+                var retName = ProjectTypeToCSharp(closureType.ReturnType, typeDatabase, protocolContext, isParameter: false, genericContext, recurMode);
+                closureResult = args.Count == 0 ? $"Func<{retName}>" : $"Func<{string.Join(", ", args)}, {retName}>";
             }
+            return MaybeNarrow(closureResult, narrowNativeInt);
         }
 
         // Tuple fallback
         if (typeSpec is TupleTypeSpec tupleType)
         {
             if (tupleType.IsEmptyTuple) return "void";
-            var elements = tupleType.Elements
-                .Select(e => ProjectTypeToCSharp(e, typeDatabase, protocolContext, isParameter))
-                .ToList();
-            return $"({string.Join(", ", elements)})";
+
+            var elements = new List<string>();
+            foreach (var element in tupleType.Elements)
+            {
+                var typeName = ProjectTypeToCSharp(element, typeDatabase, protocolContext, isParameter, genericContext, recurMode);
+                if (includeTupleLabels && !string.IsNullOrEmpty(element.TypeLabel))
+                    elements.Add($"{typeName} {element.TypeLabel}");
+                else
+                    elements.Add(typeName);
+            }
+            return MaybeNarrow($"({string.Join(", ", elements)})", narrowNativeInt);
+        }
+
+        // Existential fallback: when factory can't resolve but ExistentialHandler can.
+        // Only used in proxy context where the factory may not cover all existential patterns.
+        if (existentialFallback)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+                if (protocolList != null)
+                {
+                    if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+                        return MaybeNarrow(wellKnownType, narrowNativeInt);
+
+                    if (existentialHandler.IsSupportedExistential(protocolList))
+                    {
+                        var existentialResult = forAbiMarshalling
+                            ? existentialHandler.GetCSharpExistentialType(protocolList)
+                            : existentialHandler.GetPublicExistentialType(protocolList);
+                        return MaybeNarrow(existentialResult, narrowNativeInt);
+                    }
+                }
+            }
         }
 
         // Bound generic fallback: produce full type name with generic args
         // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types).
+        // TODO: The original ProjectTypeToCSharp and proxy GetCSharpTypeName used GenericContext.Empty
+        // here, while GetInterfaceCompatiblePropertyTypeName used the explicit generic context.
+        // Using effectiveGenericContext is more correct (consistent with factory path).
         if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
         {
             var bgh = new BoundGenericsHandler(typeDatabase);
-            return bgh.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
+            return MaybeNarrow(bgh.TranslateBoundGenericTypeToCSharp(typeSpec, effectiveGenericContext), narrowNativeInt);
         }
 
         // Final fallback: raw type record lookup
         var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-        return record.CSharpTypeName.FullyQualifiedName;
+        return MaybeNarrow(record.CSharpTypeName.FullyQualifiedName, narrowNativeInt);
     }
+
+    /// <summary>
+    /// Conditionally applies NativeInt narrowing to a type name.
+    /// </summary>
+    private static string MaybeNarrow(string typeName, bool narrow)
+        => narrow ? NativeIntOverloadEmitter.NarrowNativeIntType(typeName) : typeName;
 
     /// <summary>
     /// Normalizes a projected C# parameter type for overload identity comparison.

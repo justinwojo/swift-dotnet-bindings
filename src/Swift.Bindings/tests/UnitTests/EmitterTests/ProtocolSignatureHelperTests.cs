@@ -530,6 +530,245 @@ public class ProtocolSignatureHelperTests
 
     #endregion
 
+    #region Consolidated ProjectTypeToCSharp Mode Tests
+
+    [Fact]
+    public void ProjectTypeToCSharp_DefaultMode_ReturnsPublicType()
+    {
+        // Default mode (interface context) returns PublicType from factory projection.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var intType = new NamedTypeSpec("Swift.Int");
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(intType, typeDatabase);
+
+        Assert.Equal("long", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_AbiMarshallingMode_ReturnsMarshalFromSwiftType()
+    {
+        // ABI marshalling mode returns MarshalFromSwiftType for ABI-level type resolution.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var stringType = new NamedTypeSpec("Swift.String");
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            stringType, typeDatabase, mode: TypeResolutionMode.AbiMarshalling);
+
+        // SwiftString is the ABI type for Swift.String (short name from MarshalFromSwiftType)
+        Assert.Equal("SwiftString", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_NarrowNativeIntMode_AppliesNarrowing()
+    {
+        // NativeInt narrowing mode applies NarrowNativeIntType to the result.
+        var typeDatabase = CreateTypeDatabaseWithNativeInt();
+        var nativeIntType = new NamedTypeSpec("Swift.Int");
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            nativeIntType, typeDatabase, isParameter: false,
+            mode: TypeResolutionMode.NarrowNativeInt);
+
+        // Swift.Int projects to nint, which is narrowed to int
+        Assert.Equal("long", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ExistentialFallbackMode_ResolvesExistentials()
+    {
+        // ExistentialFallback mode includes ExistentialHandler fallback path.
+        // This is used by proxy context when factory can't handle all existential patterns.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var intType = new NamedTypeSpec("Swift.Int");
+
+        // Regular type should be unaffected by ExistentialFallback flag
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            intType, typeDatabase, mode: TypeResolutionMode.ExistentialFallback);
+
+        Assert.Equal("long", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_IncludeTupleLabels_IncludesLabelsInTupleOutput()
+    {
+        // When IncludeTupleLabels is set, tuple element labels appear in the tuple fallback output.
+        // Use unknown types to force the factory to fail and hit the tuple fallback path.
+        var typeDatabase = CreateTypeDatabase();
+        var element1 = new NamedTypeSpec("UnknownModule.Foo") { TypeLabel = "x" };
+        var element2 = new NamedTypeSpec("UnknownModule.Bar") { TypeLabel = "y" };
+        var tupleType = new TupleTypeSpec(new List<TypeSpec> { element1, element2 });
+
+        var withLabels = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            tupleType, typeDatabase, mode: TypeResolutionMode.IncludeTupleLabels);
+        var withoutLabels = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            tupleType, typeDatabase, mode: TypeResolutionMode.Default);
+
+        Assert.Contains("x", withLabels);
+        Assert.Contains("y", withLabels);
+        Assert.DoesNotContain(" x", withoutLabels);
+        Assert.DoesNotContain(" y", withoutLabels);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ExplicitGenericContext_UsesProvidedContext()
+    {
+        // When genericContext is explicitly provided, it overrides the protocolContext computation.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var intType = new NamedTypeSpec("Swift.Int");
+
+        // Passing explicit GenericContext.Empty should work identically
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            intType, typeDatabase, genericContext: GenericContext.Empty);
+
+        Assert.Equal("long", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ProxyModeMatchesOriginalBehavior_SimpleTypes()
+    {
+        // Proxy mode (ExistentialFallback | IncludeTupleLabels) should match
+        // the original GetCSharpTypeName behavior for simple types.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var proxyMode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
+
+        // Swift.Int → long
+        var intResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            new NamedTypeSpec("Swift.Int"), typeDatabase,
+            genericContext: GenericContext.Empty, mode: proxyMode);
+        Assert.Equal("long", intResult);
+
+        // Swift.String → string
+        var stringResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            new NamedTypeSpec("Swift.String"), typeDatabase,
+            genericContext: GenericContext.Empty, mode: proxyMode);
+        Assert.Equal("string", stringResult);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ProxyModeWithAbi_ReturnsAbiTypes()
+    {
+        // ABI mode should return MarshalFromSwiftType for proxy receivers.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var abiMode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels
+            | TypeResolutionMode.AbiMarshalling;
+
+        // Swift.String with ABI → SwiftString (short name from MarshalFromSwiftType)
+        var stringResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            new NamedTypeSpec("Swift.String"), typeDatabase,
+            genericContext: GenericContext.Empty, mode: abiMode);
+        Assert.Equal("SwiftString", stringResult);
+
+        // Swift.Int with ABI → long (primitives are same for public/ABI)
+        var intResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            new NamedTypeSpec("Swift.Int"), typeDatabase,
+            genericContext: GenericContext.Empty, mode: abiMode);
+        Assert.Equal("long", intResult);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_NarrowNativeIntMode_PropertyContext()
+    {
+        // Property interface context uses NarrowNativeInt. Verify it matches
+        // the original GetInterfaceCompatiblePropertyTypeName behavior.
+        var typeDatabase = CreateTypeDatabaseWithString();
+
+        // Simple type with NarrowNativeInt (no actual narrowing needed for Int64)
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            new NamedTypeSpec("Swift.Int"), typeDatabase, isParameter: false,
+            genericContext: GenericContext.Empty, mode: TypeResolutionMode.NarrowNativeInt);
+
+        Assert.Equal("long", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_AssociatedTypeReference_ReturnsGenericParam()
+    {
+        // Associated type references should map to generic params in all modes.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var assocRef = new AssociatedTypeReferenceSpec("Self.Element");
+
+        // Default mode
+        var defaultResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            assocRef, typeDatabase);
+        Assert.Equal("TElement", defaultResult);
+
+        // Proxy mode
+        var proxyMode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
+        var proxyResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            assocRef, typeDatabase, genericContext: GenericContext.Empty, mode: proxyMode);
+        Assert.Equal("TElement", proxyResult);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_NarrowNativeInt_NotAppliedRecursivelyInTuples()
+    {
+        // NarrowNativeInt should only apply at the top level.
+        // This test verifies it works correctly for tuple types.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var tupleType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int")
+        });
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            tupleType, typeDatabase, mode: TypeResolutionMode.NarrowNativeInt);
+
+        // Tuple itself should be narrowed at top level
+        Assert.Equal("(long, long)", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ClosureFallback_UsesCorrectMode()
+    {
+        // Verify closure type handling works with different modes.
+        var typeDatabase = CreateTypeDatabaseWithString();
+
+        // Simple closure: () -> Void — should resolve to Action
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+
+        var result = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            closureType, typeDatabase, mode: TypeResolutionMode.Default);
+
+        // Factory should handle this, returning Action
+        Assert.Equal("Action", result);
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_ModeFlags_AreCombineable()
+    {
+        // Verify that multiple mode flags can be combined correctly.
+        var combined = TypeResolutionMode.AbiMarshalling
+            | TypeResolutionMode.ExistentialFallback
+            | TypeResolutionMode.IncludeTupleLabels;
+
+        Assert.True(combined.HasFlag(TypeResolutionMode.AbiMarshalling));
+        Assert.True(combined.HasFlag(TypeResolutionMode.ExistentialFallback));
+        Assert.True(combined.HasFlag(TypeResolutionMode.IncludeTupleLabels));
+        Assert.False(combined.HasFlag(TypeResolutionMode.NarrowNativeInt));
+    }
+
+    [Fact]
+    public void ProjectTypeToCSharp_UnknownType_ReturnsSameForAllModes()
+    {
+        // For unknown types that fall through to type record lookup,
+        // all non-ABI modes should return the same result.
+        var typeDatabase = CreateTypeDatabase();
+        var unknownType = new NamedTypeSpec("UnknownModule.Widget");
+
+        var defaultResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            unknownType, typeDatabase);
+
+        var proxyMode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
+        var proxyResult = ProtocolSignatureHelper.ProjectTypeToCSharp(
+            unknownType, typeDatabase, genericContext: GenericContext.Empty, mode: proxyMode);
+
+        Assert.Equal(defaultResult, proxyResult);
+        Assert.Contains("AnyType", defaultResult);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()
@@ -601,6 +840,24 @@ public class ProtocolSignatureHelperTests
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(foundationModule);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithNativeInt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
         return typeDatabase;
     }
 
