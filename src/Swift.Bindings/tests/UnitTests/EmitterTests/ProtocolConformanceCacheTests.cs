@@ -95,17 +95,17 @@ public class ProtocolConformanceCacheTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_NoMembersNoInheritance_RecordsSkipDecision()
+    public void EmitProtocolConformance_EmptyMarkerProtocol_EmitsTrivialConformance()
     {
         var (emitter, ctx) = CreateEmitterWithContext();
-        // Protocol with no members and no non-trivial inheritance — skipped
+        // Empty marker protocol (no members at all) — gets trivial conformance
+        // for existential container creation
         var protocolDecl = CreateEmptyMarkerProtocol("MarkerProto");
 
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.False(ctx.WasConformanceEmitted("MarkerProto"));
-        Assert.Equal("NoImplementableMembers", ctx.ConformanceDecisions["MarkerProto"].SkipReason);
+        Assert.True(ctx.WasConformanceEmitted("MarkerProto"));
     }
 
     [Fact]

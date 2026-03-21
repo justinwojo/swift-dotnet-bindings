@@ -561,15 +561,9 @@ namespace BindingsGeneration
                 // Skip internal, @_spi, and @usableFromInline protocols — EveryProtocol can only
                 // conform to protocols whose members are all publicly accessible.
                 .Where(p => !p.IsModuleInternal)
-                // Allow protocols with instance members OR composition protocols (no own members
-                // but inherit from protocols that do have members). Phase 2 handles the final
-                // implementable-members check more precisely.
-                .Where(p => p.Properties.Any() ||
-                           p.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                           p.Subscripts.Any() ||
-                           p.InheritedProtocols.Any(inh => inh.NameWithoutModule != "AnyObject" &&
-                               inh.NameWithoutModule != "Escapable" && inh.NameWithoutModule != "Copyable" &&
-                               inh.NameWithoutModule != "Sendable" && inh.NameWithoutModule != "SendableMetatype"))
+                // Phase 2 (EveryProtocolEmitter) handles all member-level decisions:
+                // constructor requirements, static method requirements, empty marker protocols, etc.
+                // All protocols pass through here; the emitter records proper skip reasons.
                 // Bug #14: Filter out protocols not actually defined in this module.
                 // When a module extends stdlib protocols (e.g., CryptoSwift extends Collection),
                 // the parser creates ProtocolDecl entries with the module's name (CryptoSwift.Collection),
@@ -639,10 +633,13 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Pre-computes the set of method signatures that must be emitted non-throwing.
+        /// Pre-computes the set of method full signatures that must be emitted non-throwing.
         /// A signature is included if it appears as both throwing (in at least one protocol)
         /// and non-throwing (in at least one other protocol). The non-throwing variant must
         /// win because it satisfies both requirements.
+        /// Uses full signatures (name + param types + return type) so that overloads with
+        /// different parameter types are tracked independently — e.g., a non-throwing
+        /// validate(input: String) won't suppress throws on validate(input: Int32) throws.
         /// </summary>
         private static HashSet<string> ComputeNonThrowingOverrides(
             IEnumerable<ProtocolDecl> protocols, EveryProtocolEmitter emitter)
@@ -657,7 +654,7 @@ namespace BindingsGeneration
                     if (method.IsConstructor || method.MethodType == MethodType.Static)
                         continue;
 
-                    var sig = emitter.GetSwiftMethodSignature(method);
+                    var sig = emitter.GetSwiftMethodFullSignature(method);
                     if (method.Throws)
                         throwingSignatures.Add(sig);
                     else

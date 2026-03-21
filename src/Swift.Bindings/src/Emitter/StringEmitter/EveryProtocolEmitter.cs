@@ -21,12 +21,6 @@ public class EveryProtocolEmitter
     private readonly ModuleEmissionContext? _emissionContext;
 
     /// <summary>
-    /// Tracks full method signatures (name + param types + return type) across all protocols.
-    /// Populated in parallel with globalEmittedSignatures (label-only) to detect type-level conflicts.
-    /// </summary>
-    private HashSet<string>? _globalFullSignatures;
-
-    /// <summary>
     /// Tracks protocols whose EveryProtocol conformance was skipped.
     /// Used to detect genericSig constraints that reference unsatisfied protocols.
     /// </summary>
@@ -364,25 +358,32 @@ public class EveryProtocolEmitter
             }
 
             var swiftSignature = GetSwiftMethodSignature(method);
+            var fullSignature = GetSwiftMethodFullSignature(method);
 
-            // Check for global conflicts (method name + parameter count defines the signature)
-            if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(swiftSignature))
+            // Check for global conflicts using full signatures (name + parameter types + return type).
+            // This allows same-name methods with different parameter types to coexist as Swift overloads
+            // (e.g., validate(input: String) and validate(input: Int32) from different protocols).
+            //
+            // Return-type-only conflicts (e.g., parse(data:)->Int vs parse(data:)->Void) ARE intentionally
+            // emitted — they produce invalid Swift, but the wrapper strip/retry mechanism handles this:
+            // the duplicate function is stripped, which fails the conformance, which gets stripped on retry.
+            // Using call signatures (without return type) here would PREVENT emission, leaving an empty
+            // conformance that the strip script can't handle (no function to strip → unrecoverable error).
+            if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(fullSignature))
             {
                 _logger.LogDebug($"Skipping method '{method.Name}' in {protocolDecl.Name}: conflicts with already-emitted method");
                 continue;
             }
 
-            // Track full signature (including param types) for type-level conflict detection
-            _globalFullSignatures?.Add(GetSwiftMethodFullSignature(method));
-
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
-                // If this signature is in the non-throwing overrides set, suppress throws.
+                // If this full signature is in the non-throwing overrides set, suppress throws.
                 // A non-throwing method satisfies both throwing and non-throwing protocol requirements,
                 // but a throwing method does NOT satisfy a non-throwing requirement.
+                // Uses full signature so overloads with different types are tracked independently.
                 var effectiveThrows = method.Throws &&
-                    !(nonThrowingOverrides?.Contains(swiftSignature) == true);
+                    !(nonThrowingOverrides?.Contains(fullSignature) == true);
                 EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows);
             }
         }
@@ -411,10 +412,8 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// Gets a full Swift method signature including parameter types and return type.
-    /// Used for conflict detection — two methods with the same label signature but different
-    /// types are incompatible for a single EveryProtocol class method.
-    /// </summary>
-    private string GetSwiftMethodFullSignature(MethodDecl method)
+    /// Used for global dedup and non-throwing override tracking.
+    internal string GetSwiftMethodFullSignature(MethodDecl method)
     {
         var parts = new List<string>();
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -598,8 +597,16 @@ public class EveryProtocolEmitter
                 inh.NameWithoutModule != "Sendable" &&
                 inh.NameWithoutModule != "SendableMetatype");
 
+        // Empty marker protocols (no members, no inheritance) are allowed — they need
+        // a trivial EveryProtocol conformance for existential container creation.
         if (!hasImplementableMembers && !hasStaticRequirements && !hasNonTrivialInheritance)
+        {
+            // Truly empty marker protocol — don't skip
+            if (!protocolDecl.Properties.Any() && !protocolDecl.Methods.Any() && !protocolDecl.Subscripts.Any())
+                return false;
+            // Has members but none are implementable (all constructors/static) — skip
             return true;
+        }
 
         if (protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static))
             return true;
@@ -627,10 +634,6 @@ public class EveryProtocolEmitter
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
     {
-        // Lazily initialize the full-signature tracker when global dedup is active
-        if (globalEmittedSignatures != null && _globalFullSignatures == null)
-            _globalFullSignatures = new HashSet<string>(StringComparer.Ordinal);
-
         // Helper to record a skip decision and track the protocol for genericSig constraint checks
         void RecordSkip(string reason)
         {
@@ -750,9 +753,15 @@ public class EveryProtocolEmitter
 
         if (!hasImplementableMembers && !hasStaticRequirements && !hasNonTrivialInheritance)
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members and no static requirements");
-            RecordSkip("NoImplementableMembers");
-            return;
+            // Empty marker protocols (no members at all) need a trivial conformance
+            // for existential container creation. Let them through to the else branch below.
+            bool isEmptyMarker = !protocolDecl.Properties.Any() && !protocolDecl.Methods.Any() && !protocolDecl.Subscripts.Any();
+            if (!isEmptyMarker)
+            {
+                _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: no implementable instance members and no static requirements");
+                RecordSkip("NoImplementableMembers");
+                return;
+            }
         }
 
         // Skip protocols with static method requirements — static method stubs can't
@@ -766,35 +775,11 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Pre-scan: if any required method's label signature conflicts with an already-emitted
-        // method but has DIFFERENT parameter/return types, the existing implementation won't
-        // satisfy this protocol. Skip the entire conformance to avoid partial extension errors.
-        // Example: HTTPHandler.register(delegate: HTTPHandlerDelegate) blocks
-        // HTTPServerHandler.register(delegate: HTTPServerDelegate) — different param types.
-        // But if both protocols have update() with identical signatures, one impl satisfies both.
-        if (hasImplementableMembers && _globalFullSignatures != null && globalEmittedSignatures != null)
-        {
-            var requiredMethods = protocolDecl.Methods
-                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional)
-                .ToList();
-            bool hasTypeConflict = false;
-            foreach (var method in requiredMethods)
-            {
-                var labelSig = GetSwiftMethodSignature(method);
-                var fullSig = GetSwiftMethodFullSignature(method);
-                // If the label signature conflicts AND the full signature is different,
-                // this protocol can't be satisfied — the existing method has wrong types.
-                if (globalEmittedSignatures.Contains(labelSig) && !_globalFullSignatures.Contains(fullSig))
-                {
-                    _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: method '{labelSig}' conflicts with different parameter types");
-                    RecordSkip("MethodTypeConflict");
-                    hasTypeConflict = true;
-                    break;
-                }
-            }
-            if (hasTypeConflict)
-                return;
-        }
+        // Note: MethodTypeConflict pre-scan was removed. Methods with the same label signature
+        // but different parameter types are valid Swift overloads. The method dedup in
+        // EmitProtocolExtension now uses full signatures (name + types) instead of label-only,
+        // so methods like validate(input: String) and validate(input: Int32) from different
+        // protocols coexist correctly on EveryProtocol.
 
         if (hasImplementableMembers)
         {

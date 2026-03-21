@@ -96,6 +96,16 @@ namespace BindingsGeneration
                 FindAndMarkCallers(lines, strippedCallerNames, _, removals);
             }
 
+            // Step D: Strip dangling ToString() expression-bodied methods.
+            // When the Description property is stripped (Steps B-C), the generated
+            // "public override string ToString() => Description;" becomes a dangling reference.
+            StripDanglingToString(lines, removals);
+
+            // Step E: Strip orphaned narrowing overloads (int/uint → nint/nuint convenience wrappers)
+            // whose delegate target was stripped. Handles single-line and multi-line indexers,
+            // and expression-bodied method overloads.
+            StripOrphanedNarrowingOverloads(lines, removals, lineToType);
+
             if (removals.Count == 0)
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
 
@@ -606,7 +616,8 @@ namespace BindingsGeneration
                 // and their names (class names, method names) are too generic and risk
                 // false-matching other members like NewFromPayload or overloaded constructors.
                 var memberName = ExtractMemberName(trimmed);
-                if (memberName != null && IsPropertyHelperName(memberName))
+                if (memberName != null && (IsPropertyHelperName(memberName) ||
+                    memberName.StartsWith("CreateSwiftInstance_", StringComparison.Ordinal)))
                     foundCallerNames.Add(memberName);
 
                 // Mark for removal (including preamble: attributes, doc comments)
@@ -735,6 +746,90 @@ namespace BindingsGeneration
                    "abstract" or "extern" or "void" or "class" or "struct";
         }
 
+        /// <summary>
+        /// Strips expression-bodied ToString() methods that reference properties removed by prior steps.
+        /// Pattern: "public override string ToString() => PropertyName;" where PropertyName was stripped.
+        /// </summary>
+        private static void StripDanglingToString(List<string> lines, HashSet<int> removals)
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (removals.Contains(i)) continue;
+                var trimmed = lines[i].TrimStart();
+
+                // Match expression-bodied ToString(): "public override string ToString() => X;"
+                if (!trimmed.StartsWith("public override string ToString() =>", StringComparison.Ordinal))
+                    continue;
+
+                // Extract the referenced member name from "=> PropertyName;"
+                int arrowIdx = trimmed.IndexOf("=>", StringComparison.Ordinal);
+                if (arrowIdx < 0) continue;
+
+                var expr = trimmed.Substring(arrowIdx + 2).Trim().TrimEnd(';').Trim();
+                if (string.IsNullOrEmpty(expr) || !char.IsLetter(expr[0])) continue;
+
+                // Check if the referenced property was stripped by scanning nearby removed lines
+                // for a property declaration with the same name.
+                if (IsPropertyRemoved(lines, removals, i, expr))
+                {
+                    int preambleStart = ScanBackwardForPreamble(lines, i);
+                    for (int j = preambleStart; j <= i; j++)
+                        removals.Add(j);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if a property with the given name was removed in the same class scope.
+        /// Scans for removed lines containing a property declaration for the name.
+        /// </summary>
+        private static bool IsPropertyRemoved(List<string> lines, HashSet<int> removals, int contextLine, string propertyName)
+        {
+            // Find enclosing class scope boundaries
+            int scopeStart = FindEnclosingClassStart(lines, contextLine);
+            int scopeEnd = FindBlockEnd(lines, scopeStart);
+
+            // Look for a removed property declaration with the target name within this scope
+            var propertyToken = $" {propertyName}";
+            for (int j = scopeStart; j <= scopeEnd && j < lines.Count; j++)
+            {
+                if (!removals.Contains(j)) continue;
+                var trimmed = lines[j].TrimStart();
+                // Property declarations: "public TYPE Name" or "public static TYPE Name"
+                // They don't have parentheses (distinguishing them from methods)
+                if (trimmed.Contains(propertyToken) && !trimmed.Contains("(") &&
+                    (trimmed.StartsWith("public ", StringComparison.Ordinal) ||
+                     trimmed.StartsWith("internal ", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Finds the opening brace of the enclosing class/struct declaration.
+        /// </summary>
+        private static int FindEnclosingClassStart(List<string> lines, int fromLine)
+        {
+            int depth = 0;
+            for (int j = fromLine; j >= 0; j--)
+            {
+                foreach (char c in lines[j])
+                {
+                    if (c == '}') depth++;
+                    else if (c == '{') depth--;
+                }
+                if (depth < 0)
+                {
+                    // Found an unmatched '{' — this is our enclosing scope
+                    return j;
+                }
+            }
+            return 0;
+        }
+
+
         #endregion
 
         #region Shared Helpers
@@ -780,6 +875,57 @@ namespace BindingsGeneration
                     return j;
             }
             return lines.Count - 1;
+        }
+
+        /// <summary>
+        /// Counts parameters in a method declaration by counting commas between parentheses.
+        /// Returns 0 for no-arg methods, 1 for single-arg, etc.
+        /// Used to match narrowing overloads to their specific delegate target.
+        /// </summary>
+        private static int CountParameters(string line)
+        {
+            int parenStart = line.IndexOf('(');
+            int parenEnd = line.LastIndexOf(')');
+            if (parenStart < 0 || parenEnd <= parenStart)
+                return 0;
+            var inside = line.Substring(parenStart + 1, parenEnd - parenStart - 1).Trim();
+            if (inside.Length == 0)
+                return 0;
+            // Count commas at depth 0 (skip nested generics/parens)
+            int count = 1;
+            int depth = 0;
+            foreach (char c in inside)
+            {
+                if (c == '<' || c == '(') depth++;
+                else if (c == '>' || c == ')') depth--;
+                else if (c == ',' && depth == 0) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Counts parameters in an indexer declaration by counting commas between brackets.
+        /// Returns 1 for single-param indexers like "this[int x]", 2 for "this[string a, nint b]", etc.
+        /// Used to match narrowing indexer overloads to their specific delegate target.
+        /// </summary>
+        private static int CountIndexerParameters(string line)
+        {
+            int bracketStart = line.IndexOf('[');
+            int bracketEnd = line.IndexOf(']');
+            if (bracketStart < 0 || bracketEnd <= bracketStart)
+                return 0;
+            var inside = line.Substring(bracketStart + 1, bracketEnd - bracketStart - 1).Trim();
+            if (inside.Length == 0)
+                return 0;
+            int count = 1;
+            int depth = 0;
+            foreach (char c in inside)
+            {
+                if (c == '<' || c == '(') depth++;
+                else if (c == '>' || c == ')') depth--;
+                else if (c == ',' && depth == 0) count++;
+            }
+            return count;
         }
 
         /// <summary>
@@ -905,12 +1051,12 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Strips single-line narrowing overloads (e.g., "this[int x] => this[(nint)x];")
-        /// whose target (the nint overload) was removed. These become compile errors (CS1503)
-        /// when their delegate target no longer exists.
-        /// Pattern: "public TYPE this[int NAME] => this[(nint)NAME];"
-        /// Uses lineToType to scope the search to the containing type, avoiding cross-type
-        /// false positives where a different type's subscript matches.
+        /// Strips orphaned narrowing overloads (int/uint → nint/nuint convenience wrappers)
+        /// whose delegate target was stripped or never emitted. Handles:
+        /// - Single-line indexers: "this[int x] => this[(nint)x];"
+        /// - Multi-line indexers: "this[int x] { get => this[(nint)x]; set => ... }"
+        /// - Expression-bodied methods: "Method(int x) => Method((nint)x);"
+        /// Uses lineToType to scope the search to the containing type.
         /// </summary>
         private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals, string?[] lineToType)
         {
@@ -918,30 +1064,150 @@ namespace BindingsGeneration
             {
                 if (removals.Contains(i)) continue;
                 var trimmed = lines[i].TrimStart();
-                // Match narrowing pattern: "this[int x] => this[(nint)x];"
-                if (!trimmed.Contains("this[int ") || !trimmed.Contains("=> this[(nint)"))
-                    continue;
-                // This is a narrowing overload. Check if the target nint overload exists
-                // within the SAME containing type (scoped by lineToType).
-                var containingType = i < lineToType.Length ? lineToType[i] : null;
-                bool targetExists = false;
-                for (int j = 0; j < lines.Count; j++)
+
+                // === Indexer narrowing ===
+                if (trimmed.Contains("this[int ") || trimmed.Contains("this[uint "))
                 {
-                    if (removals.Contains(j)) continue;
-                    if (j == i) continue;
-                    // Only match within the same containing type
-                    if (containingType != null && j < lineToType.Length && lineToType[j] != containingType)
-                        continue;
-                    if (lines[j].Contains("this[nint "))
+                    int blockEnd = i;
+                    bool isNarrowingIndexer = false;
+
+                    // Single-line: "this[int x] => this[(nint)x];"
+                    if (trimmed.Contains("=> this[(nint)") || trimmed.Contains("=> this[(nuint)"))
                     {
-                        targetExists = true;
+                        isNarrowingIndexer = true;
+                    }
+                    // Multi-line: "this[int x]" with body using "this[(nint)x]"
+                    else if (!trimmed.Contains("=>"))
+                    {
+                        int braceOpenLine = FindOpeningBrace(lines, i);
+                        if (braceOpenLine >= 0 && braceOpenLine <= i + 3)
+                        {
+                            blockEnd = FindBlockEnd(lines, braceOpenLine);
+                            for (int j = i + 1; j <= blockEnd; j++)
+                            {
+                                if (lines[j].Contains("this[(nint)") || lines[j].Contains("this[(nuint)"))
+                                {
+                                    isNarrowingIndexer = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (isNarrowingIndexer)
+                    {
+                        // Must match param count to avoid false positives from unrelated indexers
+                        // (e.g., this[string, nint] should not satisfy this[int] => this[(nint)x]).
+                        var containingType = i < lineToType.Length ? lineToType[i] : null;
+                        int indexerParamCount = CountIndexerParameters(trimmed);
+                        bool targetExists = false;
+                        for (int j = 0; j < lines.Count; j++)
+                        {
+                            if (removals.Contains(j)) continue;
+                            if (j >= i && j <= blockEnd) continue;
+                            if (containingType != null && j < lineToType.Length && lineToType[j] != containingType)
+                                continue;
+                            if ((lines[j].Contains("this[nint ") || lines[j].Contains("this[nuint ")) &&
+                                CountIndexerParameters(lines[j].TrimStart()) == indexerParamCount)
+                            {
+                                targetExists = true;
+                                break;
+                            }
+                        }
+                        if (!targetExists)
+                        {
+                            int preambleStart = ScanBackwardForPreamble(lines, i);
+                            for (int j = preambleStart; j <= blockEnd; j++)
+                                removals.Add(j);
+                        }
+                    }
+                    continue;
+                }
+
+                // === Method narrowing ===
+                // Expression-bodied methods with (nint)/(nuint) casts calling same method name
+                if (!IsPotentialMemberDeclaration(trimmed)) continue;
+
+                // Find the expression body extent (may span multiple lines for wrapped signatures)
+                int arrowLine = -1;
+                int methodBlockEnd = i;
+                for (int j = i; j < Math.Min(i + 5, lines.Count); j++)
+                {
+                    if (lines[j].Contains("{") && !lines[j].Contains("=>")) break; // Block-bodied
+                    if (lines[j].Contains("=>"))
+                    {
+                        arrowLine = j;
                         break;
                     }
                 }
-                if (!targetExists)
+                if (arrowLine < 0) continue;
+
+                // Find the semicolon ending the expression body
+                for (int j = arrowLine; j < Math.Min(arrowLine + 5, lines.Count); j++)
+                {
+                    if (lines[j].TrimEnd().TrimEnd('\r', '\n').TrimEnd().EndsWith(";"))
+                    {
+                        methodBlockEnd = j;
+                        break;
+                    }
+                }
+
+                // Check for narrowing cast in the expression body
+                bool hasNarrowingCast = false;
+                for (int j = arrowLine; j <= methodBlockEnd; j++)
+                {
+                    if (lines[j].Contains("(nint)") || lines[j].Contains("(nuint)"))
+                    {
+                        hasNarrowingCast = true;
+                        break;
+                    }
+                }
+                if (!hasNarrowingCast) continue;
+
+                // Extract method name from declaration
+                var declName = ExtractMemberName(trimmed);
+                if (declName == null) continue;
+
+                // Check if the expression body calls the same method name
+                bool callsSelf = false;
+                for (int j = arrowLine; j <= methodBlockEnd; j++)
+                {
+                    int arrowIdx = lines[j].IndexOf("=>", StringComparison.Ordinal);
+                    var searchText = arrowIdx >= 0 ? lines[j].Substring(arrowIdx + 2) : lines[j];
+                    if (ContainsCallTo(searchText, declName))
+                    {
+                        callsSelf = true;
+                        break;
+                    }
+                }
+                if (!callsSelf) continue;
+
+                // Check if the target method (with nint/nuint params and same param count) exists in same type.
+                // Must match param count to avoid false positives from unrelated overloads
+                // (e.g., Foo(string, nint) should not satisfy the target for Foo(int) => Foo((nint)x)).
+                var containingTypeM = i < lineToType.Length ? lineToType[i] : null;
+                int declParamCount = CountParameters(trimmed);
+                bool targetMethodExists = false;
+                for (int j = 0; j < lines.Count; j++)
+                {
+                    if (removals.Contains(j)) continue;
+                    if (j >= i && j <= methodBlockEnd) continue;
+                    if (containingTypeM != null && j < lineToType.Length && lineToType[j] != containingTypeM)
+                        continue;
+                    var jTrimmed = lines[j].TrimStart();
+                    if (!IsPotentialMemberDeclaration(jTrimmed)) continue;
+                    var jName = ExtractMemberName(jTrimmed);
+                    if (jName == declName && (jTrimmed.Contains("nint ") || jTrimmed.Contains("nuint ")) &&
+                        CountParameters(jTrimmed) == declParamCount)
+                    {
+                        targetMethodExists = true;
+                        break;
+                    }
+                }
+                if (!targetMethodExists)
                 {
                     int preambleStart = ScanBackwardForPreamble(lines, i);
-                    for (int j = preambleStart; j <= i; j++)
+                    for (int j = preambleStart; j <= methodBlockEnd; j++)
                         removals.Add(j);
                 }
             }

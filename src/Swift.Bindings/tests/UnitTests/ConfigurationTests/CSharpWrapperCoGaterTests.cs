@@ -1205,4 +1205,402 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region F. Dangling ToString Stripping
+
+    public class CoGaterDanglingToStringTests
+    {
+        [Fact]
+        public void Process_StrippedDescriptionProperty_AlsoStripsToString()
+        {
+            // Simulates XMLCoder pattern: Description property gets stripped because its
+            // P/Invoke wrapper was stripped, but ToString() => Description; is left dangling.
+            var input =
+                "namespace Test {\n" +
+                "public partial class BoolBox {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_BoolBox_description\")]\n" +
+                "    private static partial IntPtr PInvoke_Get_BoolBox_description_ABC(IntPtr self);\n" +
+                "\n" +
+                "    private string Description_Get()\n" +
+                "    {\n" +
+                "        var result = PInvoke_Get_BoolBox_description_ABC(Payload);\n" +
+                "        return SwiftString.FromPayload(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public string Description\n" +
+                "    {\n" +
+                "        get => Description_Get();\n" +
+                "    }\n" +
+                "\n" +
+                "    public override string ToString() => Description;\n" +
+                "\n" +
+                "    public int Value { get; set; }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_Get_BoolBox_description" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // P/Invoke, helper, property, AND ToString should all be stripped
+            Assert.DoesNotContain("PInvoke_Get_BoolBox_description", result.Content);
+            Assert.DoesNotContain("Description_Get", result.Content);
+            Assert.DoesNotContain("Description", result.Content);
+            Assert.DoesNotContain("ToString", result.Content);
+
+            // Unrelated property should survive
+            Assert.Contains("Value", result.Content);
+        }
+
+        [Fact]
+        public void Process_NonStrippedDescription_PreservesToString()
+        {
+            // When Description property is NOT stripped, ToString should be preserved
+            var input =
+                "namespace Test {\n" +
+                "public partial class GoodBox {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_GoodBox_description\")]\n" +
+                "    private static partial IntPtr PInvoke_Get_GoodBox_description_ABC(IntPtr self);\n" +
+                "\n" +
+                "    private string Description_Get()\n" +
+                "    {\n" +
+                "        var result = PInvoke_Get_GoodBox_description_ABC(Payload);\n" +
+                "        return SwiftString.FromPayload(result);\n" +
+                "    }\n" +
+                "\n" +
+                "    public string Description\n" +
+                "    {\n" +
+                "        get => Description_Get();\n" +
+                "    }\n" +
+                "\n" +
+                "    public override string ToString() => Description;\n" +
+                "}\n" +
+                "}\n";
+            // Different symbol stripped — not related to Description
+            var stripped = new HashSet<string> { "SBW_unrelated_method" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Description", result.Content);
+            Assert.Contains("ToString", result.Content);
+        }
+
+        [Fact]
+        public void Process_ToStringWithoutDescription_Preserved()
+        {
+            // ToString that references a non-property member should not be affected
+            var input =
+                "namespace Test {\n" +
+                "public partial class Custom {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_broken\")]\n" +
+                "    private static partial void PInvoke_broken_ABC(IntPtr self);\n" +
+                "\n" +
+                "    public override string ToString() => \"Custom\";\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // ToString with string literal is preserved (not a property reference)
+            Assert.Contains("ToString", result.Content);
+        }
+    }
+
+    #endregion
+
+    #region F. CreateSwiftInstance Constructor Stripping
+
+    public class CoGaterCreateSwiftInstanceTests
+    {
+        [Fact]
+        public void Process_StrippedConstructorHelper_AlsoStripsConstructor()
+        {
+            // When a CreateSwiftInstance_ helper is stripped (Level 1),
+            // the constructor calling it via : base() must also be stripped (Level 2).
+            var input =
+                "namespace Test {\n" +
+                "public partial class Widget : Base {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Widget_init_ABC\")]\n" +
+                "    private static partial IntPtr PInvoke_init_ABC(IntPtr arg);\n" +
+                "\n" +
+                "    private static IntPtr CreateSwiftInstance_PInvoke_init_ABC(int arg)\n" +
+                "    {\n" +
+                "        return PInvoke_init_ABC(IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public Widget(int arg) : base(CreateSwiftInstance_PInvoke_init_ABC(arg))\n" +
+                "    {\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_Widget_init_ABC" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("PInvoke_init_ABC", result.Content);
+            Assert.DoesNotContain("CreateSwiftInstance_", result.Content);
+            Assert.DoesNotContain("public Widget(", result.Content);
+        }
+
+        [Fact]
+        public void Process_ValidConstructorHelper_Preserved()
+        {
+            // When the helper's P/Invoke is NOT stripped, everything is preserved.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Widget : Base {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Widget_init_ABC\")]\n" +
+                "    private static partial IntPtr PInvoke_init_ABC(IntPtr arg);\n" +
+                "\n" +
+                "    private static IntPtr CreateSwiftInstance_PInvoke_init_ABC(int arg)\n" +
+                "    {\n" +
+                "        return PInvoke_init_ABC(IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public Widget(int arg) : base(CreateSwiftInstance_PInvoke_init_ABC(arg))\n" +
+                "    {\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_unrelated_symbol" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("PInvoke_init_ABC", result.Content);
+            Assert.Contains("CreateSwiftInstance_", result.Content);
+            Assert.Contains("public Widget(", result.Content);
+        }
+    }
+
+    #endregion
+
+    #region G. Narrowing Overload Stripping
+
+    public class CoGaterNarrowingOverloadTests
+    {
+        [Fact]
+        public void Process_SingleLineIndexerNarrowing_StrippedWhenTargetMissing()
+        {
+            // Single-line indexer: "this[int x] => this[(nint)x];" with no this[nint x]
+            var input =
+                "namespace Test {\n" +
+                "public partial class Store {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_SubGet_broken\")]\n" +
+                "    private static partial IntPtr PInvoke_Sub_Get_ABC(nint idx, IntPtr self);\n" +
+                "\n" +
+                "    public nuint this[int index0] => this[(nint)index0];\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_SubGet_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("this[int index0]", result.Content);
+        }
+
+        [Fact]
+        public void Process_SingleLineIndexerNarrowing_PreservedWhenTargetExists()
+        {
+            // Single-line indexer with a valid this[nint x] target — should NOT be stripped
+            var input =
+                "namespace Test {\n" +
+                "public partial class Store {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_SubGet_ok\")]\n" +
+                "    private static partial IntPtr PInvoke_Sub_Get_OK(nint idx, IntPtr self);\n" +
+                "\n" +
+                "    public nuint this[nint index0] => Subscript_Get(index0);\n" +
+                "\n" +
+                "    public nuint this[int index0] => this[(nint)index0];\n" +
+                "}\n" +
+                "}\n";
+            // Strip an unrelated symbol so co-gater runs but doesn't touch the indexer
+            var stripped = new HashSet<string> { "SBW_unrelated" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("this[int index0]", result.Content);
+        }
+
+        [Fact]
+        public void Process_MultiLineIndexerNarrowing_StrippedWhenTargetMissing()
+        {
+            // Multi-line indexer: "this[int x] { get => this[(nint)x]; set => ... }"
+            var input =
+                "namespace Test {\n" +
+                "public partial class BigNum {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_SubGet_broken\")]\n" +
+                "    private static partial bool PInvoke_Sub_Get_ABC(nint bitAt, IntPtr self);\n" +
+                "\n" +
+                "    public bool this[int bitAt]\n" +
+                "    {\n" +
+                "        get => this[(nint)bitAt];\n" +
+                "        set => this[(nint)bitAt] = value;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_SubGet_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("this[int bitAt]", result.Content);
+        }
+
+        [Fact]
+        public void Process_MethodNarrowingSingleLine_StrippedWhenTargetMissing()
+        {
+            // Expression-bodied method: "Encode(int x) => Encode((nint)x);"
+            var input =
+                "namespace Test {\n" +
+                "public partial class Encoder {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_encode_broken\")]\n" +
+                "    private static partial void PInvoke_encode_ABC(nint val, IntPtr self);\n" +
+                "\n" +
+                "    public void Encode(int value) => Encode((nint)value);\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_encode_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Encode(int value)", result.Content);
+        }
+
+        [Fact]
+        public void Process_MethodNarrowingMultiLine_StrippedWhenTargetMissing()
+        {
+            // Multi-line expression-bodied method (wrapped signature):
+            // "static IBox Parse(byte[] with, uint errorContextLength, ...)\n    => Parse(with, (nuint)errorContextLength, ...);"
+            var input =
+                "namespace Test {\n" +
+                "public partial class Parser {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_parse_broken\")]\n" +
+                "    private static partial IntPtr PInvoke_parse_ABC(IntPtr data, nuint len, IntPtr self);\n" +
+                "\n" +
+                "    public static IBox Parse(byte[] with, uint errorContextLength)\n" +
+                "        => Parse(with, (nuint)errorContextLength);\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_parse_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Parse(byte[] with, uint errorContextLength)", result.Content);
+        }
+
+        [Fact]
+        public void Process_MethodNarrowing_PreservedWhenTargetExists()
+        {
+            // Method narrowing with valid target — should NOT be stripped
+            var input =
+                "namespace Test {\n" +
+                "public partial class Encoder {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_encode_ok\")]\n" +
+                "    private static partial void PInvoke_encode_OK(nint val, IntPtr self);\n" +
+                "\n" +
+                "    public void Encode(nint value)\n" +
+                "    {\n" +
+                "        PInvoke_encode_OK(value, _handle);\n" +
+                "    }\n" +
+                "\n" +
+                "    public void Encode(int value) => Encode((nint)value);\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_unrelated" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Encode(int value)", result.Content);
+            Assert.Contains("Encode(nint value)", result.Content);
+        }
+
+        [Fact]
+        public void Process_NarrowingUint_StrippedWhenTargetMissing()
+        {
+            // uint → nuint narrowing
+            var input =
+                "namespace Test {\n" +
+                "public partial class Encoder {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_encode_broken\")]\n" +
+                "    private static partial void PInvoke_encode_ABC(nuint val, IntPtr self);\n" +
+                "\n" +
+                "    public void Encode(uint value) => Encode((nuint)value);\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_encode_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Encode(uint value)", result.Content);
+        }
+
+        [Fact]
+        public void Process_NarrowingWithDifferentArityTarget_StillStripped()
+        {
+            // Narrowing overload Foo(int x) => Foo((nint)x) where the real target
+            // Foo(nint x) is stripped, but a different-arity Foo(string, nint) survives.
+            // The narrowing must still be stripped (the surviving overload has wrong arity).
+            var input =
+                "namespace Test {\n" +
+                "public partial class Processor {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_process_broken\")]\n" +
+                "    private static partial void PInvoke_process_ABC(nint val, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_process_ok\")]\n" +
+                "    private static partial void PInvoke_process_DEF(IntPtr label, nint count, IntPtr self);\n" +
+                "\n" +
+                "    public void Process(string label, nint count)\n" +
+                "    {\n" +
+                "        PInvoke_process_DEF(IntPtr.Zero, count, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public void Process(int value) => Process((nint)value);\n" +
+                "}\n" +
+                "}\n";
+            // Only the single-param Process(nint) is stripped; Process(string, nint) survives
+            var stripped = new HashSet<string> { "SBW_process_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The narrowing Process(int) must be stripped even though Process(string, nint) exists
+            Assert.DoesNotContain("Process(int value)", result.Content);
+            // The 2-param overload should survive
+            Assert.Contains("Process(string label, nint count)", result.Content);
+        }
+
+        [Fact]
+        public void Process_IndexerNarrowingWithDifferentArityTarget_StillStripped()
+        {
+            // Narrowing indexer this[int x] => this[(nint)x] where the real target
+            // this[nint x] is stripped, but a different-arity this[string, nint] survives.
+            // The narrowing must still be stripped.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Grid {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_sub_get_broken\")]\n" +
+                "    private static partial int PInvoke_Sub_Get_ABC(nint idx, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_sub_get_ok\")]\n" +
+                "    private static partial int PInvoke_Sub_Get_DEF(IntPtr label, nint idx, IntPtr self);\n" +
+                "\n" +
+                "    public int this[string label, nint index]\n" +
+                "    {\n" +
+                "        get => PInvoke_Sub_Get_DEF(IntPtr.Zero, index, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int this[int index0] => this[(nint)index0];\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_sub_get_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("this[int index0]", result.Content);
+            Assert.Contains("this[string label, nint index]", result.Content);
+        }
+    }
+
+    #endregion
+
 }

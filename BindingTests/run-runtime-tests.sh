@@ -716,8 +716,8 @@ elif [ "$RESULT" = "crash" ]; then
         head -30 "$LATEST_CRASH"
     fi
     # Extract any test failures that occurred before the crash
-    FAIL_COUNT=$(grep -c '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" 2>/dev/null || echo 0)
-    PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    FAIL_COUNT=$(grep -c '\[FAIL\].*([0-9]*ms)' "$OUTPUT_FILE" 2>/dev/null) || FAIL_COUNT=0
+    PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null) || PASS_COUNT=0
     if [ "$FAIL_COUNT" -gt 0 ]; then
         echo ""
         echo "ERROR: $FAIL_COUNT test(s) failed before crash ($PASS_COUNT passed)."
@@ -757,7 +757,7 @@ elif [ "$RESULT" = "launch_failure" ] || [ "$RESULT" = "" ]; then
         echo "$DEVICE_LOG" | grep -i "crash\|assert\|abort\|exc_bad\|jit-info\|ReleaseHandle\|SIGABRT\|fatal" | tail -10
     fi
     if [ "$IS_MONO_JIT_CRASH" = true ]; then
-        PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null || echo 0)
+        PASS_COUNT=$(grep -c '\[PASS\]' "$OUTPUT_FILE" 2>/dev/null) || PASS_COUNT=0
         echo ""
         echo "ERROR: Mono JIT crash on simulator ($PASS_COUNT tests passed before crash)."
         echo "This crash is a regression — diagnose the root cause."

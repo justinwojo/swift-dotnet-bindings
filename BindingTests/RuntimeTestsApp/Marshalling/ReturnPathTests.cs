@@ -55,7 +55,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("TransformFactory construction passed");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestTransformFactoryClosureReturn()
     {
         var factory = new TransformFactory(multiplier: 3);
@@ -77,7 +77,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("OptionalHandlerFactory construction passed");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestOptionalHandlerReturnsValue()
     {
         var factory = new OptionalHandlerFactory(enabled: true);
@@ -88,7 +88,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info($"OptionalHandlerFactory.MakeHandler(10) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestOptionalHandlerReturnsNil()
     {
         var factory = new OptionalHandlerFactory(enabled: false);

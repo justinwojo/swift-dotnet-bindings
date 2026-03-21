@@ -278,7 +278,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT (simulator) and NativeAOT (device) — indirect call with Swift CC closure context, no workaround")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

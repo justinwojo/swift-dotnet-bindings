@@ -227,14 +227,15 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_SkipsProtocolsWithNoImplementableMembers()
+    public void EmitProtocolConformance_EmptyMarkerProtocol_EmitsTrivialConformance()
     {
         var protocolDecl = CreateSimpleProtocol("TestProtocol");
-        // No properties, no non-static methods, no subscripts
+        // Empty marker protocol (no members at all) — gets trivial conformance
+        // for existential container creation (e.g., Taggable)
 
         var output = EmitFullConformance(protocolDecl);
 
-        Assert.DoesNotContain("extension EveryProtocol:", output);
+        Assert.Contains("extension EveryProtocol: TestModule.TestProtocol", output);
     }
 
     [Fact]
@@ -556,7 +557,8 @@ public class EveryProtocolEmitterTests
         nonThrowingProtocol.Methods.Add(CreateMethodDecl("process", throws: false));
 
         // Build the non-throwing overrides set (simulates what ModuleHandler.ComputeNonThrowingOverrides does)
-        var nonThrowingOverrides = new HashSet<string> { "process()" };
+        // Uses full signature format: name(params)->ReturnType
+        var nonThrowingOverrides = new HashSet<string> { "process()->Void" };
         var globalSignatures = new HashSet<string>();
 
         // Throwing protocol emitted first — but the override forces non-throwing
@@ -1393,11 +1395,12 @@ public class EveryProtocolEmitterTests
     #region Method Type Conflict Gate Tests
 
     [Fact]
-    public void EmitProtocolConformance_MethodTypeConflict_SkipsConformance()
+    public void EmitProtocolConformance_SameLabelDifferentTypes_EmitsBothAsOverloads()
     {
         // Two protocols with same method label but different parameter types
-        // The second protocol should be skipped because its register(delegate:)
-        // has a different type than the first protocol's register(delegate:)
+        // Both should emit because Swift supports method overloading by parameter type.
+        // EveryProtocol can implement both register(delegate: FirstDelegate) and
+        // register(delegate: SecondDelegate) as distinct overloads.
         var firstProtocol = CreateSimpleProtocol("FirstHandler");
         firstProtocol.Methods.Add(CreateMethodDeclWithParam("register", "delegate", "FirstDelegate"));
         firstProtocol.Methods.Add(CreateMethodDeclWithParam("parse", "data", "Foundation.Data"));
@@ -1413,9 +1416,51 @@ public class EveryProtocolEmitterTests
         Assert.Contains("extension EveryProtocol: TestModule.FirstHandler", firstOutput);
         Assert.Contains("public func register", firstOutput);
 
-        // Second protocol skipped due to type conflict on register(delegate:)
+        // Second protocol also emits — different param types are valid overloads
         var secondOutput = EmitFullConformance(secondProtocol, globalSignatures);
-        Assert.DoesNotContain("extension EveryProtocol: TestModule.SecondHandler", secondOutput);
+        Assert.Contains("extension EveryProtocol: TestModule.SecondHandler", secondOutput);
+        Assert.Contains("public func register", secondOutput);
+        Assert.Contains("public func createResponse", secondOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameParamsDifferentReturn_BothEmitted()
+    {
+        // Two protocols with same method name and parameter types but different return types.
+        // Both are intentionally emitted — the resulting invalid Swift is handled by the
+        // wrapper strip/retry mechanism (strips the duplicate function, then the unsatisfiable
+        // conformance on retry). Using call-signature dedup to skip the second would leave an
+        // empty conformance that the strip script can't recover from.
+        var firstProtocol = CreateSimpleProtocol("IntValueProvider");
+        var intMethod = CreateMethodDecl("value");
+        intMethod.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "", SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            PrivateName = "", IsInOut = false, IsGeneric = false,
+            ParentDecl = null, ModuleDecl = null
+        };
+        firstProtocol.Methods.Add(intMethod);
+
+        var secondProtocol = CreateSimpleProtocol("StringValueProvider");
+        var stringMethod = CreateMethodDecl("value");
+        stringMethod.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "", SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            PrivateName = "", IsInOut = false, IsGeneric = false,
+            ParentDecl = null, ModuleDecl = null
+        };
+        secondProtocol.Methods.Add(stringMethod);
+
+        var globalSignatures = new HashSet<string>();
+
+        // First protocol emits value() -> Int
+        var firstOutput = EmitFullConformance(firstProtocol, globalSignatures);
+        Assert.Contains("public func value", firstOutput);
+
+        // Second protocol also emits value() -> String (different full signature).
+        // This produces invalid Swift that the strip/retry mechanism will resolve.
+        var secondOutput = EmitFullConformance(secondProtocol, globalSignatures);
+        Assert.Contains("public func value", secondOutput);
     }
 
     [Fact]
@@ -1456,6 +1501,36 @@ public class EveryProtocolEmitterTests
         // Extension must implement BOTH overloads
         Assert.Contains("func pageVC(before", extensionOutput);
         Assert.Contains("func pageVC(after", extensionOutput);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_SameLabelDifferentTypes_ThrowsPreservedPerOverload()
+    {
+        // Non-throwing validate(input: String) from one protocol must NOT suppress
+        // throws on validate(input: Int32) throws from a different protocol.
+        // These are distinct Swift overloads; the non-throwing override should only
+        // apply when the full signature (name + types) matches.
+        var nonThrowingProto = CreateSimpleProtocol("StringValidator");
+        nonThrowingProto.Methods.Add(CreateMethodDeclWithParam("validate", "input", "Swift.String"));
+
+        var throwingProto = CreateSimpleProtocol("IntValidator");
+        var throwingMethod = CreateMethodDeclWithParam("validate", "input", "Swift.Int32");
+        throwingMethod.Throws = true;
+        throwingProto.Methods.Add(throwingMethod);
+
+        var globalSignatures = new HashSet<string>();
+
+        // First protocol: non-throwing validate(input: String)
+        var firstOutput = EmitFullConformance(nonThrowingProto, globalSignatures);
+        Assert.Contains("extension EveryProtocol: TestModule.StringValidator", firstOutput);
+        Assert.Contains("public func validate", firstOutput);
+        Assert.DoesNotContain("throws", firstOutput);
+
+        // Second protocol: throwing validate(input: Int32)
+        // Must retain "throws" — different parameter type means different overload
+        var secondOutput = EmitFullConformance(throwingProto, globalSignatures);
+        Assert.Contains("extension EveryProtocol: TestModule.IntValidator", secondOutput);
+        Assert.Contains("throws", secondOutput);
     }
 
     #endregion

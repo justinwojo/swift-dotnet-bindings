@@ -96,7 +96,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -106,7 +106,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -116,7 +116,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -126,7 +126,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async on calli through delegate* unmanaged[Swift] — crash is in indirect call (calli IL), not named P/Invoke; calling convention is correct (Swift CC for closure context in x20); no workaround exists since we only have a runtime function pointer")]
+    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);

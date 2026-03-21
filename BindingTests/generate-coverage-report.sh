@@ -799,6 +799,21 @@ FEATURE_DECLARATIONS = {
     "singleton_with_optional_return": {"Registry", "processRegistry"},
     "class_with_closure_property": {"EventHandler"},
     "closure_return_composition": {"Transformer"},
+
+    # Protocols/BasicProtocols.swift — 4 features share one file.
+    # DefaultInitializableValue has static members (EveryProtocol limitation) —
+    # must not degrade the other protocol features via file-level fallback.
+    "simple_protocol": {"Describable", "Taggable"},
+    "protocol_with_properties": {"TestIdentifiable", "HasValue"},
+    "protocol_with_methods": {"Describable", "HasValue", "Configurable"},
+    "protocol_inheritance": {
+        "Displayable", "BaseRule", "InputValidation", "StrictInputValidation",
+    },
+
+    # Generics/Constraints.swift — where_clause vs Summable protocol.
+    # Summable has Self requirement (EveryProtocol limitation) —
+    # must not degrade the where_clause feature via file-level fallback.
+    "where_clause": {"sumTwo", "describeConstrained", "ConstrainedBox", "AcceptsSummable"},
 }
 
 
