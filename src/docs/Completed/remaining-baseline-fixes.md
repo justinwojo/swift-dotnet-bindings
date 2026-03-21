@@ -46,6 +46,8 @@ Added `FEATURE_DECLARATIONS` entries for protocols_basic and where_clause featur
 
 Generic free functions and opaque-return functions that lack @_cdecl wrappers. Now passing the compile gate (no compile errors), but would crash at runtime.
 
-### ConstrainedBox.getDescription PWT mismatch
+### ~~ConstrainedBox.getDescription PWT mismatch~~ (FIXED — `a08d3c45`)
 
-P/Invoke sends 4 params (resultPtr, TMetadata, TDescribablePWT, _selfClass) but Swift @_cdecl wrapper only takes 3 (resultPtr, _metadata0, self_). The PWT parameter is omitted from the wrapper, causing parameter shift and SIGSEGV. Runtime test skipped.
+~~P/Invoke sends 4 params (resultPtr, TMetadata, TDescribablePWT, _selfClass) but Swift @_cdecl wrapper only takes 3 (resultPtr, _metadata0, self_). The PWT parameter is omitted from the wrapper, causing parameter shift and SIGSEGV. Runtime test skipped.~~
+
+Fixed March 21, 2026: Added PWT parameter emission in `MethodWrapperEmitter.cs` CdeclPhase.Metadata using `GetResolvablePwtParameterCount()`, matching the pattern already in ConstructorWrapperEmitter and PropertyWrapperEmitter.

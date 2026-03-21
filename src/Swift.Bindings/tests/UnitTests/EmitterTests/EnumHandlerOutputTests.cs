@@ -3100,10 +3100,10 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_CdeclEnumCaseWithExistential_UsesRefContainer()
+    public void Emit_CdeclEnumCaseWithExistential_UsesIntPtrContainer()
     {
         // @_cdecl enum case factory with existential associated value must use
-        // ref ExistentialContainer (pass by ref = pointer) in P/Invoke, NOT by-value
+        // IntPtr in P/Invoke (pointer to pinned container), NOT by-value or ref
         var typeDatabase = CreateTypeDatabaseWithProtocol();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -3116,11 +3116,11 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // C# P/Invoke should use ref ExistentialContainer, not by-value
-        Assert.Contains("ref Swift.Runtime.ExistentialContainer1 value0", csOutput);
-        // C# body should extract container for pass-by-ref
+        // C# P/Invoke should use IntPtr (pointer to container via Unsafe.AsPointer)
+        Assert.Contains("IntPtr value0", csOutput);
+        // C# body should extract container and create pointer
         Assert.Contains("Container", csOutput);
-        Assert.Contains("ref value0Container", csOutput);
+        Assert.Contains("Unsafe.AsPointer", csOutput);
     }
 
     [Fact]

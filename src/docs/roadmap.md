@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: March 18, 2026
+**Updated**: March 21, 2026
 
 ---
 
@@ -129,32 +129,73 @@ Completed March 18, 2026. Sub-task 1 (static protocol members) shipped. Sub-task
 
 ---
 
-### Sessions 5–7: NativeAOT & CallConvSwift Migration — Sessions 1–5 COMPLETE, Session 6 remaining
+### ~~Sessions 5–7: NativeAOT & CallConvSwift Migration~~ (Complete)
 
 **Detailed plan**: `nativeaot-callconvswift-sessions.md`
 
-NativeAOT investigation revealed 4 of 6 original @_cdecl architecture motivations were our bugs. Sessions 1–5 complete (infrastructure cleanup, generator fixes, CallConvSwift migration, regression fixes, verification). Session 7 (further @_cdecl reduction) absorbed into Session 6 scope.
+All 7 sessions complete (March 18-19, 2026). NativeAOT investigation revealed 4 of 6 original @_cdecl architecture motivations were our bugs. Sessions 1-5: infrastructure cleanup, generator fixes, CallConvSwift migration, regression fixes, verification. Session 6 (6A/6B/6C): complete runtime test cleanup. Session 7 (7A-7G): remaining skip fixes via parallel worktree agents.
 
-Mono simulator crash reproduction (`MONO-SIMULATOR-FINDINGS.md`, standalone repro at `/Users/wojo/Dev/swift-interop-repro/`) proved 4 of 5 "Mono bug" categories are actually our generator/runtime bugs. Only returned thick closures is confirmed upstream (Mono CallConvSwift 16-byte struct return ABI).
+Final state: 638 passed, 56 skipped on simulator. 7921 unit tests. 90/90 validation.
 
-**Session 6: Complete Runtime Test Cleanup** — fixes ALL 71 remaining fixable `[Skip]`/`[SkipOnSimulator]` annotations. Zero deferrals.
+---
 
-| Sub-session | Focus | Skip Recovery | Key Impact |
-|-------------|-------|--------------|------------|
-| **6A** | Investigation bugs (generic CallConvSwift, finalizer lifecycle, typed throws) | 38 | Debug against standalone repro's working patterns |
-| **6B** | Generator emission bugs (operators, async module, Optional\<Int32\>, arrays, exports) | 26 | Clear fixes — generator emits wrong code |
-| **6C** | New emission patterns (nested type wrappers, AOT callbacks, nested enum values) + cleanup | 7 | New generator logic needed |
+### ~~Sessions 8–14: Skip Recovery & Device Parity~~ (Complete)
 
-After Session 6: **24 skips remain** (5 confirmed Mono upstream, 8 string enum blocked, 8 noncopyable future, 2 non-blittable upstream, 1 ValueTuple upstream). Zero false skips.
+March 19-20, 2026. Progressively fixed remaining generator bugs and achieved device/simulator parity.
 
-### Remaining Misc Fixes (not in NativeAOT sessions)
+| Session | Focus | Tests Recovered |
+|---------|-------|---------------:|
+| 8 | Complex enum return @_cdecl, unary operators, existential ref, SkipOnDevice infra | +5 |
+| 9 | Non-frozen struct instance @_cdecl, GetSwiftRawValueType fix | +3 |
+| 10 | Optional<Int32> None implicit operator bug | +1 |
+| 11 | Decomposed Optional property + generic metatype dispatch | +9 |
+| 12 | NativeAOT device parity: metadata pre-registration + tuple marshalling | +42 device |
+| 13 | Device bridge build + operator @_cdecl for NativeAOT | +43 device |
+| 14 | Generic struct constructors, async optional/typed-throws, Optional array layout | +7 |
+
+Final state: 663 passed, 31 skipped on simulator. 661 passed, 33 skipped on device. See `Completed/remaining-runtime-test-fixes.md`.
+
+---
+
+### ~~Architecture Stability Audit~~ (Complete)
+
+March 20-21, 2026. Multi-phase audit to solve Mono JIT/NativeAOT stability. Full plan at `/Users/wojo/Dev/audit/architecture-audit-plan.md`.
+
+- **Audit Phases 1-3**: Emission path tracing, ABI contract analysis, context divergence analysis
+- **Research 4A-4C**: Bug taxonomy (53 bugs cataloged), predicate dry-run (100% recall on 3,152 P/Invokes), consolidation recommendation (Option B: keep dual paths + consolidate internals + gen-time static analysis)
+- **Impl Phase 0** (`f963797e`): Cross-module extension Tj dispatch bug fix
+- **Impl Phase 1** (`956d35ec`): Gen-time ABI contract checker (SWIFTBIND090-093)
+- **Impl Phase 2** (`a5b725dc`): Emitter internal consolidation (shared marshalling helpers + unified skip gate)
+- **Impl Phase 3** (`89d8bf14`): Runtime Limitation Registry with three-way runtime detection
+
+---
+
+### ~~CC-001 SafeHandle-in-CallConvSwift Fix~~ (Complete — `8ba6daf8`)
+
+March 21, 2026. Fixed 11 real CC-001 violations found by Phase 4B validation. Class params routed through @_cdecl wrappers. Affects Nuke (8), BindingTests (2), BlinkID (1).
+
+### ~~PWT Parameter Mismatch Fix~~ (Complete — `a08d3c45`)
+
+March 21, 2026. MethodWrapperEmitter CdeclPhase.Metadata was missing PWT params. 1 test recovered (ConstrainedBox.getDescription).
+
+### ~~Closure Return Invoke Thunk~~ (Complete — `694f06e4`)
+
+March 21, 2026. Fixed `unsafeBitCast` ARC bug for returned closures. New `ClosureEmitter.InvokeThunk.cs` emits @_cdecl invoke thunks. 8 tests recovered. 741 runtime tests passing.
+
+### ~~ConfigurationValue Naming Collision~~ (Complete — `9ab694c5`)
+
+March 21, 2026. Nested types renamed with "Type" suffix instead of renaming properties with "Value" suffix. 3 libraries improved (Alamofire, CryptoSwift, SwiftyBeaver).
+
+### ~~Existential ref→IntPtr Fix + Skip Audit~~ (Complete — `3a6db2d9`)
+
+March 21, 2026. Fixed `ref ExistentialContainer1` → `IntPtr` across 3 emission paths. 12 library validation improvements. 1 stale skip recovered. 742 runtime tests passing, 27 skipped.
+
+### Remaining Misc Fixes
 
 | Sub-task | Affects | Effort | Notes |
 |----------|---------|--------|-------|
 | SwiftUI type public construction | Consumer ergonomics | Small | `SwiftUI.Color(red, green, blue)` like `SwiftColor`; current stubs are opaque. |
-| StripeCryptoOnramp cross-module re-export | StripeCryptoOnramp validation | Medium | Not a config fix — generator emits `StripeCryptoOnramp.STPAPIClient` but the type's canonical module is `StripePayments`. Swift wrapper fails because the re-exported type requires module-qualified access (`StripePayments.STPAPIClient`). Generator needs to detect cross-module type re-exports and use the canonical module in Swift wrappers. |
-| Protocol proxy co-gating | Correctness (runtime) | Medium | When EveryProtocol conformance is skipped (class-bound, genericSig constraint, static methods, etc.), the C# proxy still emits `NativeMethods` referencing non-existent Swift symbols (`SetVtable`, `GetWitnessTable`). Causes runtime P/Invoke crash on first proxy use. Fix requires co-gating proxy emission AND all method bodies that reference the proxy (existential return unwrappers, optional property getters). Pre-existing issue exposed during validation wrapper fix work. See `ProtocolHandler.cs` TODO comment. |
-| Protocol type-resolution consolidation | Maintainability | Medium | Three near-identical type-resolution paths exist: `ProtocolProxyEmitter.Helpers.GetCSharpTypeName()`, `ProtocolSignatureHelper.ProjectTypeToCSharp()`, and `GetInterfaceCompatiblePropertyTypeName()`. Each has subtle differences (ExistentialHandler only in the first, NativeInt narrowing only in the third, Self-requirement generic context only in the second). Drift between these produces proxy/interface signature mismatches. Consolidate into a single `ProjectTypeToCSharp` entry point with mode flags. |
+| StripeCryptoOnramp cross-module re-export | StripeCryptoOnramp validation | Medium | Generator emits `StripeCryptoOnramp.STPAPIClient` but the type's canonical module is `StripePayments`. Swift wrapper fails because the re-exported type requires module-qualified access. Generator needs to detect cross-module type re-exports and use the canonical module in Swift wrappers. |
 
 ---
 
@@ -254,15 +295,23 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Completed | Notes |
 |------|-----------|-------|
-| Session 4: Static protocol members | Mar 18 | Static properties/methods emitted as `static virtual` in C# interfaces. `StaticProtocolMember` skips reduced from ~254 to 1 (only constructors). Proxy stubs, lenient conformance validation, `HasEmittableInterfaceMembers` includes statics. 90/90 validation, 7840 unit tests. Deferred: cross-module conformances, constructors, static subscripts, operators. |
-| Session 3: Existential types & error ergonomics | Mar 17 | `any Sendable` marker protocol visibility (members stop being skipped, compile as `object`/EC0). SwiftException for sync untyped throws. Duplicate `[Obsolete]` dedup. 6 Stripe improvements. 90/90 validation, 7818 unit tests. Deferred: `[String: Any]` dictionary, ExistentialContainer API cleanup. |
-| Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. Synchronous C# APIs following Xamarin.iOS precedent. Also fixed OptionSet XML misclassification (UIControl.State/Event) and ObjC-bridged struct Unmanaged reconstruction. Parchment return-side Unmanaged fixed (commit `6f5162ca`). 40/56 swift wrapper, 90/90 compile gate, 481 runtime tests. |
-| Session 1: Struct & closure boundary expansion | Mar 17 | Frozen struct params via `UnsafeRawPointer`, frozen struct + complex enum closure params via heap allocation. 152 compile errors eliminated across 21 libraries. 90/90 validation. Deferred: Optional\<Primitive\> closures (ABI risk), async frozen struct params. |
-| Session 0: BindingTests generator bug fixes | Mar 17 | SBW_Free generic routing (CS7042), Payload `new` modifier (CS0108), failable init `default!` (CS8625), SwiftAsyncStream constraint relaxed (CS0315). 4 Swift types restored, 9 runtime tests + 3 unit tests (477→480 passing on simulator). |
-| Apple framework XML database expansion | `ac39a4f7` (Mar 16) | ~473 skips resolved (nested + unresolvable Apple types). 90/90 validation. |
-| NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries. See `Completed/nativeaot-stability-sessions.md`. |
-| C# keyword escaping in enum case labels | `51efaeec` (Mar 14) | FilterScope.swift fixture enabled. |
-| ObjC binding integration | Mar 2026 | 34 ObjC framework targets validated. See `Completed/objc-binding-comparison.md`. |
-| ObjC static method wrapper generation | `eb303ab4` (Mar 11) | Universal `@_cdecl` wrappers for static + instance methods. |
-| Roslyn analyzer (SB1001) | Mar 2026 | Undisposed `ISwiftObject` warning + code fix in `SwiftBindings.Runtime` NuGet. |
+| Existential ref→IntPtr + skip audit | Mar 21 | Fixed `ref EC1` → `IntPtr` across 3 emission paths. 12 library improvements. 1 stale skip recovered. 742/27 runtime. |
+| ConfigurationValue naming collision | Mar 21 | Nested types renamed with "Type" suffix. 3 libraries improved (Alamofire, CryptoSwift, SwiftyBeaver). |
+| Closure return invoke thunk | Mar 21 | Fixed `unsafeBitCast` ARC bug. New `ClosureEmitter.InvokeThunk.cs`. 8 tests recovered. |
+| PWT parameter mismatch | Mar 21 | MethodWrapperEmitter CdeclPhase.Metadata missing PWT params. 1 test recovered. |
+| CC-001 SafeHandle fix | Mar 21 | Class params routed through @_cdecl. 11 violations fixed across Nuke, BlinkID, BindingTests. |
+| Architecture stability audit (Phases 0-3) | Mar 20-21 | Cross-module Tj fix, gen-time ABI checker, emitter consolidation, runtime limitation registry. |
+| Protocol type-resolution consolidation | Mar 20 | Unified three near-identical type-resolution paths into `ProjectTypeToCSharp`. |
+| Protocol proxy co-gating | Mar 20 | Suppress proxies + transitive references when EveryProtocol conformance not emitted. |
+| Sessions 8-14: Skip recovery + device parity | Mar 19-20 | 663→742 runtime tests. Full sim/device convergence. See `Completed/remaining-runtime-test-fixes.md`. |
+| Sessions 5-7: NativeAOT & CallConvSwift | Mar 18-19 | 78.5%→54.1% @_cdecl. 638 runtime passing. See `nativeaot-callconvswift-sessions.md`. |
+| Session 4: Static protocol members | Mar 18 | `static virtual` in C# interfaces. `StaticProtocolMember` skips reduced to 1. |
+| Session 3: Existential types & error ergonomics | Mar 17 | `any Sendable` marker protocol visibility. SwiftException for sync throws. |
+| Session 2: @MainActor sync gate lift | Mar 17 | ~852 @MainActor skips lifted across 21 libraries. |
+| Session 1: Struct & closure boundary expansion | Mar 17 | 152 compile errors eliminated across 21 libraries. |
+| Session 0: BindingTests generator bug fixes | Mar 17 | 4 generator bugs fixed. 477→480 runtime tests. |
+| Apple framework XML database expansion | Mar 16 | ~473 skips resolved. 90/90 validation. |
+| NativeAOT device stability target | Mar 15 | 373 pass, 0 fail, 14/15 libraries. |
+| ObjC binding integration | Mar 2026 | 34 ObjC framework targets validated. |
+| Roslyn analyzer (SB1001) | Mar 2026 | Undisposed `ISwiftObject` warning + code fix. |
 | Ownership automation | Feb 2026 | See `Completed/ownership-automation-design.md`. |

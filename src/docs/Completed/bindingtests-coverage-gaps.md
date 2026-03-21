@@ -514,11 +514,13 @@ The +14/–6 delta reflects skip recoveries from the previous commit (generator 
 
 ### Remaining Open Categories
 
-| Category | Failures | Status | What's Needed |
-|----------|----------|--------|---------------|
-| Cat 1: DllNotFoundException | 39 | **CLOSED** | Co-gating implemented |
-| Cat 2: CallConvSwift non-blittable | 6 | **DETECTED** | `HasNonBlittablePInvokeTypes()` reports in binding report (f5664551). Full suppression deferred — breaks protocol conformance (CS0535). |
-| Cat 3: Mono JIT SIGSEGV | 4 | Open (partially mitigated) | Upstream Mono `calli` issue for closures; struct cases pass |
-| Cat 4: NativeAOT metadata trimming | 13 | Open | Module initializer generic instantiation |
-| Cat 5: TypeInitializationException | 5 | **CLOSED** | Protocol proxy co-gating (06660e08). 6 libraries improved. |
+| Category | Failures | Status | Resolution |
+|----------|----------|--------|------------|
+| Cat 1: DllNotFoundException | 39 | **CLOSED** | Co-gating implemented (`23323290`) |
+| Cat 2: CallConvSwift non-blittable | 6 | **CLOSED** | CC-001 fix: class params routed through @_cdecl (`8ba6daf8`, March 21) |
+| Cat 3: Mono JIT SIGSEGV | 4 | **CLOSED** | Closure return invoke thunk (`694f06e4`, March 21); struct cases already pass |
+| Cat 4: NativeAOT metadata trimming | 13 | **CLOSED** | Module initializer pre-registration + tuple marshalling (Session 12) |
+| Cat 5: TypeInitializationException | 5 | **CLOSED** | Protocol proxy co-gating (`06660e08`) |
 | Cat 6: Optional setter mismatch | 1 | **CLOSED** | Fixed in prior commit |
+
+**All 6 categories CLOSED as of March 21, 2026.**

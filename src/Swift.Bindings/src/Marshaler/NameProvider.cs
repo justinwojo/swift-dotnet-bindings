@@ -1038,8 +1038,13 @@ public static class NameProvider
                 {
                     var newTypeSuffix = "Type";
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
-                    var newCSharpName = oldCSharpName.Replace(
-                        csPropertyName, $"{csPropertyName}{newTypeSuffix}");
+                    // Replace only the trailing segment (leaf name), not all occurrences.
+                    // e.g., "Parent.Configuration" → "Parent.ConfigurationType",
+                    // NOT "Configuration.Configuration" → "ConfigurationType.ConfigurationType"
+                    var lastDot = oldCSharpName.LastIndexOf('.');
+                    var newCSharpName = lastDot >= 0
+                        ? oldCSharpName.Substring(0, lastDot + 1) + csPropertyName + newTypeSuffix
+                        : csPropertyName + newTypeSuffix;
                     nestedRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
                         nestedRecord.CSharpTypeName.Namespace, newCSharpName);
 

@@ -250,30 +250,22 @@ public static partial class ClosureEmitter
     /// </summary>
     public static bool CanUseInvokeThunk(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
     {
-        // Check all argument types are C-representable scalars (not structs/classes needing marshalling).
-        // Primitives (Int32, Bool, Double, etc.) are technically frozen structs in Swift's type system
-        // but are directly C-representable, so they pass through.
+        // Whitelist approach: only allow primitives and simple enums.
+        // Anything else (structs, classes, existentials, tuples, bound generics) would cause
+        // ABI mismatches between the Swift thunk (which uses GetSwiftCdeclParamType → raw pointers)
+        // and the C# helper (which uses TranslateTypeSpecToPInvokeType → typed containers).
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            if (CdeclParamMapper.IsCdeclPrimitive(arg) || closureHandler.IsSimpleEnum(arg))
-                continue;
-            if (closureHandler.IsFrozenStruct(arg) || closureHandler.IsNonFrozenStruct(arg))
-                return false;
-            if (closureHandler.IsClassType(arg) || closureHandler.IsObjCBridgedClass(arg))
+            if (!CdeclParamMapper.IsCdeclPrimitive(arg) && !closureHandler.IsSimpleEnum(arg))
                 return false;
         }
 
-        // Check return type is scalar (same primitive-first check)
+        // Check return type is primitive or simple enum (void is also fine)
         if (!closureTypeSpec.ReturnType.IsEmptyTuple)
         {
             if (!CdeclParamMapper.IsCdeclPrimitive(closureTypeSpec.ReturnType) &&
                 !closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
-            {
-                if (closureHandler.IsFrozenStruct(closureTypeSpec.ReturnType) || closureHandler.IsNonFrozenStruct(closureTypeSpec.ReturnType))
-                    return false;
-                if (closureHandler.IsClassType(closureTypeSpec.ReturnType) || closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-                    return false;
-            }
+                return false;
         }
 
         // Throwing closures not yet supported (need error marshalling in thunk)
