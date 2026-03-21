@@ -1,11 +1,11 @@
 {
-  "git_sha": "956d35ec",
+  "git_sha": "89d8bf14",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46449,
+        "lines": 46392,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 81103,
+        "lines": 81066,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -61,7 +61,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31416,
+        "lines": 31422,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21739,
+        "lines": 21738,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21739,
+        "lines": 21738,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21739,
+        "lines": 21738,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32376,
+        "lines": 32370,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4061,
+        "lines": 4049,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -397,7 +397,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12664,
+        "lines": 12659,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

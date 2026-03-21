@@ -268,9 +268,12 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_ClassParam_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_ClassParam_ReturnsTrue_CC001Fix()
     {
-        // Class → IntPtr → CallConvSwift safe
+        // CC-001 fix: Swift class param → NonFrozenSafeHandle in PInvokeEmitter → non-blittable
+        // PInvokeEmitter treats class types as non-frozen (they're not frozen), so class params
+        // get SafeHandle in the P/Invoke signature. SafeHandle is non-blittable with CallConvSwift.
+        // Must route through @_cdecl wrapper where CallConvCdecl handles SafeHandle correctly.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
             "TestModule.MyClass", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -280,7 +283,7 @@ public class AbiSafetyTests
             new NamedTypeSpec("TestModule.MyClass"), "child", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
     [Fact]
@@ -613,6 +616,57 @@ public class AbiSafetyTests
 
         var method = CreateMethod("init", nestedDecl, moduleDecl);
         method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_ObjCBridgedClassParam_ReturnsFalse()
+    {
+        // Method with ObjC bridged class parameter → IntPtr → safe for CallConvSwift
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.NSObject", TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethodWithParam("setObject",
+            new NamedTypeSpec("TestModule.NSObject"), "object", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_TwoClassParams_ReturnsTrue()
+    {
+        // Method with two class parameters (like ImageTask equality: 2× SafeHandle)
+        // → at least one triggers @_cdecl
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.ImageTask", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        // Create method with two class params
+        var method = new MethodDecl
+        {
+            Name = "areEqual",
+            MangledName = "$s10TestModule_areEqual",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = new NamedTypeSpec("TestModule.ImageTask"), Name = "lhs", PrivateName = "lhs", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = new NamedTypeSpec("TestModule.ImageTask"), Name = "rhs", PrivateName = "rhs", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
@@ -1242,6 +1296,39 @@ public class AbiSafetyTests
         Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
     }
 
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_ClassTypeSetter_ReturnsTrue()
+    {
+        // Property setter where value type is a Swift class → SafeHandle → @_cdecl required
+        // Reproduces Nuke ImagePipeline.shared setter CC-001 violation
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.ImagePipeline", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        var getterMethod = CreateMethod("shared_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var setterMethod = CreateMethod("shared_setter", parentDecl, moduleDecl);
+        setterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ImagePipeline"),
+            HasStorage = true,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
     #endregion
 
     #region IsParamTypeCdeclRequired Tests
@@ -1312,6 +1399,48 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("Unknown.Type"), env));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_ClassParam_ReturnsTrue()
+    {
+        // Swift class → NonFrozenSafeHandle in PInvokeEmitter → non-blittable → @_cdecl required
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.ImagePipeline", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("TestModule.ImagePipeline"), env));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_ObjCBridgedClassParam_ReturnsFalse()
+    {
+        // ObjC bridged class → IntPtr via .Handle in PInvokeEmitter → blittable → safe
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.NSObject", TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("TestModule.NSObject"), env));
+    }
+
+    [Fact]
+    public void IsParamTypeCdeclRequired_ObjCRootedClassParam_ReturnsFalse()
+    {
+        // ObjC rooted class → IntPtr via .Handle in PInvokeEmitter → blittable → safe
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.MyObjCClass", TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("test", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsParamTypeCdeclRequired(new NamedTypeSpec("TestModule.MyObjCClass"), env));
     }
 
     #endregion
@@ -2225,6 +2354,66 @@ public class AbiSafetyTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.ShouldSuppressNonBlittableCallConvSwift(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_ClassParam_ReturnsTrue()
+    {
+        // Method with Swift class param → SafeHandle in P/Invoke → non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.ImagePipeline", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var method = CreateMethodWithParam("setPipeline",
+            new NamedTypeSpec("TestModule.ImagePipeline"), "pipeline", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_ObjCBridgedClassParam_ReturnsFalse()
+    {
+        // Method with ObjC bridged class param → IntPtr via .Handle → blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.NSObject", TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var method = CreateMethodWithParam("setObject",
+            new NamedTypeSpec("TestModule.NSObject"), "object", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_PropertyWithClassSetter_ReturnsTrue()
+    {
+        // Property setter where value type is a Swift class → SafeHandle → non-blittable
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithType(
+            "TestModule.ImagePipeline", TypeRecordFlags.RequiresMemoryManagement, TypeRecordKind.Class);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.ImagePipeline"),
+            HasStorage = true,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethod("get_shared", parentDecl, moduleDecl) },
+                new SetAccessorDecl { Method = CreateMethod("set_shared", parentDecl, moduleDecl) }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+        };
+
+        var checkEnv = new MethodEnvironment(propertyDecl.Accessors[0].Method, typeDb);
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(checkEnv, propertyDecl));
     }
 
     #endregion

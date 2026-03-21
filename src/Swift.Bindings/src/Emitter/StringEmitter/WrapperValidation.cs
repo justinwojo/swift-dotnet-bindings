@@ -1304,7 +1304,8 @@ public static class WrapperValidation
 
     /// <summary>
     /// Determines whether a parameter type requires @_cdecl for ABI safety.
-    /// Checks: non-blittable (SafeHandle), ValueTuple, custom float struct, large integer struct.
+    /// Checks: non-blittable (SafeHandle from classes, non-frozen structs, complex enums),
+    /// ValueTuple, custom float struct, large integer struct.
     /// </summary>
     internal static bool IsParamTypeCdeclRequired(TypeSpec typeSpec, MethodEnvironment env)
     {
@@ -1359,7 +1360,19 @@ public static class WrapperValidation
             return false;
         }
 
-        // Classes, ObjC bridged, simple enums → IntPtr → safe
+        // Swift class parameters → NonFrozenSafeHandle in PInvokeEmitter → non-blittable → @_cdecl required.
+        // PInvokeEmitter treats classes as non-frozen types (they're not frozen), so class params get
+        // SafeHandle in the P/Invoke signature. SafeHandle is non-blittable with CallConvSwift — both
+        // Mono and NativeAOT throw InvalidProgramException. Route through @_cdecl wrapper where
+        // CallConvCdecl handles SafeHandle marshalling correctly.
+        // ObjC bridged/rooted classes are excluded — PInvokeEmitter handles them separately with
+        // ObjCBridged type (IntPtr via .Handle), which is blittable.
+        if (typeRecord.Kind == TypeRecordKind.Class &&
+            !MarshallingHelpers.IsObjCBridged(typeRecord) &&
+            !MarshallingHelpers.IsObjCRooted(typeRecord))
+            return true;
+
+        // ObjC bridged/rooted classes, simple enums → IntPtr → safe
         return false;
     }
 
