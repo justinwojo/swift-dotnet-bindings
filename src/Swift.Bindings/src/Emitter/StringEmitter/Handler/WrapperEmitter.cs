@@ -325,6 +325,7 @@ namespace BindingsGeneration
             EmitAsyncWrapper(csWriter);
             EmitErrorHelperPInvokes(csWriter);
             EmitClosureCallbacks(csWriter);
+            EmitClosureReturnInvokeThunkHelper(csWriter);
             if (_fallbackInfo.HasValue)
             {
                 UnsupportedSwiftTypeSupport.EmitAttribute(csWriter, _fallbackInfo.Value);

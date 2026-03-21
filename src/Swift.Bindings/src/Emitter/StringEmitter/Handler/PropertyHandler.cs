@@ -508,6 +508,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         {
                             PropertyWrapperEmitter.EmitSwiftGetterWrapper(
                                 swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+
+                            // Emit invoke thunk for closure-returning property getters
+                            EmitPropertyClosureInvokeThunkIfNeeded(swiftWriter, propertyDecl, symbol, cdeclCheckEnv);
                         }
                         else
                         {
@@ -1033,5 +1036,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         return typeDatabase.GetTypeRecordOrAnyType(typeSpec).CSharpTypeName.FullyQualifiedName;
+    }
+
+    /// <summary>
+    /// Emits a Swift @_cdecl invoke thunk for a property getter that returns a closure.
+    /// This is the property analogue of the invoke thunk emission in MethodWrapperEmitter
+    /// and ClosureEmitter.SwiftWrapper — needed because property getters have their own
+    /// Swift wrapper emission path via PropertyWrapperEmitter.
+    /// </summary>
+    private static void EmitPropertyClosureInvokeThunkIfNeeded(
+        SwiftWriter swiftWriter,
+        PropertyDecl propertyDecl,
+        string symbolName,
+        MethodEnvironment env)
+    {
+        var closureHandler = env.ClosureHandler;
+        if (closureHandler == null) return;
+
+        // Check if the property type is a closure (or optional closure)
+        ClosureTypeSpec? closureReturnSpec = propertyDecl.SwiftTypeSpec as ClosureTypeSpec;
+        if (closureReturnSpec == null && closureHandler.IsOptionalClosure(propertyDecl.SwiftTypeSpec))
+        {
+            if (propertyDecl.SwiftTypeSpec is NamedTypeSpec optNts && optNts.GenericParameters.Count == 1)
+                closureReturnSpec = optNts.GenericParameters[0] as ClosureTypeSpec;
+        }
+
+        if (closureReturnSpec == null) return;
+        if (!closureHandler.IsSupportedClosure(closureReturnSpec)) return;
+        if (!ClosureEmitter.CanUseInvokeThunk(closureReturnSpec, closureHandler)) return;
+
+        var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);
+        var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
+        ClosureEmitter.EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, closureHandler,
+            thunkEntryPoint, thunkFuncName);
     }
 }

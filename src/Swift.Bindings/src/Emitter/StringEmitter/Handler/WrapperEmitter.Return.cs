@@ -9,6 +9,26 @@ namespace BindingsGeneration
     internal partial class WrapperEmitter
     {
         /// <summary>
+        /// Returns the invoke thunk info (entry point, library name, helper method name) if the
+        /// closure return type can use one. Returns null if the closure has struct/class params
+        /// or throwing (not yet supported by thunks).
+        /// </summary>
+        private (string entryPoint, string libraryName, string helperName)? GetInvokeThunkInfoIfAvailable(ClosureTypeSpec closureTypeSpec)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return null;
+            if (!ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, _env.ClosureHandler))
+                return null;
+            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.MethodDecl.MangledName);
+            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.MethodDecl.MangledName);
+            var moduleDecl = _env.MethodDecl.ModuleDecl;
+            if (moduleDecl == null) return null;
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var libraryName = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+            return (entryPoint, libraryName, helperName);
+        }
+
+        /// <summary>
         /// Emits the return statement for the constructor.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -154,6 +174,12 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
+                        // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
+                        var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
+                        var invokeThunkName = invokeThunkInfo?.entryPoint;
+                        var invokeThunkLib = invokeThunkInfo?.libraryName;
+                        var invokeThunkHelper = invokeThunkInfo?.helperName;
+
                         csWriter.WriteLines("""
                             unsafe {
                                 var result = *(SwiftClosureData*)resultPtr;
@@ -161,13 +187,13 @@ namespace BindingsGeneration
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -252,19 +278,25 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
+                        // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
+                        var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
+                        var invokeThunkName = invokeThunkInfo?.entryPoint;
+                        var invokeThunkLib = invokeThunkInfo?.libraryName;
+                        var invokeThunkHelper = invokeThunkInfo?.helperName;
+
                         csWriter.WriteLines("""
                             unsafe {
                                 var result = *(SwiftClosureData*)resultPtr;
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -380,26 +412,32 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                 {
+                    // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
+                    var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
+                    var invokeThunkName = invokeThunkInfo?.entryPoint;
+                    var invokeThunkLib = invokeThunkInfo?.libraryName;
+                    var invokeThunkHelper = invokeThunkInfo?.helperName;
+
                     // Throwing closures need special marshalling to handle SwiftError
                     if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                     }
                     // Use non-frozen struct marshalling if any parameter is a non-frozen struct
                     // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy)
                     else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                     }
                     // Use frozen struct marshalling if any parameter is a frozen struct
                     // (uses stackalloc for stack allocation)
                     else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
                     }
                     else
                     {
-                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result");
+                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
                     }
                     return;
                 }

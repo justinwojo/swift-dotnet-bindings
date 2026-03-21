@@ -794,6 +794,27 @@ public static partial class ClosureEmitter
         }
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
+
+        // Emit invoke thunk for closure returns — a separate @_cdecl function that C# calls
+        // via delegate* unmanaged[Cdecl] to invoke the returned closure, avoiding delegate* unmanaged[Swift].
+        if (useCdecl && closureHandler != null)
+        {
+            ClosureTypeSpec? closureReturnSpec = returnTypeSpec as ClosureTypeSpec;
+            if (closureReturnSpec == null && closureHandler.IsOptionalClosure(returnTypeSpec))
+            {
+                if (returnTypeSpec is NamedTypeSpec optNts && optNts.GenericParameters.Count == 1)
+                    closureReturnSpec = optNts.GenericParameters[0] as ClosureTypeSpec;
+            }
+            if (cdeclNeedsResultPtr && closureReturnSpec != null
+                && closureHandler.IsSupportedClosure(closureReturnSpec)
+                && CanUseInvokeThunk(closureReturnSpec, closureHandler))
+            {
+                var thunkEntryPoint = GetInvokeThunkEntryPoint(methodDecl.MangledName);
+                var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
+                EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, closureHandler,
+                    thunkEntryPoint, thunkFuncName);
+            }
+        }
     }
 
     /// <summary>

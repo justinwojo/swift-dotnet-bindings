@@ -1059,4 +1059,253 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region Invoke Thunk Tests
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_IntToInt_UsesTypedMemoryBinding()
+    {
+        // Verify the Swift thunk uses storeBytes + assumingMemoryBound instead of unsafeBitCast.
+        // unsafeBitCast((Int, Int), to: ClosureType) does not handle ARC for the context pointer.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Must use storeBytes + assumingMemoryBound, NOT unsafeBitCast
+        Assert.Contains("UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("MemoryLayout<(Int, Int)>.size", result);
+        Assert.Contains("storeBytes(of: _funcPtr", result);
+        Assert.Contains("storeBytes(of: _context", result);
+        Assert.Contains("MemoryLayout<Int>.size", result);
+        Assert.Contains("assumingMemoryBound", result);
+        Assert.Contains(".pointee", result);
+        Assert.DoesNotContain("unsafeBitCast", result);
+        Assert.DoesNotContain("Unmanaged<AnyObject>", result);
+        // Verify @_cdecl and parameter structure
+        Assert.Contains("@_cdecl(\"SBW_Test_InvCR\")", result);
+        Assert.Contains("_funcPtr: Int", result);
+        Assert.Contains("_context: Int", result);
+        Assert.Contains("return _closure(", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_VoidReturn_NoReturnStatement()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        Assert.Contains("_closure(arg0)", result);
+        Assert.DoesNotContain("return _closure", result);
+        // Function signature has no return type (Void closures don't emit "-> Void" in signature)
+        Assert.Contains(") {", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_BoolArg_EmitsBoolConversion()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Bool) -> Int
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Bool args: @_cdecl maps Bool to C _Bool, thunk converts back
+        Assert.Contains("arg0 != 0", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_BoolReturn_ReturnsBool()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Bool
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        Assert.Contains("-> Bool", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_DeallocatesBufferAndUsesMemoryLayout()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Test_InvCR", "_sbw_inv_test");
+
+        var result = output.ToString();
+        // Buffer must be deallocated via defer
+        Assert.Contains("defer { _buf.deallocate() }", result);
+        // Must use MemoryLayout for buffer sizing (not hardcoded 16)
+        Assert.Contains("MemoryLayout<(Int, Int)>.size", result);
+        Assert.Contains("MemoryLayout<(Int, Int)>.alignment", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_EmitsDllImportAndInvokerClass()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // DllImport P/Invoke
+        Assert.Contains("[global::System.Runtime.InteropServices.DllImport(\"TestLib\"", result);
+        Assert.Contains("EntryPoint = \"SBW_Test_InvCR\"", result);
+        Assert.Contains("CallingConvention.Cdecl", result);
+        Assert.Contains("_InvokeClosureThunk_ABCD1234", result);
+        Assert.Contains("nint funcPtr", result);
+        Assert.Contains("nint ctx", result);
+        // Invoker class
+        Assert.Contains("_ClosureInv_ABCD1234", result);
+        Assert.Contains("private readonly nint _funcPtr", result);
+        Assert.Contains("private readonly nint _ctx", result);
+        Assert.Contains("Invoke(", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_BoolReturn_ByteReturnWithConversion()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Bool
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Bool"));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // P/Invoke returns byte (not bool) for Bool
+        Assert.Contains("static extern byte _InvokeClosureThunk_ABCD1234", result);
+        // Invoker returns bool with conversion
+        Assert.Contains("bool Invoke(", result);
+        Assert.Contains("!= 0", result);
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_PrimitiveArgs_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Int
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_VoidReturn_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: (Int) -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_ThrowingClosure_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Throws = true;
+
+        Assert.False(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void GetInvokeThunkEntryPoint_AppendsSuffix()
+    {
+        var result = ClosureEmitter.GetInvokeThunkEntryPoint("SBW_TestLib_Free_makeAdder_A6DA40C1");
+        Assert.Equal("SBW_TestLib_Free_makeAdder_A6DA40C1_InvCR", result);
+    }
+
+    [Fact]
+    public void GetInvokeThunkHelperName_IsDeterministic()
+    {
+        var name1 = ClosureEmitter.GetInvokeThunkHelperName("SBW_Test_InvCR");
+        var name2 = ClosureEmitter.GetInvokeThunkHelperName("SBW_Test_InvCR");
+        Assert.Equal(name1, name2);
+        Assert.StartsWith("_InvokeClosureThunk_", name1);
+    }
+
+    [Fact]
+    public void GetInvokerClassName_DerivedFromHelperName()
+    {
+        var className = ClosureEmitter.GetInvokerClassName("_InvokeClosureThunk_ABCD1234");
+        Assert.Equal("_ClosureInv_ABCD1234", className);
+    }
+
+    #endregion
 }

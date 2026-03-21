@@ -164,22 +164,31 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Emits code to convert a SwiftClosureData return value into a C# delegate
-    /// This creates an invoker delegate that calls the Swift function pointer with proper ARC handling.
+    /// Emits code to convert a SwiftClosureData return value into a C# delegate.
+    /// When an invoke thunk is available, creates a nested invoker class that calls the
+    /// @_cdecl invoke thunk via [LibraryImport] P/Invoke. The delegate is created via
+    /// method group (invoker.Invoke) to avoid lambdas — lambdas create display classes,
+    /// and Mono JIT crashes when native calls happen from display class methods.
     /// </summary>
     /// <param name="csWriter">The C# writer.</param>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="resultVariableName">The name of the variable holding the SwiftClosureData result.</param>
+    /// <param name="invokeThunkEntryPoint">Optional @_cdecl entry point name for the invoke thunk.</param>
+    /// <param name="invokeThunkLibrary">The framework library name for the invoke thunk (e.g., "SwiftBindings").
+    /// Required when invokeThunkEntryPoint is non-null.</param>
+    /// <param name="invokeThunkHelper">The name of the [LibraryImport] P/Invoke method for the thunk.
+    /// Required when invokeThunkEntryPoint is non-null.</param>
     public static void EmitClosureReturnMarshalling(
         CSharpWriter csWriter,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string resultVariableName = "result")
+        string resultVariableName = "result",
+        string? invokeThunkEntryPoint = null,
+        string? invokeThunkLibrary = null,
+        string? invokeThunkHelper = null)
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
-        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
-        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
 
         // Build lambda parameter list
         var parameters = new List<string>();
@@ -192,46 +201,72 @@ public static partial class ClosureEmitter
         var parametersString = string.Join(", ", parameters);
         var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
 
+        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
+
+        // When an invoke thunk is available, use the pre-emitted invoker class instead of a lambda.
+        // Mono JIT crashes with assertion `!ji->async` when ANY native call mechanism is invoked
+        // from a lambda/display class method. The invoker class has a regular Invoke method —
+        // the delegate is created via method group, eliminating the display class entirely.
+        if (invokeThunkEntryPoint != null && invokeThunkHelper != null)
+        {
+            var invokerClassName = GetInvokerClassName(invokeThunkHelper);
+
+            csWriter.WriteLines($$"""
+                // Wrap Swift closure in SwiftEscapingClosure for ARC management
+                var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
+
+                // Use invoker class instead of lambda — Mono JIT crashes with !ji->async when
+                // native calls happen from display class methods (lambdas create display classes).
+                var _inv = new {{invokerClassName}}((nint)_closureWrapper.FunctionPointer, (nint)_closureWrapper.Context);
+                {{delegateType}} _invoker = _inv.Invoke;
+
+                return _invoker;
+                """);
+            return;
+        }
+
+        // Fallback: direct delegate* unmanaged[Swift] invocation (for closures without invoke thunks)
+        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
+        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
+
         // Build argument list for invoking the Swift function
         // Need to convert C# types to Swift types (e.g., bool -> byte, AnyError -> EC1)
-        var invokeArgs = new List<string>();
+        var invokeArgsFallback = new List<string>();
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler);
-            invokeArgs.Add(argExpr);
+            invokeArgsFallback.Add(argExpr);
             argIndex++;
         }
         // Add context (SwiftSelf) as last argument
-        invokeArgs.Add("_swiftSelf");
-        var invokeArgsString = string.Join(", ", invokeArgs);
-
-        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
+        invokeArgsFallback.Add("_swiftSelf");
+        var invokeArgsStringFallback = string.Join(", ", invokeArgsFallback);
 
         // Generate the closure body
         // For well-known protocol returns (ExistentialContainer1 from P/Invoke → AnyError for delegate)
-        string invokeExpr = $"_fp({invokeArgsString})";
-        string returnExpr;
+        string invokeExprFallback = $"_fp({invokeArgsStringFallback})";
+        string returnExprFallback;
         if (!hasReturn)
         {
-            returnExpr = $"{invokeExpr};";
+            returnExprFallback = $"{invokeExprFallback};";
         }
         else if (returnIsBool)
         {
-            returnExpr = $"return {invokeExpr} != 0;";
+            returnExprFallback = $"return {invokeExprFallback} != 0;";
         }
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapReturnType))
         {
-            returnExpr = $"return new {wrapReturnType}({invokeExpr});";
+            returnExprFallback = $"return new {wrapReturnType}({invokeExprFallback});";
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var returnProxy))
         {
-            returnExpr = $"return new {returnProxy}({invokeExpr});";
+            returnExprFallback = $"return new {returnProxy}({invokeExprFallback});";
         }
         else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
         {
-            returnExpr = $"return (object){invokeExpr};";
+            returnExprFallback = $"return (object){invokeExprFallback};";
         }
         else if (closureTypeSpec.ReturnType is TupleTypeSpec invRetTuple &&
                  invRetTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
@@ -258,8 +293,8 @@ public static partial class ClosureEmitter
                 else
                     elems.Add(acc);
             }
-            returnExpr = $"""
-                    var _invResult = {invokeExpr};
+            returnExprFallback = $"""
+                    var _invResult = {invokeExprFallback};
                             return ({string.Join(", ", elems)});
                 """;
         }
@@ -267,11 +302,11 @@ public static partial class ClosureEmitter
         {
             // Simple enum return: Swift returns underlying integer, delegate expects C# enum
             var enumCsType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnExpr = $"return ({enumCsType}){invokeExpr};";
+            returnExprFallback = $"return ({enumCsType}){invokeExprFallback};";
         }
         else
         {
-            returnExpr = $"return {invokeExpr};";
+            returnExprFallback = $"return {invokeExprFallback};";
         }
 
         csWriter.WriteLines($$"""
@@ -285,7 +320,7 @@ public static partial class ClosureEmitter
                 {
                     var _fp = ({{funcPtrTypeWithContext}})_closureWrapper.FunctionPointer;
                     var _swiftSelf = new SwiftSelf((void*)_closureWrapper.Context.ToPointer());
-                    {{returnExpr}}
+                    {{returnExprFallback}}
                 }
             };
 

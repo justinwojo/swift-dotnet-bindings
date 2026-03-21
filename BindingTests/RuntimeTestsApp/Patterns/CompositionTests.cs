@@ -278,7 +278,6 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

@@ -96,7 +96,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("CallCPredicate passed");
     }
 
-    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestMakeAdder()
     {
         var adder = TestLibFunctions.MakeAdder(10);
@@ -106,7 +105,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeAdder(10)(5) = {result}");
     }
 
-    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestMakeMultiplier()
     {
         var multiplier = TestLibFunctions.MakeMultiplier(3);
@@ -116,7 +114,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"MakeMultiplier(3)(7) = {result}");
     }
 
-    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestMakeGreaterThan()
     {
         var greaterThan5 = TestLibFunctions.MakeGreaterThan(5);
@@ -126,7 +123,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("MakeGreaterThan passed");
     }
 
-    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestClosureFactory()
     {
         var factory = new ClosureFactory(100);

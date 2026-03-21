@@ -609,6 +609,38 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits a static helper method for the @_cdecl invoke thunk of a closure return type.
+        /// The helper wraps the delegate* unmanaged[Cdecl] call in a regular static method so that
+        /// the lambda body only makes a managed call (Mono JIT crashes with !ji->async assertion
+        /// when native indirect calls are made directly from lambda/delegate bodies).
+        /// </summary>
+        private void EmitClosureReturnInvokeThunkHelper(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper) return;
+
+            // Check if method returns a closure (or optional closure)
+            var returnArg = _env.MethodDecl.CSSignature.First();
+            ClosureTypeSpec? closureTypeSpec = null;
+
+            if (_env.ClosureHandler.IsClosure(returnArg))
+                closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg);
+            else if (_env.ClosureHandler.IsOptionalClosure(returnArg.SwiftTypeSpec))
+                closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg);
+
+            if (closureTypeSpec == null) return;
+            if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec)) return;
+            if (!ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, _env.ClosureHandler)) return;
+
+            var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.MethodDecl.MangledName);
+            var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.MethodDecl.MangledName);
+            var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
+            var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            var libPath = _env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
+            ClosureEmitter.EmitCSharpInvokeThunkHelper(csWriter, closureTypeSpec, _env.ClosureHandler,
+                helperName, entryPoint, libPath);
+        }
+
+        /// <summary>
         /// Gets the convention-c callback field name for a parameter.
         /// </summary>
         private static string GetConventionCCallbackName(string methodName, string paramName) =>

@@ -155,7 +155,8 @@ public static partial class ClosureEmitter
         CSharpWriter csWriter,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        string resultVariableName = "result")
+        string resultVariableName = "result",
+        string? invokeThunkPInvokeName = null)
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var funcPtrType = closureHandler.GetPInvokeFunctionPointerTypeWithError(closureTypeSpec);
