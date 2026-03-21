@@ -27,12 +27,10 @@ public static class ConstructorWrapperEmitter
         if (!env.MethodDecl.IsConstructor)
             return false;
 
-        // Only in xcframework mode where the wrapper library exists
-        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
-            return false;
-
-        // Skip internal constructors — wrapper can't call them from external code
-        if (env.MethodDecl.IsModuleInternal)
+        // Shared guards: xcframework, internal, non-copyable, async, inherited generic context
+        if (!WrapperValidation.CanEmitMember(env, MemberKind.Constructor,
+            isModuleInternal: env.MethodDecl.IsModuleInternal,
+            isAsync: env.MethodDecl.IsAsync))
             return false;
 
         // Skip failable inits on non-frozen struct types.
@@ -45,9 +43,7 @@ public static class ConstructorWrapperEmitter
             return false;
 
         // Generic parent type — allow constructors using protocol-based type erasure.
-        // Two paths:
-        // 1. Generic class with concrete params → existing protocol metatype dispatch
-        // 2. Generic struct/class with T-typed params → protocol with static factory (UnsafeRawPointer params)
+        // (inherited generic context is already checked by CanEmitMember)
         if (env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
         {
             if (!CanEmitGenericConstructorWrapper(env, typeDecl))
@@ -63,16 +59,6 @@ public static class ConstructorWrapperEmitter
             if (HasAnyAsyncClosure(env))
                 return false;
         }
-
-        // Skip async constructors (async uses its own wrapper pattern)
-        if (env.MethodDecl.IsAsync)
-            return false;
-
-        // Skip non-copyable (~Copyable) struct types — defense-in-depth guard.
-        // In Swift 6.2+, ALL types explicitly list both Copyable and Escapable in ABI JSON.
-        // Non-copyable types list Escapable WITHOUT Copyable.
-        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
-            return false;
 
         // Skip constructors with non-copyable (~Copyable) struct parameters.
         // The @_cdecl wrapper passes frozen structs by value through the C ABI, which

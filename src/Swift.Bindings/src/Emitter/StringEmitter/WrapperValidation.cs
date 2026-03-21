@@ -28,9 +28,10 @@ public enum WrapperDecision
 }
 
 /// <summary>
-/// Identifies which kind of member is being evaluated for generic dispatch decisions.
-/// Used by <see cref="WrapperValidation.NeedsGenericDispatch"/> to apply the correct
-/// dispatch logic, since the guard conditions differ by member kind.
+/// Identifies which kind of member is being evaluated for wrapper eligibility decisions.
+/// Used by <see cref="WrapperValidation.CanEmitMember"/> to apply shared guards with
+/// member-kind-specific parameterization, and by <see cref="WrapperValidation.NeedsGenericDispatch"/>
+/// for generic dispatch decisions.
 /// </summary>
 public enum MemberKind
 {
@@ -39,7 +40,11 @@ public enum MemberKind
     /// <summary>Property getter or setter accessor.</summary>
     Property,
     /// <summary>Constructor (init).</summary>
-    Constructor
+    Constructor,
+    /// <summary>Subscript accessor (getter/setter with index params).</summary>
+    Subscript,
+    /// <summary>Operator (==, !=, etc.).</summary>
+    Operator
 }
 
 /// <summary>
@@ -105,6 +110,103 @@ public static class WrapperValidation
         if (!RequiresCdeclForAbiSafety(env, propertyDecl))
             return WrapperDecision.NoWrapperNeeded;
         return WrapperDecision.WrapperRequired;
+    }
+
+    /// <summary>
+    /// Returns the P/Invoke calling convention for a method based on its wrapper strategy.
+    /// Centralizes the UsesCdeclWrapper → CallingConvention mapping that was previously
+    /// inlined at multiple sites in PInvokeEmitter and OperatorHandler.
+    ///
+    /// Methods with @_cdecl wrappers use CallConvCdecl (C calling convention).
+    /// Methods without wrappers use CallConvSwift (Swift calling convention).
+    /// </summary>
+    public static PInvokeCallingConvention GetCallingConvention(MethodDecl methodDecl)
+    {
+        return methodDecl.UsesCdeclWrapper
+            ? PInvokeCallingConvention.Cdecl
+            : PInvokeCallingConvention.Swift;
+    }
+
+    /// <summary>
+    /// Consolidated shared wrapper eligibility gate. Checks guards that are common across
+    /// multiple ShouldEmitWrapper implementations. Each handler's ShouldEmitWrapper should
+    /// call this first, then check handler-specific guards.
+    ///
+    /// Shared guards checked (applicable member kinds in parentheses):
+    /// 1. xcframework mode (all)
+    /// 2. Module internal (Method, Constructor, Property)
+    /// 3. SPI protected (Method, Property)
+    /// 4. Non-copyable struct parent (Method, Property, Constructor, Subscript)
+    /// 5. Async (Method, Constructor — Property/Subscript check differently)
+    /// 6. Actor isolation (Method, Property, Subscript)
+    /// 7. Inherited generic context (Method, Property, Constructor — checked when parent is generic)
+    ///
+    /// The <paramref name="isModuleInternal"/>, <paramref name="isSpiProtected"/>,
+    /// <paramref name="isAsync"/>, <paramref name="isActorIsolated"/>, and
+    /// <paramref name="isMainActorIsolated"/> parameters let each handler pass the
+    /// correct source for these properties (MethodDecl for methods, PropertyDecl for
+    /// properties, etc.).
+    /// </summary>
+    /// <returns>True if all shared guards pass. False if any shared guard rejects the member.</returns>
+    public static bool CanEmitMember(
+        MethodEnvironment env,
+        MemberKind kind,
+        bool isModuleInternal = false,
+        bool isSpiProtected = false,
+        bool isAsync = false,
+        bool isActorIsolated = false,
+        bool isMainActorIsolated = false)
+    {
+        // 1. xcframework mode required (all handlers)
+        if (!IsXCFrameworkMode(env.TypeDatabase))
+            return false;
+
+        // 2. Module internal (Method, Constructor, Property)
+        if (kind is MemberKind.Method or MemberKind.Constructor or MemberKind.Property)
+        {
+            if (isModuleInternal)
+                return false;
+        }
+
+        // 3. SPI protected (Method, Property)
+        if (kind is MemberKind.Method or MemberKind.Property)
+        {
+            if (isSpiProtected)
+                return false;
+        }
+
+        // 4. Non-copyable struct parent (Method, Property, Constructor, Subscript)
+        if (kind is not MemberKind.Operator)
+        {
+            if (IsNonCopyableStructParent(env.ParentDecl))
+                return false;
+        }
+
+        // 5. Async (Method, Constructor — Property/Subscript check differently via accessor)
+        if (kind is MemberKind.Method or MemberKind.Constructor)
+        {
+            if (isAsync)
+                return false;
+        }
+
+        // 6. Actor isolation (Method, Property, Subscript)
+        if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Subscript)
+        {
+            if (IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated))
+                return false;
+        }
+
+        // 7. Inherited generic context on parent (Method, Property, Constructor)
+        // Nested types that inherit generic context from an outer parent
+        // (e.g., AuthenticationInterceptor<A>.RefreshWindow) can't have @_cdecl wrappers
+        // because "extension Outer.Inner: Protocol {}" won't compile.
+        if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Constructor)
+        {
+            if (env.ParentDecl is TypeDecl td && td.IsGeneric && IsInheritedGenericContext(td))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>

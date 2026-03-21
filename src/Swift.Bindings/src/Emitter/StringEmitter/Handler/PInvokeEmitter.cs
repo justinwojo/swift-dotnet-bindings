@@ -884,9 +884,7 @@ namespace BindingsGeneration
                     ParametersString = pInvokeParams,
                     IsAsync = methodDecl.IsAsync,
                     IsUnsafe = pInvokeParams.Contains("void*") || pInvokeParams.Contains("delegate*") || pInvokeParams.Contains("IntPtr*"),
-                    CallingConvention = methodDecl.UsesCdeclWrapper
-                        ? PInvokeCallingConvention.Cdecl
-                        : PInvokeCallingConvention.Swift
+                    CallingConvention = WrapperValidation.GetCallingConvention(methodDecl)
                 });
             }
         }

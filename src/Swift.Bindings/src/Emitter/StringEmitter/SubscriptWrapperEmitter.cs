@@ -23,8 +23,11 @@ public static class SubscriptWrapperEmitter
     /// </summary>
     public static bool ShouldEmitSubscriptWrapper(SubscriptDecl subscriptDecl, AccessorDecl accessor, MethodEnvironment env)
     {
-        // 1. xcframework mode required (wrapper library must exist)
-        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
+        // Shared guards: xcframework, non-copyable, actor
+        // Note: Subscript passes actor info from the accessor, not the subscript itself
+        if (!WrapperValidation.CanEmitMember(env, MemberKind.Subscript,
+            isActorIsolated: accessor.Method.IsActorIsolated,
+            isMainActorIsolated: accessor.Method.IsMainActorIsolated))
             return false;
 
         // 2. Generic parent type — allow non-final class instance subscripts with concrete signatures
@@ -47,14 +50,6 @@ public static class SubscriptWrapperEmitter
 
         // 5. No async accessors
         if (accessor.Method.IsAsync)
-            return false;
-
-        // 6. No non-copyable struct parent
-        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
-            return false;
-
-        // 6b. Custom actor types / per-member custom actor: require async dispatch
-        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated))
             return false;
 
         // 7. No opaque return type (some Protocol)

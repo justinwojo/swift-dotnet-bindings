@@ -207,27 +207,12 @@ namespace BindingsGeneration
                             var elemPlan = proj.GetParameterPlan(elemVarName);
 
                             // @_cdecl wrapper: collection and non-reference optional tuple elements
-                            // pass pointer via UnsafeRawPointer. Same override as top-level bound
-                            // generics — skip PayloadBuffer, use DangerousGetHandle.
-                            bool isCollection = proj is ArrayProjection or DictionaryProjection or SetProjection;
-                            bool isOptionalWithCollection = proj is OptionalProjection optElemProj &&
-                                (optElemProj.InnerProjection is ArrayProjection or DictionaryProjection or SetProjection);
-                            bool isNonRefOptional = proj is OptionalProjection &&
-                                proj is not OptionalProjection { InnerProjection: ClassProjection or ObjCBridgedProjection or ObjCRootedClassProjection };
-                            if (useCdeclWrapper && (isCollection || isOptionalWithCollection || isNonRefOptional))
+                            // pass pointer via UnsafeRawPointer. Use shared helper to skip
+                            // PayloadBuffer and emit DangerousGetHandle instead.
+                            if (useCdeclWrapper && CdeclMarshallingHelper.NeedsCdeclPointerOverride(proj))
                             {
-                                foreach (var stmt in elemPlan.SetupStatements)
-                                {
-                                    if (stmt is MarshalStatement.Using u && u.Type.StartsWith("PayloadBuffer"))
-                                        continue;
-                                    if (stmt is MarshalStatement.Line l && l.Code.Contains("Disposable.Buffer"))
-                                        continue;
-                                    MarshalPlanRenderer.RenderStatement(csWriter, stmt);
-                                }
-                                var bufferName = NameProvider.GetBoundGenericBufferName(elemVarName);
-                                var swiftVarSuffix = isCollection ? "Swift" : "Swift";
-                                csWriter.WriteLine($"IntPtr {bufferName} = {elemVarName}{swiftVarSuffix}.Payload.DangerousGetHandle();");
-                                elementExprs.Add(bufferName);
+                                CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, elemPlan, elemVarName);
+                                elementExprs.Add(NameProvider.GetBoundGenericBufferName(elemVarName));
                             }
                             else
                             {
@@ -257,30 +242,12 @@ namespace BindingsGeneration
                     {
                         var plan = projection.GetParameterPlan(name);
 
-                        // @_cdecl wrapper: collection params (Array, Dictionary, Set) pass a
-                        // pointer to the container value via UnsafeRawPointer. Swift does
-                        // .load(as: T.self) from the pointer. The projection's plan uses
-                        // PayloadBuffer<IntPtr>.Buffer which DEREFERENCES the buffer.
-                        // For @_cdecl, use .Payload.DangerousGetHandle() instead.
                         // @_cdecl wrapper: collections and non-reference optionals pass pointer
-                        // via UnsafeRawPointer. Includes Optional<Array>, Optional<Dict>, etc.
-                        bool isBgCollection = projection is ArrayProjection or DictionaryProjection or SetProjection;
-                        bool isBgOptWithCollection = projection is OptionalProjection bgOptProj &&
-                            (bgOptProj.InnerProjection is ArrayProjection or DictionaryProjection or SetProjection);
-                        bool isBgNonRefOpt = projection is OptionalProjection &&
-                            projection is not OptionalProjection { InnerProjection: ClassProjection or ObjCBridgedProjection or ObjCRootedClassProjection };
-                        if (useCdeclWrapper && (isBgCollection || isBgOptWithCollection || isBgNonRefOpt))
+                        // via UnsafeRawPointer. Use shared helper to skip PayloadBuffer and
+                        // emit DangerousGetHandle instead.
+                        if (useCdeclWrapper && CdeclMarshallingHelper.NeedsCdeclPointerOverride(projection))
                         {
-                            foreach (var stmt in plan.SetupStatements)
-                            {
-                                if (stmt is MarshalStatement.Using u && u.Type.StartsWith("PayloadBuffer"))
-                                    continue;
-                                if (stmt is MarshalStatement.Line l && l.Code.Contains("Disposable.Buffer"))
-                                    continue;
-                                MarshalPlanRenderer.RenderStatement(csWriter, stmt);
-                            }
-                            var bufferName = NameProvider.GetBoundGenericBufferName(name);
-                            csWriter.WriteLine($"IntPtr {bufferName} = {name}Swift.Payload.DangerousGetHandle();");
+                            CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, name);
                             projectedArgs[i] = plan;
                         }
                         else

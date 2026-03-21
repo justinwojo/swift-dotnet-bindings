@@ -38,16 +38,13 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.UsesCdeclPropertyWrapper)
             return false;
 
-        // 3b. Skip @_spi protected methods — wrapper can't access them without @_spi import
-        if (env.MethodDecl.IsSpiProtected)
-            return false;
-
-        // 3c. Skip internal methods — wrapper can't call them from external code
-        if (env.MethodDecl.IsModuleInternal)
-            return false;
-
-        // 4. xcframework mode required (wrapper library must exist)
-        if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
+        // Shared guards: xcframework, internal, SPI, non-copyable, async, actor, inherited generic context
+        if (!WrapperValidation.CanEmitMember(env, MemberKind.Method,
+            isModuleInternal: env.MethodDecl.IsModuleInternal,
+            isSpiProtected: env.MethodDecl.IsSpiProtected,
+            isAsync: env.MethodDecl.IsAsync,
+            isActorIsolated: env.MethodDecl.IsActorIsolated,
+            isMainActorIsolated: env.MethodDecl.IsMainActorIsolated))
             return false;
 
         // 5. Must be on a type or module (free function)
@@ -56,18 +53,9 @@ public static class MethodWrapperEmitter
             return false;
 
         // 5b. Generic parent type — allow methods using protocol-based type erasure.
-        // Two paths:
-        // 1. Generic class with concrete params/return → existing protocol instance dispatch
-        // 2. Generic struct/class with T-typed params/return → protocol with static method
+        // (inherited generic context is already checked by CanEmitMember)
         if (parentTypeDecl?.IsGeneric == true)
         {
-            // Skip nested types that inherit generic context from an outer parent
-            // (e.g., AuthenticationInterceptor<A>.RefreshWindow). The @_cdecl wrapper
-            // emits "extension Outer.Inner: Protocol {}" which won't compile when
-            // Outer has unresolved generic parameters.
-            if (WrapperValidation.IsInheritedGenericContext(parentTypeDecl))
-                return false;
-
             if (!CanEmitGenericWrapper(env, parentTypeDecl))
                 return false;
         }
@@ -79,14 +67,6 @@ public static class MethodWrapperEmitter
         if (WrapperValidation.HasMethodOwnGenericParameters(env.MethodDecl))
             return false;
 
-        // 6b. Custom actor types / per-member custom actor: require async dispatch
-        if (WrapperValidation.IsActorIsolatedMember(parentTypeDecl, env.MethodDecl.IsActorIsolated, env.MethodDecl.IsMainActorIsolated))
-            return false;
-
-        // 7. Not async (async uses its own wrapper pattern)
-        if (env.MethodDecl.IsAsync)
-            return false;
-
         // 8. Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
         // AND no plain async closures (GetSwiftClosureAdapterCode only emits sync adapters).
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
@@ -96,10 +76,6 @@ public static class MethodWrapperEmitter
             if (HasAnyAsyncClosure(env))
                 return false;
         }
-
-        // 11. Non-copyable struct guards
-        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
-            return false;
 
         // 11b. No inout parameters — @_cdecl wrappers can't handle write-back semantics.
         // Primitive inout has no reconstruction line (can't make a mutable local), and non-primitive

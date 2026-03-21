@@ -25,31 +25,21 @@ public static class PropertyWrapperEmitter
     /// </summary>
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
-        // 1. xcframework mode required (wrapper library must exist)
-        if (!WrapperValidation.IsXCFrameworkMode(accessorEnv.TypeDatabase))
+        // Shared guards: xcframework, internal, SPI, non-copyable, actor, inherited generic context
+        if (!WrapperValidation.CanEmitMember(accessorEnv, MemberKind.Property,
+            isModuleInternal: propertyDecl.IsModuleInternal,
+            isSpiProtected: propertyDecl.IsSpiProtected,
+            isActorIsolated: propertyDecl.IsActorIsolated,
+            isMainActorIsolated: propertyDecl.IsMainActorIsolated))
             return false;
 
         // 2. Generic parent type — allow non-final class instance properties with concrete types
+        // (inherited generic context is already checked by CanEmitMember)
         if (accessorEnv.ParentDecl is TypeDecl td && td.IsGeneric)
         {
-            // Skip nested types that inherit generic context from an outer parent
-            // (e.g., AuthenticationInterceptor<A>.RefreshWindow). The @_cdecl wrapper
-            // emits "extension Outer.Inner: Protocol {}" which won't compile when
-            // Outer has unresolved generic parameters.
-            if (WrapperValidation.IsInheritedGenericContext(td))
-                return false;
-
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
                 return false;
         }
-
-        // 2b. Skip internal properties — not accessible from the wrapper module
-        if (propertyDecl.IsModuleInternal)
-            return false;
-
-        // 2c. Skip @_spi protected properties — wrapper can't access them without @_spi import
-        if (propertyDecl.IsSpiProtected)
-            return false;
 
         // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
@@ -62,14 +52,6 @@ public static class PropertyWrapperEmitter
 
         // 4. Skip async properties (own wrapper pattern)
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
-            return false;
-
-        // 4b. Custom actor types / per-member custom actor: require async dispatch
-        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
-            return false;
-
-        // 6. Skip non-copyable (~Copyable) struct parents
-        if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
             return false;
 
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types

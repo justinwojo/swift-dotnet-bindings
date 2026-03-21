@@ -974,6 +974,119 @@ public class WrapperConsistencyTests
 
     #endregion
 
+    #region CanEmitMember — Unified Gate Tests
+
+    [Fact]
+    public void CanEmitMember_NoXCFrameworkMode_AllKindsReject()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        // Don't set AsyncLibraryName — xcframework mode is off
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        parentDecl.IsFrozen = true;
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Property));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Subscript));
+    }
+
+    [Fact]
+    public void CanEmitMember_ModuleInternal_MethodConstructorPropertyReject()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        parentDecl.IsFrozen = true;
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Method and Constructor should reject when isModuleInternal is true
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method, isModuleInternal: true));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor, isModuleInternal: true));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Property, isModuleInternal: true));
+        // Subscript does NOT check module internal
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Subscript, isModuleInternal: true));
+    }
+
+    [Fact]
+    public void CanEmitMember_SpiProtected_MethodPropertyReject()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        parentDecl.IsFrozen = true;
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Method and Property should reject when isSpiProtected is true
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method, isSpiProtected: true));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Property, isSpiProtected: true));
+        // Constructor and Subscript do NOT check SPI
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Constructor, isSpiProtected: true));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Subscript, isSpiProtected: true));
+    }
+
+    [Fact]
+    public void CanEmitMember_NonCopyableStruct_AllExceptOperatorReject()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("NonCopyableToken", moduleDecl);
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.NonCopyableToken"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"),
+                "$s10TestModule15NonCopyableTokenVACSWAAMc")
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Property));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Subscript));
+        // Operator does NOT check non-copyable
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Operator));
+    }
+
+    [Fact]
+    public void CanEmitMember_Async_MethodConstructorReject()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        parentDecl.IsFrozen = true;
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        // Method and Constructor should reject when isAsync is true
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method, isAsync: true));
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor, isAsync: true));
+        // Property and Subscript check async differently (via accessor), not via CanEmitMember
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Property, isAsync: true));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Subscript, isAsync: true));
+    }
+
+    [Fact]
+    public void CanEmitMember_NormalStruct_AllPass()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        parentDecl.IsFrozen = true;
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Method));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Constructor));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Property));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Subscript));
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static MethodDecl CreateMethodWithGenericParam()
