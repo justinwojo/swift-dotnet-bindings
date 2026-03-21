@@ -388,8 +388,8 @@ namespace BindingsGeneration
                 }
                 else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
                 {
-                    // @_cdecl: pass container by reference (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"ref {bareName}Container");
+                    // @_cdecl: pass pointer to container (matches Swift's UnsafeRawPointer param)
+                    argList.Add($"(IntPtr)Unsafe.AsPointer(ref {bareName}Container)");
                 }
                 else if (useCdeclWrapper && IsCustomFrozenStructParam(typeSpec, typeDatabase))
                 {
@@ -479,7 +479,7 @@ namespace BindingsGeneration
                 // @_cdecl wrapper: C calling convention, associated value params + IntPtr resultPtr
                 // Types must match the Swift wrapper ABI from GetCdeclParamMapping:
                 // - Strings: IntPtr + int (UTF-8 pointer + length, NativeAOT-safe)
-                // - Existentials: ref ExistentialContainer (pass by ref = pointer, not by value)
+                // - Existentials: IntPtr (pointer to ExistentialContainer, matches Unsafe.AsPointer at call site)
                 // - Everything else: same as legacy GetPInvokeType
                 var pInvokeParams = new List<string>();
                 var cdeclExistentialHandler = new ExistentialHandler(typeDatabase);
@@ -493,11 +493,8 @@ namespace BindingsGeneration
                     }
                     else if (cdeclExistentialHandler.IsExistential(typeSpec))
                     {
-                        var protocolList = cdeclExistentialHandler.ToProtocolListTypeSpec(typeSpec);
-                        var containerType = protocolList != null
-                            ? cdeclExistentialHandler.GetPInvokeExistentialType(protocolList)
-                            : "Swift.Runtime.ExistentialContainer0";
-                        pInvokeParams.Add($"ref {containerType} {name}");
+                        // Pass as IntPtr — call site uses (IntPtr)Unsafe.AsPointer(ref container)
+                        pInvokeParams.Add($"IntPtr {name}");
                     }
                     else if (typeSpec is TupleTypeSpec)
                     {

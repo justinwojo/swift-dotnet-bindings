@@ -783,7 +783,11 @@ namespace BindingsGeneration
                 }
             }
 
-            // @_cdecl existential params: extract container into local variable for ref passing
+            // @_cdecl existential params: extract container, pin it, and pass pointer.
+            // ExistentialContainer1 is a 40-byte blittable struct. The Swift @_cdecl wrapper
+            // receives UnsafeRawPointer and does .load(as:). We must pass a pointer to the
+            // container data, not a ref parameter — Mono JIT crashes on ref for large structs
+            // through CallConvCdecl P/Invoke.
             if (_env.MethodDecl.UsesCdeclWrapper)
             {
                 foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
@@ -801,6 +805,7 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName});");
                     else
                         csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
+                    csWriter.WriteLine($"IntPtr {csName}Ptr = (IntPtr)Unsafe.AsPointer(ref {csName}Container);");
                 }
             }
 

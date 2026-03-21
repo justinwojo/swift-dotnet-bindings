@@ -18,17 +18,17 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecFormatValues()
     {
-        AssertEqual(Codec.Format.Json, (Codec.Format)0, "Json is 0");
-        AssertEqual(Codec.Format.Xml, (Codec.Format)1, "Xml is 1");
-        AssertEqual(Codec.Format.Binary, (Codec.Format)2, "Binary is 2");
+        AssertEqual(Codec.FormatType.Json, (Codec.FormatType)0, "Json is 0");
+        AssertEqual(Codec.FormatType.Xml, (Codec.FormatType)1, "Xml is 1");
+        AssertEqual(Codec.FormatType.Binary, (Codec.FormatType)2, "Binary is 2");
         TestLogger.Info("Codec.Format enum values passed");
     }
 
     public void TestCodecFormatDistinct()
     {
-        AssertTrue(Codec.Format.Json != Codec.Format.Xml, "Json != Xml");
-        AssertTrue(Codec.Format.Xml != Codec.Format.Binary, "Xml != Binary");
-        AssertTrue(Codec.Format.Json != Codec.Format.Binary, "Json != Binary");
+        AssertTrue(Codec.FormatType.Json != Codec.FormatType.Xml, "Json != Xml");
+        AssertTrue(Codec.FormatType.Xml != Codec.FormatType.Binary, "Xml != Binary");
+        AssertTrue(Codec.FormatType.Json != Codec.FormatType.Binary, "Json != Binary");
         TestLogger.Info("Codec.Format distinct values passed");
     }
 
@@ -54,38 +54,38 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecEncodingFromRawValueUtf8()
     {
-        var encoding = Codec.Encoding.FromRawValue("utf-8");
+        var encoding = Codec.EncodingType.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding utf-8 not null");
-        AssertEqual(Codec.Encoding.CaseTag.Utf8, encoding!.Tag, "utf-8 tag");
-        TestLogger.Info("Codec.Encoding.FromRawValue(utf-8) passed");
+        AssertEqual(Codec.EncodingType.CaseTag.Utf8, encoding!.Tag, "utf-8 tag");
+        TestLogger.Info("Codec.EncodingType.FromRawValue(utf-8) passed");
     }
 
     public void TestCodecEncodingFromRawValueAscii()
     {
-        var encoding = Codec.Encoding.FromRawValue("ascii");
+        var encoding = Codec.EncodingType.FromRawValue("ascii");
         AssertNotNull(encoding, "Encoding ascii not null");
-        AssertEqual(Codec.Encoding.CaseTag.Ascii, encoding!.Tag, "ascii tag");
-        TestLogger.Info("Codec.Encoding.FromRawValue(ascii) passed");
+        AssertEqual(Codec.EncodingType.CaseTag.Ascii, encoding!.Tag, "ascii tag");
+        TestLogger.Info("Codec.EncodingType.FromRawValue(ascii) passed");
     }
 
     public void TestCodecEncodingFromRawValueLatin1()
     {
-        var encoding = Codec.Encoding.FromRawValue("latin-1");
+        var encoding = Codec.EncodingType.FromRawValue("latin-1");
         AssertNotNull(encoding, "Encoding latin-1 not null");
-        AssertEqual(Codec.Encoding.CaseTag.Latin1, encoding!.Tag, "latin-1 tag");
-        TestLogger.Info("Codec.Encoding.FromRawValue(latin-1) passed");
+        AssertEqual(Codec.EncodingType.CaseTag.Latin1, encoding!.Tag, "latin-1 tag");
+        TestLogger.Info("Codec.EncodingType.FromRawValue(latin-1) passed");
     }
 
     public void TestCodecEncodingFromRawValueInvalid()
     {
-        var encoding = Codec.Encoding.FromRawValue("bogus");
+        var encoding = Codec.EncodingType.FromRawValue("bogus");
         AssertNull(encoding, "Invalid encoding is null");
-        TestLogger.Info("Codec.Encoding.FromRawValue(bogus) = null");
+        TestLogger.Info("Codec.EncodingType.FromRawValue(bogus) = null");
     }
 
     public void TestCodecEncodingRawValueRoundTrip()
     {
-        var encoding = Codec.Encoding.FromRawValue("utf-8");
+        var encoding = Codec.EncodingType.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
         var raw = encoding!.RawValue.ToString();
         AssertEqual("utf-8", raw, "utf-8 raw value round-trip");
@@ -98,37 +98,37 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecConstructionJson()
     {
-        var encoding = Codec.Encoding.FromRawValue("utf-8");
+        var encoding = Codec.EncodingType.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.Format.Json, encoding!);
-        AssertEqual(Codec.Format.Json, codec.FormatValue, "Codec format is Json");
+        var codec = new Codec(Codec.FormatType.Json, encoding!);
+        AssertEqual(Codec.FormatType.Json, codec.Format, "Codec format is Json");
         TestLogger.Info("Codec construction with Json format passed");
     }
 
     public void TestCodecConstructionXml()
     {
-        var encoding = Codec.Encoding.FromRawValue("ascii");
+        var encoding = Codec.EncodingType.FromRawValue("ascii");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.Format.Xml, encoding!);
-        AssertEqual(Codec.Format.Xml, codec.FormatValue, "Codec format is Xml");
+        var codec = new Codec(Codec.FormatType.Xml, encoding!);
+        AssertEqual(Codec.FormatType.Xml, codec.Format, "Codec format is Xml");
         TestLogger.Info("Codec construction with Xml format passed");
     }
 
     public void TestCodecEncodingValueProperty()
     {
-        var encoding = Codec.Encoding.FromRawValue("utf-8");
+        var encoding = Codec.EncodingType.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.Format.Binary, encoding!);
-        var encodingBack = codec.EncodingValue;
-        AssertEqual(Codec.Encoding.CaseTag.Utf8, encodingBack.Tag, "EncodingValue tag is Utf8");
+        var codec = new Codec(Codec.FormatType.Binary, encoding!);
+        var encodingBack = codec.Encoding;
+        AssertEqual(Codec.EncodingType.CaseTag.Utf8, encodingBack.Tag, "EncodingValue tag is Utf8");
         TestLogger.Info("Codec.EncodingValue property passed");
     }
 
     public void TestCodecGetDescribe()
     {
-        var encoding = Codec.Encoding.FromRawValue("utf-8");
+        var encoding = Codec.EncodingType.FromRawValue("utf-8");
         AssertNotNull(encoding, "Encoding not null");
-        var codec = new Codec(Codec.Format.Json, encoding!);
+        var codec = new Codec(Codec.FormatType.Json, encoding!);
         var desc = codec.GetDescribe();
         AssertTrue(desc.Contains("utf-8"), "Describe contains encoding raw value");
         TestLogger.Info($"Codec.GetDescribe() = \"{desc}\"");

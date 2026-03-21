@@ -139,6 +139,14 @@ namespace BindingsGeneration
             {
                 _needsUnsafeBody = true;
             }
+
+            // @_cdecl existential params use Unsafe.AsPointer which requires unsafe context
+            if (_env.MethodDecl.UsesCdeclWrapper &&
+                _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+                    _env.ExistentialHandler.IsExistential(arg.SwiftTypeSpec)))
+            {
+                _needsUnsafeBody = true;
+            }
         }
 
         /// <summary>

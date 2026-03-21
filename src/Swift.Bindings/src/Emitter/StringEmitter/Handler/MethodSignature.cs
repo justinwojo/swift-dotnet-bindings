@@ -56,8 +56,8 @@ namespace BindingsGeneration
         {
             // Existential types: use container type in P/Invoke declaration
             MarshalledType.Existential(var containerType, _) => $"{modifier} {containerType} {Name}",
-            // @_cdecl existential: pass container by ref (matches UnsafeRawPointer in Swift)
-            MarshalledType.CdeclExistential(var containerType, _) => $"ref {containerType} {Name}",
+            // @_cdecl existential: pass as IntPtr (pointer to pinned container, matches UnsafeRawPointer in Swift)
+            MarshalledType.CdeclExistential(_, _) => $"IntPtr {Name}",
             // @_cdecl frozen struct: pass as IntPtr (pointer to marshalled buffer)
             MarshalledType.CdeclFrozenStruct => $"IntPtr {Name}",
             // @_cdecl tuple: pass as IntPtr (pointer to buffer with elements at ABI offsets)
@@ -176,9 +176,9 @@ namespace BindingsGeneration
                     $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
                 { Type: MarshalledType.Existential(var containerType, var publicType) } =>
                     $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",
-                // @_cdecl existential: ref to pre-extracted container local variable
-                { Type: MarshalledType.CdeclExistential(var containerType, _) } =>
-                    $"ref {parameter.Name}Container",
+                // @_cdecl existential: pass pointer to pinned container
+                { Type: MarshalledType.CdeclExistential(_, _) } =>
+                    $"{parameter.Name}Ptr",
                 // @_cdecl frozen struct: use the marshalled pointer local variable
                 { Type: MarshalledType.CdeclFrozenStruct } => $"{parameter.Name}Ptr",
                 // @_cdecl tuple: use the marshalled buffer pointer

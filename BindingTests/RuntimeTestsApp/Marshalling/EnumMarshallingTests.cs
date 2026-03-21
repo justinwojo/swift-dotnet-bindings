@@ -337,7 +337,7 @@ public class EnumMarshallingTests : TestBase
         var cases = new[] { "application/json", "application/xml", "multipart/form-data", "text/plain" };
         foreach (var rawValue in cases)
         {
-            var ct = NetworkConfig.ContentType.FromRawValue(rawValue);
+            var ct = NetworkConfig.ContentTypeType.FromRawValue(rawValue);
             AssertNotNull(ct, $"ContentType {rawValue} not null");
             AssertEqual(rawValue, ct!.RawValue.ToString(), $"{rawValue} round-trip");
         }

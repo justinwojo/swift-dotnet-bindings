@@ -143,7 +143,7 @@ public class ClosureTests : TestBase
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
     // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
 
-    [Skip("Non-blittable: closure callback with SwiftString return requires @_cdecl wrapper")]
+    [Skip("Non-blittable closure callback with SwiftString return crashes Mono JIT — requires @_cdecl callback wrapper")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -152,7 +152,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    [Skip("Non-blittable: closure callback with SwiftString array return requires @_cdecl wrapper")]
+    [Skip("Non-blittable closure callback with SwiftString array return crashes Mono JIT — requires @_cdecl callback wrapper")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>

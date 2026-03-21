@@ -67,30 +67,30 @@ public class OptionSetTests : TestBase
 
     public void TestImageRequestOptionsDisableCacheRawValue()
     {
-        var opt = ImageRequest.Options.DisableCache;
+        var opt = ImageRequest.OptionsType.DisableCache;
         AssertTrue(opt.RawValue != 0, "DisableCache RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.Options.DisableCache.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsType.DisableCache.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsReturnCachedRawValue()
     {
-        var opt = ImageRequest.Options.ReturnCached;
+        var opt = ImageRequest.OptionsType.ReturnCached;
         AssertTrue(opt.RawValue != 0, "ReturnCached RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.Options.ReturnCached.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsType.ReturnCached.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsLowPriorityRawValue()
     {
-        var opt = ImageRequest.Options.LowPriority;
+        var opt = ImageRequest.OptionsType.LowPriority;
         AssertTrue(opt.RawValue != 0, "LowPriority RawValue should be non-zero");
-        TestLogger.Info($"ImageRequest.Options.LowPriority.RawValue = {opt.RawValue}");
+        TestLogger.Info($"ImageRequest.OptionsType.LowPriority.RawValue = {opt.RawValue}");
     }
 
     public void TestImageRequestOptionsDistinct()
     {
-        var disable = ImageRequest.Options.DisableCache.RawValue;
-        var cached = ImageRequest.Options.ReturnCached.RawValue;
-        var low = ImageRequest.Options.LowPriority.RawValue;
+        var disable = ImageRequest.OptionsType.DisableCache.RawValue;
+        var cached = ImageRequest.OptionsType.ReturnCached.RawValue;
+        var low = ImageRequest.OptionsType.LowPriority.RawValue;
 
         AssertTrue(disable != cached, "DisableCache != ReturnCached");
         AssertTrue(disable != low, "DisableCache != LowPriority");
@@ -167,29 +167,29 @@ public class OptionSetTests : TestBase
 
     public void TestImageRequestConstruction()
     {
-        var options = ImageRequest.Options.DisableCache;
+        var options = ImageRequest.OptionsType.DisableCache;
         var request = new ImageRequest(options);
-        AssertEqual(options.RawValue, request.OptionsValue.RawValue, "OptionsValue RawValue matches");
-        TestLogger.Info($"ImageRequest construction: OptionsValue.RawValue = {request.OptionsValue.RawValue}");
+        AssertEqual(options.RawValue, request.Options.RawValue, "OptionsValue RawValue matches");
+        TestLogger.Info($"ImageRequest construction: OptionsValue.RawValue = {request.Options.RawValue}");
     }
 
     public void TestImageRequestOptionsValueGetSet()
     {
-        var request = new ImageRequest(ImageRequest.Options.DisableCache);
-        AssertEqual(ImageRequest.Options.DisableCache.RawValue, request.OptionsValue.RawValue, "Initial options");
+        var request = new ImageRequest(ImageRequest.OptionsType.DisableCache);
+        AssertEqual(ImageRequest.OptionsType.DisableCache.RawValue, request.Options.RawValue, "Initial options");
 
-        request.OptionsValue = ImageRequest.Options.LowPriority;
-        AssertEqual(ImageRequest.Options.LowPriority.RawValue, request.OptionsValue.RawValue, "Updated options");
+        request.Options = ImageRequest.OptionsType.LowPriority;
+        AssertEqual(ImageRequest.OptionsType.LowPriority.RawValue, request.Options.RawValue, "Updated options");
         TestLogger.Info("ImageRequest.OptionsValue get/set passed");
     }
 
     public void TestImageRequestOptionsEquality()
     {
-        var a = ImageRequest.Options.DisableCache;
-        var b = ImageRequest.Options.DisableCache;
+        var a = ImageRequest.OptionsType.DisableCache;
+        var b = ImageRequest.OptionsType.DisableCache;
         AssertTrue(a == b, "DisableCache == DisableCache");
 
-        var c = ImageRequest.Options.LowPriority;
+        var c = ImageRequest.OptionsType.LowPriority;
         AssertTrue(a != c, "DisableCache != LowPriority");
         TestLogger.Info("ImageRequest.Options equality passed");
     }
