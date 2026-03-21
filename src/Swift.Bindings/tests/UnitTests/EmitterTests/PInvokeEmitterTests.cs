@@ -686,6 +686,109 @@ public class PInvokeEmitterTests
         Assert.DoesNotContain("Tj\"", emitted); // final member uses direct dispatch
     }
 
+    [Fact]
+    public void EmitPInvoke_ExtensionMethodOnNonFinalClass_NoTjSuffix()
+    {
+        // Extension methods use static dispatch — no vtable entry, no Tj thunk symbol.
+        // This is critical for cross-module extensions (e.g., StripePayments extending
+        // StripeCore.STPAPIClient) where Tj thunks don't exist in any binary.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+        method.IsFinal = false;
+        method.IsExtensionMethod = true;
+
+        var emitted = EmitPInvokeToString(method, CreateBasicTypeDatabase("Loader"));
+
+        Assert.DoesNotContain("Tj\"", emitted); // extension methods use direct dispatch
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_RegularInstanceMethod_AppendsTj()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+        method.IsFinal = false;
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.EndsWith("Tj", entryPoint);
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_ExtensionMethod_NoTj()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+        method.IsFinal = false;
+        method.IsExtensionMethod = true;
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.DoesNotContain("Tj", entryPoint);
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_FinalClass_NoTj()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = true;
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.DoesNotContain("Tj", entryPoint);
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_StaticMethod_NoTj()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("doWork", classDecl, moduleDecl, isStatic: true);
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.DoesNotContain("Tj", entryPoint);
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_Constructor_NoTj()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("init", classDecl, moduleDecl, isConstructor: true);
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.DoesNotContain("Tj", entryPoint);
+    }
+
+    [Fact]
+    public void ComputeEntryPoint_ExtensionPropertyAccessor_NoTj()
+    {
+        // Property accessor MethodDecls should inherit IsExtensionMethod from
+        // the parent property node's isFromExtension flag.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        classDecl.IsFinal = false;
+        var method = CreateMethod("name_Get", classDecl, moduleDecl, isAccessor: true);
+        method.IsFinal = false;
+        method.IsExtensionMethod = true;
+
+        var (entryPoint, _) = PInvokeEmitter.ComputeEntryPoint(method);
+
+        Assert.DoesNotContain("Tj", entryPoint);
+    }
+
     #endregion
 
     #region Async/Error Parameters

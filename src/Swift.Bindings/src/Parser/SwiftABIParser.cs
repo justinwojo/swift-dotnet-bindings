@@ -61,6 +61,7 @@ namespace BindingsGeneration
         public required bool? hasDefaultArg { get; set; }
         public bool? overriding { get; set; }
         public bool? @implicit { get; set; }
+        public bool? isFromExtension { get; set; }
         public string? funcSelfKind { get; set; }
         public string? usr { get; set; }
         public string? superclassUsr { get; set; }
@@ -1273,6 +1274,7 @@ namespace BindingsGeneration
                     IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
+                IsExtensionMethod = node.isFromExtension == true,
             };
 
             // Suppress underscore-prefixed methods without explicit AccessControl.
@@ -1700,6 +1702,14 @@ namespace BindingsGeneration
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
+            // Propagate extension flag to accessor MethodDecls. Extension methods use static
+            // dispatch — accessor P/Invokes must not get Tj dispatch thunk suffix.
+            if (node.isFromExtension == true)
+            {
+                foreach (var accessor in decl.Accessors)
+                    accessor.Method.IsExtensionMethod = true;
+            }
+
             // Suppress underscore-prefixed properties without explicit AccessControl.
             if (!decl.IsModuleInternal && rawName.StartsWith("_") &&
                 (node.DeclAttributes is null || Array.IndexOf(node.DeclAttributes, "AccessControl") == -1))
@@ -1832,6 +1842,13 @@ namespace BindingsGeneration
                         }
                     }
                 }
+            }
+
+            // Propagate extension flag to subscript accessor MethodDecls.
+            if (node.isFromExtension == true)
+            {
+                foreach (var accessor in decl.Accessors)
+                    accessor.Method.IsExtensionMethod = true;
             }
 
             PopulateDocumentation(decl, node);

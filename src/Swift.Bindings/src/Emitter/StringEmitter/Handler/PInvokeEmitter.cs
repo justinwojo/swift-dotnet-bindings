@@ -800,12 +800,16 @@ namespace BindingsGeneration
             // use direct dispatch even inside non-final classes.
             // Constructors and static methods are directly exported and don't need this.
             // Wrapper library methods use @_silgen_name/@_cdecl free functions, not thunked.
+            // Extension methods use static dispatch — they have no vtable entry and no Tj
+            // thunk symbol. This is critical for cross-module extensions (e.g., StripePayments
+            // extending StripeCore.STPAPIClient) where Tj thunks don't exist in any binary.
             if (!needsWrapperLib &&
                 methodDecl.ParentDecl is ClassDecl classParent &&
                 !classParent.IsFinal &&
                 !methodDecl.IsFinal &&
                 methodDecl.MethodType == MethodType.Instance &&
-                !methodDecl.IsConstructor)
+                !methodDecl.IsConstructor &&
+                !methodDecl.IsExtensionMethod)
             {
                 entryPoint += "Tj";
             }

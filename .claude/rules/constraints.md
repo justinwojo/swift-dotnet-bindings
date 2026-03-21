@@ -11,7 +11,7 @@ These are "trap" constraints — easy to accidentally violate, hard to discover 
 - **Optional closures are always escaping**: In Swift, `Optional<Closure>` is always escaping (no `@noescape Optional<Closure>`). The ABI parser doesn't propagate `escaping` to closures inside Optional — check `IsOptionalClosure()` alongside `IsEscaping` for GCHandle lifetime decisions.
 - **ABI nested type naming**: ObjC enums in ABI JSON use nested forms (`AVCaptureSession.Preset`), NOT flattened ObjC names.
 - **ModuleEmissionContext threading**: ALL code paths creating `WrapperEmitter` in `MethodHandler` MUST pass `context.GetEmissionContext()` to avoid dedup failures. Also applies to `Utf8SliceEmitter.EmitIfNeeded`/`EmitFreeIfNeeded`.
-- **Tj dispatch thunks**: Non-final class instance methods need `Tj` suffix. Gates: `!classParent.IsFinal && !methodDecl.IsFinal`.
+- **Tj dispatch thunks**: Non-final class instance methods need `Tj` suffix. Gates: `!classParent.IsFinal && !methodDecl.IsFinal && !methodDecl.IsExtensionMethod`. Extension methods use static dispatch and have no vtable entry — never append Tj for them.
 - **Bool P/Invoke**: All `== "bool"` comparisons use `MarshallingHelpers.IsBoolType()`. Parameter-level: `[MarshalAs(UnmanagedType.U1)]`.
 - **Overload/dedup key consistency**: `DefaultParameterOverloadEmitter.GetProjectedOverloadKey` must match `IHandler.GetProjectedCSharpMethodKey` exactly. ~26 call sites across 15 files.
 - **C# `@` verbatim identifiers**: `@` at START is valid, AFTER other chars is INVALID. Compound variable names need `StripVerbatimPrefix` before prepending.
