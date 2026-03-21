@@ -94,6 +94,9 @@ namespace BindingsGeneration
                     csOutput = QualifyNamespaceReferences(csOutput, @namespace, nestedTypeNames);
                 }
 
+                // Post-generation ABI contract validation
+                AbiContractChecker.Validate(csOutput, moduleDecl.Name, _logger);
+
                 string csOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.cs");
                 using (StreamWriter outputFile = new(csOutputPath))
                 {
