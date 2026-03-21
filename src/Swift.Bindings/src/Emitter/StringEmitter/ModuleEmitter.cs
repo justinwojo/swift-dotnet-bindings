@@ -65,6 +65,10 @@ namespace BindingsGeneration
                 try
                 {
                     var env = moduleHandler.Marshal(moduleDecl, _typeDatabase);
+                    // Pre-pass: apply CSharpTypeName renames for nested type collisions BEFORE
+                    // any emission. This ensures all type references (including protocol interfaces
+                    // that may be emitted before their parent types) use the correct renamed names.
+                    NameProvider.PrecomputeNestedTypeRenames(moduleDecl, _typeDatabase);
                     var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();

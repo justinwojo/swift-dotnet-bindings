@@ -54,13 +54,14 @@ namespace BindingsGeneration
         /// Computes the fully qualified C# name for a nested enum by walking up the parent chain.
         /// E.g., for Swift's ImageProcessingOptions.Unit, returns "ImageProcessingOptions.Unit".
         /// </summary>
-        private static string GetQualifiedEnumName(EnumDecl enumDecl)
+        private static string GetQualifiedEnumName(EnumDecl enumDecl, ITypeDatabase? typeDatabase = null)
         {
             var parts = new List<string>();
             BaseDecl? current = enumDecl;
             while (current is TypeDecl typeDecl)
             {
-                parts.Add(NameProvider.ToPascalCaseForTypeName(typeDecl.Name));
+                // Use CSharpTypeName leaf if the type was renamed (e.g., nested type collision)
+                parts.Add(GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase));
                 current = typeDecl.ParentDecl;
             }
             parts.Reverse();
@@ -71,13 +72,13 @@ namespace BindingsGeneration
         /// Computes the flattened extension class name for a nested enum.
         /// E.g., ImageProcessingOptions.Unit → "ImageProcessingOptionsUnitExtensions"
         /// </summary>
-        private static string GetFlattenedExtensionClassName(EnumDecl enumDecl)
+        private static string GetFlattenedExtensionClassName(EnumDecl enumDecl, ITypeDatabase? typeDatabase = null)
         {
             var parts = new List<string>();
             BaseDecl? current = enumDecl;
             while (current is TypeDecl typeDecl)
             {
-                parts.Add(NameProvider.ToPascalCaseForTypeName(typeDecl.Name));
+                parts.Add(GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase));
                 current = typeDecl.ParentDecl;
             }
             parts.Reverse();
@@ -93,7 +94,8 @@ namespace BindingsGeneration
         {
             // Simple enums emit as C# enum value types (cases become enum members, not properties),
             // so they bypass ComputePropertyRenames — no CS0542 risk from nested-type collisions.
-            var enumName = NameProvider.ToPascalCaseForTypeName(enumDecl.Name);
+            // Use GenericTypeEmitter to resolve the name (handles CSharpTypeName renames for nested type collisions)
+            var enumName = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, typeDatabase);
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
 
             // Compute case name map for case-insensitive collision avoidance
@@ -144,14 +146,14 @@ namespace BindingsGeneration
             // C# extension methods must be in top-level static classes, so nested enums
             // need their extension classes deferred to namespace level.
             bool isNestedEnum = enumDecl.ParentDecl is TypeDecl;
-            string qualifiedEnumName = isNestedEnum ? GetQualifiedEnumName(enumDecl) : enumName;
+            string qualifiedEnumName = isNestedEnum ? GetQualifiedEnumName(enumDecl, typeDatabase) : enumName;
 
             // For String-raw-value enums, emit ToRawValue/FromRawValue extension methods
             if (enumDecl.IsStringRawValue)
             {
                 if (isNestedEnum)
                 {
-                    var flatClassName = GetFlattenedExtensionClassName(enumDecl);
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl, typeDatabase);
                     var deferredSw = new System.IO.StringWriter();
                     var deferredWriter = new CSharpWriter(deferredSw);
                     deferredWriter.Indent = 1; // namespace level
@@ -216,7 +218,7 @@ namespace BindingsGeneration
                     // Buffer extensions at namespace level and defer.
                     // Use the flattened name for the class (ImageProcessingOptionsUnitExtensions)
                     // and the qualified name for type references (ImageProcessingOptions.Unit).
-                    var flatClassName = GetFlattenedExtensionClassName(enumDecl);
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl, typeDatabase);
                     var deferredSw = new System.IO.StringWriter();
                     var deferredWriter = new CSharpWriter(deferredSw);
                     deferredWriter.Indent = 1; // namespace level
@@ -1193,7 +1195,7 @@ namespace BindingsGeneration
             foreach (var param in paramDecls)
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                var paramType = isEnumParam ? NameProvider.ToPascalCaseForTypeName(enumDecl.Name)
+                var paramType = isEnumParam ? enumName
                     : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
                 csParams.Add($"{paramType} {NameProvider.GetCSharpParameterName(param)}");
             }

@@ -77,9 +77,303 @@ public class NameProviderRenameTests
         Assert.Equal("NameValue", renames["Name"]);
     }
 
+    [Fact]
+    public void ComputePropertyRenamesForNestedTypeCollisions_TypeRenamed_SkipsPropertyRename()
+    {
+        // When a nested type was renamed (e.g., Configuration → ConfigurationType), the
+        // property should NOT be renamed — the collision is resolved by the type rename.
+        var memberNames = new[] { "Configuration", "Name" };
+        var nestedTypeNames = new[] { "Configuration", "Settings" };
+        var typeRenameNames = new HashSet<string> { "Configuration" };
+
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
+            memberNames, nestedTypeNames, typeRenameNames);
+
+        // "Configuration" should NOT be renamed (nested type was renamed instead)
+        Assert.Empty(renames);
+    }
+
+    [Fact]
+    public void ComputePropertyRenamesForNestedTypeCollisions_MixedTypeRenameAndNon_RenamesOnlyUnresolved()
+    {
+        // "Configuration" was type-renamed, but "Cache" was not → "Cache" still needs property rename.
+        var memberNames = new[] { "Configuration", "Cache" };
+        var nestedTypeNames = new[] { "Configuration", "Cache" };
+        var typeRenameNames = new HashSet<string> { "Configuration" };
+
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
+            memberNames, nestedTypeNames, typeRenameNames);
+
+        Assert.Single(renames);
+        Assert.Equal("CacheValue", renames["Cache"]);
+        Assert.False(renames.ContainsKey("Configuration"));
+    }
+
+    #endregion
+
+    #region GetTypeSpecLeafName Tests
+
+    [Fact]
+    public void GetTypeSpecLeafName_SimpleNamedType_ReturnsName()
+    {
+        var typeSpec = new NamedTypeSpec("Configuration");
+        Assert.Equal("Configuration", NameProvider.GetTypeSpecLeafName(typeSpec));
+    }
+
+    [Fact]
+    public void GetTypeSpecLeafName_ModuleQualifiedType_ReturnsLeafName()
+    {
+        var typeSpec = new NamedTypeSpec("Nuke.ImagePipeline");
+        Assert.Equal("ImagePipeline", NameProvider.GetTypeSpecLeafName(typeSpec));
+    }
+
+    [Fact]
+    public void GetTypeSpecLeafName_InnerTypeChain_ReturnsInnerLeaf()
+    {
+        var typeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        {
+            InnerType = new NamedTypeSpec("Configuration")
+        };
+        Assert.Equal("Configuration", NameProvider.GetTypeSpecLeafName(typeSpec));
+    }
+
+    [Fact]
+    public void GetTypeSpecLeafName_OptionalWrapped_UnwrapsAndReturnsLeaf()
+    {
+        var innerTypeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        {
+            InnerType = new NamedTypeSpec("Configuration")
+        };
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", innerTypeSpec);
+        Assert.Equal("Configuration", NameProvider.GetTypeSpecLeafName(optionalSpec));
+    }
+
+    [Fact]
+    public void GetTypeSpecLeafName_NonNamedType_ReturnsNull()
+    {
+        var typeSpec = new TupleTypeSpec();
+        Assert.Null(NameProvider.GetTypeSpecLeafName(typeSpec));
+    }
+
     #endregion
 
     #region ComputePropertyRenames Tests
+
+    [Fact]
+    public void ComputePropertyRenames_PropertyTypeIsNestedType_RenamesTypeNotProperty()
+    {
+        // Property "configuration" (PascalCase: "Configuration") collides with nested type "Configuration".
+        // Since the property type IS the nested type, rename the nested TYPE to "ConfigurationType"
+        // instead of renaming the PROPERTY — better consumer ergonomics.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var configSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Configuration");
+        module.RegisterType(configSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.Configuration"),
+            SwiftTypeName = configSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var configDecl = CreateStructDecl("Configuration", configSwiftName, moduleDecl);
+        var parentDecl = new StructDecl
+        {
+            Name = "ImagePipeline",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "configuration",
+                    // Type IS the nested type → rename type, not property
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ImagePipeline")
+                    {
+                        InnerType = new NamedTypeSpec("Configuration")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { configDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        configDecl.ParentDecl = parentDecl;
+        moduleDecl.Types.Add(parentDecl);
+
+        // Pre-pass applies the CSharpTypeName rename
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(parentDecl, typeDatabase);
+
+        // Property should NOT be renamed — nested type was renamed instead
+        Assert.Empty(renames);
+
+        // Nested type's CSharpTypeName should be updated to "ConfigurationType"
+        Assert.True(typeDatabase.TryGetTypeRecord(configSwiftName, out var configRecord));
+        Assert.Equal("ImagePipeline.ConfigurationType", configRecord!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void ComputePropertyRenames_PropertyTypeIsNestedType_CascadesRenameToChildren()
+    {
+        // When nested type "Cache" is renamed to "CacheType", its child types must also be updated.
+        // E.g., "ImagePipeline.Cache.Caches" → "ImagePipeline.CacheType.Caches"
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var cacheSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Cache");
+        module.RegisterType(cacheSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.Cache"),
+            SwiftTypeName = cacheSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var cachesSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Cache.Caches");
+        module.RegisterType(cachesSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.Cache.Caches"),
+            SwiftTypeName = cachesSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var cachesDecl = CreateStructDecl("Caches", cachesSwiftName, moduleDecl);
+        var cacheDecl = new StructDecl
+        {
+            Name = "Cache",
+            SwiftTypeName = cacheSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { cachesDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        cachesDecl.ParentDecl = cacheDecl;
+
+        var parentDecl = new StructDecl
+        {
+            Name = "ImagePipeline",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "cache",
+                    // Type IS the nested type → rename type, not property
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.ImagePipeline")
+                    {
+                        InnerType = new NamedTypeSpec("Cache")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { cacheDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        cacheDecl.ParentDecl = parentDecl;
+        moduleDecl.Types.Add(parentDecl);
+
+        // Pre-pass applies the CSharpTypeName rename and cascades to children
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+        var renames = NameProvider.ComputePropertyRenames(parentDecl, typeDatabase);
+
+        // Property not renamed
+        Assert.Empty(renames);
+
+        // Nested type renamed
+        Assert.True(typeDatabase.TryGetTypeRecord(cacheSwiftName, out var cacheRecord));
+        Assert.Equal("ImagePipeline.CacheType", cacheRecord!.CSharpTypeName.Name);
+
+        // Child type also renamed (cascaded)
+        Assert.True(typeDatabase.TryGetTypeRecord(cachesSwiftName, out var cachesRecord));
+        Assert.Equal("ImagePipeline.CacheType.Caches", cachesRecord!.CSharpTypeName.Name);
+    }
 
     [Fact]
     public void ComputePropertyRenames_CollidingProperty_ReturnsRename_DoesNotModifyTypeDatabase()

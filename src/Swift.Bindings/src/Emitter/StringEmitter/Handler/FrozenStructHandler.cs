@@ -97,7 +97,7 @@ namespace BindingsGeneration
             SwiftTypeInfo? swiftTypeInfo = typeRecord?.SwiftTypeInfo;
 
             // Get generic type parts if this is a generic type
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics, swiftWriter, context.GetEmissionContext());

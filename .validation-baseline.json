@@ -1,5 +1,5 @@
 {
-  "git_sha": "a08d3c45",
+  "git_sha": "694f06e4",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -10,17 +10,17 @@
         "swift_compile": "ok"
       },
       "BlinkID": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 5,
         "lines": 40,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BlinkIDUX": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 12489,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BRLMPrinterKit": {
@@ -52,8 +52,8 @@
         "swift_compile": "ok"
       },
       "Kingfisher": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 1,
         "lines": 53541,
         "dep_compile": "none",
         "swift_compile": "ok"
@@ -185,10 +185,10 @@
         "swift_compile": "ok"
       },
       "StripeCryptoOnramp": {
-        "compile": "ok",
+        "compile": "skip",
         "errors": 0,
         "lines": 165,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "fail"
       },
       "StripeFinancialConnections": {
@@ -220,10 +220,10 @@
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 3,
         "lines": 32370,
-        "dep_compile": "ok",
+        "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StripePaymentsUI": {
@@ -290,8 +290,8 @@
         "swift_compile": "ok"
       },
       "Reachability": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 1,
         "lines": 1226,
         "dep_compile": "none",
         "swift_compile": "ok"
@@ -395,8 +395,8 @@
         "swift_compile": "ok"
       },
       "SVGView": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 5,
         "lines": 12659,
         "dep_compile": "none",
         "swift_compile": "ok"

@@ -98,7 +98,7 @@ public record TypeRecord
     /// <summary>
     /// The C# type information.
     /// </summary>
-    public required CSharpTypeName CSharpTypeName { get; init; }
+    public required CSharpTypeName CSharpTypeName { get; set; }
 
     /// <summary>
     /// The Swift type identifier.

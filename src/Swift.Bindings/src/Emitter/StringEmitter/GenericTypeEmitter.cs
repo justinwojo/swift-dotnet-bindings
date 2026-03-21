@@ -37,12 +37,29 @@ public static class GenericTypeEmitter
     /// <summary>
     /// Gets the type name with generic parameters appended.
     /// For example, "Box" becomes "Box&lt;T0&gt;" for a generic type.
+    /// When a type database is provided, checks if the CSharpTypeName was renamed
+    /// (e.g., nested type "Options" → "OptionsType" to avoid CS0102 collision with a property).
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
+    /// <param name="typeDatabase">Optional type database for CSharpTypeName rename resolution.</param>
     /// <returns>The type name with generic parameters.</returns>
-    public static string GetTypeNameWithGenerics(TypeDecl typeDecl)
+    public static string GetTypeNameWithGenerics(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
-        return $"{NameProvider.ToPascalCaseForTypeName(typeDecl.Name)}{GetGenericParameterList(typeDecl)}";
+        var baseName = NameProvider.ToPascalCaseForTypeName(typeDecl.Name);
+
+        // Check if CSharpTypeName was renamed (e.g., by ComputePropertyRenames for nested type collisions).
+        // The CSharpTypeName.Name may be "Parent.OptionsType" when TypeDecl.Name is still "Options".
+        if (typeDatabase != null && typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
+        {
+            var csName = record.CSharpTypeName.Name;
+            // Extract the leaf name (last dot-separated segment)
+            var lastDot = csName.LastIndexOf('.');
+            var leafName = lastDot >= 0 ? csName.Substring(lastDot + 1) : csName;
+            if (leafName != baseName)
+                baseName = leafName;
+        }
+
+        return $"{baseName}{GetGenericParameterList(typeDecl)}";
     }
 
     /// <summary>
@@ -199,7 +216,7 @@ public static class GenericTypeEmitter
     /// <returns>The full type signature.</returns>
     public static string GetFullTypeSignature(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
-        var name = GetTypeNameWithGenerics(typeDecl);
+        var name = GetTypeNameWithGenerics(typeDecl, typeDatabase);
         var whereClause = GetWhereClause(typeDecl, typeDatabase);
 
         if (string.IsNullOrEmpty(whereClause))

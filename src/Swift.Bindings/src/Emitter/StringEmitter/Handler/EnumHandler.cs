@@ -117,7 +117,7 @@ namespace BindingsGeneration
                 return;
             }
 
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
@@ -392,7 +392,7 @@ namespace BindingsGeneration
             var propertyRenames = NameProvider.ComputePropertyRenames(enumDecl, typeDatabase);
             var childContext = context with { PropertyRenames = propertyRenames };
 
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, typeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, typeDatabase);
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);

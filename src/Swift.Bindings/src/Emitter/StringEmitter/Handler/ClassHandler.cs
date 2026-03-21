@@ -93,7 +93,7 @@ namespace BindingsGeneration
             }
 
             // Get generic type parts if this is a generic type
-            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl);
+            var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
 
             // Create P/Invoke helper context for generic types (to avoid CS7042)
@@ -130,7 +130,7 @@ namespace BindingsGeneration
 
                 if (isDerived)
                 {
-                    var baseName = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl.ResolvedSuperclass!);
+                    var baseName = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl.ResolvedSuperclass!, env.TypeDatabase);
 
                     // Collect base class interfaces to filter duplicates
                     var baseInterfaces = new HashSet<string>(

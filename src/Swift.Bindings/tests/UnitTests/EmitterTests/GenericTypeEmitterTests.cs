@@ -156,6 +156,48 @@ public class GenericTypeEmitterTests
         Assert.Equal("Box<T> where T : ISwiftObject", result);
     }
 
+    [Fact]
+    public void GetTypeNameWithGenerics_UsesRenamedCSharpTypeName_WhenTypeDatabaseProvided()
+    {
+        // Nested type "Configuration" was renamed to "ConfigurationType" in TypeDatabase.
+        // GetTypeNameWithGenerics should use the CSharpTypeName leaf name, not TypeDecl.Name.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var configSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ImagePipeline.Configuration");
+        module.RegisterType(configSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ImagePipeline.ConfigurationType"),
+            SwiftTypeName = configSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(module);
+
+        var typeDecl = new StructDecl
+        {
+            Name = "Configuration", // TypeDecl.Name unchanged (used for Swift symbols)
+            SwiftTypeName = configSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa",
+        };
+
+        // Without TypeDatabase: uses TypeDecl.Name
+        Assert.Equal("Configuration", GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl));
+
+        // With TypeDatabase: uses renamed CSharpTypeName leaf
+        Assert.Equal("ConfigurationType", GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase));
+    }
+
     #region Cross-Module Constraint Stripping Tests
 
     [Fact]

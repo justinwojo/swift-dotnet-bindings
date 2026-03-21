@@ -351,6 +351,130 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_FrozenStructHandler_PropertyTypeIsNestedType_RenamesTypeNotProperty()
+    {
+        // Property "configuration" → PascalCase "Configuration" collides with nested type "Configuration".
+        // Since the property type IS the nested type, rename the nested TYPE (→ "ConfigurationType")
+        // instead of the property. This keeps the property name clean for better consumer ergonomics.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Nuke", "/tmp/Nuke.dylib");
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$s4Nuke13ImagePipelineVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Nuke.ImagePipeline.Configuration");
+        module.RegisterType(nestedSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Nuke", "ImagePipeline.Configuration"),
+            SwiftTypeName = nestedSwiftName,
+            MetadataAccessor = "$s4Nuke13ImagePipelineV13ConfigurationVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = CreateModuleDecl("Nuke");
+
+        var nestedStructDecl = new StructDecl
+        {
+            Name = "Configuration",
+            SwiftTypeName = nestedSwiftName,
+            MangledName = "$s4Nuke13ImagePipelineV13ConfigurationVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s4Nuke13ImagePipelineV13ConfigurationVMa"
+        };
+
+        // Property "configuration" with type "Nuke.ImagePipeline.Configuration" (nested type)
+        // The InnerType chain: NamedTypeSpec("Nuke.ImagePipeline") -> InnerType -> NamedTypeSpec("Configuration")
+        var configTypeSpec = new NamedTypeSpec("Nuke.ImagePipeline")
+        {
+            InnerType = new NamedTypeSpec("Configuration")
+        };
+
+        var parentStructDecl = new StructDecl
+        {
+            Name = "ImagePipeline",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$s4Nuke13ImagePipelineVN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "configuration",
+                    SwiftTypeSpec = configTypeSpec,
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedStructDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s4Nuke13ImagePipelineVMa"
+        };
+        nestedStructDecl.ParentDecl = parentStructDecl;
+        moduleDecl.Types.Add(parentStructDecl);
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        // Pre-pass: apply CSharpTypeName renames before emission
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        var handler = new FrozenStructHandler(new NullLogger<FrozenStructHandler>());
+        var env = handler.Marshal(parentStructDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        var output = csOutput.ToString();
+
+        // Property should keep original name "Configuration" (no "Value" suffix)
+        Assert.DoesNotContain("ConfigurationValue", output);
+        // Nested type should be renamed to "ConfigurationType" in C# declaration
+        Assert.Contains("partial struct ConfigurationType", output);
+    }
+
+    [Fact]
     public void Emit_ClassHandler_NoFinalizer_UsesSwiftClassHandle()
     {
         var typeDatabase = CreateTypeDatabase();

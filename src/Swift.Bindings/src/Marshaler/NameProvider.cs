@@ -877,12 +877,16 @@ public static class NameProvider
     /// <summary>
     /// Computes property/member renames needed to avoid property/nested-type name collisions.
     /// When a member name collides with a nested type name, the member is renamed with a "Value" suffix.
+    /// Exception: when a property's return type IS the colliding nested type, the nested type is renamed
+    /// instead (with "Type" suffix), keeping the property name clean for better consumer ergonomics.
     /// </summary>
     /// <param name="memberNames">PascalCase member names (properties, enum cases).</param>
     /// <param name="nestedTypeNames">Nested type names.</param>
+    /// <param name="typeRenameNames">Member names where the nested type should be renamed instead of the property.</param>
     /// <returns>A dictionary mapping original member name → renamed name.</returns>
     public static Dictionary<string, string> ComputePropertyRenamesForNestedTypeCollisions(
-        IEnumerable<string> memberNames, IEnumerable<string> nestedTypeNames)
+        IEnumerable<string> memberNames, IEnumerable<string> nestedTypeNames,
+        ISet<string>? typeRenameNames = null)
     {
         var typeNameSet = new HashSet<string>(nestedTypeNames);
         var memberNameSet = new HashSet<string>(memberNames);
@@ -891,6 +895,12 @@ public static class NameProvider
         {
             if (typeNameSet.Contains(memberName))
             {
+                // When the property's return type IS the colliding nested type, the nested type
+                // is renamed instead (handled by the caller via TypeDatabase update), so skip
+                // the property rename here.
+                if (typeRenameNames?.Contains(memberName) == true)
+                    continue;
+
                 var candidate = $"{memberName}Value";
                 var suffix = 2;
                 while (memberNameSet.Contains(candidate) || typeNameSet.Contains(candidate) || renames.ContainsValue(candidate))
@@ -906,10 +916,12 @@ public static class NameProvider
 
     /// <summary>
     /// Computes property renames for a type declaration to resolve property/nested-type name collisions.
-    /// Returns a dictionary mapping original member name → renamed name. Does NOT modify TypeDatabase.
+    /// Returns a dictionary mapping original member name → renamed name.
+    /// When a property's return type IS the colliding nested type, the nested type is renamed instead
+    /// (with "Type" suffix) via TypeDatabase CSharpTypeName update, keeping the property name clean.
     /// </summary>
     /// <param name="typeDecl">The type declaration containing properties and nested types.</param>
-    /// <param name="typeDatabase">The type database for type resolution checks.</param>
+    /// <param name="typeDatabase">The type database for type resolution and nested type renames.</param>
     /// <returns>A dictionary mapping original member name → renamed name.</returns>
     public static Dictionary<string, string> ComputePropertyRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
@@ -919,8 +931,10 @@ public static class NameProvider
         // a nested type "Priority" to unnecessarily rename the property to "PriorityValue".
         // We use a lightweight type-resolution check rather than the full CanEmitProperty() which
         // also rejects properties for structural reasons (no accessors, etc.) that don't affect naming.
-        var memberNames = typeDecl.Properties
+        var emittableProperties = typeDecl.Properties
             .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
+            .ToList();
+        var memberNames = emittableProperties
             .Select(p => GetPropertyName(p.Name, typeDecl.Name));
 
         // Also include AsyncStream properties that will be emitted as IAsyncEnumerable<T>.
@@ -943,7 +957,162 @@ public static class NameProvider
         }
 
         var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
-        return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames);
+
+        // Check which nested types were already renamed by the PrecomputeNestedTypeRenames pre-pass.
+        // These don't need property renames — the type rename resolves the collision.
+        var typeRenameNames = new HashSet<string>();
+        foreach (var nestedType in typeDecl.Types)
+        {
+            if (typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var nestedRecord))
+            {
+                var csLeaf = nestedRecord.CSharpTypeName.Name;
+                var lastDot = csLeaf.LastIndexOf('.');
+                var leafName = lastDot >= 0 ? csLeaf.Substring(lastDot + 1) : csLeaf;
+                if (leafName != ToPascalCaseForTypeName(nestedType.Name))
+                    typeRenameNames.Add(nestedType.Name);
+            }
+        }
+
+        return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
+            typeRenameNames.Count > 0 ? typeRenameNames : null);
+    }
+
+    /// <summary>
+    /// Pre-pass that walks all types in a module and applies CSharpTypeName renames for
+    /// nested type/property name collisions. Must be called BEFORE any emission so that
+    /// protocol interfaces and other early-emitted code use the correct renamed types.
+    /// </summary>
+    public static void PrecomputeNestedTypeRenames(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+    {
+        foreach (var typeDecl in moduleDecl.Types)
+            PrecomputeNestedTypeRenamesRecursive(typeDecl, typeDatabase);
+        foreach (var protocolDecl in moduleDecl.Protocols)
+            PrecomputeNestedTypeRenamesRecursive(protocolDecl, typeDatabase);
+    }
+
+    private static void PrecomputeNestedTypeRenamesRecursive(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        // Apply renames for this type's nested type collisions
+        ApplyNestedTypeRenames(typeDecl, typeDatabase);
+
+        // Recurse into nested types
+        foreach (var nestedType in typeDecl.Types)
+            PrecomputeNestedTypeRenamesRecursive(nestedType, typeDatabase);
+    }
+
+    /// <summary>
+    /// Detects and applies CSharpTypeName renames for property/nested-type name collisions
+    /// where the property's return type IS the colliding nested type. In these cases, the
+    /// nested TYPE is renamed (with "Type" suffix) instead of the property.
+    /// </summary>
+    private static void ApplyNestedTypeRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        if (typeDecl.Types.Count == 0 || typeDecl.Properties.Count == 0)
+            return;
+
+        var emittableProperties = typeDecl.Properties
+            .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
+            .ToList();
+
+        var nestedTypeNameSet = new HashSet<string>(typeDecl.Types.Select(t => t.Name));
+        var parentFullName = typeDecl.SwiftTypeName.ToString();
+
+        foreach (var p in emittableProperties)
+        {
+            var csPropertyName = GetPropertyName(p.Name, typeDecl.Name);
+            if (!nestedTypeNameSet.Contains(csPropertyName))
+                continue;
+
+            var typeSpecToCheck = UnwrapOptionalTypeSpec(p.SwiftTypeSpec);
+            if (typeSpecToCheck == null)
+                continue;
+
+            // Compare the full qualified name: property type must be "Parent.NestedType" exactly
+            var expectedFullName = $"{parentFullName}.{csPropertyName}";
+            var propTypeFullName = typeSpecToCheck.ToString();
+            if (propTypeFullName == expectedFullName)
+            {
+                // Rename the nested type instead of the property.
+                var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == csPropertyName);
+                if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var nestedRecord))
+                {
+                    var newTypeSuffix = "Type";
+                    var oldCSharpName = nestedRecord.CSharpTypeName.Name;
+                    var newCSharpName = oldCSharpName.Replace(
+                        csPropertyName, $"{csPropertyName}{newTypeSuffix}");
+                    nestedRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
+                        nestedRecord.CSharpTypeName.Namespace, newCSharpName);
+
+                    // Cascade rename to all descendant types in the TypeDatabase.
+                    CascadeTypeRename(nestedType, oldCSharpName, newCSharpName,
+                        nestedRecord.CSharpTypeName.Namespace, typeDatabase);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the leaf (innermost) type name from a TypeSpec, for "Color Color" pattern detection.
+    /// For "Module.Parent.Nested", returns "Nested". For "Optional&lt;Module.Parent.Nested&gt;",
+    /// unwraps the Optional and returns "Nested".
+    /// </summary>
+    internal static string? GetTypeSpecLeafName(TypeSpec typeSpec)
+    {
+        var unwrapped = UnwrapOptionalTypeSpec(typeSpec);
+        if (unwrapped is not NamedTypeSpec namedType)
+            return null;
+
+        // Traverse InnerType chain to get the leaf
+        var current = namedType;
+        while (current.InnerType != null)
+            current = current.InnerType;
+
+        // Return the last component of the name (after the last '.')
+        var name = current.Name;
+        var lastDotIndex = name.LastIndexOf('.');
+        return lastDotIndex >= 0 ? name.Substring(lastDotIndex + 1) : name;
+    }
+
+    /// <summary>
+    /// Unwraps Optional&lt;T&gt; to return the inner TypeSpec. Returns the input if not Optional.
+    /// Returns null if the input is not a NamedTypeSpec.
+    /// </summary>
+    private static TypeSpec? UnwrapOptionalTypeSpec(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return null;
+
+        var nameWithoutModule = namedType.Name.Contains('.')
+            ? namedType.Name.Substring(namedType.Name.LastIndexOf('.') + 1)
+            : namedType.Name;
+        if (nameWithoutModule == "Optional" && namedType.GenericParameters.Count == 1)
+            return UnwrapOptionalTypeSpec(namedType.GenericParameters[0]);
+
+        return namedType;
+    }
+
+    /// <summary>
+    /// Cascades a CSharpTypeName rename to all descendant types in the TypeDatabase.
+    /// When a parent type is renamed (e.g., "ImagePipeline.Cache" → "ImagePipeline.CacheType"),
+    /// all nested types must also be updated (e.g., "ImagePipeline.Cache.Caches" → "ImagePipeline.CacheType.Caches").
+    /// </summary>
+    private static void CascadeTypeRename(TypeDecl parentType, string oldPrefix, string newPrefix,
+        string @namespace, ITypeDatabase typeDatabase)
+    {
+        foreach (var childType in parentType.Types)
+        {
+            if (typeDatabase.TryGetTypeRecord(childType.SwiftTypeName, out var childRecord))
+            {
+                var childOldName = childRecord.CSharpTypeName.Name;
+                if (childOldName.StartsWith(oldPrefix))
+                {
+                    var childNewName = newPrefix + childOldName.Substring(oldPrefix.Length);
+                    childRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, childNewName);
+                    // Recurse into grandchildren
+                    CascadeTypeRename(childType, childOldName, childNewName, @namespace, typeDatabase);
+                }
+            }
+        }
     }
 
     /// <summary>
