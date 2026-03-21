@@ -246,7 +246,7 @@ public class ExistentialBoxingTests : TestBase
 
     #region Pass 2 — N2: Protocol with Existential Parameters (ModeConsumer)
 
-    [SkipOnDevice("Existential container ref params SIGKILL on NativeAOT device")]
+    [SkipOnDevice("Generator bug: existential container ref param marshalling causes SIGKILL — container layout or calling convention mismatch in generated P/Invoke")]
     public void TestRunModeConsumerWithSimpleMode()
     {
         var consumer = new SimpleModeConsumer();
@@ -256,7 +256,7 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, SimpleMode) = {result}");
     }
 
-    [SkipOnDevice("Existential container ref params SIGKILL on NativeAOT device")]
+    [SkipOnDevice("Generator bug: existential container ref param marshalling causes SIGKILL — container layout or calling convention mismatch in generated P/Invoke")]
     public void TestRunModeConsumerWithStrictMode()
     {
         var consumer = new SimpleModeConsumer();

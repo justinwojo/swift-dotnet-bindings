@@ -99,6 +99,14 @@ public enum TestPlatform
 /// <summary>
 /// Marks tests that are broken everywhere (generator bugs, missing entry points).
 /// Always skipped. The reason is visible in test output.
+///
+/// The reason MUST be one of:
+/// - A specific generator bug description (e.g., "UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")
+/// - A reference to a RuntimeLimitations.Limitation that affects both runtimes
+///
+/// Do NOT use vague runtime blame like "Mono JIT crash" or "NativeAOT issue".
+/// See RuntimeLimitations registry (Swift.RuntimeLimitations) for all known upstream bugs.
+/// If a crash doesn't match a registered limitation, it is a generator bug.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class SkipAttribute : Attribute
@@ -114,8 +122,11 @@ public class SkipAttribute : Attribute
 /// <summary>
 /// Marks tests that crash on simulator (Mono JIT) but work on device (NativeAOT).
 /// Skipped on simulator, runs on device. The reason is visible in test output.
-/// Use this instead of [Skip] when the failure is Mono-specific (CallConvSwift JIT crashes,
-/// finalizer thread assertions, generic sharing failures, etc.).
+///
+/// The reason MUST reference either:
+/// - A Mono-specific RuntimeLimitations.Limitation (MonoCallConvSwiftJitAssertion,
+///   MonoAsyncSafeHandleLifetime, or NonBlittableCallConvSwiftRejection)
+/// - A specific generator bug that only manifests on Mono (prefixed with "Generator bug:")
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class SkipOnSimulatorAttribute : Attribute
@@ -131,6 +142,11 @@ public class SkipOnSimulatorAttribute : Attribute
 /// <summary>
 /// Marks tests that crash on device (NativeAOT) but work on simulator (Mono).
 /// Skipped on device, runs on simulator. The reason is visible in test output.
+///
+/// The reason MUST reference either:
+/// - A NativeAOT-specific RuntimeLimitations.Limitation (NativeAotFloatStructParam,
+///   NativeAotFloatStructReturn, or NonBlittableCallConvSwiftRejection)
+/// - A specific generator bug that only manifests on NativeAOT (prefixed with "Generator bug:")
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class SkipOnDeviceAttribute : Attribute

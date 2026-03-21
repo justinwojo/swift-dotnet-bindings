@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -20,6 +21,14 @@ namespace Swift.Runtime;
 /// (deinitialize), which trigger Mono's <c>jit-info.c:918</c> assertion from the finalizer thread.
 /// On NativeAOT, all calls are statically compiled and safe from any thread.
 /// </para>
+/// <para>
+/// Three-way runtime taxonomy:
+/// <list type="bullet">
+/// <item>Desktop CoreCLR (macOS): <c>IsMonoRuntime=false</c>, <c>IsDynamicCodeSupported=true</c></item>
+/// <item>iOS Simulator (Mono AOT): <c>IsMonoRuntime=true</c>, <c>IsDynamicCodeSupported=false</c></item>
+/// <item>iOS Device (NativeAOT): <c>IsMonoRuntime=false</c>, <c>IsDynamicCodeSupported=false</c></item>
+/// </list>
+/// </para>
 /// </remarks>
 internal static class SwiftRuntimeInfo
 {
@@ -29,6 +38,14 @@ internal static class SwiftRuntimeInfo
     /// on a user thread triggers the destroy action.
     /// </summary>
     internal static readonly bool IsMonoRuntime = DetectNonNativeAotRuntime();
+
+    /// <summary>
+    /// True when running on NativeAOT (iOS device). False on Mono (iOS simulator)
+    /// and CoreCLR (desktop macOS).
+    /// Uses <c>RuntimeFeature.IsDynamicCodeSupported</c> (false on both NativeAOT and Mono AOT)
+    /// combined with <c>IsMonoRuntime</c> to distinguish NativeAOT from Mono AOT.
+    /// </summary>
+    internal static readonly bool IsNativeAotRuntime = !IsMonoRuntime && !RuntimeFeature.IsDynamicCodeSupported;
 
     private static bool DetectNonNativeAotRuntime()
     {
