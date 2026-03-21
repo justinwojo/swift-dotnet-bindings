@@ -1,10 +1,10 @@
 # Remaining Runtime Test Fixes
 
 **Created**: March 19, 2026
-**Updated**: March 19, 2026 (Session 14)
+**Updated**: March 21, 2026 (Skip Audit)
 
 ### Simulator (Mono)
-**Current**: 663 passed, 0 failed, 31 skipped.
+**Current**: 733 passed, 0 failed, 36 skipped.
 
 ### Device (NativeAOT)
 **Current**: 661 passed, 0 failed, 33 skipped. *(projected — pending device validation)*

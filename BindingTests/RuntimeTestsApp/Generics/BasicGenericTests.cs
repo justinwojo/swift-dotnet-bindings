@@ -319,7 +319,6 @@ public class BasicGenericTests : TestBase
         TestLogger.Info("ConstrainedBox creation passed");
     }
 
-    [Skip("P/Invoke sends PWT parameter but Swift @_cdecl wrapper omits it — parameter count mismatch causes SIGSEGV")]
     public void TestConstrainedBoxGetDescription()
     {
         var item = new SimpleItem("id1", "hello");

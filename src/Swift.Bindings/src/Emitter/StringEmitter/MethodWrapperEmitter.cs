@@ -329,6 +329,14 @@ public static class MethodWrapperEmitter
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
                         }
+                        // Add PWT parameters for constrained generic types.
+                        // Only include PWT for resolvable conformances (no associated types
+                        // or Self requirements) to match what C# P/Invoke passes.
+                        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        for (int pi = 0; pi < pwtCount; pi++)
+                        {
+                            swiftParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
+                        }
                     }
                     break;
             }

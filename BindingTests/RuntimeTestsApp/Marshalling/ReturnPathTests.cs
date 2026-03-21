@@ -55,7 +55,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("TransformFactory construction passed");
     }
 
-    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
+    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestTransformFactoryClosureReturn()
     {
         var factory = new TransformFactory(multiplier: 3);
@@ -77,7 +77,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("OptionalHandlerFactory construction passed");
     }
 
-    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
+    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestOptionalHandlerReturnsValue()
     {
         var factory = new OptionalHandlerFactory(enabled: true);
@@ -88,7 +88,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info($"OptionalHandlerFactory.MakeHandler(10) = {result}");
     }
 
-    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT and NativeAOT — indirect call with Swift CC closure context, no workaround")]
+    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestOptionalHandlerReturnsNil()
     {
         var factory = new OptionalHandlerFactory(enabled: false);

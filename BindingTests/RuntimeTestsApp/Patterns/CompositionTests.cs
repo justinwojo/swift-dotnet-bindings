@@ -278,7 +278,7 @@ public class BasicCompositionTests : TestBase
         TestLogger.Info($"Transformer.Apply = {result}");
     }
 
-    [Skip("Calli through delegate* unmanaged[Swift] crashes on both Mono JIT (simulator) and NativeAOT (device) — indirect call with Swift CC closure context, no workaround")]
+    [Skip("Closure return: invoking returned SwiftClosureData via delegate* unmanaged[Swift] crashes — needs @_cdecl thunk wrapping returned closures")]
     public void TestTransformerChain()
     {
         var chained = Transformer.Chain(x => x + 1, x => x * 3);

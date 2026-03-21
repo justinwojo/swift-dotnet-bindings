@@ -672,6 +672,144 @@ public class AbiSafetyTests
         Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
+    [Fact]
+    public void GetResolvablePwtParameterCount_GenericClassWithConstraint_ReturnsOne()
+    {
+        // Generic class ConstrainedBox<T: Describable> — one resolvable PWT
+        // Verifies the PWT parameter count matches what PInvokeEmitter.HandleProtocolConformance emits.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        // Register Describable protocol in TypeDatabase
+        var describableName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(describableName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDescribable"),
+            SwiftTypeName = describableName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateClassDecl("ConstrainedBox", moduleDecl, isFinal: false);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T",
+                new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        new[] { "T" }, describableName, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+
+        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentDecl, typeDb);
+        Assert.Equal(1, pwtCount);
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_GenericClassNoConstraint_ReturnsZero()
+    {
+        // Generic class Container<T> with no protocol conformance — zero PWT
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl, isFinal: true);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentDecl, typeDb);
+        Assert.Equal(0, pwtCount);
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_MultipleConstraints_ReturnsCorrectCount()
+    {
+        // Generic class Box<T: Describable & TestIdentifiable> — two resolvable PWTs
+        // Verifies ordering stays aligned with PInvokeEmitter.HandleProtocolConformance.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var describableName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable");
+        var identifiableName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestIdentifiable");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(describableName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IDescribable"),
+            SwiftTypeName = describableName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol
+        });
+        testModule.RegisterType(identifiableName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ITestIdentifiable"),
+            SwiftTypeName = identifiableName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl, isFinal: false);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T",
+                new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        new[] { "T" }, describableName, ConformanceKind.Protocol),
+                    new GenericParameterConformance(
+                        new[] { "T" }, identifiableName, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+
+        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentDecl, typeDb);
+        Assert.Equal(2, pwtCount);
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_ProtocolWithAssociatedTypes_ReturnsZero()
+    {
+        // Generic class with constraint on protocol that has associated types — not resolvable
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var collectionName = SwiftTypeName.FromModuleQualifiedName("TestModule.Collection");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(collectionName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ICollection"),
+            SwiftTypeName = collectionName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.HasAssociatedTypes,
+            Kind = TypeRecordKind.Protocol
+        });
+        typeDb.AddModuleDatabase(testModule);
+
+        var parentDecl = CreateClassDecl("Collector", moduleDecl, isFinal: false);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T",
+                new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(
+                        new[] { "T" }, collectionName, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+
+        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentDecl, typeDb);
+        Assert.Equal(0, pwtCount);
+    }
+
     #endregion
 
     #region IsSelfTypeCdeclRequired — Frozen Struct Instance Member Tests

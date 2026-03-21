@@ -69,7 +69,7 @@ public class WrapperStrippingTests : TestBase
     // This is the same pattern as real-world library failures — the method exists
     // but crashes on Mono because there's no @_cdecl wrapper.
 
-    [Skip("CallConvSwift inout param crashes both Mono JIT and NativeAOT — likely generator bug, needs root cause investigation")]
+    [Skip("SB0001: inout params have no @_cdecl wrapper — CallConvSwift P/Invoke to mangled symbol crashes on both runtimes")]
     public void TestMixedEmittabilityInoutParam()
     {
         // increment(counter: inout Int32) — emitted with CallConvSwift, no @_cdecl wrapper.
@@ -82,7 +82,7 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("MixedEmittability.Increment called without crash");
     }
 
-    [Skip("CallConvSwift opaque return crashes both Mono JIT and NativeAOT — likely generator bug, needs root cause investigation")]
+    [Skip("SB0001: opaque return (some Protocol) has no @_cdecl wrapper — CallConvSwift P/Invoke to mangled symbol crashes on both runtimes")]
     public void TestMixedEmittabilityOpaqueReturn()
     {
         // asDescribable() -> some CustomStringConvertible — emitted with CallConvSwift

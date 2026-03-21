@@ -22,7 +22,7 @@ public class ExistentialCallbackTests : TestBase
     /// Tests that Swift can call a C# protocol implementation passing
     /// an existential parameter (any HasValue) through proxy receiver dispatch.
     /// </summary>
-    [Skip("ExistentialContainer1 (40 bytes) via CallConvSwift crashes both Mono JIT and NativeAOT — likely generator bug in container size or calling convention, needs root cause investigation")]
+    [Skip("No @_cdecl wrapper for free function with ExistentialContainer1 param — CallConvSwift passes 40-byte struct by value, crashes Mono JIT")]
     public void TestExistentialParamCallbackDelivery()
     {
         var impl = new TestExistentialDelegate();

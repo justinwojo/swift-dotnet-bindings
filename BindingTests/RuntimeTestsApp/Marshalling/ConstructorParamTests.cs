@@ -26,7 +26,7 @@ public class ConstructorParamTests : TestBase
 
     #region DescriptionPrinter — Protocol Existential Constructor Param
 
-    [Skip("ExistentialContainer1 P/Invoke crashes both Mono JIT and NativeAOT — likely generator bug in container layout or param passing, needs root cause investigation")]
+    [Skip("ExistentialContainer1 ref param crashes Mono JIT — ExistentialContainerFactory boxing marshals correct layout but Mono crashes in P/Invoke transition")]
     public void TestProtocolExistentialParamConstruction()
     {
         // DescriptionPrinter(source: any Describable) — exercises IsProtocolExistentialType branch.
@@ -37,7 +37,7 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info("DescriptionPrinter(IDescribable) construction passed");
     }
 
-    [Skip("ExistentialContainer1 P/Invoke crashes both Mono JIT and NativeAOT — likely generator bug in container layout or param passing, needs root cause investigation")]
+    [Skip("ExistentialContainer1 ref param crashes Mono JIT — ExistentialContainerFactory boxing marshals correct layout but Mono crashes in P/Invoke transition")]
     public void TestProtocolExistentialParamGetText()
     {
         var item = new SimpleItem(id: "ex-1", label: "Existential test");
