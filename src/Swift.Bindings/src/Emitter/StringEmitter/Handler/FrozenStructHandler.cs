@@ -182,7 +182,6 @@ namespace BindingsGeneration
                     unsafe
                     {
                         // Apply struct layout attributes
-                        // TODO: refactor to use type metadata
                         csWriter.WriteLine($"[StructLayout(LayoutKind.Sequential, Size = {swiftTypeInfo.Value.ValueWitnessTable->Size})]");
                     }
                 }

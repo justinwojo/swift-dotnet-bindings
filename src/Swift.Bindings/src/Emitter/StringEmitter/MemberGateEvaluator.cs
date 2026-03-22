@@ -326,32 +326,11 @@ public class MemberGateEvaluator
     }
 
     /// <summary>
-    /// Checks if a resolved C# type name contains AnyType as a generic type argument
-    /// (inside angle brackets). Plain AnyType as a standalone type is NOT flagged —
-    /// it's degraded but compilable. Only AnyType within a bound generic (e.g.,
-    /// BatchedCollection&lt;Swift.AnyType&gt;) is problematic because it violates
-    /// generic constraints.
+    /// Checks if a resolved C# type name contains AnyType as a generic type argument.
+    /// Delegates to <see cref="ValidationRuleSet.ContainsAnyTypeGenericArg"/> as the canonical implementation.
     /// </summary>
     public static bool ContainsAnyTypeGenericArg(string csharpTypeName)
-    {
-        int angleBracketStart = csharpTypeName.IndexOf('<');
-        if (angleBracketStart < 0) return false;
-        var genericPart = csharpTypeName.Substring(angleBracketStart);
-        // Token-aware match: ensure "AnyType" is a standalone type identifier,
-        // not part of a larger name (e.g., reject "MyAnyTypeModel")
-        int idx = 0;
-        while ((idx = genericPart.IndexOf("AnyType", idx, StringComparison.Ordinal)) >= 0)
-        {
-            bool startOk = idx == 0 || !IsIdentifierChar(genericPart[idx - 1]);
-            int end = idx + "AnyType".Length;
-            bool endOk = end >= genericPart.Length || !IsIdentifierChar(genericPart[end]);
-            if (startOk && endOk) return true;
-            idx++;
-        }
-        return false;
-    }
-
-    private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+        => ValidationRuleSet.ContainsAnyTypeGenericArg(csharpTypeName);
 
     /// <summary>
     /// Checks if a method signature contains bare generic usage in return type or parameters.
@@ -408,66 +387,8 @@ public class MemberGateEvaluator
 
     /// <summary>
     /// Recursively checks if a TypeSpec references a type that is internal to the given module.
-    /// A type is considered internal if it belongs to the module (qualified with the module name)
-    /// but is not found in the type database — meaning it wasn't part of the public API surface.
-    /// Mirrors ModuleHandler.ReferencesInternalModuleType for use in concrete-type gate evaluation.
+    /// Delegates to <see cref="ValidationRuleSet.ReferencesInternalModuleType"/> as the canonical implementation.
     /// </summary>
     internal static bool ReferencesInternalModuleType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, string moduleName)
-    {
-        if (typeSpec == null)
-            return false;
-
-        switch (typeSpec)
-        {
-            case NamedTypeSpec namedType:
-                // Skip existential types (any Protocol) — these are protocol usages,
-                // not concrete type references. A protocol may validly not be in the
-                // type database while still being publicly accessible.
-                if (namedType.IsAny)
-                    return false;
-                if (namedType.HasModule())
-                {
-                    var typeModule = namedType.Module;
-                    if (typeModule == moduleName)
-                    {
-                        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out _))
-                            return true;
-                    }
-                }
-                foreach (var genericParam in namedType.GenericParameters)
-                {
-                    if (ReferencesInternalModuleType(genericParam, typeDatabase, moduleName))
-                        return true;
-                }
-                return false;
-
-            case TupleTypeSpec tupleType:
-                foreach (var element in tupleType.Elements)
-                {
-                    if (ReferencesInternalModuleType(element, typeDatabase, moduleName))
-                        return true;
-                }
-                return false;
-
-            case ClosureTypeSpec closureType:
-                if (ReferencesInternalModuleType(closureType.Arguments, typeDatabase, moduleName))
-                    return true;
-                if (ReferencesInternalModuleType(closureType.ReturnType, typeDatabase, moduleName))
-                    return true;
-                return false;
-
-            case ProtocolListTypeSpec:
-                // Protocol compositions (any P1 & P2) are existential references.
-                // Constituent protocols may legitimately be absent from the type database
-                // while still being public — protocol TypeRecords are only created when
-                // the protocol has enough infrastructure for proxy/conformance emission.
-                // Internal protocol compositions are caught downstream by the wrapper
-                // post-processor safety net.
-                return false;
-
-            default:
-                return false;
-        }
-    }
+        => ValidationRuleSet.ReferencesInternalModuleType(typeSpec, typeDatabase, moduleName);
 }

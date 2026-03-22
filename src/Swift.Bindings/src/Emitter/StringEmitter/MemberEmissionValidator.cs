@@ -720,117 +720,19 @@ public static class MemberEmissionValidator
     }
 
     /// <summary>
-    /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine)
-    /// that is NOT registered in the type database. Types registered in the database (e.g., SwiftUI.Color,
-    /// SwiftUI.Font from SwiftUIDatabase.xml) are considered supported and pass through.
-    /// Recursively checks generic parameters, tuple elements, and closure args/return.
+    /// Returns true if the TypeSpec references a type from an unsupported module (SwiftUI, Combine, etc.)
+    /// that is NOT registered in the type database.
+    /// Delegates to <see cref="ValidationRuleSet.ReferencesUnsupportedModule"/> as the canonical implementation.
     /// </summary>
     internal static bool ReferencesUnsupportedModule(TypeSpec? typeSpec, ITypeDatabase? typeDatabase = null)
-    {
-        if (typeSpec == null)
-            return false;
-
-        switch (typeSpec)
-        {
-            case NamedTypeSpec namedType:
-                // Types that are static classes in .NET — cannot be used as variables,
-                // parameters, return types, or generic type arguments (CS0718/CS0723).
-                // In Swift these are RawRepresentable structs backed by NSString, but
-                // .NET iOS maps them to static classes with string constants.
-                if (NetStaticClassTypes.Contains(namedType.Name))
-                    return true;
-                if (namedType.HasModule() && GenericTypeEmitter.IsUnsupportedModule(namedType.Module))
-                {
-                    // Registered non-generic types (with C# ISwiftObject stubs) pass through.
-                    // Generic usages, null DB, and unregistered types still rejected.
-                    if (typeDatabase == null ||
-                        namedType.ContainsGenericParameters ||
-                        !typeDatabase.TryGetTypeRecord(
-                            SwiftTypeName.FromModuleQualifiedName(namedType.Name), out _))
-                    {
-                        return true;
-                    }
-                    // Registered non-generic type — fall through to generic parameter check
-                }
-                foreach (var genericParam in namedType.GenericParameters)
-                {
-                    if (ReferencesUnsupportedModule(genericParam, typeDatabase))
-                        return true;
-                }
-                return false;
-
-            case TupleTypeSpec tupleType:
-                foreach (var element in tupleType.Elements)
-                {
-                    if (ReferencesUnsupportedModule(element, typeDatabase))
-                        return true;
-                }
-                return false;
-
-            case ClosureTypeSpec closureType:
-                if (ReferencesUnsupportedModule(closureType.Arguments, typeDatabase))
-                    return true;
-                if (ReferencesUnsupportedModule(closureType.ReturnType, typeDatabase))
-                    return true;
-                return false;
-
-            case ProtocolListTypeSpec protocolList:
-                foreach (var protocol in protocolList.Protocols.Keys)
-                {
-                    if (ReferencesUnsupportedModule(protocol, typeDatabase))
-                        return true;
-                }
-                return false;
-
-            default:
-                return false;
-        }
-    }
+        => ValidationRuleSet.ReferencesUnsupportedModule(typeSpec, typeDatabase);
 
     /// <summary>
-    /// Returns true if the TypeSpec contains an associated type reference (e.g., Self.Element,
-    /// τ_0_0.ID) that would produce an unresolvable C# type like TElement or TRowDecoder.ID.
-    /// These are protocol-scoped type parameters that leak into interface/proxy member signatures
-    /// when the protocol doesn't declare them as generic parameters.
+    /// Returns true if the TypeSpec contains an associated type reference (e.g., Self.Element, τ_0_0.ID).
+    /// Delegates to <see cref="ValidationRuleSet.ContainsAssociatedTypeReference"/> as the canonical implementation.
     /// </summary>
     internal static bool ContainsAssociatedTypeReference(TypeSpec? typeSpec)
-    {
-        if (typeSpec == null)
-            return false;
-
-        switch (typeSpec)
-        {
-            case AssociatedTypeReferenceSpec:
-                return true;
-
-            case NamedTypeSpec namedType:
-                // Optional<AssocType> etc.
-                foreach (var genericParam in namedType.GenericParameters)
-                {
-                    if (ContainsAssociatedTypeReference(genericParam))
-                        return true;
-                }
-                return false;
-
-            case TupleTypeSpec tupleType:
-                foreach (var element in tupleType.Elements)
-                {
-                    if (ContainsAssociatedTypeReference(element))
-                        return true;
-                }
-                return false;
-
-            case ClosureTypeSpec closureType:
-                if (ContainsAssociatedTypeReference(closureType.Arguments))
-                    return true;
-                if (ContainsAssociatedTypeReference(closureType.ReturnType))
-                    return true;
-                return false;
-
-            default:
-                return false;
-        }
-    }
+        => ValidationRuleSet.ContainsAssociatedTypeReference(typeSpec);
 
     /// <summary>
     /// Lightweight method emission check for the main HandleBaseDecl path.
@@ -1199,15 +1101,8 @@ public static class MemberEmissionValidator
     /// but .NET iOS maps them to static classes with string constants.
     /// Static classes cannot be used as variables, parameters, return types,
     /// or generic type arguments (CS0718/CS0723).
-    /// </summary>
-    private static readonly HashSet<string> NetStaticClassTypes = new(StringComparer.Ordinal)
-    {
-        "UIKit.UITextContentType",
-    };
-
-    /// <summary>
-    /// Returns true if the given module-qualified type name is a known .NET static class.
+    /// Delegates to <see cref="ValidationRuleSet.IsNetStaticClassType"/> as the canonical implementation.
     /// </summary>
     internal static bool IsNetStaticClassType(string moduleQualifiedName)
-        => NetStaticClassTypes.Contains(moduleQualifiedName);
+        => ValidationRuleSet.IsNetStaticClassType(moduleQualifiedName);
 }

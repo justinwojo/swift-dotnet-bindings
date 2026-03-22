@@ -6,8 +6,6 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace BindingsGeneration;
 
-// TODO: TypeDatabase should hold only nominal types (represented by NamedTypeSpec). Specifically tuples, closures etc. should not reside inside TypeDatabase.
-// Functions taking TypeSpec should be moved into another class which will handle construction of complex types using nominal types.
 
 public static class TypeDatabaseExtensions
 {

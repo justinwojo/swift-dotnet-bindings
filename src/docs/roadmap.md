@@ -115,7 +115,7 @@ Group all consumer-facing quality improvements into one session.
 
 ---
 
-### Session D: Feature Expansion + Gate Relaxation
+### Session D: Feature Expansion + Gate Relaxation — **Done** (`a674300f`)
 
 Feature gaps and overly conservative skip gates that recover meaningful member counts.
 

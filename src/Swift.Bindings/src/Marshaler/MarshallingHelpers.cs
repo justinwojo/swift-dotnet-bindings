@@ -4,7 +4,7 @@
 
 namespace BindingsGeneration
 {
-    public static class MarshallingHelpers // TODO: Find better place for those
+    public static class MarshallingHelpers
     {
         private static readonly SwiftTypeName SwiftStringTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
         private static readonly SwiftTypeName SwiftArrayTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array");

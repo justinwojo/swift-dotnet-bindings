@@ -11,11 +11,6 @@ namespace BindingsGeneration;
 /// </summary>
 public class BoundGenericsHandler
 {
-    private static readonly HashSet<string> s_unsupportedConstraintModules = new(StringComparer.Ordinal)
-    {
-        "SwiftUI",
-        "Combine",
-    };
     private static readonly HashSet<string> s_stdlibGenerics = new(StringComparer.Ordinal)
     {
         "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result",
@@ -45,7 +40,6 @@ public class BoundGenericsHandler
             SwiftTypeName.FromModuleQualifiedName("Swift.UnsafeMutablePointer"),
         };
 
-    // TODO: Add more types as needed.
     // Mapping of Swift generic types to their corresponding buffer types.
     private static readonly Dictionary<SwiftTypeName, string> s_bufferTypeMap = new()
         {
@@ -60,7 +54,6 @@ public class BoundGenericsHandler
     /// A type is considered bound generic when it is a <see cref="NamedTypeSpec"/> that contains
     /// generic parameters, is NOT an optional closure, and is NOT a pointer type.
     /// </summary>
-    // TODO: Should also check that the type is not the parent's own generic parameter (e.g., T in class Foo<T>)
     private bool IsBoundGenericTypeSpec(TypeSpec? typeSpec) =>
         typeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
@@ -556,7 +549,7 @@ public class BoundGenericsHandler
             return resolvedName;
         }
 
-        var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec); // TODO: consider throwing an exception instead
+        var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);
 
         // If the type falls back to AnyType or is IntPtr (pointer types), don't append generic parameters
         // since these are not generic types in C# and adding <T1, T2> would be invalid C#
@@ -920,7 +913,7 @@ public class BoundGenericsHandler
         if (protocolType.Name == "Sendable")
             return true;
 
-        if (s_unsupportedConstraintModules.Contains(protocolType.Module))
+        if (ValidationRuleSet.IsUnsupportedConstraintModule(protocolType.Module))
             return true;
 
         if (_typeDatabase.TryGetTypeRecord(protocolType, out var protocolRecord) &&

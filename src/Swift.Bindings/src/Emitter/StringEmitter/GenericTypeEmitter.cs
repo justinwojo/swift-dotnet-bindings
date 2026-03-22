@@ -10,11 +10,6 @@ namespace BindingsGeneration;
 /// </summary>
 public static class GenericTypeEmitter
 {
-    private static readonly HashSet<string> UnsupportedConstraintModules = new(StringComparer.Ordinal)
-    {
-        "SwiftUI",
-        "Combine",
-    };
 
     /// <summary>
     /// Gets the generic type parameter list for a type declaration.
@@ -170,14 +165,15 @@ public static class GenericTypeEmitter
     }
 
     private static bool IsUnsupportedConstraintModule(string moduleName) =>
-        UnsupportedConstraintModules.Contains(moduleName);
+        ValidationRuleSet.IsUnsupportedConstraintModule(moduleName);
 
     /// <summary>
-    /// Returns true if the module is in the unsupported constraint modules set (SwiftUI, Combine).
-    /// Used by MemberEmissionValidator for member-level SwiftUI type filtering.
+    /// Returns true if the module is unsupported for constraint and member-level filtering.
+    /// Delegates to <see cref="ValidationRuleSet.IsUnsupportedConstraintModule"/> as the
+    /// single source of truth.
     /// </summary>
     public static bool IsUnsupportedModule(string moduleName) =>
-        UnsupportedConstraintModules.Contains(moduleName);
+        ValidationRuleSet.IsUnsupportedConstraintModule(moduleName);
 
     /// <summary>
     /// Checks if a protocol has associated types (which would make it a generic interface in C#).

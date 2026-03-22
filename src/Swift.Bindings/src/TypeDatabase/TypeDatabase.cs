@@ -18,7 +18,6 @@ namespace BindingsGeneration
 
         // This store is intended for types which are encountered in one module but should belong to another.
         // This is true for closed generics, where a generic definition is in one module and instantiation is in another.
-        // TODO: This is a temporary solution and should be replaced with a more robust mechanism.
         private readonly ConcurrentDictionary<SwiftTypeName, TypeRecord> _outOfModuleTypes = new();
 
         // Module aliases for types that appear under different module names in ABI JSON vs their canonical location.
@@ -48,7 +47,6 @@ namespace BindingsGeneration
             var fileContent = await File.ReadAllTextAsync(file);
 
             XmlDocument xmlDoc = new();
-            // TODO: This is synchronous, consider other xml parsers, other formats
             xmlDoc.LoadXml(fileContent);
             if (!ValidateXmlSchema(xmlDoc))
                 throw new Exception($"Invalid XML schema in {file}.");
@@ -156,7 +154,7 @@ namespace BindingsGeneration
                 if (typeDeclarationNode == null)
                     throw new Exception("Invalid XML structure: 'typedeclaration' node not found.");
 
-                string moduleName = typeDeclarationNode?.Attributes?["module"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'module' attribute."); // TODO: Closed generics
+                string moduleName = typeDeclarationNode?.Attributes?["module"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'module' attribute.");
                 string swiftTypeIdentifier = typeDeclarationNode?.Attributes?["name"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'name' attribute.");
                 string swiftMangledName = typeDeclarationNode?.Attributes?["mangledName"]?.Value ?? string.Empty;
                 string csharpTypeIdentifier = entityNode?.Attributes?["managedTypeName"]?.Value ?? throw new Exception("Invalid XML structure: Missing 'managedTypeName' attribute.");

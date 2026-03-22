@@ -79,7 +79,6 @@ namespace TbdParsing.Parsing
                 }
                 catch (FormatException ex)
                 {
-                    // TODO: We might not support all top-level keys yet
                     _logger.LogWarning($"Line {lineIndex}: {ex.Message}");
                     continue;
                 }

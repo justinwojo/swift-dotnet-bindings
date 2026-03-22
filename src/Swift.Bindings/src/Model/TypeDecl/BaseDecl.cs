@@ -11,7 +11,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Name of the declaration.
         /// </summary>
-        public required string Name { get; set; } //TODO: Hide or remove this property. This might not contain a correct name.
+        public required string Name { get; set; }
 
         /// <summary>
         /// The original Swift identifier name, set only when the parser's ExtractUniqueName
