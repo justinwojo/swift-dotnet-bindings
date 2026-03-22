@@ -964,6 +964,30 @@ public static class WrapperValidation
             && !IsInheritedGenericContext(genericParent))
             return true;
 
+        // All class allocating constructors need @_cdecl wrappers.
+        // Swift's allocating init (__allocating_init) uses @convention(method) which passes
+        // @thick Self.Type as a hidden metatype parameter — same pattern as static methods.
+        // On Mono JIT, the CallConvSwift P/Invoke doesn't include this parameter, causing
+        // the call to read garbage from the metatype register → SIGSEGV (jit-info.c:918).
+        // Even parameterless constructors crash (Keychain(), MD5()) because the hidden
+        // metatype is always present in the allocating init ABI. Constructors with MarshalAs
+        // parameters (BooleanDisposable(bool)) compound the issue.
+        // The generic constructor check above already handles generic classes for metatype
+        // dispatch; this catches the remaining non-generic class constructors.
+        if (env.MethodDecl.IsConstructor && env.ParentDecl is ClassDecl)
+            return true;
+
+        // Frozen struct constructors need @_cdecl wrappers because:
+        // 1. Larger frozen structs use SwiftIndirectResult to return the constructed value,
+        //    and Mono JIT can't handle CallConvSwift + SwiftIndirectResult → jit-info.c:918
+        //    assertion (e.g., URLEncoding(destination:arrayEncoding:boolEncoding:)).
+        // 2. Even smaller frozen struct constructors with MarshalAs parameters (bool, enum)
+        //    crash on Mono with CallConvSwift.
+        // The @_cdecl wrapper uses a resultPtr buffer pattern that avoids both issues.
+        if (env.MethodDecl.IsConstructor && env.ParentDecl is StructDecl frozenCtorStruct
+            && frozenCtorStruct.IsFrozen)
+            return true;
+
         // Class methods need @_cdecl in two cases:
         // 1. Static methods: Swift's @convention(method) passes @thick Self.Type (metatype)
         //    as a hidden parameter. The C# P/Invoke doesn't include this parameter, so the
@@ -1025,10 +1049,13 @@ public static class WrapperValidation
     /// </summary>
     public static bool RequiresCdeclForAbiSafety(MethodEnvironment env, PropertyDecl propertyDecl)
     {
-        // Non-final class property accessors use Tj dispatch thunks (vtable indirection).
-        // Same as method path — direct CallConvSwift crashes on both runtimes.
-        if (env.ParentDecl is ClassDecl classDecl &&
-            !classDecl.IsFinal && !propertyDecl.IsFinal)
+        // All class instance property accessors need @_cdecl wrappers:
+        // - Non-final: Tj dispatch thunks (vtable indirection) crash on both runtimes.
+        // - Final: Direct symbols with SwiftSelf — NativeAOT handles this correctly but
+        //   Mono JIT can't handle CallConvSwift + SwiftSelf → jit-info.c:918 assertion
+        //   (e.g., ImagePrefetcher.Priority, ImageTask.Priority on Nuke).
+        // Static properties are excluded — they don't use SwiftSelf.
+        if (env.ParentDecl is ClassDecl && !propertyDecl.IsStatic)
             return true;
 
         // Non-frozen struct instance properties: same as method path — C# has IntPtr self

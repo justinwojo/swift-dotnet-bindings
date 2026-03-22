@@ -362,9 +362,10 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_PrimaryConstructor_SafeType_UsesCallConvSwift()
+    public void Emit_PrimaryConstructor_FrozenStruct_UsesCdeclWrapper()
     {
-        // Frozen integer struct ≤ 16 bytes with no float fields → CallConvSwift safe → no @_cdecl wrapper
+        // Frozen struct constructor → @_cdecl wrapper required
+        // (SwiftIndirectResult + Mono JIT crash, e.g. URLEncoding from Alamofire)
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -373,11 +374,11 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        // No @_cdecl wrapper for CallConvSwift-safe types
-        Assert.DoesNotContain("@_cdecl(\"", swiftOutput);
-        Assert.DoesNotContain("SBW_", swiftOutput);
-        // C# P/Invoke should use CallConvSwift, not Cdecl
-        Assert.DoesNotContain("CallConvCdecl", csOutput);
+        // @_cdecl wrapper should be emitted for all frozen struct constructors
+        Assert.Contains("@_cdecl(\"", swiftOutput);
+        Assert.Contains("SBW_", swiftOutput);
+        // C# P/Invoke should use CallConvCdecl
+        Assert.Contains("CallConvCdecl", csOutput);
     }
 
     [Fact]

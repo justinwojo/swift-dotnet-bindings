@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Marshalling;
@@ -206,6 +207,175 @@ public class AbiSafetyRuntimeTests : TestBase
         AssertTrue(desc.Contains("api"), "Description contains name");
         AssertTrue(desc.Contains("3"), "Description contains retry count");
         TestLogger.Info($"FlexibleConfig.GetDescribe() = {desc}");
+    }
+
+    #endregion
+
+    #region MultiInitClass — Class Allocating Constructor @_cdecl Wrappers
+
+    public void TestMultiInitClassParameterless()
+    {
+        // Tests parameterless class constructor gets @_cdecl wrapper.
+        // Previously crashed Mono JIT: Keychain(), MD5() pattern (hidden metatype + CallConvSwift).
+        var obj = new MultiInitClass();
+        AssertEqual("default", obj.Label.ToString(), "Label from parameterless init");
+        AssertEqual(0, obj.Value, "Value from parameterless init");
+        AssertEqual(false, obj.Enabled, "Enabled from parameterless init");
+        TestLogger.Info("MultiInitClass() parameterless constructor passed");
+    }
+
+    public void TestMultiInitClassBoolParam()
+    {
+        // Tests class constructor with bool parameter gets @_cdecl wrapper.
+        // Previously crashed Mono JIT: BooleanDisposable(bool) pattern (MarshalAs + CallConvSwift).
+        var obj = new MultiInitClass(enabled: true);
+        AssertEqual("enabled", obj.Label.ToString(), "Label from bool init(true)");
+        AssertEqual(1, obj.Value, "Value from bool init(true)");
+        AssertEqual(true, obj.Enabled, "Enabled from bool init(true)");
+        TestLogger.Info("MultiInitClass(enabled: true) constructor passed");
+    }
+
+    public void TestMultiInitClassBoolParamFalse()
+    {
+        var obj = new MultiInitClass(enabled: false);
+        AssertEqual("disabled", obj.Label.ToString(), "Label from bool init(false)");
+        AssertEqual(0, obj.Value, "Value from bool init(false)");
+        AssertEqual(false, obj.Enabled, "Enabled from bool init(false)");
+        TestLogger.Info("MultiInitClass(enabled: false) constructor passed");
+    }
+
+    public void TestMultiInitClassStringIntParam()
+    {
+        // String param constructor already had @_cdecl — verify it still works.
+        var obj = new MultiInitClass(label: "custom", value: 42);
+        AssertEqual("custom", obj.Label.ToString(), "Label from string+int init");
+        AssertEqual(42, obj.Value, "Value from string+int init");
+        AssertEqual(true, obj.Enabled, "Enabled from string+int init");
+        TestLogger.Info("MultiInitClass(label:value:) constructor passed");
+    }
+
+    public void TestMultiInitClassDescribe()
+    {
+        var obj = new MultiInitClass(enabled: true);
+        var desc = obj.GetDescribe();
+        AssertTrue(desc.Contains("enabled"), "Describe contains label");
+        AssertTrue(desc.Contains("1"), "Describe contains value");
+        AssertTrue(desc.Contains("true"), "Describe contains enabled");
+        TestLogger.Info($"MultiInitClass.Describe() = {desc}");
+    }
+
+    public void TestMultiInitClassFactoryFunction()
+    {
+        // Factory function tests that the parameterless constructor's @_cdecl wrapper
+        // is correctly connected when called from Swift.
+        var obj = TestLibFunctions.CreateMultiInitDefault();
+        AssertEqual("default", obj.Label.ToString(), "Factory returns default label");
+        AssertEqual(0, obj.Value, "Factory returns default value");
+        TestLogger.Info("createMultiInitDefault() factory function passed");
+    }
+
+    #endregion
+
+    #region FrozenRect — Large Frozen Struct Constructor @_cdecl Wrapper
+
+    public void TestFrozenRectConstruction()
+    {
+        // Tests 32-byte frozen struct constructor gets @_cdecl wrapper.
+        // Previously crashed Mono JIT: URLEncoding(dest,array,bool) pattern
+        // (CallConvSwift + SwiftIndirectResult for >16 byte return).
+        var rect = new FrozenRect(x: 10.0, y: 20.0, width: 100.0, height: 50.0);
+        AssertApproxEqual(10.0, rect.X, message: "X field");
+        AssertApproxEqual(20.0, rect.Y, message: "Y field");
+        AssertApproxEqual(100.0, rect.Width, message: "Width field");
+        AssertApproxEqual(50.0, rect.Height, message: "Height field");
+        TestLogger.Info("FrozenRect(x:y:width:height:) 32-byte constructor passed");
+    }
+
+    public void TestFrozenRectArea()
+    {
+        var rect = new FrozenRect(x: 0.0, y: 0.0, width: 8.0, height: 5.0);
+        AssertApproxEqual(40.0, rect.Area, message: "Area = width * height");
+        TestLogger.Info("FrozenRect.Area computed property passed");
+    }
+
+    public void TestFrozenRectOffset()
+    {
+        var rect = new FrozenRect(x: 10.0, y: 20.0, width: 100.0, height: 50.0);
+        var moved = rect.Offset(dx: 5.0, dy: -3.0);
+        AssertApproxEqual(15.0, moved.X, message: "Offset X");
+        AssertApproxEqual(17.0, moved.Y, message: "Offset Y");
+        AssertApproxEqual(100.0, moved.Width, message: "Width unchanged");
+        AssertApproxEqual(50.0, moved.Height, message: "Height unchanged");
+        TestLogger.Info("FrozenRect.Offset(dx:dy:) method passed");
+    }
+
+    public void TestFrozenRectDescribe()
+    {
+        var rect = new FrozenRect(x: 1.5, y: 2.5, width: 3.0, height: 4.0);
+        var desc = TestLibFunctions.DescribeFrozenRect(rect);
+        AssertTrue(desc.Contains("1.5") || desc.Contains("1,5"), "Description contains X");
+        AssertTrue(desc.Contains("2.5") || desc.Contains("2,5"), "Description contains Y");
+        TestLogger.Info($"DescribeFrozenRect() = {desc}");
+    }
+
+    #endregion
+
+    #region FinalPropertyHolder — Final Class Instance Property @_cdecl Wrappers
+
+    public void TestFinalPropertyHolderConstruction()
+    {
+        var obj = new FinalPropertyHolder(intValue: 42, floatValue: 3.14, stringValue: "hello", boolValue: true);
+        AssertEqual(42, obj.IntValue, "IntValue getter");
+        AssertApproxEqual(3.14, obj.FloatValue, message: "FloatValue getter");
+        AssertEqual("hello", obj.StringValue.ToString(), "StringValue getter");
+        AssertEqual(true, obj.BoolValue, "BoolValue getter");
+        TestLogger.Info("FinalPropertyHolder construction + getter passed");
+    }
+
+    public void TestFinalPropertyHolderIntSetGet()
+    {
+        // Tests final class Int32 property getter/setter via @_cdecl wrapper.
+        // Previously used CallConvSwift + SwiftSelf which crashed Mono JIT.
+        var obj = new FinalPropertyHolder(intValue: 0, floatValue: 0.0, stringValue: "", boolValue: false);
+        obj.IntValue = 99;
+        AssertEqual(99, obj.IntValue, "IntValue after set");
+        TestLogger.Info("FinalPropertyHolder.IntValue set/get passed");
+    }
+
+    public void TestFinalPropertyHolderFloatSetGet()
+    {
+        var obj = new FinalPropertyHolder(intValue: 0, floatValue: 0.0, stringValue: "", boolValue: false);
+        obj.FloatValue = 2.718;
+        AssertApproxEqual(2.718, obj.FloatValue, message: "FloatValue after set");
+        TestLogger.Info("FinalPropertyHolder.FloatValue set/get passed");
+    }
+
+    public void TestFinalPropertyHolderStringSetGet()
+    {
+        var obj = new FinalPropertyHolder(intValue: 0, floatValue: 0.0, stringValue: "old", boolValue: false);
+        obj.StringValue = new SwiftString("new");
+        AssertEqual("new", obj.StringValue.ToString(), "StringValue after set");
+        TestLogger.Info("FinalPropertyHolder.StringValue set/get passed");
+    }
+
+    public void TestFinalPropertyHolderBoolSetGet()
+    {
+        var obj = new FinalPropertyHolder(intValue: 0, floatValue: 0.0, stringValue: "", boolValue: false);
+        obj.BoolValue = true;
+        AssertEqual(true, obj.BoolValue, "BoolValue after set");
+        obj.BoolValue = false;
+        AssertEqual(false, obj.BoolValue, "BoolValue back to false");
+        TestLogger.Info("FinalPropertyHolder.BoolValue set/get round-trip passed");
+    }
+
+    public void TestFinalPropertyHolderSummary()
+    {
+        var obj = new FinalPropertyHolder(intValue: 7, floatValue: 1.5, stringValue: "test", boolValue: true);
+        var summary = obj.Summary.ToString();
+        AssertTrue(summary.Contains("7"), "Summary contains int");
+        AssertTrue(summary.Contains("test"), "Summary contains string");
+        AssertTrue(summary.Contains("true"), "Summary contains bool");
+        TestLogger.Info($"FinalPropertyHolder.Summary = {summary}");
     }
 
     #endregion

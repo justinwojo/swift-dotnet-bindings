@@ -59,6 +59,42 @@ public struct FrozenStructWithProperties {
     }
 }
 
+// MARK: - Large Frozen Struct (@_cdecl wrapper gap test)
+
+/// Frozen struct with 4 Double fields (32 bytes) — triggers SwiftIndirectResult on ARM64.
+/// Tests that frozen struct constructors get @_cdecl wrappers. Previously, this pattern
+/// used CallConvSwift + SwiftIndirectResult which crashed Mono JIT
+/// (URLEncoding(destination:arrayEncoding:boolEncoding:) pattern from Alamofire).
+@frozen
+public struct FrozenRect {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    /// Computed property for area.
+    public var area: Double {
+        return width * height
+    }
+
+    /// Method returning another frozen struct.
+    public func offset(dx: Double, dy: Double) -> FrozenRect {
+        return FrozenRect(x: x + dx, y: y + dy, width: width, height: height)
+    }
+}
+
+/// Free function operating on FrozenRect.
+public func describeFrozenRect(_ rect: FrozenRect) -> String {
+    return "(\(rect.x), \(rect.y), \(rect.width), \(rect.height))"
+}
+
 // MARK: - Non-Frozen Structs
 
 /// A non-frozen struct (default). ABI is opaque to consumers.

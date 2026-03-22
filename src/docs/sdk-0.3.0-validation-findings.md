@@ -356,31 +356,40 @@ These result in `DllNotFoundException` or `EntryPointNotFoundException` at runti
 
 ---
 
-### Session 2: @_cdecl Wrapper Gap Closure (highest impact)
+### Session 2: @_cdecl Wrapper Gap Closure (highest impact) — DONE
 
 The generator already emits @_cdecl wrappers for most operations, but three patterns lack wrappers and crash on Mono. Closing these gaps unlocks **~85 tests behind crash barriers** across 4+ libraries.
 
-All changes are in `WrapperValidation.cs` (`RequiresCdeclForAbiSafety`) and related emitter files.
+All changes in `WrapperValidation.cs` (`RequiresCdeclForAbiSafety`):
 
-1. **Class allocating constructors.** `Keychain()`, `MD5()`, `BooleanDisposable(bool)` use `CallConvSwift` with mangled symbols. Other constructors on the same classes (e.g., `Keychain(string)`) already have wrappers and work. The gap is for constructors where `RequiresCdeclForAbiSafety` judged the ABI "safe" without a wrapper — but on Mono, no `CallConvSwift` P/Invoke with marshalled parameters is safe.
+1. **Class allocating constructors.** All class constructors now require @_cdecl wrappers. Swift's allocating init passes hidden `@thick Self.Type` metatype — Mono JIT crashes without wrapper. Previously only generic class constructors were caught.
 
    **Affected libraries (sim)**: KeychainAccess (~19 tests), RxSwift (~25 tests), CryptoSwift (~15 tests).
 
-2. **Frozen struct constructors with SwiftIndirectResult.** `URLEncoding(dest, array, bool)` uses `CallConvSwift` + `SwiftIndirectResult`, which crashes Mono JIT.
+2. **Frozen struct constructors with SwiftIndirectResult.** All frozen struct constructors now require @_cdecl wrappers. SwiftIndirectResult + CallConvSwift crashes Mono JIT.
 
    **Affected libraries (sim)**: Alamofire (~25 tests).
 
-3. **Final class instance property getters/setters.** `ImagePrefetcher.Priority`, `ImageTask.Priority` use `CallConvSwift` + `SwiftSelf`. `RequiresCdeclForAbiSafety` returns `false` for final class properties with simple return types because the `IsFinal` check skips wrapper emission. But Mono JIT can't handle `CallConvSwift` + `SwiftSelf` regardless of finality.
+3. **Final class instance property getters/setters.** Broadened from non-final-only to ALL non-static class instance properties. Mono JIT can't handle CallConvSwift + SwiftSelf even on final classes.
 
    **Affected libraries**: Nuke (2 skips), Lottie (3 skips via LottieColor constructor).
 
-**BindingTests:**
+**Known remaining gaps** (pre-existing `ShouldEmitWrapper` rejections, tracked in roadmap):
+- ObjC-bridged optional setters (`UIViewController?`, `NSString?`) — `PropertyWrapperEmitter` rejects due to IntPtr reconstruction incompatibility.
+- Optional-closure property setters (`((…) -> Void)?`) — `PropertyWrapperEmitter` rejects closure properties.
 
-- **Class allocating constructors**: Existing class tests use wrapped constructors. Add a class with multiple constructors where the fix ensures all get @_cdecl wrappers (previously some would have been left as CallConvSwift). Verify all constructors work at runtime — these would have crashed on Mono without wrappers.
-- **Frozen struct + SwiftIndirectResult**: Existing `FrozenPoint` has 2 params. Add a frozen struct with 3+ parameters (enough to trigger SwiftIndirectResult). Verify the constructor works at runtime.
-- **Final class property getters/setters**: No dedicated tests exist. Add a final class with read/write properties and verify getter/setter dispatch works. These previously used CallConvSwift + SwiftSelf without a wrapper.
+**BindingTests added:**
 
-**Validation**: `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` for new BindingTests. Re-run sim-validation and swift-dotnet-packages test suites to measure recovery.
+- **`MultiInitClass`** (Classes.swift): Class with 3 constructors (parameterless, bool param, string+int). 6 runtime tests — all pass.
+- **`FrozenRect`** (Structs.swift): 32-byte frozen struct (4 Doubles, triggers SwiftIndirectResult). 4 runtime tests — all pass.
+- **`FinalPropertyHolder`** (Classes.swift): Final class with Int32/Double/String/Bool read-write properties + computed summary. 6 runtime tests — all pass.
+
+**Unit tests:** 7 new tests in AbiSafetyTests.cs + 1 updated in ConstructorHandlerOutputTests.cs. 3 existing tests updated to match new behavior.
+
+**Validation results:**
+- Unit tests: 8440 pass, 0 fail
+- Validation: 90/90 pass, no regressions
+- Runtime tests (sim): 757 pass, 32 skip (up from 742/27 — +16 new tests, +1 pre-existing crash skipped)
 
 ---
 

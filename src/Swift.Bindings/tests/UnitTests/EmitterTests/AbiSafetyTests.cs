@@ -523,13 +523,28 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_NonGenericStructConstructor_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_FrozenStructConstructor_ReturnsTrue()
     {
-        // Non-generic struct constructor → no metatype dispatch needed → CallConvSwift safe
+        // Frozen struct constructor → SwiftIndirectResult + Mono JIT crash → @_cdecl required
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
-        var parentDecl = CreateStructDecl("Point", moduleDecl);
+        var parentDecl = CreateStructDecl("Point", moduleDecl); // CreateStructDecl defaults IsFrozen=true
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonFrozenStructConstructor_ReturnsFalse()
+    {
+        // Non-frozen struct constructor → no frozen struct or class check applies → CallConvSwift safe
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateNonFrozenStructDecl("OpaquePoint", moduleDecl);
         var method = CreateMethod("init", parentDecl, moduleDecl);
         method.IsConstructor = true;
         var env = new MethodEnvironment(method, typeDb);
@@ -538,9 +553,11 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_NestedGenericStructConstructor_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_NestedGenericStructConstructor_ReturnsTrue()
     {
-        // Nested struct inside generic parent → @_cdecl extension can't bind parent's generic context
+        // Nested frozen struct inside generic parent → frozen struct constructor check fires.
+        // ShouldEmitWrapper handles the "can't wrap" decision (inherited generic context);
+        // RequiresCdeclForAbiSafety correctly reports the ABI IS unsafe without wrapping.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -578,7 +595,7 @@ public class AbiSafetyTests
         method.IsConstructor = true;
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
     [Fact]
@@ -615,6 +632,54 @@ public class AbiSafetyTests
         outerDecl.Types.Add(nestedDecl);
 
         var method = CreateMethod("init", nestedDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_NonGenericClassConstructor_ReturnsTrue()
+    {
+        // Non-generic class allocating constructor → hidden metatype parameter → @_cdecl required
+        // Swift's allocating init passes @thick Self.Type as hidden param (same as static methods).
+        // On Mono JIT, CallConvSwift without metatype handling crashes (Keychain(), MD5()).
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Keychain", moduleDecl, isFinal: false);
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_FinalClassConstructor_ReturnsTrue()
+    {
+        // Final class constructor → still needs @_cdecl (allocating init has hidden metatype)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Counter", moduleDecl, isFinal: true);
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_ClassConstructorWithBoolParam_ReturnsTrue()
+    {
+        // Class constructor with bool param → hidden metatype + MarshalAs → @_cdecl required
+        // Even though bool is IsCdeclPrimitive, the class constructor pattern itself needs wrapping.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("BooleanDisposable", moduleDecl, isFinal: false);
+        var method = CreateMethodWithParam("init", new NamedTypeSpec("Swift.Bool"), "isDisposed", parentDecl, moduleDecl);
         method.IsConstructor = true;
         var env = new MethodEnvironment(method, typeDb);
 
@@ -995,13 +1060,42 @@ public class AbiSafetyTests
     #region Property RequiresCdeclForAbiSafety Tests
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_Property_IntType_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_Property_StaticIntType_ReturnsFalse()
     {
-        // Property of primitive type → safe
+        // Static property of primitive type on class → safe (no SwiftSelf involved)
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var getterMethod = CreateMethod("count_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_FinalClassInstanceInt_ReturnsTrue()
+    {
+        // Instance property on final class → Mono JIT can't handle CallConvSwift + SwiftSelf
+        // → @_cdecl required regardless of property type (ImagePrefetcher.Priority pattern)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl, isFinal: true);
         var getterMethod = CreateMethod("count_getter", parentDecl, moduleDecl);
         getterMethod.IsAccessor = true;
         var property = new PropertyDecl
@@ -1019,7 +1113,7 @@ public class AbiSafetyTests
         };
         var env = new MethodEnvironment(getterMethod, typeDb);
 
-        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
     }
 
     [Fact]
@@ -1092,9 +1186,10 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_Property_SmallFrozenIntStruct_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_Property_StaticSmallFrozenIntStruct_ReturnsFalse()
     {
-        // Read-only property returning small frozen integer struct → safe
+        // Static property returning small frozen integer struct on class → safe
+        // (static properties don't use SwiftSelf, and small int structs are safe)
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithTypeRecord(
             "TestModule.SmallStruct", new TypeRecord
             {
@@ -1115,7 +1210,7 @@ public class AbiSafetyTests
             Name = "data",
             SwiftTypeSpec = new NamedTypeSpec("TestModule.SmallStruct"),
             HasStorage = true,
-            IsStatic = false,
+            IsStatic = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = getterMethod }
@@ -1347,9 +1442,10 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_Property_OnFinalClass_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_Property_OnFinalClass_ReturnsTrue()
     {
-        // Property on final class → direct accessor symbol (no Tj) → CallConvSwift safe
+        // Instance property on final class → Mono JIT can't handle CallConvSwift + SwiftSelf
+        // → @_cdecl required (ImagePrefetcher.Priority, ImageTask.Priority pattern)
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1362,6 +1458,34 @@ public class AbiSafetyTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
             HasStorage = true,
             IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(getterMethod, typeDb);
+
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env, property));
+    }
+
+    [Fact]
+    public void RequiresCdeclForAbiSafety_Property_StaticOnFinalClass_ReturnsFalse()
+    {
+        // Static property on final class → no SwiftSelf → safe for CallConvSwift
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, isFinal: true);
+        var getterMethod = CreateMethod("count_getter", parentDecl, moduleDecl);
+        getterMethod.IsAccessor = true;
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = true,
             Accessors = new List<AccessorDecl>
             {
                 new GetAccessorDecl { Method = getterMethod }

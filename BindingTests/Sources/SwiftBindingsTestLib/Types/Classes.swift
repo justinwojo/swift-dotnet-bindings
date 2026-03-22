@@ -260,3 +260,68 @@ public class ImageTransitionTest {
 //     let holder = WeakReferenceHolder(owner: owner)
 //     return (owner, holder)
 // }
+
+// MARK: - Class with Multiple Constructors (@_cdecl wrapper gap test)
+
+/// Tests that ALL class constructors get @_cdecl wrappers, not just those with
+/// non-trivial parameters. Previously, parameterless constructors and constructors
+/// with only primitive params were left as CallConvSwift, which crashed Mono JIT.
+public class MultiInitClass {
+    public var label: String
+    public var value: Int32
+    public var enabled: Bool
+
+    /// Parameterless init — previously crashed Mono (Keychain(), MD5() pattern).
+    public init() {
+        self.label = "default"
+        self.value = 0
+        self.enabled = false
+    }
+
+    /// Bool param init — MarshalAs + CallConvSwift crash (BooleanDisposable(bool) pattern).
+    public init(enabled: Bool) {
+        self.label = enabled ? "enabled" : "disabled"
+        self.value = enabled ? 1 : 0
+        self.enabled = enabled
+    }
+
+    /// String + Int32 param init — already had @_cdecl (string param triggers wrapper).
+    public init(label: String, value: Int32) {
+        self.label = label
+        self.value = value
+        self.enabled = true
+    }
+
+    public func describe() -> String {
+        return "\(label):\(value):\(enabled)"
+    }
+}
+
+/// Free function factory for MultiInitClass.
+public func createMultiInitDefault() -> MultiInitClass {
+    return MultiInitClass()
+}
+
+// MARK: - Final Class with Read/Write Properties (@_cdecl wrapper gap test)
+
+/// Tests that final class instance property accessors get @_cdecl wrappers.
+/// Previously, final class properties used CallConvSwift + SwiftSelf which crashed
+/// Mono JIT (ImagePrefetcher.Priority, ImageTask.Priority pattern).
+public final class FinalPropertyHolder {
+    public var intValue: Int32
+    public var floatValue: Double
+    public var stringValue: String
+    public var boolValue: Bool
+
+    public init(intValue: Int32, floatValue: Double, stringValue: String, boolValue: Bool) {
+        self.intValue = intValue
+        self.floatValue = floatValue
+        self.stringValue = stringValue
+        self.boolValue = boolValue
+    }
+
+    /// Computed property — getter uses @_cdecl wrapper.
+    public var summary: String {
+        return "\(intValue),\(floatValue),\(stringValue),\(boolValue)"
+    }
+}
