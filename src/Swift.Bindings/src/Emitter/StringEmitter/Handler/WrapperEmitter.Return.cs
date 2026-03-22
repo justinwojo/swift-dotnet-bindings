@@ -81,7 +81,7 @@ namespace BindingsGeneration
                 // Use the same predicate as ClassHandler to avoid referencing a skipped base type.
                 if (ClassHandler.IsEffectivelyDerived(classDecl))
                 {
-                    handleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
+                    handleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl, _env.TypeDatabase);
                 }
                 csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleTypeName}>(result);");
                 return;

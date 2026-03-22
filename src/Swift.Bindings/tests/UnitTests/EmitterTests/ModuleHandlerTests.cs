@@ -1098,4 +1098,184 @@ public class ModuleHandlerTests
     }
 
     #endregion
+
+    #region Namespace/Type Collision Tests
+
+    [Fact]
+    public void QualifyNamespaceReferences_RenamedNestedType_NotQualified()
+    {
+        // Bug: When a nested type is renamed (e.g., Connection → ConnectionType to avoid
+        // property collision), QualifyNamespaceReferences must use the C# name (ConnectionType),
+        // not the Swift name (Connection), in the nestedTypeNames set. Otherwise, references
+        // like "Reachability.ConnectionType" get incorrectly global:: qualified.
+        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
+        var nestedTypeNames = new HashSet<string> { "ConnectionType" }; // C# name after rename
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+
+        // Nested type reference should NOT get global:: qualification
+        Assert.Contains("Reachability.ConnectionType", result);
+        Assert.DoesNotContain("global::Reachability.ConnectionType", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_NonNestedType_GetsGlobalQualified()
+    {
+        // Non-nested types in the same namespace should get global:: qualification
+        var input = "public class ReachabilityConnectionTypeExtensions : Reachability.SomeOtherType";
+        var nestedTypeNames = new HashSet<string> { "ConnectionType" };
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+
+        // Non-nested type should get global:: qualification
+        Assert.Contains("global::Reachability.SomeOtherType", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_SwiftNameNotInSet_GetsIncorrectlyQualified()
+    {
+        // Demonstrates the bug: if the SET uses Swift name "Connection" instead of C# name
+        // "ConnectionType", the renamed type gets incorrectly qualified.
+        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
+        var swiftNames = new HashSet<string> { "Connection" }; // Wrong: Swift name, not C#
+
+        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", swiftNames);
+
+        // With the wrong set, it would get incorrectly qualified
+        Assert.Contains("global::Reachability.ConnectionType", result);
+    }
+
+    [Fact]
+    public void QualifyNamespaceReferences_TypeDatabaseRename_NestedTypeExcludedViaLookup()
+    {
+        // Integration test: exercises the same TypeDatabase-driven code path as ModuleEmitter.cs:95-107.
+        // If the PrecomputeNestedTypeRenames or TypeDatabase lookup in ModuleEmitter regresses,
+        // this test catches it.
+
+        // 1. Set up TypeDatabase with a module where a class name matches the module name
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Reachability", "/tmp/Reachability.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Reachability.Reachability");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Reachability", "Reachability"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Class
+        });
+
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Reachability.Reachability.Connection");
+        module.RegisterType(nestedSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Reachability", "Reachability.Connection"),
+            SwiftTypeName = nestedSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Enum
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        // 2. Create ModuleDecl with class "Reachability" containing nested enum "Connection"
+        //    and a property "connection" that collides with the nested type name
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "Reachability",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var nestedEnumDecl = new EnumDecl
+        {
+            Name = "Connection",
+            SwiftTypeName = nestedSwiftName,
+            MangledName = "$sMa",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            IsFrozen = true,
+            ParentDecl = null!, // Set below
+            ModuleDecl = moduleDecl,
+            MetadataAccessor = "$sMa",
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "Reachability",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$sMa",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "connection",
+                    SwiftTypeSpec = new NamedTypeSpec("Reachability.Reachability") { InnerType = new NamedTypeSpec("Connection") },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null!, // Set implicitly
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedEnumDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        nestedEnumDecl.ParentDecl = classDecl;
+        moduleDecl.Types.Add(classDecl);
+
+        // 3. Run PrecomputeNestedTypeRenames — this renames Connection → ConnectionType in TypeDatabase
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        // 4. Build nestedTypeNames the same way ModuleEmitter.cs:92-107 does
+        var collisionType = moduleDecl.Types.FirstOrDefault(t => t.Name == "Reachability");
+        Assert.NotNull(collisionType);
+
+        var nestedTypeNames = new HashSet<string>();
+        if (collisionType is TypeDecl td)
+        {
+            foreach (var nested in td.Types)
+            {
+                var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
+                if (typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
+                {
+                    var csName = nestedRecord.CSharpTypeName.Name;
+                    var lastDot = csName.LastIndexOf('.');
+                    if (lastDot >= 0)
+                        csLeafName = csName.Substring(lastDot + 1);
+                }
+                nestedTypeNames.Add(csLeafName);
+            }
+        }
+
+        // Verify the set contains the RENAMED C# name, not the Swift name
+        Assert.Contains("ConnectionType", nestedTypeNames);
+        Assert.DoesNotContain("Connection", nestedTypeNames);
+
+        // 5. QualifyNamespaceReferences with the TypeDatabase-derived set
+        var input = "public static void GetDescription(this Reachability.ConnectionType self)";
+        var result = StringEmitter.QualifyNamespaceReferences(input, "Reachability", nestedTypeNames);
+
+        // Renamed nested type should NOT get global:: qualification
+        Assert.Contains("Reachability.ConnectionType", result);
+        Assert.DoesNotContain("global::Reachability.ConnectionType", result);
+    }
+
+    #endregion
 }

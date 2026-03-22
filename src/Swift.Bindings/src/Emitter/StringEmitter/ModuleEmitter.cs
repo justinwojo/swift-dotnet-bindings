@@ -87,13 +87,26 @@ namespace BindingsGeneration
                     ?? (BaseDecl?)moduleDecl.Protocols.FirstOrDefault(p => p.Name == @namespace);
                 if (collisionType != null)
                 {
-                    // Collect nested type names — Namespace.NestedType refers to the collision class's
+                    // Collect nested type C# names — Namespace.NestedType refers to the collision class's
                     // nested type, not a namespace member. These must NOT get global:: qualification.
+                    // Use C# names (not Swift names) because nested type renames (e.g., Connection → ConnectionType)
+                    // mean the generated code uses the renamed name.
                     var nestedTypeNames = new HashSet<string>();
                     if (collisionType is TypeDecl td)
                     {
                         foreach (var nested in td.Types)
-                            nestedTypeNames.Add(nested.Name);
+                        {
+                            var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
+                            // Check TypeDatabase for rename (e.g., Connection → ConnectionType)
+                            if (_typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
+                            {
+                                var csName = nestedRecord.CSharpTypeName.Name;
+                                var lastDot = csName.LastIndexOf('.');
+                                if (lastDot >= 0)
+                                    csLeafName = csName.Substring(lastDot + 1);
+                            }
+                            nestedTypeNames.Add(csLeafName);
+                        }
                     }
                     csOutput = QualifyNamespaceReferences(csOutput, @namespace, nestedTypeNames);
                 }
@@ -158,7 +171,7 @@ namespace BindingsGeneration
         /// <param name="nestedTypeNames">Names of types nested within the collision class.
         /// References like Namespace.NestedType should NOT be qualified because they resolve
         /// to nested types of the class, not namespace members.</param>
-        private static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames)
+        internal static string QualifyNamespaceReferences(string csOutput, string @namespace, HashSet<string> nestedTypeNames)
         {
             // Match Namespace.Identifier where Namespace is NOT preceded by global:: or another identifier char,
             // and NOT in a namespace declaration (namespace Valet.SwiftInterop).

@@ -328,4 +328,52 @@ public class NestedEnumTests : TestBase
     }
 
     #endregion
+
+    #region Nested Class Rename — Generic Parameter (Kingfisher Animator pattern)
+
+    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
+    public void TestNestedClassRename_TypeExists()
+    {
+        // The nested class Animator is renamed to AnimatorType to avoid collision
+        // with the animator property (PascalCase → Animator).
+        using var animator = new ImageTransitionTest.AnimatorType(true);
+        AssertTrue(animator != null, "AnimatorType should be constructible");
+        TestLogger.Info("Nested class rename: type exists as AnimatorType");
+    }
+
+    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
+    public void TestNestedClassRename_PropertyAccess()
+    {
+        // The property name stays as Animator (PascalCase of "animator"),
+        // the TYPE is renamed to AnimatorType.
+        using var animator = new ImageTransitionTest.AnimatorType(true);
+        using var transition = new ImageTransitionTest(animator);
+        var result = transition.Animator;
+        AssertTrue(result != null, "Animator property should return non-null");
+        TestLogger.Info("Nested class rename: property access works");
+    }
+
+    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
+    public void TestNestedClassRename_MethodOnRenamed()
+    {
+        // Verify the renamed nested class methods work at runtime —
+        // this exercises SwiftClassHandle<AnimatorType> end-to-end.
+        using var animator = new ImageTransitionTest.AnimatorType(true);
+        var status = animator.GetStatus();
+        AssertEqual("active", status, "Active animator status");
+        TestLogger.Info("Nested class rename: method dispatch works");
+    }
+
+    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
+    public void TestNestedClassRename_FullRoundTrip()
+    {
+        // Full round-trip: create nested class, pass to parent, read back via property.
+        using var animator = new ImageTransitionTest.AnimatorType(false);
+        using var transition = new ImageTransitionTest(animator);
+        var description = transition.GetDescribe();
+        AssertEqual("Transition with inactive animator", description, "Full round-trip describe");
+        TestLogger.Info("Nested class rename: full round-trip passed");
+    }
+
+    #endregion
 }

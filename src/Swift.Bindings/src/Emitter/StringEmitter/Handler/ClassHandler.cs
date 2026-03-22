@@ -430,7 +430,7 @@ namespace BindingsGeneration
             _isDerived = ClassHandler.IsEffectivelyDerived(classDecl);
             _isObjCRooted = classDecl.IsObjCRooted;
             _isObjCBoundary = _isObjCRooted && !_isDerived;
-            _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl);
+            _rootBaseTypeNameWithGenerics = GetRootBaseTypeNameWithGenerics(classDecl, _typeDatabase);
             _swiftWriter = swiftWriter;
             _emissionCtx = emissionCtx;
             _hasBoxable = hasBoxable;
@@ -442,13 +442,13 @@ namespace BindingsGeneration
         /// consistent with IsEffectivelyDerived — a flat-emitted class must use its own
         /// type name so _payload and the private constructor agree on SwiftSafeHandle&lt;T&gt;.
         /// </summary>
-        internal static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl)
+        internal static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl, ITypeDatabase? typeDatabase = null)
         {
             var current = classDecl;
             while (current.HasResolvedSuperclass
                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(current.ResolvedSuperclass!, out _))
                 current = current.ResolvedSuperclass!;
-            return GenericTypeEmitter.GetTypeNameWithGenerics(current);
+            return GenericTypeEmitter.GetTypeNameWithGenerics(current, typeDatabase);
         }
 
         /// <summary>

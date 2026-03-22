@@ -504,6 +504,115 @@ public class TypeHandlersOutputTests
     }
 
     [Fact]
+    public void Emit_ClassHandler_RenamedNestedClass_SwiftClassHandleUsesRenamedName()
+    {
+        // Bug: When a nested class is renamed (Animator → AnimatorType to avoid property collision),
+        // SwiftClassHandle<T> in the private constructor must use the renamed name.
+        // This test exercises the full ClassHandler emission path, not just the helper method.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Kingfisher", "/tmp/Kingfisher.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.ImageTransition");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "ImageTransition"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+
+        var nestedSwiftName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.ImageTransition.Animator");
+        module.RegisterType(nestedSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "ImageTransition.Animator"),
+            SwiftTypeName = nestedSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = CreateModuleDecl("Kingfisher");
+
+        var nestedClassDecl = new ClassDecl
+        {
+            Name = "Animator",
+            SwiftTypeName = nestedSwiftName,
+            MangledName = "$s10Kingfisher15ImageTransitionC8AnimatorCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null!, // Set below
+            ModuleDecl = moduleDecl,
+        };
+
+        // Property "animator" with type "Kingfisher.ImageTransition.Animator" (nested class)
+        var animatorTypeSpec = new NamedTypeSpec("Kingfisher.ImageTransition")
+        {
+            InnerType = new NamedTypeSpec("Animator")
+        };
+
+        var parentClassDecl = new ClassDecl
+        {
+            Name = "ImageTransition",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$s10Kingfisher15ImageTransitionCN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "animator",
+                    SwiftTypeSpec = animatorTypeSpec,
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null!, // Set implicitly
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedClassDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        nestedClassDecl.ParentDecl = parentClassDecl;
+        moduleDecl.Types.Add(parentClassDecl);
+
+        // Pre-pass: apply CSharpTypeName renames (Animator → AnimatorType)
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        // Emit the nested class through ClassHandler
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var handler = new ClassHandler(new NullLogger<ClassHandler>());
+        var env = handler.Marshal(nestedClassDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        var output = csOutput.ToString();
+
+        // The nested class should be renamed to AnimatorType
+        Assert.Contains("partial class AnimatorType", output);
+        // SwiftClassHandle<T> must use the renamed name everywhere
+        Assert.Contains("SwiftClassHandle<AnimatorType>", output);
+        // The old unrenamed name must NOT appear in SwiftClassHandle
+        Assert.DoesNotContain("SwiftClassHandle<Animator>", output);
+    }
+
+    [Fact]
     public void Emit_ClassHandler_Hashable_EmitsSwiftHashableGetHashCode()
     {
         var typeDatabase = CreateTypeDatabase();

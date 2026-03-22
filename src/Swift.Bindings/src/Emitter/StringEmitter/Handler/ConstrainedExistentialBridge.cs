@@ -383,7 +383,7 @@ public static class ConstrainedExistentialBridge
 
         // Class return unmarshal: wrap pointer directly in SwiftClassHandle.
         // No buffer allocation needed — SwiftClassHandle IS the Swift object pointer.
-        var handleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl);
+        var handleType = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl, env.TypeDatabase);
         csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleType}>(resultPtr);");
         csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
 

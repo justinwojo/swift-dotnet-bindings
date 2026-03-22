@@ -193,6 +193,36 @@ public func createToken(value: String) -> Token {
     return Token(value: value)
 }
 
+// MARK: - Nested Class with Property Name Collision (Kingfisher Animator pattern)
+
+/// Class with a nested class whose name collides with a property name.
+/// When PascalCased, the property `animator` becomes `Animator` — the same as
+/// the nested class name. The generator must rename the type to `AnimatorType`
+/// and update ALL references including SwiftClassHandle<T> generic parameters.
+public class ImageTransitionTest {
+    public final class Animator {
+        public var isActive: Bool
+
+        public init(isActive: Bool) {
+            self.isActive = isActive
+        }
+
+        public func status() -> String {
+            return isActive ? "active" : "inactive"
+        }
+    }
+
+    public var animator: Animator
+
+    public init(animator: Animator) {
+        self.animator = animator
+    }
+
+    public func describe() -> String {
+        return "Transition with \(animator.status()) animator"
+    }
+}
+
 // MARK: - Weak and Unowned References
 // NOTE: Temporarily disabled. Generator bug with tuples containing class types
 // (tries to access Owner.Buffer which doesn't exist for pure reference types).
