@@ -88,7 +88,11 @@ public static class OptionalPointerWrapperEmitter
         // Order must match C# PInvokeSignatureBuilder:
         //   [resultPtr] [args...] [_resultBuf] [self] [errorOut]
         // resultPtr is FIRST (matches HandleReturnType at position 0).
-        // _resultBuf is AFTER args (matches HandleArguments _optRetPtr).
+        // _resultBuf position depends on the wrapper style:
+        //   - @_cdecl: FIRST (position 0) — C# HandleReturnType routes large Optional returns through
+        //     MethodRequiresIndirectResult, emitting resultPtr at position 0. HandleArguments skips
+        //     _optRetPtr because !MethodRequiresIndirectResult is false.
+        //   - @_silgen_name: AFTER args — C# HandleArguments adds _optRetPtr at end.
         // errorOut is AFTER self (matches HandleSwiftError for non-constructor methods).
         var swiftParams = new List<string>();
         var callArgs = new List<string>();
@@ -99,6 +103,13 @@ public static class OptionalPointerWrapperEmitter
         if (cdeclNeedsResultPtr)
         {
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        }
+        // 1b. @_cdecl large Optional return buffer at position 0.
+        // C# PInvokeEmitter.HandleReturnType routes this through MethodRequiresIndirectResult,
+        // adding resultPtr at position 0 (not _optRetPtr at end of HandleArguments).
+        else if (useCdecl && hasLargeOptionalReturn)
+        {
+            swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
         }
 
         // 2. Method arguments
@@ -150,7 +161,8 @@ public static class OptionalPointerWrapperEmitter
         }
 
         // 3. Large Optional result buffer (after args — matches C# _optRetPtr at end of HandleArguments)
-        if (hasLargeOptionalReturn)
+        // Skip for @_cdecl: already added at position 0 (step 1b) to match C# HandleReturnType.
+        if (hasLargeOptionalReturn && !useCdecl)
         {
             swiftParams.Add("_ _resultBuf: UnsafeMutableRawPointer");
         }
@@ -439,13 +451,17 @@ public static class OptionalPointerWrapperEmitter
     /// </summary>
     public static List<string> GetReturnBufferCode(string callLine, string returnSwiftType)
     {
+        // Use initializeMemory instead of copyMemory to properly handle ARC retain.
+        // copyMemory is a raw memcpy that doesn't retain reference types (String, classes, etc.).
+        // When the Swift wrapper returns, _result is destroyed and its references are released.
+        // If copyMemory was used, the bytes in _resultBuf would contain dangling pointers
+        // because the reference count was never incremented for the copy.
+        // initializeMemory properly initializes the memory with a copy that retains ARC references,
+        // keeping the value alive after the function returns so C# can safely read it.
         return new List<string>
         {
             $"let _result = {callLine}",
-            $"withUnsafePointer(to: _result) {{ _srcPtr in",
-            $"    _resultBuf.copyMemory(from: UnsafeRawPointer(_srcPtr),",
-            $"        byteCount: MemoryLayout<{returnSwiftType}>.size)",
-            $"}}"
+            $"_resultBuf.initializeMemory(as: {returnSwiftType}.self, repeating: _result, count: 1)"
         };
     }
 

@@ -120,8 +120,8 @@ Note: VerificationFlowResult.FlowCanceled is listed alongside skips in test outp
 | CryptoSwift | 5 | 0 | 0 | EXITED | Crash at test 6: MD5() CallConvSwift (no wrapper) |
 | KeychainAccess | 11 | 0 | 0 | CRASH | Keychain() ctor CallConvSwift (no wrapper) |
 | Starscream | 19 | 6 | 3 | FAIL | URLRequest non-blittable + CallConvSwift (Mono) |
-| DeviceKit | 10 | 0 | 0 | CRASH | Device.Name: SwiftOptional marshalling crash |
-| PhoneNumberKit | 24 | 0 | 0 | CRASH | MainCountry: optional string optbuf crash |
+| DeviceKit | 10 | 0 | 0 | CRASH | Device.Name: optbuf ARC + param order bug (**fixed Session 3**) |
+| PhoneNumberKit | 24 | 0 | 0 | CRASH | MainCountry: optbuf ARC + param order bug (**fixed Session 3**) |
 | Reachability | — | — | — | BUILD_FAILED | Generator bug #2 |
 | Swinject | 25 | 0 | 3 | PASS | |
 | ObjectMapper | 18 | 0 | 0 | PASS | |
@@ -140,8 +140,8 @@ Note: VerificationFlowResult.FlowCanceled is listed alongside skips in test outp
 | CryptoSwift | 5 | 0 | 0 | EXITED | All pass (CallConvSwift tests unreachable) |
 | KeychainAccess | 11 | 0 | 0 | EXITED | All pass (CallConvSwift tests unreachable) |
 | Starscream | 19 | 0 | 9 | PASS | WebSocket tests skip (MarshalDirectiveException) |
-| DeviceKit | 20 | 6 | 0 | FAIL | SwiftOptional (5) + SwiftArray (1) |
-| PhoneNumberKit | 24 | 6 | 0 | FAIL | SwiftOptional (5) + SwiftArray (1) |
+| DeviceKit | 20 | 6 | 0 | FAIL | SwiftOptional (5) + SwiftArray (1) — optbuf bugs **fixed Session 3**, needs re-validation |
+| PhoneNumberKit | 24 | 6 | 0 | FAIL | SwiftOptional (5) + SwiftArray (1) — optbuf bugs **fixed Session 3**, needs re-validation |
 | Reachability | — | — | — | BUILD_FAILED | Generator bug |
 | Swinject | 25 | 0 | 3 | PASS | |
 | ObjectMapper | 18 | 0 | 0 | PASS | |
@@ -212,21 +212,21 @@ All 10 are APIs no longer emitted in the 0.3.0 binding:
 - **Impact**: 11 of 30 tests pass (metadata + enums), 19 tests unreachable
 - **Device behavior**: Same 11 tests pass, remaining tests exit before completion
 
-#### DeviceKit — CRASH at test 11 (Device.Name getter)
+#### DeviceKit — CRASH at test 11 (Device.Name getter) — FIXED in Session 3
 
 - **Crash site**: `SwiftOptional<T>:.ctor` → `wrapper_native_indirect` → `jit-info.c:918`
-- **P/Invoke**: `CallConvCdecl` + @_cdecl wrapper (`SBW_DeviceKit_Device_name_Get_D5800277_optbuf`) — **calling convention is correct**
-- **Root cause**: NOT a CallConvSwift issue. The crash is inside the runtime's `SwiftOptional<T>.NewFromPayload` during optional string marshalling. The P/Invoke succeeds, but creating the `SwiftOptional<SwiftString>` from the returned data triggers a Mono JIT assertion in the native helper.
+- **P/Invoke**: `CallConvCdecl` + @_cdecl wrapper (`SBW_DeviceKit_Device_name_Get_D5800277_optbuf`)
+- **Root cause**: Two `OptionalPointerWrapperEmitter` generator bugs (see Session 3): (1) `copyMemory` in `GetReturnBufferCode` didn't retain ARC references — the returned `Optional<String>` was deallocated when the Swift wrapper returned, leaving dangling bytes in the result buffer; (2) @_cdecl parameter ordering put `_resultBuf` after args instead of at position 0, so C# passed the buffer pointer where Swift expected a method argument (SIGSEGV).
 - **Impact**: 10 of 26 tests pass, 16 tests unreachable
-- **Device behavior**: 20 pass, 6 fail with managed `SwiftRuntimeException: Unable to get type metadata for type SwiftOptional<T>` (same root cause, different manifestation)
+- **Device behavior**: 20 pass, 6 fail (SwiftOptional metadata + SwiftArray — may be a separate NativeAOT issue)
 
-#### PhoneNumberKit — CRASH at test 25 (MainCountry)
+#### PhoneNumberKit — CRASH at test 25 (MainCountry) — FIXED in Session 3
 
 - **Crash site**: `PhoneNumberUtility:PInvoke_mainCountry_5C39064F` → `jit-info.c:918`
-- **P/Invoke**: `CallConvCdecl` + @_cdecl wrapper (`SBW_PhoneNumberKit_PhoneNumberUtility_mainCountry_E19E5D95_optbuf`) — **calling convention is correct**
-- **Root cause**: Same as DeviceKit — optional string return via optbuf pattern triggers Mono JIT crash during native helper execution
+- **P/Invoke**: `CallConvCdecl` + @_cdecl wrapper (`SBW_PhoneNumberKit_PhoneNumberUtility_mainCountry_E19E5D95_optbuf`)
+- **Root cause**: Same as DeviceKit — `OptionalPointerWrapperEmitter` ARC + param ordering bugs (see Session 3)
 - **Impact**: 24 of 30 tests pass, 6 tests unreachable
-- **Device behavior**: 24 pass, 6 fail with managed SwiftRuntimeException/SwiftArray failures
+- **Device behavior**: 24 pass, 6 fail (SwiftRuntimeException/SwiftArray failures — may be a separate NativeAOT issue)
 
 #### RxSwift — EXITED after test 6
 
@@ -265,24 +265,27 @@ NativeAOT handles all these correctly but can't execute them without `PublishAot
 
 **Fix**: Emit @_cdecl wrappers for all CallConvSwift patterns. The generator already does this for most operations — the remaining gaps are class allocating constructors and frozen struct constructors.
 
-#### 2. SwiftOptional/SwiftArray marshalling on Mono (simulator crashes)
+#### 2. OptionalPointerWrapperEmitter bugs (simulator crashes) — FIXED in Session 3
 
-The runtime's `SwiftOptional<T>.NewFromPayload` and related marshalling helpers crash the Mono JIT when creating optional values from native payloads. These use correct `CallConvCdecl` + @_cdecl wrappers — the P/Invoke is fine, the crash is in the subsequent managed marshalling code.
+Two generator bugs in `OptionalPointerWrapperEmitter` caused crashes for any method returning a large `Optional<T>` (e.g., `Optional<String>`) through the optbuf @_cdecl wrapper path:
 
-On NativeAOT (device), the same code paths throw managed `SwiftRuntimeException` instead of crashing, allowing tests to continue.
+1. **ARC use-after-free**: `GetReturnBufferCode` used `copyMemory` (raw `memcpy`) which doesn't retain ARC references. The returned value was deallocated when the Swift wrapper returned, leaving dangling bytes in the result buffer. Fixed: `initializeMemory(as:repeating:count:)`.
+
+2. **@_cdecl parameter ordering**: C# `HandleReturnType` placed the result buffer at position 0, but the Swift wrapper placed `_resultBuf` after args. Fixed: `_resultBuf` at position 0 when `useCdecl && hasLargeOptionalReturn`.
+
+BindingTests' `OptionalConfig.Label` used the `PropertyWrapperEmitter` (different code path, already correct), which is why it worked while third-party libraries crashed.
 
 **Affected libraries (sim)**: DeviceKit (crash at Device.Name), PhoneNumberKit (crash at MainCountry)
-**Affected libraries (device)**: SnapKit (1 fail), DeviceKit (5 fails), PhoneNumberKit (5 fails)
 
-**Note**: BindingTests proves `SwiftOptional<SwiftString>` and `SwiftArray<T>` work (14/14 pass). The library-specific failures may be related to missing type metadata registration for third-party generic instantiations.
+**Fix confirmed**: BindingTests regression tests pass with long strings (>15 bytes, defeating SSO). Third-party repos need re-validation to confirm.
 
-#### 3. SwiftArray NewFromPayload on NativeAOT
+#### 3. SwiftOptional/SwiftArray metadata on NativeAOT (device failures)
 
-`Failed to find NewFromPayload on SwiftArray<T>`
+On NativeAOT (device), some `Optional<T>` and `SwiftArray<T>` operations throw managed `SwiftRuntimeException: Unable to get type metadata` or `Failed to find NewFromPayload on SwiftArray<T>`.
 
-Affects: DeviceKit (1 fail), PhoneNumberKit (1 fail) on device only.
+**Affected libraries (device)**: SnapKit (1 fail), DeviceKit (5+1 fails), PhoneNumberKit (5+1 fails)
 
-Same library-specific pattern as SwiftOptional — BindingTests work, third-party libraries fail.
+BindingTests' SwiftOptional/SwiftArray tests pass (14/14). The device failures may be related to missing type metadata registration for third-party generic instantiations, or may have been downstream effects of the optbuf bugs (needs re-validation after Session 3 fix).
 
 #### 4. URLRequest non-blittable on Mono (Starscream)
 
@@ -318,41 +321,36 @@ These result in `DllNotFoundException` or `EntryPointNotFoundException` at runti
 
 **~106 tests behind crash barriers** across 6 libraries — unreachable because the app crashes/exits before reaching them:
 
-| Library | Tests Reached | Tests Behind Barrier | Barrier Cause |
-|---------|--------------|---------------------|---------------|
-| Alamofire | 5 | ~25 | CallConvSwift constructor |
-| KeychainAccess | 11 | ~19 | CallConvSwift constructor |
-| RxSwift | 6 | ~25 | CallConvSwift constructor |
-| CryptoSwift | 5 | ~15 | CallConvSwift constructor |
-| DeviceKit | 10 | ~16 | SwiftOptional marshalling |
-| PhoneNumberKit | 24 | ~6 | SwiftOptional marshalling |
+| Library | Tests Reached | Tests Behind Barrier | Barrier Cause | Status |
+|---------|--------------|---------------------|---------------|--------|
+| Alamofire | 5 | ~25 | CallConvSwift constructor | **Fixed Session 2** |
+| KeychainAccess | 11 | ~19 | CallConvSwift constructor | **Fixed Session 2** |
+| RxSwift | 6 | ~25 | CallConvSwift constructor | **Fixed Session 2** |
+| CryptoSwift | 5 | ~15 | CallConvSwift constructor | **Fixed Session 2** |
+| DeviceKit | 10 | ~16 | OptionalPointerWrapperEmitter bugs | **Fixed Session 3** |
+| PhoneNumberKit | 24 | ~6 | OptionalPointerWrapperEmitter bugs | **Fixed Session 3** |
 
 ---
 
 ## Action Plan
 
-### Session 1: Generator Bug Fixes + Infrastructure
+### Session 1: Generator Bug Fixes + Infrastructure — DONE
 
 **Generator compilation bugs (2):**
 
-1. **Kingfisher — nested type rename: generic parameter not updated.** Generated binding doesn't compile: `AnimatorType` renamed but `SwiftClassHandle<Animator>` generic parameter still references old name. Fix: when renaming a nested type, also update generic type arguments that reference it.
+1. **Kingfisher — nested type rename: generic parameter not updated.** `GetRootBaseTypeNameWithGenerics` didn't pass `typeDatabase`, so `SwiftClassHandle<Animator>` wasn't updated to `SwiftClassHandle<AnimatorType>`. Fixed in `ClassHandler`, `WrapperEmitter.Return`, `ConstrainedExistentialBridge`.
 
-2. **Reachability — extension method fully qualified name: namespace/type collision.** Generated binding doesn't compile: extension method references `global::Reachability.ConnectionType` but type is nested under `Reachability.Reachability.ConnectionType`. Fix: namespace-aware fully-qualified name resolution for extension methods.
+2. **Reachability — extension method fully qualified name: namespace/type collision.** `QualifyNamespaceReferences` built `nestedTypeNames` from Swift names (`Connection`) instead of C# names (`ConnectionType`). Fixed in `ModuleEmitter` to look up renamed C# leaf names from TypeDatabase.
 
-**Infrastructure cleanup:**
+**Infrastructure cleanup items** (3–5) deferred — not generator bugs, tracked for downstream repo maintenance.
 
-3. **XMLCoder wrapper recompilation.** The 4 `EntryPointNotFoundException` failures have matching C#/Swift entry point names — the wrapper just needs recompiling after 0.3.0 regeneration. Not a generator bug.
+**BindingTests added:** 4 runtime tests (2 nested type + generic param, 2 extension + namespace collision — skipped pending Session 2 @_cdecl wrapper gap, later unblocked).
 
-4. **Starscream ViabilityChanged live test.** One potentially stale skip — P/Invoke uses `CallConvCdecl` + @_cdecl wrapper but skip reason references a NativeAOT issue. Live test to confirm whether it passes on Mono sim.
+**Unit tests:** 6 new tests across `ModuleHandlerTests.cs`, `TypeHandlersOutputTests.cs`, `WrapperEmitterReturnTests.cs`.
 
-5. **Test reordering recommendation** for downstream repos (swift-dotnet-packages, sim-validation): put known-crashing tests last so crash barriers don't hide passing tests.
-
-**BindingTests:**
-
-- **Nested type + generic param**: Existing `NestedEnumTests.cs` has 14 tests but none where a renamed nested type appears as a generic type argument (e.g., `SwiftClassHandle<NestedType>`). Add a Swift type with a nested type that collides with a property name AND is referenced as a generic parameter. Verify the generated binding compiles and the test passes at runtime.
-- **Extension + namespace collision**: Existing `EnumExtensionTests.cs` has 11 tests but none where the Swift module name matches a type name. Add a Swift type whose name matches the module namespace, with an extension method that references a nested type. Verify the fully-qualified name resolves correctly in the generated binding.
-
-**Validation**: `run-tests.sh` + `validate-libraries.sh` (Kingfisher, Reachability should go from BUILD_FAILED to PASS). `build-and-test.sh` for new BindingTests.
+**Validation results:**
+- Validation: 90/90 pass (Kingfisher + Reachability recovered from BUILD_FAILED)
+- BindingTests: 4 new tests added (skipped at time, now passing after Session 2)
 
 ---
 
@@ -393,21 +391,31 @@ All changes in `WrapperValidation.cs` (`RequiresCdeclForAbiSafety`):
 
 ---
 
-### Session 3: SwiftOptional Mono Marshalling (runtime investigation)
+### Session 3: OptionalPointerWrapperEmitter ARC + Param Order Fix — DONE
 
-`SwiftOptional<T>.NewFromPayload` crashes Mono JIT inside `wrapper_native_indirect` even with correct `CallConvCdecl` + @_cdecl wrappers. The P/Invoke succeeds, but constructing the `SwiftOptional<SwiftString>` from the returned data triggers a JIT assertion in the native helper.
+Investigation found TWO bugs in `OptionalPointerWrapperEmitter.GetReturnBufferCode` and `EmitSwiftWrapper`:
 
-- **Sim**: DeviceKit crash at test 11 (`Device.Name`), PhoneNumberKit crash at test 25 (`MainCountry`)
-- **Device**: Same root cause manifests as managed `SwiftRuntimeException` — SnapKit (1 fail), DeviceKit (5+1 fails), PhoneNumberKit (5+1 fails)
-- **BindingTests**: `SwiftOptional<SwiftString>` and `SwiftArray<T>` work fine (14/14 pass) — so this may be related to missing type metadata registration for third-party generic instantiations, not a fundamental marshalling bug
+1. **ARC use-after-free in return buffer (`copyMemory` → `initializeMemory`).** The `GetReturnBufferCode` method used `copyMemory` (raw `memcpy`) to write the return value to `_resultBuf`. For types containing ARC references (e.g., `Optional<String>`), this doesn't retain the reference. When the Swift wrapper returns and `_result` is destroyed, the string refcount drops to 0 and the string is deallocated. The C# side then reads dangling bytes from `_resultBuf`, crashing in `InitializeWithCopy` when it tries to retain the freed string. Fixed by switching to `initializeMemory(as:repeating:count:)` which properly handles ARC retain.
 
-**Approach**: Investigate the difference between BindingTests (works) and third-party libraries (crashes). Likely candidates: metadata registration gap, generic instantiation differences, or library-specific type layout.
+   **Why BindingTests worked**: The PropertyWrapperEmitter (used for frozen struct property getters like `OptionalConfig.Label`) already used `initializeMemory`. Only the `OptionalPointerWrapperEmitter` (used for free functions and non-property methods with large optional returns) had the `copyMemory` bug.
 
-**BindingTests:**
+2. **@_cdecl parameter ordering mismatch for large optional returns.** When `useCdecl=true` and the method has a large optional return, the C# `PInvokeEmitter.HandleReturnType` routes through `MethodRequiresIndirectResult`, placing `resultPtr` at position 0. But the Swift wrapper put `_resultBuf` AFTER args (position N). This caused C# to pass the buffer pointer as the first argument (interpreted by Swift as a method argument) and the method argument as the second (interpreted as the buffer pointer → SIGSEGV). Fixed by placing `_resultBuf` at position 0 when `useCdecl && hasLargeOptionalReturn`, matching the C# convention.
 
-- **SwiftOptional cross-module**: Existing optional tests (14/14 pass) all use types from the test library itself. The third-party crashes may be related to missing metadata registration for generic instantiations across module boundaries. If root cause is identified, add a targeted regression test that reproduces the specific failure pattern. This may require a second Swift module in the test setup to simulate the cross-module boundary.
+   The `@_silgen_name` path was unaffected — both C# and Swift put `_optRetPtr` after args.
 
-**Validation**: `run-tests.sh` + re-run DeviceKit and PhoneNumberKit in sim-validation to confirm fix. `build-and-test.sh` if new BindingTests added.
+**Root cause of third-party crashes**: Both bugs affected the same code path (`OptionalPointerWrapperEmitter`), explaining why DeviceKit `Device.name` and PhoneNumberKit `MainCountry` crashed while BindingTests' `OptionalConfig.Label` worked (different emitter path).
+
+**BindingTests added:**
+
+- **`getLongOptionalString(Bool) -> String?`** (OptionalTypes.swift): Free function returning a >15 byte string (defeats SSO) via optbuf @_cdecl wrapper. 2 runtime tests (Some + None) — both pass.
+- **`OptionalStringHolder`** (OptionalTypes.swift): Class with `optionalName: String?` property. 2 runtime tests (Some + None) — both pass.
+
+**Unit tests:** 3 new tests in OptionalPointerWrapperTests.cs (`GetReturnBufferCode_UsesInitializeMemory_NotCopyMemory`, `GetReturnBufferCode_IncludesCorrectType` [3 theory cases]). 1 existing test updated (`initializeMemory` assertion replaces `copyMemory`).
+
+**Validation results:**
+- Unit tests: 8443 pass, 0 fail
+- Validation: 90/90 pass, no regressions
+- Runtime tests (sim): 761 pass, 32 skip (up from 757/32 — +4 new tests)
 
 ---
 

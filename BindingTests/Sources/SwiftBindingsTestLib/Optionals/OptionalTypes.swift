@@ -40,6 +40,31 @@ public func describeOptionalString(_ value: String?) -> String {
     return "nil"
 }
 
+// MARK: - Optional String Return (optbuf regression)
+
+/// Returns an optional string that exceeds SSO (>15 UTF-8 bytes) to exercise
+/// the optbuf return wrapper path with ARC-managed heap strings.
+/// This reproduces the DeviceKit Device.name / PhoneNumberKit MainCountry crash
+/// where copyMemory (raw memcpy) caused use-after-free on the returned string.
+public func getLongOptionalString(_ returnNil: Bool) -> String? {
+    if returnNil { return nil }
+    return "This is a long string that exceeds small string optimization"
+}
+
+/// Same as above but on a non-frozen class to exercise the class property optbuf path.
+public class OptionalStringHolder {
+    private let _value: String?
+
+    public init(value: String?) {
+        self._value = value
+    }
+
+    /// Returns Optional<String> via property getter — exercises optbuf wrapper for class properties.
+    public var optionalName: String? {
+        return _value
+    }
+}
+
 // MARK: - Struct with Optional Properties
 
 /// A frozen struct with optional properties for testing optional field emission.

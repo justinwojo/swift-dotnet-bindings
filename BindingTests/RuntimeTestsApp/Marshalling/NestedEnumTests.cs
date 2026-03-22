@@ -331,7 +331,6 @@ public class NestedEnumTests : TestBase
 
     #region Nested Class Rename — Generic Parameter (Kingfisher Animator pattern)
 
-    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
     public void TestNestedClassRename_TypeExists()
     {
         // The nested class Animator is renamed to AnimatorType to avoid collision
@@ -341,7 +340,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Nested class rename: type exists as AnimatorType");
     }
 
-    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
     public void TestNestedClassRename_PropertyAccess()
     {
         // The property name stays as Animator (PascalCase of "animator"),
@@ -353,7 +351,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Nested class rename: property access works");
     }
 
-    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
     public void TestNestedClassRename_MethodOnRenamed()
     {
         // Verify the renamed nested class methods work at runtime —
@@ -364,7 +361,6 @@ public class NestedEnumTests : TestBase
         TestLogger.Info("Nested class rename: method dispatch works");
     }
 
-    [Skip("AnimatorType constructor uses CallConvSwift (no @_cdecl wrapper for class allocating constructors) — Session 2 will add wrappers")]
     public void TestNestedClassRename_FullRoundTrip()
     {
         // Full round-trip: create nested class, pass to parent, read back via property.

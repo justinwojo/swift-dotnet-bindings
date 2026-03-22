@@ -142,4 +142,47 @@ public class OptionalMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Tier 3 — Optbuf ARC Regression Tests
+
+    public void TestOptionalStringReturnLongSome()
+    {
+        // Regression: optbuf wrapper used copyMemory (raw memcpy) instead of initializeMemory.
+        // For heap-allocated strings (>15 UTF-8 bytes), the returned string was freed when
+        // the Swift wrapper returned, leaving dangling bytes in the result buffer.
+        // This reproduces the DeviceKit Device.name crash (SIGSEGV in InitializeWithCopy).
+        var result = TestLibFunctions.GetLongOptionalString(false);
+        AssertNotNull(result, "Long optional string should be Some");
+        AssertEqual("This is a long string that exceeds small string optimization", result,
+            "Long optional string value matches");
+        TestLogger.Info($"GetLongOptionalString(false) = \"{result}\"");
+    }
+
+    public void TestOptionalStringReturnLongNone()
+    {
+        var result = TestLibFunctions.GetLongOptionalString(true);
+        AssertNull(result, "Long optional string should be None");
+        TestLogger.Info("GetLongOptionalString(true) = null");
+    }
+
+    public void TestOptionalStringPropertyOnClass()
+    {
+        // Exercises optbuf wrapper for class property getter returning Optional<String>
+        using var holder = new OptionalStringHolder("A long device name like iPhone 15 Pro Max Extended");
+        var name = holder.OptionalName;
+        AssertNotNull(name, "OptionalStringHolder.OptionalName should be Some");
+        AssertEqual("A long device name like iPhone 15 Pro Max Extended", name,
+            "OptionalStringHolder.OptionalName value matches");
+        TestLogger.Info($"OptionalStringHolder.OptionalName = \"{name}\"");
+    }
+
+    public void TestOptionalStringPropertyOnClassNone()
+    {
+        using var holder = new OptionalStringHolder(null);
+        var name = holder.OptionalName;
+        AssertNull(name, "OptionalStringHolder.OptionalName should be None");
+        TestLogger.Info("OptionalStringHolder.OptionalName = null");
+    }
+
+    #endregion
 }

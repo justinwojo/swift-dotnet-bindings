@@ -1036,8 +1036,8 @@ public class OptionalPointerWrapperTests
         // Swift wrapper must NOT have a direct return type (writes to buffer instead)
         Assert.DoesNotContain("-> (Swift.String)?", swiftOutput);
         Assert.DoesNotContain("-> Swift.Optional", swiftOutput);
-        // Swift wrapper must write result to buffer via copyMemory
-        Assert.Contains("copyMemory", swiftOutput);
+        // Swift wrapper must write result to buffer via initializeMemory (ARC-safe)
+        Assert.Contains("initializeMemory", swiftOutput);
     }
 
     [Fact]
@@ -1174,6 +1174,37 @@ public class OptionalPointerWrapperTests
         Assert.DoesNotContain("@_cdecl", swiftOutput);
         // Must NOT contain .load(as: ... for closure types
         Assert.DoesNotContain(".load(as:", swiftOutput);
+    }
+
+    [Fact]
+    public void GetReturnBufferCode_UsesInitializeMemory_NotCopyMemory()
+    {
+        // Regression: GetReturnBufferCode used copyMemory which is a raw memcpy
+        // that doesn't handle ARC retain. For types containing references (String, classes),
+        // the Swift wrapper's _result is destroyed when the function returns, leaving
+        // dangling pointers in _resultBuf. initializeMemory properly retains ARC references.
+        var lines = OptionalPointerWrapperEmitter.GetReturnBufferCode("__self.name", "Optional<String>");
+
+        // Must use initializeMemory (ARC-safe) instead of copyMemory (raw memcpy)
+        var joined = string.Join("\n", lines);
+        Assert.Contains("initializeMemory", joined);
+        Assert.DoesNotContain("copyMemory", joined);
+        Assert.DoesNotContain("withUnsafePointer", joined);
+        // Must write to _resultBuf
+        Assert.Contains("_resultBuf", joined);
+        // Must assign result to _result first
+        Assert.Contains("let _result = __self.name", joined);
+    }
+
+    [Theory]
+    [InlineData("Optional<String>")]
+    [InlineData("Optional<DeviceKit.Device>")]
+    [InlineData("Optional<Swift.URL>")]
+    public void GetReturnBufferCode_IncludesCorrectType(string returnType)
+    {
+        var lines = OptionalPointerWrapperEmitter.GetReturnBufferCode("expr()", returnType);
+        var joined = string.Join("\n", lines);
+        Assert.Contains($"as: {returnType}.self", joined);
     }
 
     #endregion
