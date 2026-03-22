@@ -50,10 +50,17 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     }
 
     private SwiftSafeHandle<SwiftArray<Element>> _payload;
+    private bool _disposed;
 
-    public SwiftSafeHandle<SwiftArray<Element>> Payload => _payload;
+    public SwiftSafeHandle<SwiftArray<Element>> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
-    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer
+    {
+        get { ThrowIfDisposed(); return new PayloadBuffer<IntPtr>(_payload); }
+    }
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -65,7 +72,10 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         };
     }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -82,6 +92,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -181,6 +192,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     {
         get
         {
+            ThrowIfDisposed();
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             int result = (int)SwiftArrayPInvokes.Count(disposable.Buffer, ElementTypeMetadata);
             return result;
@@ -192,6 +204,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public unsafe void Append(Element item)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
         bool success = false;
         _payload.DangerousAddRef(ref success);
@@ -214,6 +227,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public unsafe void Insert(int index, Element item)
     {
+        ThrowIfDisposed();
         bool success = false;
         _payload.DangerousAddRef(ref success);
         try
@@ -236,6 +250,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public unsafe void Remove(int index)
     {
+        ThrowIfDisposed();
         bool success = false;
         _payload.DangerousAddRef(ref success);
         try
@@ -256,6 +271,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public unsafe void RemoveAll()
     {
+        ThrowIfDisposed();
         bool success = false;
         _payload.DangerousAddRef(ref success);
         try
@@ -277,6 +293,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     {
         get
         {
+            ThrowIfDisposed();
             if ((uint)index >= (uint)Count)
                 throw new ArgumentOutOfRangeException(nameof(index));
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
@@ -315,6 +332,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         }
         set
         {
+            ThrowIfDisposed();
             if ((uint)index >= (uint)Count)
                 throw new ArgumentOutOfRangeException(nameof(index));
             using PayloadBuffer<IntPtr> _ = PayloadBuffer;
@@ -334,6 +352,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// <param name="selector">The function to apply to each element.</param>
     public IReadOnlyList<TResult> AsProjected<TResult>(Func<Element, TResult> selector)
     {
+        ThrowIfDisposed();
         if (selector == null) throw new ArgumentNullException(nameof(selector));
         return new SwiftArrayProjection<Element, TResult>(this, selector);
     }
@@ -391,6 +410,12 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public IEnumerator<Element> GetEnumerator()
     {
+        ThrowIfDisposed();
+        return GetEnumeratorCore();
+    }
+
+    private IEnumerator<Element> GetEnumeratorCore()
+    {
         int count = Count;
         for (int i = 0; i < count; i++)
         {
@@ -426,6 +451,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public Element[] ToArray()
     {
+        ThrowIfDisposed();
         int count = Count;
         var result = new Element[count];
         for (int i = 0; i < count; i++)
@@ -438,6 +464,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public List<Element> ToList()
     {
+        ThrowIfDisposed();
         int count = Count;
         var result = new List<Element>(count);
         for (int i = 0; i < count; i++)
@@ -450,6 +477,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public override string ToString()
     {
+        ThrowIfDisposed();
         return $"SwiftArray<{typeof(Element).Name}>[{Count}]";
     }
 
@@ -458,8 +486,14 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     /// </summary>
     public void Dispose()
     {
-        _payload?.Dispose();
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
 internal static class SwiftArrayPInvokes

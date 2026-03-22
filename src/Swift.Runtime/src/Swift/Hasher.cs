@@ -25,9 +25,15 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Gets the internal handle for marshalling to Swift.
     /// </summary>
-    public SwiftSafeHandle<Hasher> Payload => _payload;
+    public SwiftSafeHandle<Hasher> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     #region ISwiftObject Implementation
 
@@ -43,6 +49,7 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -101,10 +108,12 @@ public sealed class Hasher : ISwiftObject, ISwiftStruct, IDisposable
     {
         if (!_disposed)
         {
-            _payload.Dispose();
             _disposed = true;
+            _payload.Dispose();
         }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     #endregion
 }

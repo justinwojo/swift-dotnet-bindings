@@ -15,6 +15,9 @@ Previous sessions (0–14, architecture audit, post-audit fixes) archived in `Co
 | Unit tests | 8440 |
 | Validation compile gate | 90/90 pass |
 | Swift wrapper compilation | 51/56 ok |
+| Member emission | 995/1109 (89.7%) |
+| Type emission | 257/277 (92.8%) |
+| @_cdecl wrapper coverage | 725/918 (78.9%) |
 
 ### Validation failures (0 C# compile, 5 Swift wrapper)
 
@@ -48,19 +51,13 @@ Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validati
 
 ## Post-Stability Sessions
 
-### Session A: Runtime Safety + Validation Cleanup
+### Session A: Runtime Safety + Validation Cleanup — **Done**
 
-**Runtime dispose safety:**
-- `SwiftString`, `SwiftArray`, `SwiftDictionary`, and other `IDisposable` runtime types must throw `ObjectDisposedException` on post-dispose access. Currently, accessing a disposed handle reads invalid memory silently — violates .NET conventions and causes hard-to-debug crashes for consumers.
-- Audit all public members on disposable runtime types. Add disposed-state checks.
+**Runtime dispose safety:** Done. All 8 disposable runtime types (SwiftString, SwiftArray, SwiftDictionary, SwiftSet, SwiftOptional, SwiftResult, SwiftAsyncStream, Hasher) now throw `ObjectDisposedException` on post-dispose access. 52 unit tests added. SwiftSet also now declares `IDisposable` in its interface list (was missing).
 
-**Remaining compile failures:**
-- Investigate and fix BlinkID (5 errors), SVGView (5 errors), StripePaymentSheet (3 errors). These may already be fixed post-baseline (`9ab694c5` is behind HEAD) — re-run validation first.
+**Remaining compile failures:** Confirmed resolved. BlinkID, SVGView, StripePaymentSheet all pass at 90/90. No action needed.
 
-**Coverage re-measurement:**
-- The baseline coverage numbers (67% member emission, 66% @_cdecl) are from March 16. After 14+ sessions of work, these are stale. Re-measure to establish the actual current state and update the roadmap header.
-
-**Validation**: `run-tests.sh` + `validate-libraries.sh`. `run-runtime-tests.sh --skip-regen` if dispose changes touch runtime.
+**Coverage re-measurement:** Done. Updated roadmap header. Member emission: 89.7% (was 67%), @_cdecl: 78.9% (was 66%), type emission: 92.8%.
 
 ---
 

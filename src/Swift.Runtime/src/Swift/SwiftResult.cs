@@ -33,16 +33,23 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     static nuint _payloadSize = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata().Size;
 
     private SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> _payload;
+    private bool _disposed;
 
     /// <summary>
     /// Gets the safe handle to the underlying Swift payload
     /// </summary>
-    public SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> Payload => _payload;
+    public SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
     /// <summary>
     /// Gets a PayloadBuffer for use in PInvoke calls
     /// </summary>
-    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer
+    {
+        get { ThrowIfDisposed(); return new PayloadBuffer<IntPtr>(_payload); }
+    }
 
     /// <summary>
     /// Constructs a new empty SwiftResult with allocated native memory
@@ -68,7 +75,10 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// Returns the TypeMetadata for this object
     /// </summary>
     /// <returns>The TypeMetadata for this object</returns>
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -94,6 +104,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <returns></returns>
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -143,6 +154,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         get
         {
+            ThrowIfDisposed();
             bool success = false;
             _payload.DangerousAddRef(ref success);
             try
@@ -162,12 +174,18 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <summary>
     /// Returns true if the result is a success case
     /// </summary>
-    public bool IsSuccess => Case == SwiftResultCase.Success;
+    public bool IsSuccess
+    {
+        get { ThrowIfDisposed(); return Case == SwiftResultCase.Success; }
+    }
 
     /// <summary>
     /// Returns true if the result is a failure case
     /// </summary>
-    public bool IsFailure => Case == SwiftResultCase.Failure;
+    public bool IsFailure
+    {
+        get { ThrowIfDisposed(); return Case == SwiftResultCase.Failure; }
+    }
 
     /// <summary>
     /// Gets the success value. Throws if the result is a failure.
@@ -176,6 +194,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         get
         {
+            ThrowIfDisposed();
             if (Case != SwiftResultCase.Success)
                 throw new InvalidOperationException("Cannot get Success when case is Failure");
 
@@ -206,6 +225,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         get
         {
+            ThrowIfDisposed();
             if (Case != SwiftResultCase.Failure)
                 throw new InvalidOperationException("Cannot get Failure when case is Success");
 
@@ -236,6 +256,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <returns><c>true</c> if the result is a success case; otherwise, <c>false</c>.</returns>
     public bool TryGetSuccess([MaybeNullWhen(false)] out TSuccess value)
     {
+        ThrowIfDisposed();
         if (Case == SwiftResultCase.Success)
         {
             value = Success;
@@ -252,6 +273,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <returns><c>true</c> if the result is a failure case; otherwise, <c>false</c>.</returns>
     public bool TryGetFailure([MaybeNullWhen(false)] out TFailure value)
     {
+        ThrowIfDisposed();
         if (Case == SwiftResultCase.Failure)
         {
             value = Failure;
@@ -270,6 +292,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <returns>The result from the appropriate handler.</returns>
     public TResult Match<TResult>(Func<TSuccess, TResult> onSuccess, Func<TFailure, TResult> onFailure)
     {
+        ThrowIfDisposed();
         return Case switch
         {
             SwiftResultCase.Success => onSuccess(Success),
@@ -303,8 +326,14 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     public void Dispose()
     {
-        _payload?.Dispose();
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     /// <summary>
     /// Internal class representing a success result that doesn't require Swift interop.

@@ -22,7 +22,7 @@ public interface ISwiftHashable { }
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>
-public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element>, IReadOnlyCollection<Element>, IReadOnlySet<Element>
+public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element>, IReadOnlyCollection<Element>, IReadOnlySet<Element>, IDisposable
 {
     // Lazy initialization to avoid calling Swift runtime during static construction.
     // This prevents crashes when Element is an existential container type, where
@@ -49,10 +49,17 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     }
 
     private SwiftSafeHandle<SwiftSet<Element>> _payload;
+    private bool _disposed;
 
-    public SwiftSafeHandle<SwiftSet<Element>> Payload => _payload;
+    public SwiftSafeHandle<SwiftSet<Element>> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
-    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer
+    {
+        get { ThrowIfDisposed(); return new PayloadBuffer<IntPtr>(_payload); }
+    }
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -64,7 +71,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         };
     }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -86,6 +96,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -168,6 +179,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     {
         get
         {
+            ThrowIfDisposed();
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
             int result = (int)SwiftSetPInvokes.Count(disposable.Buffer, ElementTypeMetadata, witnessTable);
@@ -182,6 +194,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// <returns><c>true</c> if the set contains the element; otherwise, <c>false</c>.</returns>
     public unsafe bool Contains(Element element)
     {
+        ThrowIfDisposed();
         using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
         var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
 
@@ -201,6 +214,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// <c>false</c> if the element was already in the set.</returns>
     public unsafe bool Add(Element element)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
 
         bool success = false;
@@ -247,6 +261,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// <returns><c>true</c> if the element was removed; <c>false</c> if the element was not in the set.</returns>
     public unsafe bool Remove(Element element)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
 
         bool success = false;
@@ -293,6 +308,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public unsafe void RemoveAll()
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
 
         bool success = false;
@@ -317,6 +333,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public IEnumerator<Element> GetEnumerator()
     {
+        ThrowIfDisposed();
         // Snapshot all elements into a list (unsafe code can't coexist with yield return)
         var elements = CollectElements();
         return elements.GetEnumerator();
@@ -457,6 +474,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool IsProperSubsetOf(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         var otherSet = new HashSet<Element>(other);
         if (Count >= otherSet.Count) return false;
         foreach (var element in this)
@@ -472,6 +490,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool IsProperSupersetOf(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         var otherSet = new HashSet<Element>(other);
         if (Count <= otherSet.Count) return false;
         foreach (var element in otherSet)
@@ -487,6 +506,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool IsSubsetOf(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         var otherSet = new HashSet<Element>(other);
         foreach (var element in this)
         {
@@ -501,6 +521,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool IsSupersetOf(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         foreach (var element in other)
         {
             if (!Contains(element))
@@ -514,6 +535,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool Overlaps(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         foreach (var element in other)
         {
             if (Contains(element))
@@ -527,6 +549,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public bool SetEquals(IEnumerable<Element> other)
     {
+        ThrowIfDisposed();
         var otherSet = new HashSet<Element>(other);
         if (Count != otherSet.Count) return false;
         foreach (var element in this)
@@ -562,6 +585,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public Element[] ToArray()
     {
+        ThrowIfDisposed();
         var elements = CollectElements();
         return elements.ToArray();
     }
@@ -571,6 +595,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public List<Element> ToList()
     {
+        ThrowIfDisposed();
         return CollectElements();
     }
 
@@ -579,11 +604,21 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public override string ToString()
     {
+        ThrowIfDisposed();
         return $"SwiftSet<{typeof(Element).Name}>[{Count}]";
     }
 
     /// <inheritdoc/>
-    public void Dispose() => _payload?.Dispose();
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
+    }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
 internal static class SwiftSetPInvokes

@@ -30,8 +30,12 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     private SwiftSafeHandle<SwiftString> _payload;
+    private bool _disposed;
 
-    public SwiftSafeHandle<SwiftString> Payload => _payload;
+    public SwiftSafeHandle<SwiftString> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -43,9 +47,15 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
         };
     }
 
-    public unsafe PayloadBuffer<SwiftString.Buffer> PayloadBuffer => new PayloadBuffer<SwiftString.Buffer>(_payload);
+    public unsafe PayloadBuffer<SwiftString.Buffer> PayloadBuffer
+    {
+        get { ThrowIfDisposed(); return new PayloadBuffer<SwiftString.Buffer>(_payload); }
+    }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -80,6 +90,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftString>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -161,6 +172,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     {
         get
         {
+            ThrowIfDisposed();
             try
             {
                 return GetLengthViaWrapper();
@@ -190,6 +202,7 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public override string ToString()
     {
+        ThrowIfDisposed();
         try
         {
             return ToStringViaWrapper();
@@ -263,8 +276,14 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public void Dispose()
     {
-        _payload?.Dispose();
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     /// <summary>
     /// P/Invoke declarations for the SwiftBindingsRuntime library.

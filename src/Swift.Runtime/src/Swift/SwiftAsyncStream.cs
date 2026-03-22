@@ -68,6 +68,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// </summary>
     public ElementCallback GetElementCallback()
     {
+        ThrowIfDisposed();
         return OnElement;
     }
 
@@ -77,6 +78,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// </summary>
     public CompletionCallback GetCompletionCallback()
     {
+        ThrowIfDisposed();
         return OnComplete;
     }
 
@@ -85,6 +87,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// </summary>
     public long GetContext()
     {
+        ThrowIfDisposed();
         if (!_thisHandle.IsAllocated)
         {
             _thisHandle = GCHandle.Alloc(this);
@@ -135,6 +138,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// </summary>
     public async IAsyncEnumerator<TElement> GetAsyncEnumerator(CancellationToken cancellationToken = default)
     {
+        ThrowIfDisposed();
         // Link the provided token with our internal token
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
@@ -149,6 +153,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// </summary>
     public void Cancel()
     {
+        ThrowIfDisposed();
         _cts.Cancel();
         _channel.Writer.TryComplete();
     }
@@ -171,6 +176,8 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
             _thisHandle.Free();
         }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     /// <summary>
     /// Retrieves a SwiftAsyncStream instance from a context value.

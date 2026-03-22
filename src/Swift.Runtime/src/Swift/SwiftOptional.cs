@@ -61,11 +61,15 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     private SwiftSafeHandle<SwiftOptional<T>> _payload;
+    private bool _disposed;
 
     /// <summary>
     /// Gets the safe handle to the underlying Swift payload
     /// </summary>
-    public SwiftSafeHandle<SwiftOptional<T>> Payload => _payload;
+    public SwiftSafeHandle<SwiftOptional<T>> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
     /// <summary>
     /// Gets a PayloadBuffer for use in PInvoke calls
@@ -74,6 +78,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         get
         {
+            ThrowIfDisposed();
             Debug.Assert(_payloadSize <= (nuint)IntPtr.Size,
                 $"SwiftOptional<{typeof(T).Name}> payload size ({_payloadSize}) exceeds IntPtr size ({IntPtr.Size}). " +
                 "Use DangerousGetHandle() instead of PayloadBuffer for large Optional types.");
@@ -105,7 +110,10 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// Returns the TypeMetadata for this object
     /// </summary>
     /// <returns>The TypeMetadata for this object</returns>
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -128,6 +136,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// <returns></returns>
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -262,6 +271,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         get
         {
+            ThrowIfDisposed();
             bool success = false;
             _payload.DangerousAddRef(ref success);
             try
@@ -317,6 +327,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         get
         {
+            ThrowIfDisposed();
             if (Case != SwiftOptionalCases.Some)
             {
                 throw new InvalidOperationException("Cannot get Some when case is None");
@@ -377,17 +388,27 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Gets the value of the optional type if the case is Some or the default value if the case is None
     /// </summary>
-    public T? Value => Case switch
+    public T? Value
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return Case switch
     {
         SwiftOptionalCases.Some => Some,
         SwiftOptionalCases.None => default(T),
-        _ => throw new SwiftRuntimeException($"Unknown case {Case}")
-    };
+            _ => throw new SwiftRuntimeException($"Unknown case {Case}")
+            };
+        }
+    }
 
     /// <summary>
     /// Returns true if the case is Some
     /// </summary>
-    public bool HasValue => Case == SwiftOptionalCases.Some;
+    public bool HasValue
+    {
+        get { ThrowIfDisposed(); return Case == SwiftOptionalCases.Some; }
+    }
 
     /// <summary>
     /// Creates a SwiftOptional from a nullable value.
@@ -409,6 +430,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// <returns>The nullable value representation.</returns>
     public T? ToNullable()
     {
+        ThrowIfDisposed();
         return Case == SwiftOptionalCases.Some ? Some : default;
     }
 
@@ -435,8 +457,14 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public void Dispose()
     {
-        _payload?.Dispose();
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
     }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
 internal static class PInvokesForSwiftOptional

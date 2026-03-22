@@ -45,10 +45,17 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     }
 
     private SwiftSafeHandle<SwiftDictionary<TKey, TValue>> _payload;
+    private bool _disposed;
 
-    public SwiftSafeHandle<SwiftDictionary<TKey, TValue>> Payload => _payload;
+    public SwiftSafeHandle<SwiftDictionary<TKey, TValue>> Payload
+    {
+        get { ThrowIfDisposed(); return _payload; }
+    }
 
-    public unsafe PayloadBuffer<IntPtr> PayloadBuffer => new PayloadBuffer<IntPtr>(_payload);
+    public unsafe PayloadBuffer<IntPtr> PayloadBuffer
+    {
+        get { ThrowIfDisposed(); return new PayloadBuffer<IntPtr>(_payload); }
+    }
 
     private static Dictionary<Type, string> _protocolConformanceSymbols;
 
@@ -60,7 +67,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         };
     }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+    }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
@@ -90,6 +100,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -174,6 +185,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     {
         get
         {
+            ThrowIfDisposed();
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
             var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
             int result = (int)SwiftDictionaryPInvokes.Count(disposable.Buffer, KeyTypeMetadata, ValueTypeMetadata, witnessTable);
@@ -190,12 +202,14 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     {
         get
         {
+            ThrowIfDisposed();
             if (!TryGetValue(key, out var value))
                 throw new KeyNotFoundException($"The given key was not present in the dictionary.");
             return value;
         }
         set
         {
+            ThrowIfDisposed();
             var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
 
             bool success = false;
@@ -247,6 +261,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <returns><c>true</c> if the key was found; otherwise, <c>false</c>.</returns>
     public unsafe bool TryGetValue(TKey key, out TValue value)
     {
+        ThrowIfDisposed();
         using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
         var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
 
@@ -290,7 +305,11 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// </summary>
     /// <param name="key">The key to check.</param>
     /// <returns><c>true</c> if the dictionary contains the key; otherwise, <c>false</c>.</returns>
-    public bool ContainsKey(TKey key) => TryGetValue(key, out _);
+    public bool ContainsKey(TKey key)
+    {
+        ThrowIfDisposed();
+        return TryGetValue(key, out _);
+    }
 
     /// <summary>
     /// Gets a collection containing the keys in the dictionary.
@@ -299,9 +318,15 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     {
         get
         {
-            foreach (var kvp in this)
-                yield return kvp.Key;
+            ThrowIfDisposed();
+            return GetKeys();
         }
+    }
+
+    private IEnumerable<TKey> GetKeys()
+    {
+        foreach (var kvp in this)
+            yield return kvp.Key;
     }
 
     /// <summary>
@@ -311,9 +336,15 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     {
         get
         {
-            foreach (var kvp in this)
-                yield return kvp.Value;
+            ThrowIfDisposed();
+            return GetValues();
         }
+    }
+
+    private IEnumerable<TValue> GetValues()
+    {
+        foreach (var kvp in this)
+            yield return kvp.Value;
     }
 
     /// <summary>
@@ -322,6 +353,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// </summary>
     public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
     {
+        ThrowIfDisposed();
         // Snapshot all entries into a list (unsafe code can't coexist with yield return)
         var entries = CollectEntries();
         return entries.GetEnumerator();
@@ -439,6 +471,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// </summary>
     public unsafe void RemoveAll()
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
 
         bool success = false;
@@ -464,6 +497,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <returns>The removed value, or default if the key was not present.</returns>
     public unsafe TValue RemoveValue(TKey key)
     {
+        ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
 
         bool success = false;
@@ -533,6 +567,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <param name="valueSelector">The function to apply to each value.</param>
     public IReadOnlyDictionary<TKey, TResult> AsProjected<TResult>(Func<TValue, TResult> valueSelector)
     {
+        ThrowIfDisposed();
         if (valueSelector == null) throw new ArgumentNullException(nameof(valueSelector));
         return new SwiftDictionaryValueProjection<TKey, TValue, TResult>(this, valueSelector);
     }
@@ -552,6 +587,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         Func<TValue, TResultValue> valueSelector)
         where TResultKey : notnull
     {
+        ThrowIfDisposed();
         if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
         if (reverseKeySelector == null) throw new ArgumentNullException(nameof(reverseKeySelector));
         if (valueSelector == null) throw new ArgumentNullException(nameof(valueSelector));
@@ -565,7 +601,16 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     }
 
     /// <inheritdoc/>
-    public void Dispose() => _payload?.Dispose();
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _payload?.Dispose();
+        }
+    }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 }
 
 internal static class SwiftDictionaryPInvokes
