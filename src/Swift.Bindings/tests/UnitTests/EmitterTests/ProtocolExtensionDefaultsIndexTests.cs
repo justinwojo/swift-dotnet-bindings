@@ -262,6 +262,158 @@ public class ProtocolExtensionDefaultsIndexTests
         Assert.True(index.HasPropertyDefault("TestModule.ReadWrite", "value", conformances, requiresSetter: false));
     }
 
+    #region Phantom Defaults Detection
+
+    [Fact]
+    public void DetectPhantomDefaults_PropertyMissingFromAllConformers_BecomesDefault()
+    {
+        // Protocol AnyValueProvider requires typeErasedStorage, but no conforming type has it.
+        // This models the Lottie pattern where the PAT extension is invisible.
+        var moduleDecl = CreateModuleDeclWithTypes("Lottie");
+        var protocol = CreateProtocolDeclWithProperties("AnyValueProvider", "Lottie",
+            new[] { ("typeErasedStorage", false), ("valueType", false) });
+        protocol.Methods.Add(CreateVoidMethodForProtocol("hasUpdate", moduleDecl));
+        moduleDecl.Protocols.Add(protocol);
+
+        // FloatValueProvider conforms but only has valueType and hasUpdate — NOT typeErasedStorage
+        var floatProvider = CreateClassDeclWithConformance("FloatValueProvider", moduleDecl, "AnyValueProvider");
+        floatProvider.Properties.Add(CreateSimpleProperty("valueType", floatProvider, moduleDecl));
+        floatProvider.Methods.Add(CreateSimpleMethod("hasUpdate", floatProvider, moduleDecl));
+        moduleDecl.Types.Add(floatProvider);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        // typeErasedStorage should be detected as a phantom default
+        Assert.True(index.HasDirectPropertyDefault("Lottie.AnyValueProvider", "typeErasedStorage"));
+        // valueType should NOT be a phantom default (present on FloatValueProvider)
+        Assert.False(index.HasDirectPropertyDefault("Lottie.AnyValueProvider", "valueType"));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_MethodMissingFromAllConformers_BecomesDefault()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithMethods("Worker", "TestModule",
+            new[] { "process", "cleanup" });
+        moduleDecl.Protocols.Add(protocol);
+
+        // ConcreteWorker conforms but only has process — NOT cleanup
+        var worker = CreateClassDeclWithConformance("ConcreteWorker", moduleDecl, "Worker");
+        worker.Methods.Add(CreateSimpleMethod("process", worker, moduleDecl));
+        moduleDecl.Types.Add(worker);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        // cleanup should be a phantom default, process should not
+        Assert.True(index.HasDirectMethodDefault("TestModule.Worker", "cleanup()"));
+        Assert.False(index.HasDirectMethodDefault("TestModule.Worker", "process()"));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_AllConformersHaveProperty_NotPhantomDefault()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithProperties("Describable", "TestModule",
+            new[] { ("description", false) });
+        moduleDecl.Protocols.Add(protocol);
+
+        // Both conforming types have description
+        var typeA = CreateClassDeclWithConformance("TypeA", moduleDecl, "Describable");
+        typeA.Properties.Add(CreateSimpleProperty("description", typeA, moduleDecl));
+        moduleDecl.Types.Add(typeA);
+
+        var typeB = CreateClassDeclWithConformance("TypeB", moduleDecl, "Describable");
+        typeB.Properties.Add(CreateSimpleProperty("description", typeB, moduleDecl));
+        moduleDecl.Types.Add(typeB);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        Assert.False(index.HasDirectPropertyDefault("TestModule.Describable", "description"));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_NoConformingTypes_NoPhantomDefaults()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithProperties("Orphan", "TestModule",
+            new[] { ("data", false) });
+        moduleDecl.Protocols.Add(protocol);
+        // No types conform to Orphan
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        Assert.False(index.HasDirectPropertyDefault("TestModule.Orphan", "data"));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_ExistingExtensionDefault_NotDuplicated()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithProperties("Styled", "TestModule",
+            new[] { ("theme", false) });
+        moduleDecl.Protocols.Add(protocol);
+
+        // ConcreteStyled conforms but doesn't have theme
+        var styled = CreateClassDeclWithConformance("ConcreteStyled", moduleDecl, "Styled");
+        moduleDecl.Types.Add(styled);
+
+        // But theme already has a known extension default
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Styled"] = new() { CreateExtensionProperty("theme") }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        // Should still report true (was already a default before phantom detection)
+        Assert.True(index.HasDirectPropertyDefault("TestModule.Styled", "theme"));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_PropertyWithSetter_SetterDefaultAlsoDetected()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithProperties("Mutable", "TestModule",
+            new[] { ("value", true) }); // { get set }
+        moduleDecl.Protocols.Add(protocol);
+
+        var concrete = CreateClassDeclWithConformance("ConcreteMutable", moduleDecl, "Mutable");
+        moduleDecl.Types.Add(concrete);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        Assert.True(index.HasDirectPropertyDefault("TestModule.Mutable", "value"));
+        Assert.True(index.HasDirectPropertyDefault("TestModule.Mutable", "value", requiresSetter: true));
+    }
+
+    [Fact]
+    public void DetectPhantomDefaults_StaticPropertyIgnored()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        var protocol = CreateProtocolDeclWithProperties("HasStatic", "TestModule", Array.Empty<(string, bool)>());
+        // Add a static property manually
+        var staticProp = CreateSimpleProperty("shared", null, moduleDecl);
+        staticProp.IsStatic = true;
+        protocol.Properties.Add(staticProp);
+        moduleDecl.Protocols.Add(protocol);
+
+        var concrete = CreateClassDeclWithConformance("ConcreteHasStatic", moduleDecl, "HasStatic");
+        moduleDecl.Types.Add(concrete);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        // Static properties are not checked for phantom defaults
+        Assert.False(index.HasDirectPropertyDefault("TestModule.HasStatic", "shared"));
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ProtocolExtensionMethodDecl CreateExtensionMethod(string methodName, string printedName,
@@ -326,6 +478,151 @@ public class ProtocolExtensionDefaultsIndexTests
             Subscripts = new List<SubscriptDecl>(),
             ParentDecl = null,
             ModuleDecl = null
+        };
+    }
+
+    private static ModuleDecl CreateModuleDeclWithTypes(string name)
+    {
+        return new ModuleDecl
+        {
+            Name = name,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private static ProtocolDecl CreateProtocolDeclWithProperties(string name, string moduleName,
+        (string name, bool hasSetter)[] properties)
+    {
+        var proto = CreateProtocolDecl(name, moduleName);
+        foreach (var (propName, hasSetter) in properties)
+        {
+            var accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = null! } };
+            if (hasSetter) accessors.Add(new SetAccessorDecl { Method = null! });
+            proto.Properties.Add(new PropertyDecl
+            {
+                Name = propName,
+                SwiftTypeSpec = new NamedTypeSpec($"{moduleName}.SomeType"),
+                IsStatic = false,
+                HasStorage = false,
+                Accessors = accessors,
+                ParentDecl = proto,
+                ModuleDecl = null
+            });
+        }
+        return proto;
+    }
+
+    private static ProtocolDecl CreateProtocolDeclWithMethods(string name, string moduleName, string[] methodNames)
+    {
+        var proto = CreateProtocolDecl(name, moduleName);
+        foreach (var methodName in methodNames)
+        {
+            proto.Methods.Add(new MethodDecl
+            {
+                Name = methodName,
+                MangledName = $"$s{moduleName}{methodName}F",
+                MethodType = MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    new() { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = proto,
+                ModuleDecl = null,
+                Throws = false,
+                IsAsync = false,
+                Visibility = Visibility.Public
+            });
+        }
+        return proto;
+    }
+
+    private static ClassDecl CreateClassDeclWithConformance(string name, ModuleDecl moduleDecl, string protocolName)
+    {
+        var cls = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s{moduleDecl.Name}{name}C",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(
+                    SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{protocolName}"),
+                    $"$s{moduleDecl.Name}{name}_{protocolName}Conformance")
+            },
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        return cls;
+    }
+
+    private static PropertyDecl CreateSimpleProperty(string name, BaseDecl? parent, ModuleDecl moduleDecl)
+    {
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = null! } },
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static MethodDecl CreateSimpleMethod(string name, BaseDecl? parent, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}F",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateVoidMethodForProtocol(string name, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}F",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
         };
     }
 

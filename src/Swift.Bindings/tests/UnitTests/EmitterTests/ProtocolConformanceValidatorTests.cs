@@ -914,7 +914,203 @@ public class ProtocolConformanceValidatorTests
 
     #endregion
 
+    #region Phantom Default Conformance
+
+    [Fact]
+    public void CanFullyImplementProtocol_MissingProperty_AcceptedWhenPhantomDefaultExists()
+    {
+        // Models the Lottie AnyValueProvider pattern: protocol requires typeErasedStorage,
+        // but FloatValueProvider doesn't have it. A phantom default (from PAT extension)
+        // should allow the conformance.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Provider");
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        // Protocol requires: hasUpdate() method + typeErasedStorage property
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Provider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Provider"),
+            MangledName = "$s10TestModule8ProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreatePropertyDecl("typeErasedStorage", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl> { CreateVoidMethod("hasUpdate", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type has hasUpdate but NOT typeErasedStorage
+        var concreteType = CreateClassDecl("FloatProvider", moduleDecl);
+        concreteType.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FloatProvider"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Provider"),
+            "$sConformance"));
+        var concreteMethod = CreateVoidMethod("hasUpdate", moduleDecl);
+        concreteMethod.ParentDecl = concreteType;
+        concreteType.Methods.Add(concreteMethod);
+        moduleDecl.Types.Add(concreteType);
+
+        // Build extension defaults index WITH phantom detection
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        extensionDefaultsIndex.DetectPhantomDefaults(moduleDecl);
+
+        // Verify phantom default was detected
+        Assert.True(extensionDefaultsIndex.HasDirectPropertyDefault("TestModule.Provider", "typeErasedStorage"));
+
+        // Now the validator should accept the conformance
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_MissingProperty_RejectedWithoutPhantomDefaults()
+    {
+        // Same setup but WITHOUT phantom default detection — conformance should be rejected
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Provider");
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Provider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Provider"),
+            MangledName = "$s10TestModule8ProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                CreatePropertyDecl("typeErasedStorage", new NamedTypeSpec("Swift.Int"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl> { CreateVoidMethod("hasUpdate", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("FloatProvider", moduleDecl);
+        var concreteMethod = CreateVoidMethod("hasUpdate", moduleDecl);
+        concreteMethod.ParentDecl = concreteType;
+        concreteType.Methods.Add(concreteMethod);
+
+        // No extension defaults index → no phantom defaults
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_UnemittableProperty_AcceptedWhenPhantomDefault()
+    {
+        // Concrete type HAS the property but it can't be emitted (AnyType fallback).
+        // The phantom default detector should still catch this.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Provider");
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Provider",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Provider"),
+            MangledName = "$s10TestModule8ProviderP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = false,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>
+            {
+                // Protocol property with unresolvable type (will project to AnyType)
+                CreatePropertyDecl("valueType", new NamedTypeSpec("UnknownModule.Metatype"), moduleDecl, hasGetter: true, hasSetter: false)
+            },
+            Methods = new List<MethodDecl> { CreateVoidMethod("process", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        // Concrete type has valueType but with unresolvable type → will be skipped by CanEmitProperty
+        var concreteType = CreateClassDecl("ConcreteProvider", moduleDecl);
+        concreteType.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteProvider"),
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Provider"),
+            "$sConformance"));
+        concreteType.Properties.Add(
+            CreatePropertyDecl("valueType", new NamedTypeSpec("UnknownModule.Metatype"), moduleDecl,
+                hasGetter: true, hasSetter: false, accessorParent: concreteType));
+        var method = CreateVoidMethod("process", moduleDecl);
+        method.ParentDecl = concreteType;
+        concreteType.Methods.Add(method);
+        moduleDecl.Types.Add(concreteType);
+
+        // Build with phantom detection + type database for emittability check
+        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        extensionDefaultsIndex.DetectPhantomDefaults(moduleDecl, typeDatabase);
+
+        // valueType should be a phantom default (exists on type but can't be emitted)
+        Assert.True(extensionDefaultsIndex.HasDirectPropertyDefault("TestModule.Provider", "valueType"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var result = validator.CanFullyImplementProtocol(concreteType, protocolDecl);
+        Assert.True(result);
+    }
+
+    #endregion
+
     #region Helper Methods
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocol(string qualifiedName)
+    {
+        var parts = qualifiedName.Split('.');
+        var moduleName = parts[0];
+        var typeName = parts[1];
+
+        // Build a type database with both Swift and the target module
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var targetModule = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        targetModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(qualifiedName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{typeName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(qualifiedName),
+                MetadataAccessor = $"$s{moduleName}{typeName}Ma",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(targetModule);
+        return typeDatabase;
+    }
 
     private static TypeDatabase CreateTypeDatabase()
     {

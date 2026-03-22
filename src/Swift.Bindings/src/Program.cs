@@ -347,6 +347,7 @@ namespace BindingsGeneration
                     : new HashSet<string>();
 
                 // Parse protocol extension methods from swiftinterface and inject onto conforming types
+                ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null;
                 if (protocolNames.Count > 0)
                 {
                     var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath!, protocolNames);
@@ -354,11 +355,21 @@ namespace BindingsGeneration
                     {
                         // Build extension defaults index BEFORE injection — used by validator to allow
                         // conformance when types rely on protocol extension default implementations.
-                        var extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, decl.Protocols);
+                        extensionDefaultsIndex = new ProtocolExtensionDefaultsIndex(extensionMethods, decl.Protocols);
                         emissionContext.ExtensionDefaultsIndex = extensionDefaultsIndex;
 
                         ProtocolExtensionEmitter.InjectExtensionMethods(decl, extensionMethods, typeDatabase, logger, emissionContext);
                     }
+                }
+
+                // Detect phantom defaults — required protocol members that no conforming type
+                // can implement in C#, indicating they're satisfied by PAT extension defaults
+                // not visible in the public ABI. These become default interface methods in C#.
+                if (decl.Protocols.Count > 0)
+                {
+                    extensionDefaultsIndex ??= new ProtocolExtensionDefaultsIndex(new(), decl.Protocols);
+                    extensionDefaultsIndex.DetectPhantomDefaults(decl, typeDatabase);
+                    emissionContext.ExtensionDefaultsIndex = extensionDefaultsIndex;
                 }
 
                 // Parse foreign type extension members and process them

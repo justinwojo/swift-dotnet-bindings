@@ -242,6 +242,176 @@ public class ProtocolExtensionDefaultsIndex
     }
 
     /// <summary>
+    /// Detects "phantom defaults" — required protocol members that no conforming type in the module
+    /// can implement in C#. A member is a phantom default when either:
+    /// (a) No conforming type has the member at all (satisfied by an invisible PAT extension), or
+    /// (b) All conforming types have the member but none can emit it (e.g., AnyType fallback).
+    ///
+    /// For example, Lottie's AnyValueProvider requires typeErasedStorage, but FloatValueProvider
+    /// doesn't have it in its ABI JSON — it's provided by a constrained extension on the
+    /// ValueProvider PAT. Since PAT extensions are filtered during index construction, these
+    /// defaults are invisible.
+    ///
+    /// By scanning all conforming types, we infer that a member with no usable implementations
+    /// must have an invisible default. We add these as "phantom defaults" so the ProtocolHandler
+    /// emits them as DIMs and the ProtocolConformanceValidator accepts the conformance.
+    /// </summary>
+    /// <param name="moduleDecl">The module declaration containing all types and protocols.</param>
+    /// <param name="typeDatabase">Optional type database for checking property emittability.
+    /// When null, only checks for missing members (not unemittable ones).</param>
+    public void DetectPhantomDefaults(ModuleDecl moduleDecl, ITypeDatabase? typeDatabase = null)
+    {
+        foreach (var protocolDecl in moduleDecl.Protocols)
+        {
+            var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                                   ?? $"{moduleDecl.Name}.{protocolDecl.Name}";
+
+            // Get all types in the module that conform to this protocol
+            var conformingTypes = new List<TypeDecl>();
+            foreach (var type in moduleDecl.Types)
+            {
+                IEnumerable<TypeConformance> conformances = type switch
+                {
+                    ClassDecl cd => cd.Conformances,
+                    StructDecl sd => sd.Conformances,
+                    EnumDecl ed => ed.Conformances,
+                    _ => Enumerable.Empty<TypeConformance>()
+                };
+                if (conformances.Any(c => c.Protocol.Name == protocolDecl.Name ||
+                    c.Protocol.ModuleQualifiedName == protoQualifiedName))
+                {
+                    conformingTypes.Add(type);
+                }
+            }
+
+            // No conforming types → nothing to infer
+            if (conformingTypes.Count == 0)
+                continue;
+
+            // Check each required non-static property
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic) continue;
+
+                // Skip if already known as an extension default
+                if (_propertyDefaults.TryGetValue(protoQualifiedName, out var existingProps) &&
+                    existingProps.Contains(property.Name))
+                    continue;
+
+                // Check if ANY conforming type has this property AND can emit it
+                bool anyTypeCanEmitProperty = false;
+                foreach (var type in conformingTypes)
+                {
+                    var properties = type switch
+                    {
+                        ClassDecl cd => cd.Properties,
+                        StructDecl sd => sd.Properties,
+                        EnumDecl ed => ed.Properties,
+                        _ => Enumerable.Empty<PropertyDecl>()
+                    };
+                    var matchingProp = properties.FirstOrDefault(p => p.Name == property.Name && !p.IsStatic);
+                    if (matchingProp == null) continue;
+
+                    // If we have a type database, also check emittability
+                    if (typeDatabase != null)
+                    {
+                        var skipReason = MemberEmissionValidator.CanEmitProperty(
+                            matchingProp, typeDatabase, out _, out _);
+                        if (skipReason != null) continue; // Property exists but can't be emitted
+                    }
+
+                    anyTypeCanEmitProperty = true;
+                    break;
+                }
+
+                if (!anyTypeCanEmitProperty)
+                {
+                    // Phantom default: no conforming type can provide this property in C#
+                    if (!_propertyDefaults.TryGetValue(protoQualifiedName, out var propSet))
+                    {
+                        propSet = new HashSet<string>();
+                        _propertyDefaults[protoQualifiedName] = propSet;
+                    }
+                    propSet.Add(property.Name);
+
+                    // If the protocol property has a setter, also add to setter defaults
+                    bool hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+                    if (hasSetter)
+                    {
+                        if (!_propertySetterDefaults.TryGetValue(protoQualifiedName, out var setterSet))
+                        {
+                            setterSet = new HashSet<string>();
+                            _propertySetterDefaults[protoQualifiedName] = setterSet;
+                        }
+                        setterSet.Add(property.Name);
+                    }
+                }
+            }
+
+            // Check each required non-static, non-constructor method
+            foreach (var method in protocolDecl.Methods)
+            {
+                if (method.IsConstructor || method.MethodType == MethodType.Static)
+                    continue;
+
+                var methodKey = BuildMethodKey(method);
+
+                // Skip if already known as an extension default
+                if (_methodDefaults.TryGetValue(protoQualifiedName, out var existingMethods) &&
+                    existingMethods.Contains(methodKey))
+                    continue;
+
+                // Check if ANY conforming type has this method
+                bool anyTypeHasMethod = false;
+                foreach (var type in conformingTypes)
+                {
+                    var methods = type switch
+                    {
+                        ClassDecl cd => cd.Methods,
+                        StructDecl sd => sd.Methods,
+                        EnumDecl ed => ed.Methods,
+                        _ => Enumerable.Empty<MethodDecl>()
+                    };
+                    if (methods.Any(m => m.Name == method.Name && !m.IsConstructor &&
+                        m.MethodType != MethodType.Static))
+                    {
+                        anyTypeHasMethod = true;
+                        break;
+                    }
+                }
+
+                if (!anyTypeHasMethod)
+                {
+                    // Phantom default: no conforming type has this method
+                    if (!_methodDefaults.TryGetValue(protoQualifiedName, out var methodSet))
+                    {
+                        methodSet = new HashSet<string>();
+                        _methodDefaults[protoQualifiedName] = methodSet;
+                    }
+                    methodSet.Add(methodKey);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Builds a method key from a MethodDecl for phantom default detection.
+    /// Matches the format used by ProtocolExtensionEmitter.BuildMethodKey().
+    /// </summary>
+    private static string BuildMethodKey(MethodDecl method)
+    {
+        if (method.CSSignature.Count <= 1)
+            return $"{method.Name}()";
+
+        var labels = string.Join("", method.CSSignature.Skip(1).Select(arg =>
+        {
+            var label = string.IsNullOrEmpty(arg.Name) || arg.Name == "_" ? "_" : arg.Name;
+            return $"{label}:";
+        }));
+        return $"{method.Name}({labels})";
+    }
+
+    /// <summary>
     /// Builds the transitive inheritance graph from protocol declarations.
     /// </summary>
     private void BuildInheritanceGraph(List<ProtocolDecl> protocols)

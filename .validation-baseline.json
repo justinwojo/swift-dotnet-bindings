@@ -1,11 +1,11 @@
 {
-  "git_sha": "92d3f07e",
+  "git_sha": "cded13fa",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46462,
+        "lines": 46491,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12471,
+        "lines": 12473,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22081,
+        "lines": 22083,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 80985,
+        "lines": 81101,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 53505,
+        "lines": 53537,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31464,
+        "lines": 31466,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,14 +110,14 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10803,
+        "lines": 10812,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10697,
+        "lines": 10701,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -131,7 +131,7 @@
       "SnapKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11050,
+        "lines": 11055,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -180,7 +180,7 @@
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5905,
+        "lines": 5913,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -215,7 +215,7 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 61934,
+        "lines": 61939,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7482,
+        "lines": 7485,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,14 +313,14 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14174,
+        "lines": 14183,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17478,
+        "lines": 17481,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3943,
+        "lines": 3945,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18685,
+        "lines": 18687,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

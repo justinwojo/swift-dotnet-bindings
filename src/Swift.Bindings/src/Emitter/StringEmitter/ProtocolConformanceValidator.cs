@@ -197,7 +197,19 @@ public class ProtocolConformanceValidator
             var skipReason = MemberEmissionValidator.CanEmitProperty(
                 concreteProperty, _typeDatabase, out _, out var concreteTypeProjected);
             if (skipReason != null)
+            {
+                // The concrete type has the property but can't emit it (e.g., AnyType fallback).
+                // If the protocol interface will emit this as a DIM (phantom default), the concrete
+                // type doesn't need to provide it — the DIM satisfies the C# interface contract.
+                if (_extensionDefaultsIndex != null)
+                {
+                    var protoRequiresSetter = protoProperty.Accessors.OfType<SetAccessorDecl>().Any();
+                    if (_extensionDefaultsIndex.HasDirectPropertyDefault(qualifiedName, protoProperty.Name,
+                        requiresSetter: protoRequiresSetter))
+                        continue; // Satisfied by DIM in interface
+                }
                 return false;  // CS0535: member will be skipped
+            }
 
             // Check type compatibility (CS0738)
             var interfaceType = GetInterfacePropertyType(protoProperty, protocolDecl, boundGenericsHandler);
