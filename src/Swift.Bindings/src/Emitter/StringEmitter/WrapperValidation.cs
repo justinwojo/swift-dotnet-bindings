@@ -977,15 +977,19 @@ public static class WrapperValidation
         if (env.MethodDecl.IsConstructor && env.ParentDecl is ClassDecl)
             return true;
 
-        // Frozen struct constructors need @_cdecl wrappers because:
-        // 1. Larger frozen structs use SwiftIndirectResult to return the constructed value,
+        // All struct constructors need @_cdecl wrappers because:
+        // 1. Frozen structs: Larger ones use SwiftIndirectResult to return the constructed value,
         //    and Mono JIT can't handle CallConvSwift + SwiftIndirectResult → jit-info.c:918
         //    assertion (e.g., URLEncoding(destination:arrayEncoding:boolEncoding:)).
-        // 2. Even smaller frozen struct constructors with MarshalAs parameters (bool, enum)
+        //    Even smaller frozen struct constructors with MarshalAs parameters (bool, enum)
         //    crash on Mono with CallConvSwift.
+        // 2. Non-frozen structs: Also use SwiftIndirectResult (always passed indirectly),
+        //    causing the same Mono JIT crash. E.g., LottieColor(r:g:b:a:denominator:) uses
+        //    CallConvSwift + SwiftIndirectResult with only primitive params, but still crashes.
         // The @_cdecl wrapper uses a resultPtr buffer pattern that avoids both issues.
-        if (env.MethodDecl.IsConstructor && env.ParentDecl is StructDecl frozenCtorStruct
-            && frozenCtorStruct.IsFrozen)
+        // Note: failable non-frozen struct constructors are blocked by ShouldEmitWrapper
+        // (VWT-based initialization incompatible with @_cdecl's Optional<T>.initialize(to:)).
+        if (env.MethodDecl.IsConstructor && env.ParentDecl is StructDecl)
             return true;
 
         // Class methods need @_cdecl in two cases:

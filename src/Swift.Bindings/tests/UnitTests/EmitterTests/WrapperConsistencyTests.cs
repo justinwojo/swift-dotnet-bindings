@@ -1549,6 +1549,39 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void DetermineConstructorWrapperDecision_NonFrozenStruct_WrapperRequired()
+    {
+        // Non-frozen struct constructors require @_cdecl (SwiftIndirectResult + Mono JIT crash).
+        // E.g., LottieColor(r:g:b:a:denominator:) — all primitive params, but non-frozen struct
+        // constructor uses SwiftIndirectResult which Mono JIT can't handle with CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("OpaquePoint");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("OpaquePoint", moduleDecl);
+        parentDecl.IsFrozen = false;
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.Equal(WrapperDecision.WrapperRequired, WrapperValidation.DetermineConstructorWrapperDecision(env));
+    }
+
+    [Fact]
+    public void DetermineConstructorWrapperDecision_FailableNonFrozenStruct_CannotWrap()
+    {
+        // Failable non-frozen struct constructors can't be wrapped (VWT incompatibility).
+        // ShouldEmitWrapper blocks them, so the decision is CannotWrap even though
+        // RequiresCdeclForAbiSafety would return true.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("OpaquePoint");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("OpaquePoint", moduleDecl);
+        parentDecl.IsFrozen = false;
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        ctor.IsFailable = true;
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.Equal(WrapperDecision.CannotWrap, WrapperValidation.DetermineConstructorWrapperDecision(env));
+    }
+
+    [Fact]
     public void DeterminePropertyWrapperDecision_NoXCFramework_CannotWrap()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");

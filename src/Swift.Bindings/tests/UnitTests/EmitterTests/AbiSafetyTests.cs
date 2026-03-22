@@ -538,9 +538,12 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void RequiresCdeclForAbiSafety_NonFrozenStructConstructor_ReturnsFalse()
+    public void RequiresCdeclForAbiSafety_NonFrozenStructConstructor_ReturnsTrue()
     {
-        // Non-frozen struct constructor → no frozen struct or class check applies → CallConvSwift safe
+        // Non-frozen struct constructor → SwiftIndirectResult + Mono JIT crash → @_cdecl required
+        // Non-frozen structs also use SwiftIndirectResult (always passed indirectly),
+        // causing the same Mono JIT crash as frozen struct constructors.
+        // E.g., LottieColor(r:g:b:a:denominator:) with only primitive params.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -549,7 +552,7 @@ public class AbiSafetyTests
         method.IsConstructor = true;
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(WrapperValidation.RequiresCdeclForAbiSafety(env));
+        Assert.True(WrapperValidation.RequiresCdeclForAbiSafety(env));
     }
 
     [Fact]
