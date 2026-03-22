@@ -61,7 +61,7 @@ Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validati
 
 ---
 
-### Session B: BindingTests Expansion
+### Session B: BindingTests Expansion — **Done** (`6bc8ed1c`)
 
 Two goals: add multi-module testing infrastructure, and re-enable ~165 disabled tests that are now viable after March work.
 

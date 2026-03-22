@@ -551,6 +551,36 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SWIFTBIND060", message);
             Assert.Contains("build the dependency separately", message);
         }
+
+        [Fact]
+        public void FormatDependencyWarning_MissingSlice_ContainsMSBuildSdkGuidance()
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("StripePayments", "missing-slice");
+            Assert.Contains("SwiftFrameworkDependency", message);
+            Assert.Contains("PackageId", message);
+            Assert.Contains("PackageVersion", message);
+        }
+
+        [Fact]
+        public void FormatDependencyWarning_MissingXcframework_ContainsMSBuildSdkGuidance()
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("StripePayments", "missing-xcframework");
+            Assert.Contains("SwiftFrameworkDependency", message);
+            Assert.Contains("PackageId", message);
+            Assert.Contains("PackageVersion", message);
+        }
+
+        [Theory]
+        [InlineData("missing-slice")]
+        [InlineData("missing-xcframework")]
+        public void FormatDependencyWarning_BothReasons_ContainCliAndSdkGuidance(string reason)
+        {
+            var message = BindingsGenerator.FormatDependencyWarning("MyLib", reason);
+            // CLI guidance
+            Assert.Contains("--framework-dependency", message);
+            // MSBuild SDK guidance
+            Assert.Contains("SwiftFrameworkDependency", message);
+        }
     }
 
     /// <summary>

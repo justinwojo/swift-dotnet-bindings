@@ -259,4 +259,76 @@ public class ExistentialContainerFactoryTests
     }
 
     #endregion
+
+    #region EditorBrowsable Attribute Tests
+
+    [Theory]
+    [InlineData(typeof(ExistentialContainer0))]
+    [InlineData(typeof(ExistentialContainer1))]
+    [InlineData(typeof(ExistentialContainer2))]
+    [InlineData(typeof(ExistentialContainer3))]
+    [InlineData(typeof(ExistentialContainer4))]
+    [InlineData(typeof(ExistentialContainer5))]
+    [InlineData(typeof(ExistentialContainer6))]
+    [InlineData(typeof(ExistentialContainer7))]
+    [InlineData(typeof(ExistentialContainer8))]
+    public void ExistentialContainerTypes_AreEditorBrowsableNever(Type containerType)
+    {
+        var attr = containerType.GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>()
+            .FirstOrDefault();
+
+        Assert.NotNull(attr);
+        Assert.Equal(System.ComponentModel.EditorBrowsableState.Never, attr.State);
+    }
+
+    [Fact]
+    public void ExistentialContainerFactory_IsEditorBrowsableNever()
+    {
+        var attr = typeof(ExistentialContainerFactory)
+            .GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>()
+            .FirstOrDefault();
+
+        Assert.NotNull(attr);
+        Assert.Equal(System.ComponentModel.EditorBrowsableState.Never, attr.State);
+    }
+
+    [Fact]
+    public void ISwiftExistentialConvertible_IsEditorBrowsableNever()
+    {
+        var attr = typeof(ISwiftExistentialConvertible<ExistentialContainer1>)
+            .GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>()
+            .FirstOrDefault();
+
+        Assert.NotNull(attr);
+        Assert.Equal(System.ComponentModel.EditorBrowsableState.Never, attr.State);
+    }
+
+    [Fact]
+    public void IExistentialContainer_IsEditorBrowsableNever()
+    {
+        var attr = typeof(IExistentialContainer)
+            .GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>()
+            .FirstOrDefault();
+
+        Assert.NotNull(attr);
+        Assert.Equal(System.ComponentModel.EditorBrowsableState.Never, attr.State);
+    }
+
+    [Fact]
+    public void IExistentialBoxable_IsEditorBrowsableNever()
+    {
+        var attr = typeof(IExistentialBoxable)
+            .GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>()
+            .FirstOrDefault();
+
+        Assert.NotNull(attr);
+        Assert.Equal(System.ComponentModel.EditorBrowsableState.Never, attr.State);
+    }
+
+    #endregion
 }

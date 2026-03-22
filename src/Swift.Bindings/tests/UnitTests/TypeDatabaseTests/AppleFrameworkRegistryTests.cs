@@ -924,4 +924,25 @@ public class AppleFrameworkRegistryTests
                 $"'{module}' should NOT be unsupported");
         }
     }
+
+    // --- IsKnownAppleOrSystemModule ---
+
+    [Theory]
+    [InlineData("Swift", true)]
+    [InlineData("Foundation", true)]
+    [InlineData("UIKit", true)]
+    [InlineData("Security", true)]
+    [InlineData("_Concurrency", true)]
+    [InlineData("ObjectiveC", true)]
+    [InlineData("Dispatch", true)]
+    [InlineData("CoreFoundation", true)]
+    [InlineData("SwiftUI", true)]          // Unsupported but still a known Apple module
+    [InlineData("StripePayments", false)]  // Third-party
+    [InlineData("Alamofire", false)]       // Third-party
+    [InlineData("MyCustomLib", false)]     // Unknown
+    [InlineData("", false)]
+    public void IsKnownAppleOrSystemModule_ReturnsExpected(string module, bool expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.IsKnownAppleOrSystemModule(module));
+    }
 }

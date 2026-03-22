@@ -1,14 +1,16 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
+
 namespace Swift.Runtime;
 
 /// <summary>
-/// Interface for concrete Swift types that can be boxed into existential containers
-/// for protocol parameter passing. Unlike <see cref="ISwiftExistentialConvertible{TContainer}"/>
-/// (which returns a pre-existing container from proxy types), this interface constructs
-/// a new existential container at runtime using the type's metadata and protocol witness table.
+/// Interface for concrete Swift types that can be boxed into existential containers.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. The generated binding code handles existential boxing automatically.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public interface IExistentialBoxable
 {
     /// <summary>

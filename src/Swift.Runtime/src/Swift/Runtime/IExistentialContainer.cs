@@ -1,20 +1,16 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
+
 namespace Swift.Runtime;
 
 /// <summary>
 /// Interface for Swift existential containers.
-/// An existential container is a value type that boxes any type conforming to a set of protocols.
-///
-/// Layout (standard existential container on 64-bit):
-/// - Payload: 3 machine words (24 bytes) - inline storage or pointer to heap allocation
-/// - TypeMetadata: 1 machine word (8 bytes) - pointer to type metadata
-/// - WitnessTables: N machine words (8*N bytes) - pointers to protocol witness tables
-///
-/// If the contained value is 24 bytes or less (3 words), it's stored inline in the payload.
-/// If larger, the payload contains a pointer to a heap-allocated copy.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. The generated binding code handles existential container management automatically.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public interface IExistentialContainer
 {
     /// <summary>

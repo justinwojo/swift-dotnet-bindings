@@ -269,4 +269,22 @@ internal static class AppleFrameworkRegistry
 
     public static bool IsKnownModuleForElements(string moduleName) =>
         _knownModulesForElements.Contains(moduleName);
+
+    /// <summary>
+    /// Returns true if the module is a known Apple framework or Swift system module.
+    /// Used by the parser to distinguish system re-exports (allowed) from third-party
+    /// re-exports (should be skipped).
+    /// </summary>
+    public static bool IsKnownAppleOrSystemModule(string moduleName)
+    {
+        // Swift standard library and runtime modules not in apple-frameworks.json
+        if (moduleName is "Swift" or "_Concurrency" or "_StringProcessing" or
+            "__ObjC" or "Dispatch" or "CoreFoundation" or "ObjectiveC" or "Security")
+            return true;
+
+        // Check all apple-frameworks.json module sets
+        return _autoBridgeModules.Contains(moduleName) ||
+               _optionalFallbackModules.Contains(moduleName) ||
+               _unsupportedModules.Contains(moduleName);
+    }
 }

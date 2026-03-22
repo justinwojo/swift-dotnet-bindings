@@ -936,6 +936,101 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Cross-Module Re-Export Detection Tests
+
+    [Fact]
+    public void ParseModule_ThirdPartyReExport_SkipsType()
+    {
+        // When a type's ModuleName differs from the module being parsed and the
+        // source is a third-party module, it should be skipped (e.g., StripeCryptoOnramp
+        // re-exporting StripeCore.STPAPIClient).
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var reExportedNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "STPAPIClient",
+            moduleName: "StripePayments",
+            mangledName: "$s15StripePayments12STPAPIClientCN");
+
+        using var fixture = CreateParserWithNodes(importNode, reExportedNode);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.Types);
+    }
+
+    [Fact]
+    public void ParseModule_SystemModuleReExport_IsKept()
+    {
+        // Re-exports from Apple/system modules (Swift, Foundation, etc.) should be
+        // kept because the generated code legitimately extends or conforms to them.
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var swiftErrorNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Protocol",
+            name: "Error",
+            moduleName: "Swift",
+            mangledName: "$ss5ErrorP");
+
+        using var fixture = CreateParserWithNodes(importNode, swiftErrorNode);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Single(result.ModuleDecl.Protocols);
+    }
+
+    [Fact]
+    public void ParseModule_TypeWithMatchingModuleName_IsNotSkipped()
+    {
+        // Types where ModuleName matches the module being parsed should be kept
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var ownNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "OnrampConfig",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModule12OnrampConfigCN");
+
+        using var fixture = CreateParserWithNodes(importNode, ownNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("OnrampConfig", type.Name);
+    }
+
+    [Fact]
+    public void ParseModule_MixOfOwnAndThirdPartyReExports_OnlyKeepsOwnTypes()
+    {
+        // Module with both own types and third-party re-exports should only bind its own types
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var ownType = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "CryptoOnrampView",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModule16CryptoOnrampViewCN");
+
+        var reExported1 = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "STPAPIClient",
+            moduleName: "StripePayments",
+            mangledName: "$s15StripePayments12STPAPIClientCN");
+
+        var reExported2 = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "PaymentIntent",
+            moduleName: "StripeCore",
+            mangledName: "$s10StripeCore13PaymentIntentCN");
+
+        using var fixture = CreateParserWithNodes(importNode, ownType, reExported1, reExported2);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("CryptoOnrampView", type.Name);
+    }
+
+    #endregion
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         var root = new ABIRootNode

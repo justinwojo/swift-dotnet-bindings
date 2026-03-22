@@ -7,7 +7,10 @@
 namespace Swift;
 
 /// <summary>
-/// Marks generated members whose signatures contain unsupported Swift types that were degraded during projection.
+/// Marks generated members whose signatures contain unsupported Swift types that were degraded to
+/// <see cref="AnyType"/>. Check the <see cref="Reason"/> property for why the type could not be
+/// projected, and <see cref="SwiftType"/> for the original Swift type name.
+/// See the binding report (<c>binding-report.json</c>) for full details on all type fallbacks.
 /// </summary>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Method | AttributeTargets.Parameter)]
 public sealed class UnsupportedSwiftTypeAttribute : Attribute

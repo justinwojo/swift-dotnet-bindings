@@ -1,16 +1,20 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
 namespace Swift.Runtime;
 
 /// <summary>
-/// Existential container with 0 witness tables (represents 'Any' or 'any Any').
+/// Internal marshalling type for Swift existential containers with 0 witness tables (represents 'Any' or 'any Any').
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 4 machine words (32 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer0 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -50,10 +54,13 @@ public struct ExistentialContainer0 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 1 witness table.
+/// Internal marshalling type for Swift existential containers with 1 witness table.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 5 machine words (40 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer1 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -95,10 +102,13 @@ public struct ExistentialContainer1 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 2 witness tables.
+/// Internal marshalling type for Swift existential containers with 2 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 6 machine words (48 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer2 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -155,10 +165,13 @@ public struct ExistentialContainer2 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 3 witness tables.
+/// Internal marshalling type for Swift existential containers with 3 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 7 machine words (56 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer3 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -218,10 +231,13 @@ public struct ExistentialContainer3 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 4 witness tables.
+/// Internal marshalling type for Swift existential containers with 4 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 8 machine words (64 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer4 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -284,10 +300,13 @@ public struct ExistentialContainer4 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 5 witness tables.
+/// Internal marshalling type for Swift existential containers with 5 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 9 machine words (72 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer5 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -353,10 +372,13 @@ public struct ExistentialContainer5 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 6 witness tables.
+/// Internal marshalling type for Swift existential containers with 6 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 10 machine words (80 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer6 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -425,10 +447,13 @@ public struct ExistentialContainer6 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 7 witness tables.
+/// Internal marshalling type for Swift existential containers with 7 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 11 machine words (88 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer7 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -500,10 +525,13 @@ public struct ExistentialContainer7 : IExistentialContainer
 }
 
 /// <summary>
-/// Existential container with 8 witness tables.
+/// Internal marshalling type for Swift existential containers with 8 witness tables.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. Use the protocol interface types (e.g., IMyProtocol) in your code instead.
 /// Size: 12 machine words (96 bytes on 64-bit).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct ExistentialContainer8 : IExistentialContainer
 {
     private IntPtr _payload0;
@@ -579,9 +607,10 @@ public struct ExistentialContainer8 : IExistentialContainer
 
 /// <summary>
 /// Factory for creating existential containers from C# objects.
-/// Existential containers are how Swift passes values of protocol type (e.g., "any Protocol").
-/// This factory enables passing C# objects that implement Swift protocols to Swift code.
+/// This type is an implementation detail of the Swift/.NET interop layer and should not be used directly
+/// by consumers. The generated binding code handles existential container creation automatically.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public static class ExistentialContainerFactory
 {
     /// <summary>

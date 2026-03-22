@@ -729,6 +729,21 @@ namespace BindingsGeneration
         /// <returns>The type declaration.</returns>
         private TypeDecl? HandleTypeDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
+            // Cross-module re-export detection: if the node's ModuleName differs from the
+            // module being parsed AND the source module is a third-party module (not Apple/system),
+            // this type is re-exported and should not be bound here.
+            // System module re-exports (Swift.Error, Foundation.URL, etc.) are kept because
+            // the generated code legitimately extends or conforms to them.
+            // Example: StripeCryptoOnramp re-exports StripeCore.STPAPIClient — skip it.
+            if (!string.IsNullOrEmpty(node.ModuleName) &&
+                !string.IsNullOrEmpty(moduleDecl.Name) &&
+                node.ModuleName != moduleDecl.Name &&
+                !AppleFrameworkRegistry.IsKnownAppleOrSystemModule(node.ModuleName))
+            {
+                _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
+                return null;
+            }
+
             var typeName = GetSwiftTypeName(parentDecl, node.Name);
             if (_typeDatabase.IsTypeProcessed(typeName))
             {

@@ -9,8 +9,30 @@ using Swift.Runtime;
 namespace Swift;
 
 /// <summary>
-/// Represents placeholder for Swift type
+/// Represents a Swift type that could not be resolved to a concrete .NET projection.
 /// </summary>
+/// <remarks>
+/// <para>
+/// AnyType appears in generated bindings when the generator encounters a Swift type it cannot
+/// map to a concrete C# type. Common causes include:
+/// </para>
+/// <list type="bullet">
+/// <item><description>Generic type parameters that can't be resolved at binding time (e.g., <c>T</c>, <c>Element</c>)</description></item>
+/// <item><description>Self-returning methods (Swift's <c>Self</c> type)</description></item>
+/// <item><description>Types from unsupported Apple frameworks (SwiftUI, Combine)</description></item>
+/// <item><description>Types from dependency frameworks that weren't provided during generation</description></item>
+/// </list>
+/// <para>
+/// <b>What you can do:</b> If AnyType appears because a dependency framework is missing,
+/// provide it via <c>&lt;SwiftFrameworkDependency&gt;</c> (MSBuild SDK) or
+/// <c>--framework-dependency</c> (CLI) and regenerate. Check <c>binding-report.json</c>
+/// for the specific skip reason and the original Swift type name.
+/// </para>
+/// <para>
+/// Members whose signature contains AnyType are typically skipped by the generator.
+/// If a member you need was skipped, check the binding report for alternatives.
+/// </para>
+/// </remarks>
 public struct AnyType : ISwiftObject
 {
     private SwiftSafeHandle<AnyType> _payload = SwiftSafeHandle<AnyType>.Zero;

@@ -1946,14 +1946,18 @@ namespace BindingsGeneration
             {
                 return $"SWIFTBIND060: Detected dependency '{frameworkName}' but its xcframework " +
                     "lacks the required platform slice. " +
-                    "Use --framework-dependency to specify a complete xcframework. " +
+                    "CLI: Use --framework-dependency to specify a complete xcframework. " +
+                    "MSBuild SDK: Add <SwiftFrameworkDependency Include=\"path/to/{frameworkName}.xcframework\" " +
+                    $"PackageId=\"{frameworkName}.Swift.iOS\" PackageVersion=\"1.0.0\" /> to your project file. " +
                     "Verify the dependency xcframework contains both device and simulator slices.";
             }
             else
             {
                 return $"SWIFTBIND060: Detected dependency '{frameworkName}' but no matching " +
                     $"{frameworkName}.xcframework found. " +
-                    "Use --framework-dependency to specify its location. " +
+                    "CLI: Use --framework-dependency to specify its location. " +
+                    "MSBuild SDK: Add <SwiftFrameworkDependency Include=\"path/to/{frameworkName}.xcframework\" " +
+                    $"PackageId=\"{frameworkName}.Swift.iOS\" PackageVersion=\"1.0.0\" /> to your project file. " +
                     "You may need to build the dependency separately or obtain it from the library author.";
             }
         }

@@ -778,7 +778,7 @@ public partial class ProtocolProxyEmitter
 
             /// <summary>
             /// Creates a proxy from an existing Swift existential container.
-            /// Use this when receiving protocol values from Swift code.
+            /// This constructor is used internally by generated marshalling code.
             /// </summary>
             /// <remarks>
             /// Swift-backed proxies created with this constructor dispatch blittable and String
@@ -786,6 +786,7 @@ public partial class ProtocolProxyEmitter
             /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
             /// </remarks>
             /// <param name="container">The Swift existential container.</param>
+            [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
             public {{proxyClassName}}(ExistentialContainer1 container)
             {
                 _swiftContainer = container;
