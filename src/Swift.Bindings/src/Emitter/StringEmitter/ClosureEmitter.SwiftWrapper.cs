@@ -150,7 +150,9 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg);
+            // Use module-qualified names to avoid ambiguity when the wrapper imports multiple modules
+            // (e.g., SwiftUI.Color vs SwiftBindingsTestLib.Color)
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
             closureParams.Add($"p{argIndex}: {swiftType}");
 
             // D1: Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
@@ -165,6 +167,13 @@ public static partial class ClosureEmitter
                          !frozenNamed.Name.Contains("Pointer") && frozenNamed.Name != "Swift.OpaquePointer" &&
                          !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
                          !closureHandler.IsSimpleEnum(frozenNamed))
+                    heapAllocArgs.Add((argIndex, swiftType));
+                // Optional<Primitive/SimpleEnum>: heap-allocated pointer ABI (tag-byte layout)
+                else if (arg is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
+                         optNamed.ContainsGenericParameters && optNamed.GenericParameters.Count == 1 &&
+                         optNamed.GenericParameters[0] is NamedTypeSpec optInner &&
+                         (IsSwiftPrimitive(optInner.Name) || optInner.Name == "Swift.Bool" ||
+                          closureHandler.IsSimpleEnum(optInner)))
                     heapAllocArgs.Add((argIndex, swiftType));
             }
 
@@ -215,7 +224,7 @@ public static partial class ClosureEmitter
 
         var throwsStr = isThrowing ? " throws" : "";
         var returnTypeStr = hasReturn && !isIndirectReturn
-            ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType)}"
+            ? $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType)}"
             : "";
 
         // D1: Generate heap allocation lines for complex enum args
@@ -230,7 +239,7 @@ public static partial class ClosureEmitter
         if (isIndirectReturn)
         {
             // Indirect return: closure writes result to buffer, returns void
-            var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
+            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) -> {returnSwiftType} in");
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
@@ -242,7 +251,7 @@ public static partial class ClosureEmitter
         }
         else if (isThrowing)
         {
-            var returnSwiftType = hasReturn ? ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType) : "Void";
+            var returnSwiftType = hasReturn ? ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType) : "Void";
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) throws{returnTypeStr} in");
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    var errorPtr: UnsafeMutableRawPointer? = nil");
@@ -424,7 +433,8 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Checks if a type is Cdecl-compatible for Swift wrapper closure adaptation.
     /// Supported types: primitives, Bool, Void, pointer types, classes, simple enums,
-    /// ObjC-bridged types, and Optional&lt;Class/ObjC&gt; (nil-pointer ABI).
+    /// ObjC-bridged types, Optional&lt;Class/ObjC&gt; (nil-pointer ABI), and
+    /// Optional&lt;Primitive/SimpleEnum&gt; (heap-allocated pointer ABI).
     /// Complex types (String, non-frozen structs, complex enums) require full marshalling
     /// which is not yet implemented in the Cdecl wrapper path.
     /// </summary>
@@ -465,14 +475,22 @@ public static partial class ClosureEmitter
                 return true;
 
             // Optional<Class/ObjC> uses nil-pointer ABI (pointer-sized)
+            // Optional<Primitive/SimpleEnum> uses heap-allocated pointer ABI (like frozen structs)
             if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
                 named.GenericParameters.Count == 1)
             {
                 var inner = named.GenericParameters[0];
-                // Only Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
+                // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
                     return true;
-                // Optional<Primitive> and Optional<SimpleEnum> have different ABI — not supported here
+                // Optional<Primitive> and Optional<SimpleEnum> — heap-allocated pointer ABI
+                if (inner is NamedTypeSpec innerNamed)
+                {
+                    if (IsSwiftPrimitive(innerNamed.Name) || innerNamed.Name == "Swift.Bool")
+                        return true;
+                    if (closureHandler.IsSimpleEnum(innerNamed))
+                        return true;
+                }
                 return false;
             }
         }

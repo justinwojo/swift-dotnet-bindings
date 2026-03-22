@@ -1199,6 +1199,48 @@ public class ClosureCdeclEmitterTests
         Assert.Contains("UnsafeMutableRawPointer?", conventionCType);
     }
 
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalPrimitive_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Int32>) -> Void — Optional<Primitive> uses heap-allocated pointer ABI
+        var optionalInt = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Int32"));
+        var closureType = new ClosureTypeSpec(optionalInt, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalBool_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<Bool>) -> Void — Optional<Bool> uses heap-allocated pointer ABI
+        var optionalBool = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Bool"));
+        var closureType = new ClosureTypeSpec(optionalBool, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalSimpleEnum_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<ColorMode>) -> Void — Optional<SimpleEnum> uses heap-allocated pointer ABI
+        var optionalEnum = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("TestModule.ColorMode"));
+        var closureType = new ClosureTypeSpec(optionalEnum, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
     #endregion
 
     #region Test Helpers
@@ -1215,6 +1257,16 @@ public class ClosureCdeclEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });

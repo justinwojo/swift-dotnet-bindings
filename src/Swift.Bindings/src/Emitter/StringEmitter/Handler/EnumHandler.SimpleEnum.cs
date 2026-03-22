@@ -324,7 +324,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits ToRawValue/FromRawValue extension methods for String-raw-value enums.
         /// These are pure C# (no Swift P/Invoke needed) since the mapping is known at codegen time.
-        /// Note: Uses case names as raw values (known limitation — ABI JSON lacks individual case raw values).
+        /// Uses actual raw values from .swiftinterface when available, falls back to case names.
         /// </summary>
         private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName, Dictionary<string, string>? caseNameMap = null, string? extensionsClassName = null)
         {
@@ -343,7 +343,8 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases)
             {
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
-                csWriter.WriteLine($"{enumName}.{casePascalName} => \"{caseDecl.Name}\",");
+                var rawValue = caseDecl.RawValue ?? caseDecl.Name;
+                csWriter.WriteLine($"{enumName}.{casePascalName} => \"{rawValue}\",");
             }
             csWriter.WriteLine($"_ => throw new ArgumentOutOfRangeException(nameof(value), value, null),");
             csWriter.Indent--;
@@ -362,7 +363,8 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases)
             {
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
-                csWriter.WriteLine($"\"{caseDecl.Name}\" => {enumName}.{casePascalName},");
+                var rawValue = caseDecl.RawValue ?? caseDecl.Name;
+                csWriter.WriteLine($"\"{rawValue}\" => {enumName}.{casePascalName},");
             }
             csWriter.WriteLine("_ => null,");
             csWriter.Indent--;

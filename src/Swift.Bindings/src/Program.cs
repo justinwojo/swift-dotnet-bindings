@@ -945,6 +945,7 @@ namespace BindingsGeneration
             Dictionary<string, List<string>>? parameterNames = null;
             Dictionary<string, string>? typedThrowsErrors = null;
             Dictionary<string, List<string?>>? enumCaseLabels = null;
+            Dictionary<string, string>? enumCaseRawValues = null;
             HashSet<string>? publicTypeNames = null;
             HashSet<string>? mainActorTypes = null;
             HashSet<string>? customActorTypes = null;
@@ -969,6 +970,8 @@ namespace BindingsGeneration
                 logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
                 enumCaseLabels = SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} enum case label entries from swiftinterface", enumCaseLabels.Count);
+                enumCaseRawValues = SwiftInterfaceAccessParser.GetEnumRawValues(swiftInterfacePath);
+                logger.LogInformation("Loaded {Count} enum case raw value entries from swiftinterface", enumCaseRawValues.Count);
                 publicTypeNames = SwiftInterfaceAccessParser.GetPublicTypeNames(swiftInterfacePath);
                 logger.LogInformation("Loaded {Count} public type names from swiftinterface", publicTypeNames.Count);
                 mainActorTypes = SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath);
@@ -1010,7 +1013,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

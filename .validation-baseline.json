@@ -1,5 +1,5 @@
 {
-  "git_sha": "6bc8ed1c",
+  "git_sha": "fc236df4",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -68,7 +68,7 @@
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50969,
+        "lines": 50968,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

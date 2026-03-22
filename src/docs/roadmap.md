@@ -91,7 +91,7 @@ Two goals: add multi-module testing infrastructure, and re-enable ~165 disabled 
 
 ---
 
-### Session C: Consumer API Quality
+### Session C: Consumer API Quality — **Done** (`fc236df4`)
 
 Group all consumer-facing quality improvements into one session.
 

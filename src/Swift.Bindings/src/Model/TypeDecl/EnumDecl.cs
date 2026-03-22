@@ -31,6 +31,13 @@ namespace BindingsGeneration
         /// in generated bindings or Swift wrapper switch statements.
         /// </summary>
         public bool IsSpiProtected { get; set; } = false;
+
+        /// <summary>
+        /// The string raw value for this enum case, extracted from .swiftinterface.
+        /// Null if the enum is not a string raw value enum or the value was not found.
+        /// When null, the case name is used as the raw value (Swift default behavior).
+        /// </summary>
+        public string? RawValue { get; set; }
     }
 
     /// <summary>

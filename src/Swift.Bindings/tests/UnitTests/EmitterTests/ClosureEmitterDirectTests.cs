@@ -693,7 +693,7 @@ public class ClosureEmitterDirectTests
         var result = string.Join("\n", lines);
         // Indirect return uses buffer-based marshalling, not Unmanaged
         Assert.Contains("resultBuf", result);
-        Assert.Contains("load(as: IndexPath.self)", result);
+        Assert.Contains("load(as: Foundation.IndexPath.self)", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithObjCBridgedStruct()

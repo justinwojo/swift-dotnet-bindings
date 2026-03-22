@@ -131,6 +131,43 @@ public func executeWithCallbacks(
     onComplete(42)
 }
 
+// MARK: - Optional<Primitive/Enum> Closure Parameters
+
+/// Calls a closure with an Optional<Int32> parameter (value present).
+public func callWithOptionalInt(_ callback: @escaping (Int32?) -> Int32) -> Int32 {
+    return callback(42)
+}
+
+/// Calls a closure with an Optional<Int32> parameter (nil).
+public func callWithNilInt(_ callback: @escaping (Int32?) -> Int32) -> Int32 {
+    return callback(nil)
+}
+
+/// Calls a closure with an Optional<Bool> parameter (value present).
+public func callWithOptionalBool(_ callback: @escaping (Bool?) -> Bool) -> Bool {
+    return callback(true)
+}
+
+/// Calls a closure with an Optional<Bool> parameter (nil).
+public func callWithNilBool(_ callback: @escaping (Bool?) -> Bool) -> Bool {
+    return callback(nil)
+}
+
+/// Calls a closure with an Optional<Color> (simple enum) parameter (value present).
+public func callWithOptionalEnum(_ callback: @escaping (Color?) -> Int32) -> Int32 {
+    return callback(.blue)
+}
+
+/// Calls a closure with an Optional<Color> (simple enum) parameter (nil).
+public func callWithNilEnum(_ callback: @escaping (Color?) -> Int32) -> Int32 {
+    return callback(nil)
+}
+
+/// Calls a closure with an Optional<Double> parameter.
+public func callWithOptionalDouble(_ callback: @escaping (Double?) -> Double) -> Double {
+    return callback(3.14)
+}
+
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.

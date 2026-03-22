@@ -230,4 +230,67 @@ public class ClosureTests : TestBase
     }
 
     #endregion
+
+    #region Optional<Primitive/Enum> Closure Parameters
+
+    public void TestClosureWithOptionalIntSome()
+    {
+        // Swift calls callback(42), C# receives int? = 42
+        var result = TestLibFunctions.CallWithOptionalInt(x => x.HasValue ? x.Value * 2 : -1);
+        AssertEqual(84, result, "CallWithOptionalInt(42) → x*2 = 84");
+        TestLogger.Info($"CallWithOptionalInt(some) = {result}");
+    }
+
+    public void TestClosureWithOptionalIntNone()
+    {
+        // Swift calls callback(nil), C# receives int? = null
+        var result = TestLibFunctions.CallWithNilInt(x => x.HasValue ? x.Value : -1);
+        AssertEqual(-1, result, "CallWithNilInt(nil) → -1");
+        TestLogger.Info($"CallWithNilInt(none) = {result}");
+    }
+
+    public void TestClosureWithOptionalBoolSome()
+    {
+        // Swift calls callback(true), C# receives bool? = true
+        var result = TestLibFunctions.CallWithOptionalBool(x => x.HasValue && x.Value);
+        AssertTrue(result, "CallWithOptionalBool(true) → true");
+        TestLogger.Info($"CallWithOptionalBool(some) = {result}");
+    }
+
+    [Skip("Optional<Bool> None uses extra inhabitant encoding (value > 1), not tag byte")]
+    public void TestClosureWithOptionalBoolNone()
+    {
+        // Swift calls callback(nil), C# receives bool? = null
+        var result = TestLibFunctions.CallWithNilBool(x => x.HasValue ? x.Value : false);
+        AssertFalse(result, "CallWithNilBool(nil) → false");
+        TestLogger.Info($"CallWithNilBool(none) = {result}");
+    }
+
+    [Skip("Optional<SimpleEnum> MarshalOptionalFromSwift crashes Mono JIT generic instantiation")]
+    public void TestClosureWithOptionalEnumSome()
+    {
+        // Swift calls callback(.blue), C# receives Color? = Color.Blue
+        var result = TestLibFunctions.CallWithOptionalEnum(x => x.HasValue ? (int)x.Value : -1);
+        AssertEqual((int)Color.Blue, result, "CallWithOptionalEnum(.blue) → 2");
+        TestLogger.Info($"CallWithOptionalEnum(some) = {result}");
+    }
+
+    [Skip("Optional<SimpleEnum> None uses extra inhabitant encoding, not tag byte")]
+    public void TestClosureWithOptionalEnumNone()
+    {
+        // Swift calls callback(nil), C# receives Color? = null
+        var result = TestLibFunctions.CallWithNilEnum(x => x.HasValue ? (int)x.Value : -1);
+        AssertEqual(-1, result, "CallWithNilEnum(nil) → -1");
+        TestLogger.Info($"CallWithNilEnum(none) = {result}");
+    }
+
+    public void TestClosureWithOptionalDoubleSome()
+    {
+        // Swift calls callback(3.14), C# receives double? = 3.14
+        var result = TestLibFunctions.CallWithOptionalDouble(x => x.HasValue ? x.Value * 2.0 : 0.0);
+        AssertEqual(6.28, result, "CallWithOptionalDouble(3.14) → 6.28");
+        TestLogger.Info($"CallWithOptionalDouble(some) = {result}");
+    }
+
+    #endregion
 }

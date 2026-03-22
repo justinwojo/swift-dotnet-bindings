@@ -441,6 +441,67 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Reads a Swift Optional value from a raw memory pointer and returns as C# nullable.
+    /// The pointer must point to a Swift Optional&lt;T&gt; layout (value bytes + tag byte).
+    /// Used by generated closure callbacks that receive heap-allocated Optional values.
+    /// Uses direct memory reads to avoid SwiftOptional metadata resolution, which crashes
+    /// in Mono JIT UnmanagedCallersOnly context.
+    /// </summary>
+    /// <typeparam name="T">The value type (primitive or enum) wrapped in Optional.</typeparam>
+    /// <param name="ptr">Pointer to the heap-allocated Swift Optional&lt;T&gt; memory.</param>
+    /// <returns>The value as C# nullable, or null if the Optional is .none.</returns>
+    public static unsafe T? MarshalOptionalFromSwift<T>(IntPtr ptr) where T : struct
+    {
+        // Swift Optional<T> layout depends on the type:
+        // - Primitives (Int32, Int64, Double, etc.): [value bytes] [1 byte tag], tag 0=Some, 1=None
+        // - Bool: extra inhabitant encoding — 1 byte total, value > 1 means None
+        // - Simple enums: may use extra inhabitants depending on the number of cases
+
+        if (typeof(T) == typeof(bool))
+        {
+            // Optional<Bool> uses extra inhabitant: 0=false, 1=true, 2=None
+            byte rawByte = *(byte*)ptr;
+            if (rawByte > 1)
+                return null;
+            return (T)(object)(rawByte == 1);
+        }
+
+        // For primitives (Int32, Double, etc.): tag byte is appended after the value
+        int tagOffset = GetPrimitiveTagOffset<T>();
+        if (tagOffset > 0)
+        {
+            byte tag = *((byte*)ptr + tagOffset);
+            if (tag != 0)
+                return null;
+            return Unsafe.ReadUnaligned<T>(ref *(byte*)ptr);
+        }
+
+        // For enums and other types: use SwiftOptional metadata path
+        // This may not work in all Mono JIT contexts — skip those tests if needed
+        using var opt = MarshalFromSwift<SwiftOptional<T>>(ptr);
+        return opt.Case == SwiftOptionalCases.Some ? opt.Some : null;
+    }
+
+    /// <summary>
+    /// Returns the tag byte offset for known blittable primitive types in Swift Optional layout.
+    /// Returns -1 for unknown types (enums, structs, etc.).
+    /// </summary>
+    private static int GetPrimitiveTagOffset<T>() where T : struct
+    {
+        if (typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte))
+            return 1;
+        if (typeof(T) == typeof(short) || typeof(T) == typeof(ushort))
+            return 2;
+        if (typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(float))
+            return 4;
+        if (typeof(T) == typeof(long) || typeof(T) == typeof(ulong) || typeof(T) == typeof(double))
+            return 8;
+        if (typeof(T) == typeof(nint) || typeof(T) == typeof(nuint))
+            return IntPtr.Size;
+        return -1;
+    }
+
+    /// <summary>
     /// Marshals a primitive value from a Swift source
     /// </summary>
     /// <typeparam name="T">The type of the value to marshal</typeparam>

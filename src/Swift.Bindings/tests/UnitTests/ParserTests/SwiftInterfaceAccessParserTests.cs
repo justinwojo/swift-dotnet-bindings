@@ -2565,6 +2565,107 @@ public class DisposeBag {
         finally { File.Delete(path); }
     }
 
+    // ===== GetEnumRawValues Tests =====
+
+    [Fact]
+    public void GetEnumRawValues_ExtractsStringLiterals()
+    {
+        var swiftInterface = """
+            public enum LogLevel : Swift.String {
+              case debug = "[DEBUG]"
+              case info = "[INFO]"
+              case warning = "[WARNING]"
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            Assert.Equal("[DEBUG]", result["LogLevel.debug"]);
+            Assert.Equal("[INFO]", result["LogLevel.info"]);
+            Assert.Equal("[WARNING]", result["LogLevel.warning"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumRawValues_SkipsCasesWithoutExplicitRawValue()
+    {
+        var swiftInterface = """
+            public enum Status : Swift.String {
+              case active
+              case inactive = "not_active"
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            Assert.False(result.ContainsKey("Status.active"));
+            Assert.Equal("not_active", result["Status.inactive"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumRawValues_NestedEnum_UsesFullyQualifiedName()
+    {
+        var swiftInterface = """
+            public struct Config {
+              public enum Mode : Swift.String {
+                case fast = "turbo"
+                case slow = "crawl"
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            Assert.Equal("turbo", result["Config.Mode.fast"]);
+            Assert.Equal("crawl", result["Config.Mode.slow"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumRawValues_EscapedCharacters_PreservesLiterals()
+    {
+        var swiftInterface = "public enum Delimiter : Swift.String {\n  case tab = \"\\t\"\n  case newline = \"\\n\"\n}\n";
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            Assert.Equal("\t", result["Delimiter.tab"]);
+            Assert.Equal("\n", result["Delimiter.newline"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetEnumRawValues_IntRawValue_NotExtracted()
+    {
+        var swiftInterface = """
+            public enum Priority : Swift.Int {
+              case low = 0
+              case high = 10
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            // Int raw values are not string literals — should not be extracted
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static string WriteTempFile(string content)
     {
         var path = Path.GetTempFileName();

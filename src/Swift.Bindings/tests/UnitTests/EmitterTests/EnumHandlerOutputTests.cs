@@ -3440,4 +3440,48 @@ public class EnumHandlerOutputTests
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }
+
+    [Fact]
+    public void Emit_StringRawValueEnum_UsesCustomRawValues()
+    {
+        // When EnumCaseDecl.RawValue is set, ToRawValue/FromRawValue use actual raw values
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        var debugCase = CreateCase("debug");
+        debugCase.RawValue = "[DEBUG]";
+        var infoCase = CreateCase("info");
+        infoCase.RawValue = "[INFO]";
+        enumDecl.Cases.Add(debugCase);
+        enumDecl.Cases.Add(infoCase);
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // ToRawValue must use custom raw values, not case names
+        Assert.Contains("\"[DEBUG]\"", csOutput);
+        Assert.Contains("\"[INFO]\"", csOutput);
+        Assert.DoesNotContain("=> \"debug\"", csOutput);
+        Assert.DoesNotContain("=> \"info\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_StringRawValueEnum_FallsBackToCaseNameWhenNoRawValue()
+    {
+        // When EnumCaseDecl.RawValue is null, case name is used (Swift default)
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.Cases.Add(CreateCase("active"));  // No RawValue set
+        enumDecl.Cases.Add(CreateCase("inactive")); // No RawValue set
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Must fall back to case names
+        Assert.Contains("\"active\"", csOutput);
+        Assert.Contains("\"inactive\"", csOutput);
+    }
 }

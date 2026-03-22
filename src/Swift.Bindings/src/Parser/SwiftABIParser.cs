@@ -474,6 +474,13 @@ namespace BindingsGeneration
         private readonly Dictionary<string, List<string?>>? _enumCaseLabels;
 
         /// <summary>
+        /// Optional string enum raw values from swiftinterface parsing.
+        /// Keys are "TypeName.caseName" (e.g., "HttpMethod.get").
+        /// Values are the string raw value literals (e.g., "GET").
+        /// </summary>
+        private readonly Dictionary<string, string>? _enumCaseRawValues;
+
+        /// <summary>
         /// Optional set of public type names from swiftinterface parsing.
         /// Types NOT in this set (when non-null and non-empty) are internal to the module.
         /// </summary>
@@ -551,6 +558,7 @@ namespace BindingsGeneration
             Dictionary<string, DocComment>? docComments = null,
             Dictionary<string, string>? typedThrowsErrors = null,
             Dictionary<string, List<string?>>? enumCaseLabels = null,
+            Dictionary<string, string>? enumCaseRawValues = null,
             HashSet<string>? publicTypeNames = null,
             HashSet<string>? mainActorTypes = null,
             HashSet<string>? customActorTypes = null,
@@ -573,6 +581,7 @@ namespace BindingsGeneration
             _docComments = docComments;
             _typedThrowsErrors = typedThrowsErrors;
             _enumCaseLabels = enumCaseLabels;
+            _enumCaseRawValues = enumCaseRawValues;
             _publicTypeNames = publicTypeNames;
             _mainActorTypes = mainActorTypes;
             _customActorTypes = customActorTypes;
@@ -1063,6 +1072,17 @@ namespace BindingsGeneration
                             enumCaseDecl.AssociatedValues[i].TypeLabel = labels[i];
                         }
                     }
+                }
+            }
+
+            // Apply string raw values from swiftinterface if available
+            if (_enumCaseRawValues != null && parentDecl is TypeDecl rawValueParent)
+            {
+                var typePath = BuildTypeQualifiedPath(rawValueParent);
+                var rawKey = $"{typePath}.{enumCaseDecl.Name}";
+                if (_enumCaseRawValues.TryGetValue(rawKey, out var rawValue))
+                {
+                    enumCaseDecl.RawValue = rawValue;
                 }
             }
 

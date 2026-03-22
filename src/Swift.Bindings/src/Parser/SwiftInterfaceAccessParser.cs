@@ -2096,6 +2096,86 @@ public static class SwiftInterfaceAccessParser
         }
     }
 
+    // Regex for enum case declarations with string raw values
+    // Matches: case caseName = "stringLiteral" (handles escaped quotes in the value)
+    private static readonly Regex EnumCaseRawValueRegex = new(
+        @"case\s+(\w+)\s*=\s*""((?:[^""\\]|\\.)*)""",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns a dictionary mapping
+    /// "TypeName.caseName" keys to string raw values.
+    /// Only extracts string raw values (e.g., case get = "GET").
+    /// Integer raw values are already correctly inferred from case order.
+    /// </summary>
+    public static Dictionary<string, string> GetEnumRawValues(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Track type context (same logic as GetEnumCaseLabels)
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                pushedScope = true;
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
+                    var dotIdx = qualifiedName.LastIndexOf('.');
+                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                    typeStack.Push((typeName, braceDepth));
+                }
+            }
+
+            // Check for enum case declarations with string raw values
+            if (trimmed.StartsWith("case ") && trimmed.Contains("\""))
+            {
+                var rawValueMatch = EnumCaseRawValueRegex.Match(trimmed);
+                if (rawValueMatch.Success && typeStack.Count > 0)
+                {
+                    var caseName = rawValueMatch.Groups[1].Value;
+                    var rawValue = rawValueMatch.Groups[2].Value;
+                    // Unescape common Swift string escapes
+                    rawValue = rawValue.Replace("\\\"", "\"")
+                                       .Replace("\\\\", "\\")
+                                       .Replace("\\n", "\n")
+                                       .Replace("\\t", "\t");
+                    var currentType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                    result[$"{currentType}.{caseName}"] = rawValue;
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+        }
+
+        return result;
+    }
+
     // Regex for public/open subscript declarations: captures the parameter list start
     private static readonly Regex SubscriptDeclRegex = new(
         @"(?:public|open)\s+(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",

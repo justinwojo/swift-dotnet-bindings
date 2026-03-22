@@ -69,8 +69,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Japanese: \"{speak}\"");
     }
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestUnicodeEmoji()
+public void TestUnicodeEmoji()
     {
         // Test emoji characters (multi-byte UTF-8 sequences)
         var animal = TestLibFunctions.CreateAnimal("Dog", "Bark");
@@ -83,8 +82,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Emoji greeting raw value: \"{rawValue}\"");
     }
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestUnicodeKorean()
+public void TestUnicodeKorean()
     {
         // Verify Korean characters via Greeting enum
         var greeting = Greeting.Korean;
@@ -93,8 +91,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info($"Korean greeting: \"{rawValue}\"");
     }
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestUnicodeMixed()
+public void TestUnicodeMixed()
     {
         // Verify mixed ASCII + CJK string via Greeting enum
         var greeting = Greeting.Mixed;
@@ -206,8 +203,7 @@ public class StringMarshallingTests : TestBase
 
     #region Edge Case Strings
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestEmptyString()
+public void TestEmptyString()
     {
         // EdgeCaseStrings.Empty has raw value ""
         var empty = EdgeCaseStrings.Empty;
@@ -216,8 +212,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("Empty string edge case passed");
     }
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestWhitespaceStrings()
+public void TestWhitespaceStrings()
     {
         // Single space
         var space = EdgeCaseStrings.SingleSpace;
@@ -252,8 +247,7 @@ public class StringMarshallingTests : TestBase
         TestLogger.Info("EdgeCaseStrings round-trip tests passed");
     }
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestCaseSensitiveStrings()
+public void TestCaseSensitiveStrings()
     {
         // Verify case sensitivity is preserved in raw values
         var lower = CaseSensitiveEnum.Lower;
@@ -294,8 +288,7 @@ public class StringMarshallingTests : TestBase
 
     #region String via GetLogLevelRaw / GetOrderStatusRaw
 
-    [Skip("String enum raw values use case names")] // Known generator bug: string enum raw values use case names instead of actual raw values
-    public void TestGetLogLevelRaw()
+public void TestGetLogLevelRaw()
     {
         // Create LogLevel enum cases, extract raw value via free function
         var debug = LogLevel.Debug;

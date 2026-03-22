@@ -559,6 +559,14 @@ public static partial class ClosureEmitter
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
 
+            // Optional<Primitive/SimpleEnum>: void* → SwiftMarshal.MarshalOptionalFromSwift<T>
+            if (IsOptionalValueParam(namedType, closureHandler))
+            {
+                var inner = namedType.GenericParameters[0];
+                var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
+                return $"SwiftMarshal.MarshalOptionalFromSwift<{innerType}>(new IntPtr(arg{argIndex}))";
+            }
+
             // The callback receives void* but the delegate expects the actual type.
             // Use SwiftMarshal.MarshalFromSwift to convert.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
@@ -590,6 +598,21 @@ public static partial class ClosureEmitter
                namedType.Name == "Swift.Optional" &&
                namedType.GenericParameters.Count == 1 &&
                closureHandler.IsReferenceType(namedType.GenericParameters[0]);
+    }
+
+    /// <summary>
+    /// Checks if a type is Optional&lt;Primitive/SimpleEnum&gt; with heap-allocated pointer ABI.
+    /// These use tag-byte layout, not nil-pointer ABI.
+    /// </summary>
+    private static bool IsOptionalValueParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
+    {
+        return namedType.ContainsGenericParameters &&
+               namedType.Name == "Swift.Optional" &&
+               namedType.GenericParameters.Count == 1 &&
+               namedType.GenericParameters[0] is NamedTypeSpec inner &&
+               (CdeclParamMapper.IsBlittablePrimitiveSwiftType(inner.Name) ||
+                MarshallingHelpers.IsBoolType(inner) ||
+                closureHandler.IsSimpleEnum(inner));
     }
 
     /// <summary>
