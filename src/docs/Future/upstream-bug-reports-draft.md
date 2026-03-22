@@ -4,7 +4,7 @@ Prepared: February 2026
 Project: Swift/.NET interop binding generator
 Contact: Justin Wojciechowski
 
-Five .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
+Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
 > **Before filing:** These drafts are waiting on the swift-bindings repo going public so we can
 > link to concrete reproduction code and the binding generator as context. Before submitting,
@@ -18,6 +18,8 @@ Five .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non
 - **Issue 3** — **Mono-only**. Post as a **comment on the Swift interop tracking issue** asking whether async P/Invoke with SwiftSelf/SafeHandle is a supported scenario on Mono.
 - **Issue 5** — File as a **bug report**. NativeAOT JIT register allocation bug: custom struct float/double fields placed in GPR instead of FPR despite correct lowering in `SwiftPhysicalLowering.cs`.
 - **Issue 6** — File as a **bug report**. Minimal repro of Issue 5 (single `double` field struct).
+- **Issue 7** — File as a **bug report**. NativeAOT passes custom integer structs >16B by pointer instead of in GPRs. Separate from float issue (Issue 5). Affects both NativeAOT (≥24B) and Mono (≥32B).
+- **Issue 8** — File as a **bug report**. NativeAOT SIGSEGV on multi-type-parameter generic functions via CallConvSwift. Clean delta: 1 type param PASSES, 2 type params SIGSEGV. Reproduced in standalone repro project.
 
 ---
 
@@ -460,6 +462,193 @@ Or use `SwiftIndirectResult` to bypass register allocation entirely (struct retu
 
 ---
 
+## Issue 7 (Bug): NativeAOT CallConvSwift passes custom integer structs >16 bytes incorrectly on ARM64
+
+### Title
+
+`[NativeAOT] CallConvSwift SIGSEGV when passing custom integer struct >16 bytes as parameter on ARM64`
+
+### Labels
+
+`area-Interop-Swift`, `os-ios`, `bug`, `runtime-nativeaot`
+
+### Description
+
+**Environment:**
+- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
+- macOS 15+ / iOS 18+, arm64
+- Swift 5.10+ runtime
+
+**Summary:**
+
+When passing a custom C# struct containing 3 or more `nint`/`long` fields (≥24 bytes) as a parameter to a Swift function via `CallConvSwift` P/Invoke on NativeAOT ARM64, the call crashes with SIGSEGV. Structs with 1–2 `nint` fields (≤16 bytes) pass correctly.
+
+This is a separate issue from Issue 5 (float/double GPR/FPR mismatch). Integer fields should all go in GPRs — the bug is that NativeAOT appears to pass the struct by pointer (AAPCS64 convention) while Swift expects the fields in individual GPRs (Swift calling convention).
+
+**Cross-platform behavior:**
+
+| Struct Size | Fields | Mono Simulator | NativeAOT Device |
+|-------------|--------|---------------|------------------|
+| 16B | 2×nint | PASS | PASS |
+| 24B | 3×nint | not tested | **SIGSEGV** |
+| 32B | 4×nint | **SIGSEGV** | **SIGSEGV** |
+
+System framework types (e.g., `CGRect` with 4 doubles = 32B) are **not affected** — they pass correctly on both runtimes. The issue is specific to custom C# struct definitions with integer fields.
+
+**Minimal reproduction:**
+
+```csharp
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct Struct3Ints
+{
+    public nint A, B, C;
+}
+
+public static class IntStructRepro
+{
+    // Swift: public func sumStruct3Ints(_ s: Struct3Ints) -> Int { return s.a + s.b + s.c }
+    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+    [DllImport("MyLib", EntryPoint = "$s5MyLib14sumStruct3IntsySiAA0eF0VF")]
+    private static extern nint SumStruct3Ints(Struct3Ints s);
+
+    public static void Reproduce()
+    {
+        var s = new Struct3Ints { A = 10, B = 20, C = 30 };
+        // SIGSEGV on NativeAOT ARM64
+        // Swift expects A in x0, B in x1, C in x2 (3 GPRs, within 4-register limit)
+        // NativeAOT appears to pass a pointer to the struct instead
+        nint result = SumStruct3Ints(s);
+    }
+}
+```
+
+**Root cause analysis:**
+
+The Swift calling convention on ARM64 decomposes structs into register-sized elements: integer fields occupy consecutive GPRs (x0–x7), up to 4 elements maximum. A 3-field integer struct should occupy x0, x1, x2. NativeAOT's `SwiftPhysicalLowering.cs` should produce 3 separate `CORINFO_TYPE_LONG` chunks for this struct.
+
+The investigation (NATIVEAOT-FINDINGS.md in `/Users/wojo/Dev/swift-interop-repro/`) concluded that NativeAOT falls back to AAPCS64 indirect passing (pointer in x0) for integer structs >16 bytes, while Swift still expects direct register passing up to the 4-register limit.
+
+**Workaround in use:**
+
+`@_cdecl` wrappers decompose struct fields into individual parameters:
+```swift
+@_cdecl("SBW_sumStruct3Ints")
+func _sbw_sumStruct3Ints(_ a: Int, _ b: Int, _ c: Int) -> Int {
+    return sumStruct3Ints(Struct3Ints(a: a, b: b, c: c))
+}
+```
+
+**Impact:**
+
+Affects any Swift API taking custom struct parameters with 3+ integer fields (≥24 bytes) on NativeAOT ARM64. Combined with Issue 5 (float/double structs), this means ALL custom structs with non-trivial layouts require `@_cdecl` wrappers on NativeAOT.
+
+**Expected behavior:**
+
+`CallConvSwift` P/Invoke should decompose custom integer structs into individual register-sized elements in GPRs (x0–x7), up to the 4-element Swift CC limit, matching the Swift ABI on ARM64.
+
+---
+
+## Issue 8 (Bug): NativeAOT CallConvSwift SIGSEGV with multi-type-parameter generic functions
+
+### Title
+
+`[NativeAOT] CallConvSwift SIGSEGV when calling generic function with 2+ type parameters on ARM64`
+
+### Labels
+
+`area-Interop-Swift`, `os-ios`, `bug`, `runtime-nativeaot`
+
+### Description
+
+**Environment:**
+- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
+- macOS 15+ / iOS 18+, arm64
+- Swift 5.10+ runtime
+
+**Summary:**
+
+Calling a Swift generic function with **2 type parameters** (`pair<T, U>`) via `CallConvSwift` P/Invoke crashes with SIGSEGV on NativeAOT ARM64. The same pattern with **1 type parameter** (`genericIdentity<T>`) works correctly. The only difference is the addition of a second `TypeMetadata` argument.
+
+**Reproduction evidence from repro project** (`/Users/wojo/Dev/swift-interop-repro/`):
+
+```
+7a. @_cdecl pairIntInt(10, 20) = (10, 20) — PASS       ← concrete control
+7b. genericIdentity<Int>(42) = 42 — PASS                ← single-type-param generic
+7c. genericPair<Int,Int>(10, 20) → SIGSEGV (signal 11)  ← multi-type-param generic
+```
+
+**Minimal reproduction:**
+
+Swift:
+```swift
+public func genericIdentity<T>(_ x: T) -> T { return x }                         // PASS
+public func genericPair<T, U>(_ first: T, _ second: U) -> (T, U) { return (first, second) }  // SIGSEGV
+```
+
+C#:
+```csharp
+// PASSES — 1 type param: SwiftIndirectResult + payload + TMetadata
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+[DllImport("MyLib", EntryPoint = "$s5MyLib15genericIdentityyxxlF")]
+static extern void genericIdentity(SwiftIndirectResult result, IntPtr payload, IntPtr TMetadata);
+
+// SIGSEGV — 2 type params: SwiftIndirectResult + 2 payloads + 2 metadata
+[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
+[DllImport("MyLib", EntryPoint = "$s5MyLib11genericPairyx_q_tx_q_tr0_lF")]
+static extern void genericPair(SwiftIndirectResult result, IntPtr first, IntPtr second, IntPtr TMetadata, IntPtr UMetadata);
+
+public static unsafe void Reproduce()
+{
+    IntPtr intMetadata = /* swift_getTypeByMangledName("Si") or equivalent */;
+
+    // PASSES: 1 generic type param
+    nint input = 42, output = 0;
+    genericIdentity(new SwiftIndirectResult(&output), (IntPtr)(&input), intMetadata);
+    // output == 42 ✓
+
+    // SIGSEGV: 2 generic type params
+    nint first = 10, second = 20;
+    byte* buffer = stackalloc byte[16]; // (Int, Int) = 16 bytes
+    genericPair(new SwiftIndirectResult(buffer),
+        (IntPtr)(&first), (IntPtr)(&second), intMetadata, intMetadata);
+    // CRASHES before returning
+}
+```
+
+**Root cause analysis:**
+
+The `genericIdentity<T>` P/Invoke has 3 parameters: `SwiftIndirectResult` (x8), payload (x0), TMetadata (x1). This works.
+
+The `genericPair<T, U>` P/Invoke has 5 parameters: `SwiftIndirectResult` (x8), first (x0), second (x1), TMetadata (x2), UMetadata (x3). All parameters fit within ARM64's 8 GPR limit. The crash is not a register overflow.
+
+The issue may be in how NativeAOT's `SwiftPhysicalLowering` handles the second generic type metadata parameter. Swift places type metadata in specific implicit parameter positions — if NativeAOT assigns the second metadata to the wrong register (or misidentifies the parameter order), Swift would read garbage values as type metadata pointers, causing SIGSEGV on metadata access.
+
+**Workaround in use:**
+
+`@_cdecl` wrapper with concrete type specialization:
+```swift
+@_cdecl("repro_pairIntInt")
+public func repro_pairIntInt(_ a: Int, _ b: Int, _ outFirst: UnsafeMutablePointer<Int>, _ outSecond: UnsafeMutablePointer<Int>) {
+    let result = genericPair(a, b)
+    outFirst.pointee = result.0
+    outSecond.pointee = result.1
+}
+```
+
+**Impact:**
+
+Blocks direct CallConvSwift dispatch for any generic Swift function with 2+ type parameters. This includes common patterns like `pair<T, U>`, `zip<A, B>`, `map<T, U>`, and generic initializers with multiple constrained types. All must route through concrete `@_cdecl` wrappers.
+
+**Expected behavior:**
+
+`CallConvSwift` P/Invoke should correctly place multiple type metadata parameters in consecutive GPRs, matching Swift's generic function calling convention on ARM64.
+
+---
+
 ## Filing Notes
 
 **Related dotnet/runtime issues:**
@@ -477,5 +666,7 @@ These issues were discovered while building a Swift/.NET binding generator that 
 - **Issue 2** — Both runtimes. Highest impact: non-blittable types are the primary driver of ~67% of P/Invokes needing `@_cdecl` wrappers across real-world libraries
 - **Issue 3** — Mono-specific (iOS Simulator)
 - **Issues 5-6** — NativeAOT on physical devices. Source-level analysis shows the struct lowering (`SwiftPhysicalLowering.cs`) correctly classifies float/double fields — the bug is downstream in JIT register assignment
+- **Issue 7** — NativeAOT (and Mono at higher thresholds). Custom integer structs >16 bytes passed by pointer instead of in registers. Reproduced in `/Users/wojo/Dev/swift-interop-repro/` (Struct3Ints, Struct4Ints)
+- **Issue 8** — NativeAOT. Multi-type-parameter generic functions crash. Reproduced in repro project (genericPair<T,U> vs working genericIdentity<T>). Clean minimal repro with PASS/SIGSEGV delta
 
 All active issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling). Issue 2 (non-blittable support) would have the largest impact — reducing the wrapper rate from ~67% to ~20%.
