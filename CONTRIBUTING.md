@@ -1,61 +1,78 @@
 # Contributing to Swift Bindings
 
-Thanks for your interest in contributing! This project is under active development and evolving rapidly.
+Thanks for your interest in contributing! This project generates C# bindings from compiled Swift and Objective-C frameworks for .NET 10.0 on Apple platforms. It's under active development and evolving rapidly.
 
-## How to Contribute
+## Architecture Overview
 
-### Issues First
+The generator transforms compiled Swift libraries into idiomatic C# bindings. Here's how the pipeline works:
 
-The most impactful way to contribute right now is through **issue reports**:
+```
+xcframework (dylib + ABI JSON + TBD + swiftinterface)
+    |
+    v
+  Parser ──────> TypeDatabase ──────> Marshaler ──────> Emitter
+  (reads ABI      (central type       (decides C#        (generates C# source,
+   JSON, TBD,      registry for        mapping per        Swift @_cdecl wrappers,
+   swiftinterface) all Swift types)    Swift type)        consumer .targets)
+```
 
-- **Binding errors** — the generator produces C# that doesn't compile for your library
-- **Runtime failures** — generated bindings crash or behave incorrectly at runtime
-- **Feature requests** — Swift patterns or workflows the generator doesn't handle
-- **Documentation gaps** — missing or unclear information in the [wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki)
+**Parser** reads the Swift ABI JSON (type metadata, function signatures, conformances), TBD files (exported symbols), and swiftinterface files to populate the TypeDatabase.
 
-When filing a binding error, please include:
+**TypeDatabase** is the central type registry. Every Swift type discovered by the parser is registered here with its full metadata — kind, generic parameters, conformances, and relationships.
 
-1. **Generator logs** — run with `-v 2` for verbose output
-2. **The binding report** — `binding-report.json` from the output directory
-3. **The xcframework** (if possible) — or at minimum the library name and version so we can reproduce
+**Marshaler** decides how each Swift type maps to C#: which calling convention to use (CallConvSwift for direct calls, CallConvCdecl for @_cdecl wrappers), whether a type needs a Swift wrapper function, and how parameters/returns are marshalled across the interop boundary.
 
-### Pull Requests
+**Emitter** generates the final output: C# source files with P/Invoke declarations and managed wrappers, Swift @_cdecl wrapper functions (when the Swift calling convention can't be called directly), and a consumer `.targets` file for MSBuild integration.
 
-PRs are welcome, but **please open an issue first** to discuss the change — especially for anything beyond a trivial fix. The generator internals are changing frequently, and coordinating upfront avoids wasted effort on both sides.
+**Runtime** (`Swift.Runtime`) provides the .NET-side infrastructure: `SwiftString` and `SwiftArray` for collection interop, `SafeHandle`-based classes for deterministic ARC bridging, and module initializers for dynamic library resolution.
 
-## Development Setup
+**MSBuild SDK** (`SwiftBindings.Sdk`) wraps the entire generator workflow into a standard `dotnet build && dotnet pack` experience, so binding authors don't need to invoke the CLI directly.
+
+### Key Directories
+
+| Directory | What's There |
+|-----------|-------------|
+| `src/Swift.Bindings/src/` | Generator: Parser, TypeDatabase, Marshaler, Emitter |
+| `src/Swift.Bindings/tests/` | Generator unit tests (~9,000 tests) |
+| `src/Swift.Runtime/src/Swift/` | Runtime library (SwiftString, SwiftArray, SafeHandle, ARC) |
+| `src/Swift.Bindings.Sdk/` | MSBuild SDK package (`SwiftBindings.Sdk`) |
+| `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
+| `BindingTests/` | Integration test library + iOS Simulator runtime tests (~850 tests) |
+| `validation-libraries.json` | Library validation manifest (90 targets across 46 libraries) |
+| `scripts/` | Build helper scripts (`fetch-libraries.sh`, `lib.sh`) |
+| `src/docs/` | Internal design docs, status, known issues |
+
+## Getting Started
 
 ### Prerequisites
 
 - macOS (Apple Silicon recommended)
 - [Xcode 26](https://developer.apple.com/xcode/) or later
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the iOS workload (`dotnet workload install ios`)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the iOS workload:
+  ```bash
+  dotnet workload install ios
+  ```
 
-### Building and Testing
+### Building
 
 ```bash
-# Build everything
 ./build.sh
-
-# Run unit tests
-./run-tests.sh
-
-# Run library validation (requires fetching libraries first)
-scripts/fetch-libraries.sh          # First time only (~30-60 min)
-./validate-libraries.sh             # Full validation
-./validate-libraries.sh --filter Nuke  # Single library
 ```
 
-### Project Structure
+### Running Tests
 
-| Directory | Description |
-|-----------|-------------|
-| `src/Swift.Bindings/src/` | Generator: Parser, TypeDatabase, Marshaler, Emitter |
-| `src/Swift.Runtime/src/Swift/` | Runtime library (SwiftString, SwiftArray, SafeHandle, ARC) |
-| `src/Swift.Bindings.Sdk/` | MSBuild SDK package |
-| `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
-| `BindingTests/` | Integration test library + iOS Simulator runtime tests |
-| `src/Swift.Bindings/tests/` | Unit tests |
+```bash
+# Unit tests (~9,000 tests, ~2 min)
+./run-tests.sh
+
+# Library validation (requires fetching libraries first)
+scripts/fetch-libraries.sh            # First time only (~30-60 min)
+./validate-libraries.sh               # Full validation (90 targets)
+./validate-libraries.sh --filter Nuke # Single library
+
+# End-to-end integration tests (~5 min)
+cd BindingTests && ./build-and-test.sh
+```
 
 ### Generator CLI
 
@@ -69,31 +86,84 @@ dotnet run --project src/Swift.Bindings/src -- \
 cd /tmp/output && dotnet build Library.Swift.iOS.csproj -p:EnableDefaultCompileItems=false
 ```
 
-## PR Guidelines
+Run `dotnet run --project src/Swift.Bindings/src -- --help` for all CLI options.
+
+## Development Workflow
+
+### Testing Generator Changes
+
+Follow this progression from fast to thorough:
+
+1. **Unit tests** (`./run-tests.sh`) — fast feedback on parser/marshaler/emitter logic
+2. **Library validation** (`./validate-libraries.sh`) — compile gate across 90 real-world library targets
+3. **BindingTests** (`cd BindingTests && ./build-and-test.sh`) — end-to-end: Swift source to generated binding to runtime execution on iOS Simulator
+
+Unit tests alone can't catch ABI mismatches, calling convention bugs, or marshalling crashes that only surface when running real bindings. Always run the full progression for generator/emitter changes.
+
+### Adding a New Validation Library
+
+1. Add an entry to `validation-libraries.json` (repo URL, version, mode, tier)
+2. Fetch: `scripts/fetch-libraries.sh --filter NewLib`
+3. Validate: `./validate-libraries.sh --filter NewLib`
+4. Run full validation (`./validate-libraries.sh` with no flags) to update `.validation-baseline.json`
+
+### Where Tests Go
+
+Tests are organized **by domain** (closures, enums, structs, protocols, etc.), not by milestone, session, or SDK version. Place new tests in the appropriate domain file. For example, closure-related tests go in closure test files.
+
+### Test Quality
+
+- **Assert behavior, not implementation.** Prefer `"output contains CallConvCdecl"` over exact string matching of generated code. This prevents tests from breaking when emitter internals change while behavior stays correct.
+- **Bug-first testing.** When writing tests for untested code, read and understand the code first. Don't assume existing behavior is correct — if something looks wrong, write a test that exposes the correct behavior, not one that enshrines the bug.
+- Use `[Theory]`/`[InlineData]` when multiple tests differ only in input values.
+
+## Filing Issues
+
+The most impactful way to contribute is through **issue reports**:
+
+- **Binding errors** — the generator produces C# that doesn't compile for your library
+- **Runtime failures** — generated bindings crash or behave incorrectly at runtime
+- **Feature requests** — Swift patterns or workflows the generator doesn't handle
+- **Documentation gaps** — missing or unclear information in the [wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki)
+
+When filing a binding error, please include:
+
+1. **Generator logs** — run with `-v 2` for verbose output
+2. **The binding report** — `binding-report.json` from the output directory
+3. **The xcframework** (if possible) — or at minimum the library name and version so we can reproduce
+
+## Pull Requests
+
+PRs are welcome, but **please open an issue first** to discuss the change — especially for anything beyond a trivial fix. The generator internals change frequently, and coordinating upfront avoids wasted effort on both sides. PRs should target the `main` branch.
+
+### PR Expectations
 
 - **All changes must have tests.** Unit tests at minimum; integration tests for new Swift patterns.
-- **Run `./run-tests.sh` before submitting.** All 7,000+ unit tests must pass.
+- **Run `./run-tests.sh` before submitting.** All unit tests must pass.
 - **Run `./validate-libraries.sh`** if your change affects code generation. No regressions in the validation baseline.
-- **Run `cd BindingTests && ./build-and-test.sh`** if your change affects code generation or the runtime. This rebuilds bindings from a comprehensive Swift test library and runs 700+ runtime tests on iOS Simulator — the primary end-to-end regression gate.
+- **Run `cd BindingTests && ./build-and-test.sh`** if your change affects code generation or the runtime.
 - **Keep PRs focused.** One logical change per PR. Don't bundle unrelated fixes.
 - **Don't refactor surrounding code.** Fix/add what's needed, nothing more.
 
-## AI Driven Development
+## Code Conventions
+
+For detailed development guidelines, see [`CLAUDE.md`](CLAUDE.md) — it's the authoritative reference for project conventions and is kept current. Key points:
+
+- **Never use `git stash`** — hooks detect reverted files and stash pop can discard changes silently.
+- **Test files by domain** — never create test files named after milestones, sessions, or versions.
+- **Bug-first testing** — don't assume existing behavior is correct when writing tests for untested code.
+- **Verify generated output compiles** — after code gen changes, always build the output to confirm correctness.
+
+## AI-Driven Development
 
 This project is developed primarily with AI tooling — [Claude Code](https://claude.ai/claude-code) (Claude Opus) for implementation and [Codex](https://openai.com/codex) for code review. The repository is configured to support this workflow:
 
 - **`CLAUDE.md`** — Project context, build commands, architecture constraints, and working guidelines for Claude Code sessions
 - **`AGENTS.md`** — Equivalent context file for OpenAI Codex
 
-The typical workflow for this repo is: plan and implement with Claude Code (Opus), then review plans and code with Codex. If you're comfortable working with AI coding tools, the repo is set up to be productive out of the box — point Claude Code or Codex at an issue and the context files provide the project knowledge needed to make meaningful contributions. The 7,000+ unit tests, 700+ runtime tests on iOS Simulator, and 89-target validation suite serve as a strong safety net for AI-generated changes.
+If you're comfortable working with AI coding tools, the repo is set up to be productive out of the box — point Claude Code or Codex at an issue and the context files provide the project knowledge needed to make meaningful contributions. The unit tests, runtime tests, and validation suite serve as a strong safety net for AI-generated changes.
 
 Human review remains the final gate on all changes.
-
-## Architecture Overview
-
-The generator pipeline flows: **ABI JSON** → Parser → TypeDatabase → Marshaler → Emitter → **C# source + Swift wrapper**
-
-For architectural details, see the [Architecture](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Architecture) wiki page.
 
 ## License
 

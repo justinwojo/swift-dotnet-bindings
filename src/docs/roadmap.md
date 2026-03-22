@@ -2,7 +2,9 @@
 
 **Updated**: March 22, 2026
 
-Previous sessions (0–14, architecture audit, post-audit fixes) archived in `Completed/roadmap-march-2026-sessions.md`.
+Previous sessions archived in `Completed/`:
+- Sessions 0–14, architecture audit, post-audit fixes → `roadmap-march-2026-sessions.md`
+- Stability Sessions 1–2, Post-Stability Sessions A–F → `post-stability-sessions-a-f.md`
 
 ---
 
@@ -10,18 +12,18 @@ Previous sessions (0–14, architecture audit, post-audit fixes) archived in `Co
 
 | Metric | Value |
 |--------|-------|
-| Runtime tests (sim) | 757 pass, 32 skip |
+| Runtime tests (sim) | 846 pass, 62 skip |
 | Runtime tests (device) | ~comparable |
-| Unit tests | 8440 |
+| Unit tests | 9,060 |
 | Validation compile gate | 90/90 pass |
-| Swift wrapper compilation | 51/56 ok |
+| Swift wrapper compilation | 52/56 ok |
 | Member emission | 995/1109 (89.7%) |
 | Type emission | 257/277 (92.8%) |
 | @_cdecl wrapper coverage | 725/918 (78.9%) |
 
-### Validation failures (0 C# compile, 5 Swift wrapper)
+### Validation failures (0 C# compile, 4 Swift wrapper)
 
-**C# compile failures:** None (Session 1 fixed Kingfisher + Reachability; BlinkID/SVGView/StripePaymentSheet resolved post-baseline).
+**C# compile failures:** None.
 
 **Swift wrapper failures:**
 
@@ -30,158 +32,21 @@ Previous sessions (0–14, architecture audit, post-audit fixes) archived in `Co
 | GRDB | Protocol extension associated type context (EC-17) — architecturally blocked |
 | Quick | XCTest dependency not found during wrapper compilation (not a generator bug) |
 | SkeletonView | Internal type member gate — ~266 errors when lifted |
-| StripeCryptoOnramp | Cross-module re-export (see Session C below) |
 | TinyConstraints | x86_64-only xcframework, no arm64 simulator slice (stale build artifact) |
 
 ---
 
-## Stability (Active — `sdk-0.3.0-validation-findings.md`)
-
-Three sessions planned from the 0.3.0 validation review. These are the highest-priority work items.
+## Stability Session 3 (Pending)
 
 | Session | Focus | Impact | Status |
 |---------|-------|--------|--------|
-| **1** | Generator bug fixes (Kingfisher + Reachability) + infrastructure | 2 BUILD_FAILED → PASS | **Done** |
-| **2** | @_cdecl wrapper gap closure (class constructors, frozen struct SwiftIndirectResult, final class properties) | ~85 tests behind crash barriers unlocked | **Done** |
 | **3** | SwiftOptional Mono marshalling investigation | ~22 tests behind crash barriers (DeviceKit, PhoneNumberKit) | Pending |
 
 Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validation-findings.md`.
 
 ---
 
-## Post-Stability Sessions
-
-### Session A: Runtime Safety + Validation Cleanup — **Done** (`3a3dc08b`)
-
-**Runtime dispose safety:** Done. All 8 disposable runtime types (SwiftString, SwiftArray, SwiftDictionary, SwiftSet, SwiftOptional, SwiftResult, SwiftAsyncStream, Hasher) now throw `ObjectDisposedException` on post-dispose access. 52 unit tests added. SwiftSet also now declares `IDisposable` in its interface list (was missing).
-
-**Remaining compile failures:** Confirmed resolved. BlinkID, SVGView, StripePaymentSheet all pass at 90/90. No action needed.
-
-**Coverage re-measurement:** Done. Updated roadmap header. Member emission: 89.7% (was 67%), @_cdecl: 78.9% (was 66%), type emission: 92.8%.
-
----
-
-### Session B: BindingTests Expansion — **Done** (`6bc8ed1c`)
-
-Two goals: add multi-module testing infrastructure, and re-enable ~165 disabled tests that are now viable after March work.
-
-**Add `SwiftBindingsTestLibDependency` module:**
-- New xcframework built alongside the main test library
-- Contains types that the main `SwiftBindingsTestLib` imports and uses
-- Tests cross-module type references (type from module A used as parameter/return in module B)
-- Tests cross-module protocol conformances
-- Tests namespace resolution when module name matches a type name
-
-**Collision pattern coverage:**
-- Emoji/non-ASCII identifiers (caught in Valet, BonMot validation)
-- Case-insensitive enum case collisions (caught in SVGView — 21 errors)
-- Module name = type name collisions (caught in Reachability)
-- Nested type flattening with ObjC types (caught in SwipeCellKit)
-
-**Re-enable disabled test domains (~165 tests):**
-- `Lifetime/` — non-async ownership tests (~40 tests, C# test file exists). Skip async functions with reason.
-- `MemoryManagement/` — LeakDetection + LibraryEvolution (~60 tests). Skip RetainCycles (weak/unowned not supported).
-- `Initializers/` — BasicInit + Failable + Throwing (~15 tests). All patterns now supported post-Phase 44.
-- `ObjCInterop/` — NSObjectSubclass + ObjCAttributes (~25 tests). Skip Selectors (partially supported).
-- `EdgeCases/` — Deprecation + Keywords + Visibility (~15 tests). Skip Unicode (needs emitter verification).
-- `Parameters/` — Inout (~10 tests). Skip Defaults (not P/Invoke-expressible) and complex Variadic.
-- Keep `PropertyWrappers/` disabled (genuinely unsupported — no generator support).
-
-**Validation**: `run-tests.sh` + `build-and-test.sh` (new module + re-enabled tests need full rebuild). `validate-libraries.sh` to confirm no regressions.
-
----
-
-### Session C: Consumer API Quality — **Done** (`fc236df4`)
-
-Group all consumer-facing quality improvements into one session.
-
-**ExistentialContainer API cleanup** (deferred from Session 3):
-- `ExistentialContainer0-8` leak into public method signatures (closure params, protocol proxy constructors). Consumers see internal marshalling types in IntelliSense — the #1 "feels unfinished" signal.
-- Map containers to protocol interfaces where possible. Gate on `AllProtocolsHaveTypeRecords()` for unregistered protocols like `Swift.Error`.
-
-**nint return type convenience:**
-- Properties like `Count`, `Index`, `HashValue` return `nint` where C# consumers expect `int`. Method parameters already get `int` overloads, but return types don't. Add `int`-returning convenience properties/methods where safe (values guaranteed to fit in Int32).
-
-**AnyType fallback improvement:**
-- Consumers get `AnyType` for unsupported types with no guidance. Add XML doc comments explaining what `AnyType` means, why it appears, and what (if anything) the consumer can do.
-
-**StripeCryptoOnramp cross-module re-export:**
-- Generator emits `StripeCryptoOnramp.STPAPIClient` but the type's canonical module is `StripePayments`. Swift wrapper fails because the re-exported type requires module-qualified access. Fix: detect cross-module re-exports and use canonical module in wrappers.
-
-**SWIFTBIND error documentation:**
-- 13 error codes exist (SWIFTBIND010–094) with no consumer-facing reference. Add actionable descriptions and resolution steps to the wiki Troubleshooting page. Improve in-code messages to suggest next steps (e.g., SWIFTBIND060 should explain `<SwiftFrameworkDependency>`).
-
-**Validation**: `run-tests.sh` + `validate-libraries.sh` (StripeCryptoOnramp should go from wrapper fail to pass).
-
----
-
-### Session D: Feature Expansion + Gate Relaxation — **Done** (`a674300f`)
-
-Feature gaps and overly conservative skip gates that recover meaningful member counts.
-
-**Optional\<Primitive/Enum\> in closures** (deferred from Session 1):
-- Currently gated due to "risky ABI change (tag-byte layout vs pointer-based Optional)". But `SwiftOptional<T>` already works in BindingTests (14/14 pass) for non-closure contexts. Verify the ABI matches for closure params with focused BindingTests: `Optional<Int32>`, `Optional<Bool>`, `Optional<CustomEnum>` in closure parameters.
-- If ABI verifies, lift the gate in `IsCdeclCompatibleType`. ~5-10 skips recovered (RxSwift, Alamofire closure patterns).
-
-**String enum raw values via .swiftinterface parsing:**
-- Currently "blocked — no data source in compiled xcframeworks." But `.swiftinterface` files (which the generator already reads for access-level parsing) contain `case foo = "bar"` literals.
-- Extend `SwiftInterfaceAccessParser` to extract string raw values. Emit as static string properties on the enum. ~20-30 skips recovered (GRDB, CryptoSwift).
-
-**Overly conservative skip gate relaxation:**
-- `Optional<Closure>` in bound generics: `BoundGenericsHandler.HasNonSwiftObjectGenericArg()` rejects this pattern, but BindingTests shows 14/14 Optional closure tests pass. Whitelist `Optional<Closure>` as valid. ~5-10 members per library.
-- Associated type references: gate skips entire method when ANY parameter has an associated type ref. Could skip only the problematic parameter and emit partial signatures. ~10-20 members per library.
-
-**Validation**: `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` for new BindingTests.
-
----
-
-### Session E: Generator Code Health
-
-Reduce duplication and regression risk in the generator without changing behavior.
-
-**Validation rule consolidation:**
-- 8 separate validator classes with overlapping gate checks. `IsUnsupportedModule` has two divergent implementations across 23 call sites. `HasUnsupportedProtocolConstraints` is checked in both `MethodValidationGates` and `MemberValidationPipeline`. Fixing a validation bug currently requires updating 3+ places.
-- Create a unified `ValidationRuleSet` with canonical gate predicates. All validators query it instead of reimplementing checks. Eliminates divergence risk.
-
-**Program.cs extraction:**
-- 2,114-line monolithic CLI entry point mixing option definitions, handler logic, and business logic. Extract `CliOptions` class and `BindingsGeneratorCommand` handler. Improves testability and readability.
-
-**TODO/dead code cleanup:**
-- 27 TODO/HACK/FIXME comments found. At least 5 guard unreachable code (future-proofing that adds noise). Remove dead paths, document deferred features in roadmap instead of comment-gated code.
-
-**Validation**: `run-tests.sh` only (no behavioral changes).
-
----
-
-### Session F: Generator Test Coverage Gaps
-
-Coverlet coverage analysis (March 21) found the generator at 74.4% line coverage overall, but with 6 emitter files at 0% and 3 more under 20%. These are the highest regression risk areas — bugs here would go undetected by the test suite.
-
-**Zero-coverage emitter files (2,702 lines):**
-
-| File | Lines | What it does |
-|------|-------|-------------|
-| `ProtocolExtensionClosureBridge.cs` | 956 | Closure bridging in protocol extensions |
-| `CrossModuleExtensionEmitter.cs` | 604 | Cross-module extension type dispatch |
-| `ClosureEmitter.StructParams.cs` | 542 | Struct parameters in closure adapters |
-| `MarkerProtocolOverloadEmitter.cs` | 336 | Sendable/Copyable overload generation |
-| `ClosureEmitter.Async.cs` | 246 | Async closure emission |
-
-**Low-coverage emitter files (<20%, 2,680 lines):**
-
-| File | Coverage | Lines |
-|------|----------|-------|
-| `ForeignTypeExtensionEmitter.cs` | 1% | 1,458 |
-| `GenericClosureBridgeEmitter.cs` | 3% | 1,222 |
-
-**Projection unit tests:**
-- All 26 Marshaler/Projection files (ArrayProjection, BoolProjection, ExistentialProjection, DataProjection, etc.) have zero dedicated unit tests. Currently tested only indirectly through TypeProjectionFactory composition. Add at minimum one test per `Visit()` override per projection type.
-
-**Validation**: `run-tests.sh` only (no behavioral changes). Re-run Coverlet after to verify improvement.
-
----
-
-### Session G: Generated Code Size Reduction
+## Session G: Generated Code Size Reduction
 
 Generated bindings are verbose — 738K total LOC across 90 libraries. Analysis shows 25-35% reduction is achievable by extracting shared helpers, reducing ~221K lines of generated code. Improves build times, binary size, and debuggability.
 
@@ -207,8 +72,9 @@ Small items that can be tackled opportunistically or folded into any session.
 
 | Item | Affects | Effort |
 |------|---------|--------|
+| Optional\<Bool\>/Optional\<SimpleEnum\> in closures | ~5-10 skips (RxSwift, Alamofire) | Medium — requires extra inhabitant encoding support in `MarshalOptionalFromSwift<T>` |
 | SwiftUI type public construction | Consumer ergonomics | Small |
-| SDK property documentation (`SwiftPlatformTarget`, `SwiftGeneratorVerbosity`, etc.) | Consumer onboarding | Small |
+| ~~SDK property documentation~~ | ~~Consumer onboarding~~ | ~~Done — [wiki Customization page](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Customization)~~ |
 | ObjC-bridged optional setter @_cdecl wrapper | Final class `UIViewController?`/`NSString?` setters still CallConvSwift — `ShouldEmitWrapper` rejects due to IntPtr reconstruction incompatibility | Medium |
 | Optional-closure property setter @_cdecl wrapper | Final class `((…) -> Void)?` setters still CallConvSwift — `ShouldEmitWrapper` rejects closure properties | Medium |
 
@@ -298,7 +164,7 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| `CONTRIBUTING.md` | 0.5 session | Architecture overview, issue/PR templates. Currently good AI docs but nothing for human contributors. |
+| ~~`CONTRIBUTING.md`~~ | ~~0.5 session~~ | ~~Done — architecture overview, development workflow, issue/PR guidelines, code conventions~~ |
 
 ---
 
