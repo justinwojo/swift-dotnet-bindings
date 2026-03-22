@@ -168,12 +168,12 @@ public static partial class ClosureEmitter
                          !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
                          !closureHandler.IsSimpleEnum(frozenNamed))
                     heapAllocArgs.Add((argIndex, swiftType));
-                // Optional<Primitive/SimpleEnum>: heap-allocated pointer ABI (tag-byte layout)
+                // Optional<NumericPrimitive>: heap-allocated pointer ABI (tag-byte layout)
+                // Excludes Bool and SimpleEnum — they use extra inhabitant encoding
                 else if (arg is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
                          optNamed.ContainsGenericParameters && optNamed.GenericParameters.Count == 1 &&
                          optNamed.GenericParameters[0] is NamedTypeSpec optInner &&
-                         (IsSwiftPrimitive(optInner.Name) || optInner.Name == "Swift.Bool" ||
-                          closureHandler.IsSimpleEnum(optInner)))
+                         IsSwiftNumericPrimitive(optInner.Name))
                     heapAllocArgs.Add((argIndex, swiftType));
             }
 
@@ -431,10 +431,33 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// Checks if a Swift type name is a numeric primitive (excludes Bool).
+    /// Used for Optional&lt;T&gt; acceptance: numeric primitives use tag-byte layout for optionals,
+    /// but Bool uses extra inhabitant encoding (value &gt; 1 for None) which our runtime can't
+    /// handle yet in MarshalOptionalFromSwift.
+    /// </summary>
+    internal static bool IsSwiftNumericPrimitive(string swiftTypeName)
+    {
+        return swiftTypeName switch
+        {
+            "Swift.Int" or "Swift.UInt" or
+            "Swift.Int8" or "Swift.UInt8" or
+            "Swift.Int16" or "Swift.UInt16" or
+            "Swift.Int32" or "Swift.UInt32" or
+            "Swift.Int64" or "Swift.UInt64" or
+            "Swift.Float" or "Swift.Double" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
     /// Checks if a type is Cdecl-compatible for Swift wrapper closure adaptation.
     /// Supported types: primitives, Bool, Void, pointer types, classes, simple enums,
     /// ObjC-bridged types, Optional&lt;Class/ObjC&gt; (nil-pointer ABI), and
-    /// Optional&lt;Primitive/SimpleEnum&gt; (heap-allocated pointer ABI).
+    /// Optional&lt;NumericPrimitive&gt; (heap-allocated pointer ABI with tag-byte layout).
+    /// NOT supported in Optional: Bool (extra inhabitant encoding, value &gt; 1 for None),
+    /// SimpleEnum (extra inhabitant encoding). These require runtime MarshalOptionalFromSwift
+    /// updates before the gate can be widened.
     /// Complex types (String, non-frozen structs, complex enums) require full marshalling
     /// which is not yet implemented in the Cdecl wrapper path.
     /// </summary>
@@ -475,7 +498,9 @@ public static partial class ClosureEmitter
                 return true;
 
             // Optional<Class/ObjC> uses nil-pointer ABI (pointer-sized)
-            // Optional<Primitive/SimpleEnum> uses heap-allocated pointer ABI (like frozen structs)
+            // Optional<NumericPrimitive> uses heap-allocated pointer ABI with tag-byte layout
+            // NOT accepted: Optional<Bool> (extra inhabitant encoding, value > 1 for None)
+            // NOT accepted: Optional<SimpleEnum> (extra inhabitant encoding, not tag-byte)
             if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
                 named.GenericParameters.Count == 1)
             {
@@ -483,12 +508,11 @@ public static partial class ClosureEmitter
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
                     return true;
-                // Optional<Primitive> and Optional<SimpleEnum> — heap-allocated pointer ABI
+                // Optional<NumericPrimitive> — heap-allocated pointer ABI (tag-byte layout)
+                // Bool and SimpleEnum use extra inhabitant encoding which our runtime can't handle yet
                 if (inner is NamedTypeSpec innerNamed)
                 {
-                    if (IsSwiftPrimitive(innerNamed.Name) || innerNamed.Name == "Swift.Bool")
-                        return true;
-                    if (closureHandler.IsSimpleEnum(innerNamed))
+                    if (IsSwiftNumericPrimitive(innerNamed.Name))
                         return true;
                 }
                 return false;

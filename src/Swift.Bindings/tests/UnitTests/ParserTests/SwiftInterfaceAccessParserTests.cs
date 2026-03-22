@@ -2632,16 +2632,39 @@ public class DisposeBag {
     }
 
     [Fact]
-    public void GetEnumRawValues_EscapedCharacters_PreservesLiterals()
+    public void GetEnumRawValues_EscapedCharacters_PreservesEscapeSequences()
     {
+        // Swift .swiftinterface escape sequences should be preserved as-is (not unescaped),
+        // because they map 1:1 to C# escape sequences and are emitted directly into C# string literals.
         var swiftInterface = "public enum Delimiter : Swift.String {\n  case tab = \"\\t\"\n  case newline = \"\\n\"\n}\n";
 
         var path = WriteTempFile(swiftInterface);
         try
         {
             var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
-            Assert.Equal("\t", result["Delimiter.tab"]);
-            Assert.Equal("\n", result["Delimiter.newline"]);
+            Assert.Equal("\\t", result["Delimiter.tab"]);
+            Assert.Equal("\\n", result["Delimiter.newline"]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("\\t", "\\t")]       // tab escape preserved
+    [InlineData("\\n", "\\n")]       // newline escape preserved
+    [InlineData("\\\\", "\\\\")]     // backslash escape preserved
+    [InlineData("\\\"", "\\\"")]     // quote escape preserved
+    [InlineData("hello\\tworld", "hello\\tworld")] // mixed content preserved
+    public void GetEnumRawValues_EscapeSequences_RoundTripForCSharpEmission(string swiftEscaped, string expected)
+    {
+        // Verify that escape sequences from .swiftinterface are preserved verbatim,
+        // so they can be safely interpolated into C# string literals like: $"\"{rawValue}\""
+        var swiftInterface = $"public enum E : Swift.String {{\n  case x = \"{swiftEscaped}\"\n}}\n";
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetEnumRawValues(path);
+            Assert.Equal(expected, result["E.x"]);
         }
         finally { File.Delete(path); }
     }

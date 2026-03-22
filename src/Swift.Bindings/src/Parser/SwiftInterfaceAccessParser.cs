@@ -2155,11 +2155,9 @@ public static class SwiftInterfaceAccessParser
                 {
                     var caseName = rawValueMatch.Groups[1].Value;
                     var rawValue = rawValueMatch.Groups[2].Value;
-                    // Unescape common Swift string escapes
-                    rawValue = rawValue.Replace("\\\"", "\"")
-                                       .Replace("\\\\", "\\")
-                                       .Replace("\\n", "\n")
-                                       .Replace("\\t", "\t");
+                    // Keep escape sequences in their Swift form (\n, \t, \", \\).
+                    // These map 1:1 to C# escape sequences and will be emitted directly
+                    // into C# string literals by EnumHandler.SimpleEnum.
                     var currentType = string.Join(".", typeStack.Reverse().Select(t => t.Name));
                     result[$"{currentType}.{caseName}"] = rawValue;
                 }

@@ -1214,31 +1214,33 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void IsClosureCdeclCompatible_OptionalBool_ReturnsTrue()
+    public void IsClosureCdeclCompatible_OptionalBool_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        // Closure: (Optional<Bool>) -> Void — Optional<Bool> uses heap-allocated pointer ABI
+        // Closure: (Optional<Bool>) -> Void — Optional<Bool> uses extra inhabitant encoding
+        // (value > 1 for None), not tag-byte layout. Runtime MarshalOptionalFromSwift can't handle it.
         var optionalBool = new NamedTypeSpec("Swift.Optional",
             new NamedTypeSpec("Swift.Bool"));
         var closureType = new ClosureTypeSpec(optionalBool, TupleTypeSpec.Empty);
 
-        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
     }
 
     [Fact]
-    public void IsClosureCdeclCompatible_OptionalSimpleEnum_ReturnsTrue()
+    public void IsClosureCdeclCompatible_OptionalSimpleEnum_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        // Closure: (Optional<ColorMode>) -> Void — Optional<SimpleEnum> uses heap-allocated pointer ABI
+        // Closure: (Optional<ColorMode>) -> Void — Optional<SimpleEnum> uses extra inhabitant encoding,
+        // not tag-byte layout. Runtime MarshalOptionalFromSwift can't handle it.
         var optionalEnum = new NamedTypeSpec("Swift.Optional",
             new NamedTypeSpec("TestModule.ColorMode"));
         var closureType = new ClosureTypeSpec(optionalEnum, TupleTypeSpec.Empty);
 
-        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
     }
 
     #endregion
