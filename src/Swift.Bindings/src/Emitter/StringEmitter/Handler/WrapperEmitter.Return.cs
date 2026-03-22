@@ -983,10 +983,11 @@ namespace BindingsGeneration
                             _env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
                             MarshallingHelpers.IsObjCBridged(innerRecord))
                         {
-                            // Optional ObjC type: IntPtr -> SwiftOptional<NSObject>
-                            // Use factory methods NewNone() and NewSome() since constructors are private
+                            // Optional ObjC type: IntPtr -> nullable reference type
+                            // ObjC classes don't implement ISwiftObject, so SwiftOptional<T> can't get
+                            // type metadata for them. Use direct null check + GetNSObject instead.
                             var innerCSharp = innerRecord.CSharpTypeName.FullyQualifiedName;
-                            return $"var {resultName} = {itemName} == IntPtr.Zero ? Swift.SwiftOptional<{innerCSharp}>.NewNone() : Swift.SwiftOptional<{innerCSharp}>.NewSome({MarshallingHelpers.FormatObjCBridgeCall(innerCSharp, itemName, nonNull: true)});";
+                            return $"var {resultName} = {itemName} == IntPtr.Zero ? ({innerCSharp}?)null : {MarshallingHelpers.FormatObjCBridgeCall(innerCSharp, itemName, nonNull: true)};";
                         }
                     }
                     // Non-ObjC optional: P/Invoke type is IntPtr, pass directly (no address-of)

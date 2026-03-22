@@ -902,6 +902,119 @@ public class WrapperEmitterReturnTests
         Assert.Equal("AnimatorType", withDb);
     }
 
+    [Fact]
+    public void AsyncTupleReturn_OptionalObjCBridged_UsesNullableReferenceType()
+    {
+        // N4 regression: async method returning tuple with Optional<ObjC-bridged> element
+        // must generate nullable reference type cast, not SwiftOptional<T> wrapper.
+        // SwiftOptional<T> calls GetTypeMetadataOrThrow<T>() which crashes for ObjC types
+        // (they don't implement ISwiftObject).
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgedType();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        // async method returning (Data, NSURLResponse?) — mirrors Nuke.DataAsync
+        var returnType = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Foundation.Data"),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.NSURLResponse"))
+        });
+
+        var method = CreateMethodDecl(
+            name: "loadData",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: returnType,
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Must NOT contain SwiftOptional — ObjC types crash SwiftOptional's static constructor
+        Assert.DoesNotContain("SwiftOptional", csOutput);
+        // Must use nullable reference type pattern for the ObjC type
+        Assert.Contains("(Foundation.NSURLResponse?)null", csOutput);
+        // Must use GetNSObject for non-null case
+        Assert.Contains("GetNSObject<Foundation.NSURLResponse>", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithObjCBridgedType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var foundationModule = new ModuleTypeDatabase("Foundation", "/usr/lib/swift/libswiftFoundation.dylib");
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "$s10Foundation4DataVMa",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        foundationModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSURLResponse"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSURLResponse"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSURLResponse"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(foundationModule);
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        return typeDatabase;
+    }
+
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
         TypeDatabase typeDatabase)
