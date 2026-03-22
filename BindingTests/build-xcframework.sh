@@ -96,12 +96,16 @@ if [ "$PLATFORM" = "macos" ] && [ "$INCLUDE_DEVICE" = true ]; then
 fi
 
 MODULE_NAME="SwiftBindingsTestLib"
+DEP_MODULE_NAME="SwiftBindingsTestLibDependency"
 BUILD_DIR=".build"
 SIM_BUILD_DIR="$BUILD_DIR/$SIM_SLICE_ID"
 FRAMEWORK_DIR="$SIM_BUILD_DIR/$MODULE_NAME.framework"
+DEP_FRAMEWORK_DIR="$SIM_BUILD_DIR/$DEP_MODULE_NAME.framework"
 DEVICE_BUILD_DIR="$BUILD_DIR/${DEVICE_SLICE_ID:-}"
 DEVICE_FRAMEWORK_DIR="$DEVICE_BUILD_DIR/$MODULE_NAME.framework"
+DEP_DEVICE_FRAMEWORK_DIR="$DEVICE_BUILD_DIR/$DEP_MODULE_NAME.framework"
 XCFRAMEWORK_DIR="$BUILD_DIR/$MODULE_NAME.xcframework"
+DEP_XCFRAMEWORK_DIR="$BUILD_DIR/$DEP_MODULE_NAME.xcframework"
 
 # SDK paths
 SIM_SDK=$(xcrun --sdk "$SIM_SDK_NAME" --show-sdk-path)
@@ -115,6 +119,73 @@ echo "Simulator SDK: $SIM_SDK"
 # Clean previous build
 rm -rf "$BUILD_DIR"
 mkdir -p "$SIM_BUILD_DIR"
+
+# --- Build dependency module first ---
+echo ""
+echo "--- Building dependency module: $DEP_MODULE_NAME ---"
+mkdir -p "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule"
+
+DEP_SWIFT_FILES=$(find Sources/SwiftBindingsTestLibDependency -name '*.swift' -type f)
+DEP_FILE_COUNT=$(echo "$DEP_SWIFT_FILES" | wc -l | tr -d ' ')
+echo "Compiling $DEP_FILE_COUNT dependency source files..."
+
+xcrun swiftc \
+    -target "$SIM_TARGET" \
+    -sdk "$SIM_SDK" \
+    -emit-module \
+    -emit-library \
+    -enable-library-evolution \
+    -emit-module-interface \
+    -module-name "$DEP_MODULE_NAME" \
+    -Xlinker -install_name -Xlinker "@rpath/$DEP_MODULE_NAME.framework/$DEP_MODULE_NAME" \
+    -o "$DEP_FRAMEWORK_DIR/$DEP_MODULE_NAME" \
+    -emit-module-path "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftmodule" \
+    -emit-module-interface-path "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
+    $DEP_SWIFT_FILES
+
+cp "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
+   "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.private.swiftinterface"
+
+# Dependency TBD
+xcrun tapi stubify \
+    --filetype=tbd-v4 \
+    "$DEP_FRAMEWORK_DIR/$DEP_MODULE_NAME" \
+    -o "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/$DEP_MODULE_NAME.tbd"
+
+# Dependency ABI JSON
+xcrun swift-frontend \
+    -compile-module-from-interface \
+    "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftinterface" \
+    -target "$SIM_TARGET" \
+    -module-name "$DEP_MODULE_NAME" \
+    -sdk "$SIM_SDK" \
+    -emit-abi-descriptor-path "$DEP_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.abi.json"
+
+# Dependency Info.plist
+cat > "$DEP_FRAMEWORK_DIR/Info.plist" << 'DEPPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.test.SwiftBindingsTestLibDependency</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+</dict>
+</plist>
+DEPPLIST
+
+echo "Dependency module built: $DEP_FRAMEWORK_DIR"
+
+# --- Build main module ---
 mkdir -p "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule"
 
 # Collect Swift source files (excluding disabled directories and files)
@@ -140,6 +211,7 @@ xcrun swiftc \
     -enable-library-evolution \
     -emit-module-interface \
     -module-name "$MODULE_NAME" \
+    -F "$SIM_BUILD_DIR" \
     -Xlinker -install_name -Xlinker "@rpath/$MODULE_NAME.framework/$MODULE_NAME" \
     -o "$FRAMEWORK_DIR/$MODULE_NAME" \
     -emit-module-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.swiftmodule" \
@@ -184,6 +256,7 @@ xcrun swift-frontend \
     -target "$SIM_TARGET" \
     -module-name "$MODULE_NAME" \
     -sdk "$SIM_SDK" \
+    -F "$SIM_BUILD_DIR" \
     -emit-abi-descriptor-path "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${SIM_MODULE_SUFFIX}.abi.json"
 
 # Create simulator framework Info.plist
@@ -218,6 +291,62 @@ if [ "$INCLUDE_DEVICE" = true ]; then
     echo "Device SDK: $DEVICE_SDK"
 
     mkdir -p "$DEVICE_BUILD_DIR"
+
+    # Build dependency device slice
+    mkdir -p "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule"
+
+    xcrun swiftc \
+        -target "$DEVICE_TARGET" \
+        -sdk "$DEVICE_SDK" \
+        -emit-module \
+        -emit-library \
+        -enable-library-evolution \
+        -emit-module-interface \
+        -module-name "$DEP_MODULE_NAME" \
+        -Xlinker -install_name -Xlinker "@rpath/$DEP_MODULE_NAME.framework/$DEP_MODULE_NAME" \
+        -o "$DEP_DEVICE_FRAMEWORK_DIR/$DEP_MODULE_NAME" \
+        -emit-module-path "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftmodule" \
+        -emit-module-interface-path "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
+        $DEP_SWIFT_FILES
+
+    cp "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
+       "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.private.swiftinterface"
+
+    xcrun tapi stubify \
+        --filetype=tbd-v4 \
+        "$DEP_DEVICE_FRAMEWORK_DIR/$DEP_MODULE_NAME" \
+        -o "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/$DEP_MODULE_NAME.tbd"
+
+    xcrun swift-frontend \
+        -compile-module-from-interface \
+        "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftinterface" \
+        -target "$DEVICE_TARGET" \
+        -module-name "$DEP_MODULE_NAME" \
+        -sdk "$DEVICE_SDK" \
+        -emit-abi-descriptor-path "$DEP_DEVICE_FRAMEWORK_DIR/Modules/$DEP_MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.abi.json"
+
+    cat > "$DEP_DEVICE_FRAMEWORK_DIR/Info.plist" << 'DEPDPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.test.SwiftBindingsTestLibDependency</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+</dict>
+</plist>
+DEPDPLIST
+
+    # Build main module device slice
     mkdir -p "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule"
 
     xcrun swiftc \
@@ -228,6 +357,7 @@ if [ "$INCLUDE_DEVICE" = true ]; then
         -enable-library-evolution \
         -emit-module-interface \
         -module-name "$MODULE_NAME" \
+        -F "$DEVICE_BUILD_DIR" \
         -Xlinker -install_name -Xlinker "@rpath/$MODULE_NAME.framework/$MODULE_NAME" \
         -o "$DEVICE_FRAMEWORK_DIR/$MODULE_NAME" \
         -emit-module-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.swiftmodule" \
@@ -250,6 +380,7 @@ if [ "$INCLUDE_DEVICE" = true ]; then
         -target "$DEVICE_TARGET" \
         -module-name "$MODULE_NAME" \
         -sdk "$DEVICE_SDK" \
+        -F "$DEVICE_BUILD_DIR" \
         -emit-abi-descriptor-path "$DEVICE_FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule/${DEVICE_MODULE_SUFFIX}.abi.json"
 
     # Device framework Info.plist
@@ -275,7 +406,22 @@ if [ "$INCLUDE_DEVICE" = true ]; then
 DPLIST
 fi
 
-echo "=== Creating xcframework ==="
+echo "=== Creating xcframeworks ==="
+
+# Create dependency xcframework
+rm -rf "$DEP_XCFRAMEWORK_DIR"
+if [ "$INCLUDE_DEVICE" = true ]; then
+    xcodebuild -create-xcframework \
+        -framework "$DEP_FRAMEWORK_DIR" \
+        -framework "$DEP_DEVICE_FRAMEWORK_DIR" \
+        -output "$DEP_XCFRAMEWORK_DIR"
+else
+    xcodebuild -create-xcframework \
+        -framework "$DEP_FRAMEWORK_DIR" \
+        -output "$DEP_XCFRAMEWORK_DIR"
+fi
+
+# Create main xcframework
 rm -rf "$XCFRAMEWORK_DIR"
 if [ "$INCLUDE_DEVICE" = true ]; then
     xcodebuild -create-xcframework \
@@ -291,7 +437,9 @@ fi
 echo ""
 echo "=== Build Complete ==="
 echo "Platform: $PLATFORM"
-echo "xcframework: $XCFRAMEWORK_DIR"
+echo "xcframeworks: $XCFRAMEWORK_DIR, $DEP_XCFRAMEWORK_DIR"
 [ "$INCLUDE_DEVICE" = true ] && echo "Slices: simulator + device"
 echo ""
 ls -la "$XCFRAMEWORK_DIR/"
+echo ""
+ls -la "$DEP_XCFRAMEWORK_DIR/"

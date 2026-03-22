@@ -100,10 +100,12 @@ case "$PLATFORM" in
 esac
 
 MODULE_NAME="SwiftBindingsTestLib"
+DEP_MODULE_NAME="SwiftBindingsTestLibDependency"
 BRIDGE_MODULE="SwiftBindingsTestLibBridge"
 GENERATED_BRIDGE="output/${MODULE_NAME}.SwiftUIBridge.swift"
 TEST_HELPERS="SwiftBridge/SwiftUIBridgeTestHelpers.swift"
 XCFW_DIR=".build/${MODULE_NAME}.xcframework/$SLICE_ID"
+DEP_XCFW_DIR=".build/${DEP_MODULE_NAME}.xcframework/$SLICE_ID"
 
 # Device builds go to a separate directory to prevent architecture-mismatch
 # when a simulator binary exists from a prior build.
@@ -149,9 +151,15 @@ else
     echo "Compiling generated bridge (no test helpers)..."
 fi
 
+DEP_FW_OPT=""
+if [ -d "$DEP_XCFW_DIR" ]; then
+    DEP_FW_OPT="-F $DEP_XCFW_DIR/"
+fi
+
 xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
   -sdk "$SDK_PATH" \
   -F "$XCFW_DIR/" \
+  $DEP_FW_OPT \
   -module-name "$BRIDGE_MODULE" \
   -Xlinker -install_name -Xlinker "@rpath/${BRIDGE_MODULE}.framework/${BRIDGE_MODULE}" \
   -o "$OUTPUT_DIR/$BRIDGE_MODULE" \

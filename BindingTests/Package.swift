@@ -16,19 +16,26 @@ let package = Package(
             type: .dynamic,
             targets: ["SwiftBindingsTestLib"]
         ),
+        .library(
+            name: "SwiftBindingsTestLibDependency",
+            type: .dynamic,
+            targets: ["SwiftBindingsTestLibDependency"]
+        ),
     ],
     targets: [
         .target(
+            name: "SwiftBindingsTestLibDependency",
+            path: "Sources/SwiftBindingsTestLibDependency",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+            ]
+        ),
+        .target(
             name: "SwiftBindingsTestLib",
+            dependencies: ["SwiftBindingsTestLibDependency"],
             path: "Sources/SwiftBindingsTestLib",
             exclude: [
-                // Temporarily disabled directories (generator bugs)
-                "EdgeCases.disabled",
-                "Initializers.disabled",
-                "Lifetime.disabled",
-                "MemoryManagement.disabled",
-                "ObjCInterop.disabled",
-                "Parameters.disabled",
+                // Genuinely unsupported — no generator support for @propertyWrapper
                 "PropertyWrappers.disabled",
                 "Foundation",  // Foundation types not fully supported
                 // Individual unsupported files within enabled directories

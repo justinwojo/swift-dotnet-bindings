@@ -16,9 +16,16 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>
+  <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
+       Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->
+  <ItemGroup>
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" />
     <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs"
              Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
   </ItemGroup>
 </Project>

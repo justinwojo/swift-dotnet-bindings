@@ -186,13 +186,14 @@ public func createCapturingClosure(objectId: Int32) -> () -> Int32 {
 }
 
 /// Returns a closure that captures and modifies a tracked object.
-public func createMutatingClosure(objectId: Int32) -> () -> String {
+/// Returns call count (Int32) instead of String to avoid closure-return-String generator bug.
+public func createMutatingClosure(objectId: Int32) -> () -> Int32 {
     let captured = TrackedObject(objectId: objectId, label: "initial")
-    var callCount = 0
+    var callCount: Int32 = 0
     return {
         callCount += 1
         captured.label = "called \(callCount) times"
-        return captured.label
+        return callCount
     }
 }
 

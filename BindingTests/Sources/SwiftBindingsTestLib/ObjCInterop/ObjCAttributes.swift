@@ -66,7 +66,7 @@ public class FullyObjCExposed: NSObject {
 
 /// Integer-backed enum exposed to Objective-C.
 /// Only Int-backed enums can be @objc.
-@objc public enum Priority: Int32 {
+@objc public enum ObjCPriority: Int32 {
     case low = 0
     case medium = 1
     case high = 2
@@ -81,7 +81,7 @@ public func createObjCAnnotated(title: String) -> ObjCAnnotated {
 }
 
 /// Returns the priority label for a given priority.
-public func priorityLabel(_ priority: Priority) -> String {
+public func priorityLabel(_ priority: ObjCPriority) -> String {
     switch priority {
     case .low: return "Low"
     case .medium: return "Medium"

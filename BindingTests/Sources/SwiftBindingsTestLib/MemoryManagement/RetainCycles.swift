@@ -46,17 +46,17 @@ public class StrongNodeB {
 
 /// Parent-child tree structure where children hold strong refs to parent
 /// would create retain cycles. The `weak var parent` breaks the cycle.
-public class TreeNode {
+public class CycleTreeNode {
     public var name: String
-    public var children: [TreeNode]
-    public weak var parent: TreeNode?
+    public var children: [CycleTreeNode]
+    public weak var parent: CycleTreeNode?
 
     public init(name: String) {
         self.name = name
         self.children = []
     }
 
-    public func addChild(_ child: TreeNode) {
+    public func addChild(_ child: CycleTreeNode) {
         children.append(child)
         child.parent = self
     }
@@ -170,9 +170,9 @@ public func createStrongCycle() -> StrongNodeA {
 }
 
 /// Creates a tree with a parent-child cycle (broken by weak parent reference).
-public func createTreeCycle() -> TreeNode {
-    let root = TreeNode(name: "root")
-    let child = TreeNode(name: "child")
+public func createTreeCycle() -> CycleTreeNode {
+    let root = CycleTreeNode(name: "root")
+    let child = CycleTreeNode(name: "child")
     root.addChild(child)
     return root
 }

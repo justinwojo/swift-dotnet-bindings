@@ -37,14 +37,29 @@
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
+  <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
+       Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->
+  <ItemGroup>
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+
   <!-- Include BindingTests bindings -->
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
   </ItemGroup>
 
   <!-- Include SwiftBindingsTestLib xcframework -->
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Include dependency xcframework (cross-module testing) -->
+  <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

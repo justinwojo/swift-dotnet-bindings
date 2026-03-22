@@ -51,7 +51,7 @@ Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validati
 
 ## Post-Stability Sessions
 
-### Session A: Runtime Safety + Validation Cleanup — **Done**
+### Session A: Runtime Safety + Validation Cleanup — **Done** (`3a3dc08b`)
 
 **Runtime dispose safety:** Done. All 8 disposable runtime types (SwiftString, SwiftArray, SwiftDictionary, SwiftSet, SwiftOptional, SwiftResult, SwiftAsyncStream, Hasher) now throw `ObjectDisposedException` on post-dispose access. 52 unit tests added. SwiftSet also now declares `IDisposable` in its interface list (was missing).
 

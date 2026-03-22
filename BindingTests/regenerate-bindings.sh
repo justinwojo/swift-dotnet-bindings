@@ -29,9 +29,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 MODULE_NAME="SwiftBindingsTestLib"
+DEP_MODULE_NAME="SwiftBindingsTestLibDependency"
 PROJECT_ROOT=".."
 XCFW_DIR=".build/$MODULE_NAME.xcframework"
-SIM_FW_DIR=$(find "$XCFW_DIR" -type d -name "*.framework" | head -1)
+DEP_XCFW_DIR=".build/$DEP_MODULE_NAME.xcframework"
 
 if [ ! -d "$XCFW_DIR" ]; then
     echo "Error: xcframework not found at $XCFW_DIR"
@@ -40,38 +41,19 @@ if [ ! -d "$XCFW_DIR" ]; then
 fi
 
 echo "=== Regenerating bindings for $MODULE_NAME ==="
-echo "Framework: $SIM_FW_DIR"
-
-# Find the ABI JSON, dylib, TBD, and swiftinterface
-ABI_JSON=$(find "$SIM_FW_DIR" -name "*.abi.json" | head -1)
-DYLIB="$SIM_FW_DIR/$MODULE_NAME"
-TBD=$(find "$SIM_FW_DIR" -name "*.tbd" | head -1)
-SWIFTINTERFACE=$(find "$XCFW_DIR" -name "*.swiftinterface" | head -1)
-
-if [ -z "$ABI_JSON" ]; then
-    echo "Error: ABI JSON not found in $SIM_FW_DIR"
-    exit 1
-fi
-
-echo "ABI JSON: $ABI_JSON"
-echo "Dylib: $DYLIB"
-echo "TBD: $TBD"
-echo "SwiftInterface: $SWIFTINTERFACE"
+echo "xcframework: $XCFW_DIR"
 
 # Clean and create output directory (remove stale files from prior runs)
 rm -rf output
 mkdir -p output
 
-# Run the binding generator.
+# Run the binding generator in --xcframework mode.
+# This auto-discovers ABI JSON, dylib, TBD, and swiftinterface from the xcframework.
 # Note: The generator may crash on certain advanced Swift features (existentials,
 # unbound generics, protocol compositions) that are intentionally included in the
 # test library to exercise these code paths. A non-zero exit code from the generator
 # is reported but does not fail this script — check output/ for partial results.
 set +e
-SWIFTINTERFACE_OPT=""
-if [ -n "$SWIFTINTERFACE" ]; then
-    SWIFTINTERFACE_OPT="-s $SWIFTINTERFACE"
-fi
 
 SYMBOLGRAPH_OPT=""
 SYMBOLGRAPH_DIR=".build/symbolgraph"
@@ -83,15 +65,18 @@ if [ -d "$SYMBOLGRAPH_DIR" ]; then
     fi
 fi
 
+DEP_FW_OPT=""
+if [ -d "$DEP_XCFW_DIR" ]; then
+    echo "Dependency xcframework: $DEP_XCFW_DIR"
+    DEP_FW_OPT="--framework-dependency $DEP_XCFW_DIR"
+fi
+
 dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
-    -a "$ABI_JSON" \
-    -d "$DYLIB" \
-    -t "$TBD" \
+    --xcframework "$XCFW_DIR" \
     -o output \
-    -l "$MODULE_NAME" \
     --async-library SwiftBindings \
-    $SWIFTINTERFACE_OPT \
-    $SYMBOLGRAPH_OPT 2>&1
+    $SYMBOLGRAPH_OPT \
+    $DEP_FW_OPT 2>&1
 GENERATOR_EXIT=$?
 set -e
 
@@ -107,6 +92,35 @@ if [ $GENERATOR_EXIT -ne 0 ]; then
     fi
     echo "This is expected if the test library includes features beyond current generator support."
     echo ""
+fi
+
+# Generate bindings for the dependency module (if present).
+# These are needed so the main module's cross-module type references compile.
+if [ -d "$DEP_XCFW_DIR" ]; then
+    echo "=== Generating dependency bindings for $DEP_MODULE_NAME ==="
+    mkdir -p output/dep
+    set +e
+    dotnet run --project "$PROJECT_ROOT/src/Swift.Bindings/src" -- \
+        --xcframework "$DEP_XCFW_DIR" \
+        -o output/dep 2>&1
+    DEP_EXIT=$?
+    set -e
+    if [ $DEP_EXIT -ne 0 ]; then
+        echo "Dependency bindings generation exited with code $DEP_EXIT (non-fatal)"
+    fi
+    # Move the dependency .cs file alongside the main bindings
+    if [ -f "output/dep/$DEP_MODULE_NAME.cs" ]; then
+        mv "output/dep/$DEP_MODULE_NAME.cs" "output/$DEP_MODULE_NAME.cs"
+        echo "Dependency bindings: output/$DEP_MODULE_NAME.cs"
+    fi
+    # Preserve the dependency wrapper xcframework for runtime linking
+    DEP_WRAPPER_XCF="output/dep/${DEP_MODULE_NAME}SwiftBindings.xcframework"
+    if [ -d "$DEP_WRAPPER_XCF" ]; then
+        rm -rf "output/${DEP_MODULE_NAME}SwiftBindings.xcframework"
+        mv "$DEP_WRAPPER_XCF" "output/${DEP_MODULE_NAME}SwiftBindings.xcframework"
+        echo "Dependency wrapper: output/${DEP_MODULE_NAME}SwiftBindings.xcframework"
+    fi
+    rm -rf output/dep
 fi
 
 echo "=== Output ==="

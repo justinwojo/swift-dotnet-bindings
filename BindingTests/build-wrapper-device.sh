@@ -22,9 +22,11 @@ TARGET_TRIPLE="arm64-apple-ios15.0"
 PLIST_PLATFORM="iPhoneOS"
 MIN_OS="15.0"
 MODULE_NAME="SwiftBindingsTestLib"
+DEP_MODULE_NAME="SwiftBindingsTestLibDependency"
 WRAPPER_MODULE="SwiftBindings"
 OUTPUT_BASE="output"
 XCFW_DIR=".build/${MODULE_NAME}.xcframework/$SLICE_ID"
+DEP_XCFW_DIR=".build/${DEP_MODULE_NAME}.xcframework/$SLICE_ID"
 OUTPUT_FW_DIR="${OUTPUT_BASE}/${WRAPPER_MODULE}.xcframework/$SLICE_ID/${WRAPPER_MODULE}.framework"
 
 # --- Part 1: Build SwiftBindings wrapper for device ---
@@ -239,9 +241,14 @@ ATTEMPT=0
 while [ $ATTEMPT -lt $MAX_RETRIES ]; do
     ATTEMPT=$((ATTEMPT + 1))
     set +e
+    DEP_F_OPT=""
+    if [ -d "$DEP_XCFW_DIR" ]; then
+        DEP_F_OPT="-F $DEP_XCFW_DIR/"
+    fi
     SDKROOT="" xcrun swiftc -emit-library -target "$TARGET_TRIPLE" \
         -sdk "$SDK_PATH" \
         -F "$XCFW_DIR/" \
+        $DEP_F_OPT \
         -module-name "$WRAPPER_MODULE" \
         -strict-concurrency=minimal \
         -Xlinker -install_name -Xlinker "@rpath/${WRAPPER_MODULE}.framework/${WRAPPER_MODULE}" \

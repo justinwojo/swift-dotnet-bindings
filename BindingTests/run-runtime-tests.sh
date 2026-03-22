@@ -544,6 +544,86 @@ if [ -f "$WRAPPER_SLICE" ]; then
 else
     echo "Note: SwiftBindings wrapper dylib not found — [Skip] wrapper-dependent tests will be skipped."
 fi
+
+# Step 2.7: Inject SwiftBindingsTestLibDependency framework into app bundle
+# Cross-module testing requires the dependency framework at runtime.
+DEP_FW_DIR="../.build/SwiftBindingsTestLibDependency.xcframework/ios-arm64-simulator/SwiftBindingsTestLibDependency.framework"
+if [ -d "$DEP_FW_DIR" ]; then
+    mkdir -p "$APP_FRAMEWORKS/SwiftBindingsTestLibDependency.framework"
+    cp "$DEP_FW_DIR/SwiftBindingsTestLibDependency" "$APP_FRAMEWORKS/SwiftBindingsTestLibDependency.framework/"
+    # Copy Info.plist if present, otherwise generate a minimal one
+    if [ -f "$DEP_FW_DIR/Info.plist" ]; then
+        cp "$DEP_FW_DIR/Info.plist" "$APP_FRAMEWORKS/SwiftBindingsTestLibDependency.framework/"
+    else
+        cat > "$APP_FRAMEWORKS/SwiftBindingsTestLibDependency.framework/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.test.SwiftBindingsTestLibDependency</string>
+    <key>CFBundleName</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundleExecutable</key>
+    <string>SwiftBindingsTestLibDependency</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>iPhoneSimulator</string>
+    </array>
+</dict>
+</plist>
+PLIST
+    fi
+    echo "Injected SwiftBindingsTestLibDependency framework into app bundle."
+else
+    echo "Note: SwiftBindingsTestLibDependency framework not found — cross-module tests may fail."
+fi
+
+# Step 2.8: Inject dependency wrapper framework into app bundle
+DEP_WRAPPER_DIR="../output/SwiftBindingsTestLibDependencySwiftBindings.xcframework/ios-arm64-simulator/SwiftBindingsTestLibDependencySwiftBindings.framework"
+if [ -d "$DEP_WRAPPER_DIR" ]; then
+    mkdir -p "$APP_FRAMEWORKS/SwiftBindingsTestLibDependencySwiftBindings.framework"
+    cp "$DEP_WRAPPER_DIR/SwiftBindingsTestLibDependencySwiftBindings" "$APP_FRAMEWORKS/SwiftBindingsTestLibDependencySwiftBindings.framework/"
+    if [ -f "$DEP_WRAPPER_DIR/Info.plist" ]; then
+        cp "$DEP_WRAPPER_DIR/Info.plist" "$APP_FRAMEWORKS/SwiftBindingsTestLibDependencySwiftBindings.framework/"
+    else
+        cat > "$APP_FRAMEWORKS/SwiftBindingsTestLibDependencySwiftBindings.framework/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.test.SwiftBindingsTestLibDependencySwiftBindings</string>
+    <key>CFBundleName</key>
+    <string>SwiftBindingsTestLibDependencySwiftBindings</string>
+    <key>CFBundleExecutable</key>
+    <string>SwiftBindingsTestLibDependencySwiftBindings</string>
+    <key>CFBundlePackageType</key>
+    <string>FMWK</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>iPhoneSimulator</string>
+    </array>
+</dict>
+</plist>
+PLIST
+    fi
+    echo "Injected SwiftBindingsTestLibDependencySwiftBindings wrapper into app bundle."
+fi
 echo ""
 
 cd ..
