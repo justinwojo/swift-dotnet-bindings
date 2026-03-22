@@ -1231,7 +1231,7 @@ namespace BindingsGeneration
 
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
-            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn)>();
+            var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn, bool isProperty, bool propertySetter)>();
 
             // Build interface member protection (same as main co-gater)
             var interfaceMembers = ParseInterfaceMembers(lines);
@@ -1240,8 +1240,6 @@ namespace BindingsGeneration
 
             // Find method bodies that construct suppressed proxy classes.
             // Pattern: "new {ProxyClassName}(" in a method/property body.
-            var strippedCallerNames = new HashSet<string>();
-            var strippedCallerScopes = new List<(string name, string type)>();
             int i = 0;
             while (i < lines.Count)
             {
@@ -1298,7 +1296,7 @@ namespace BindingsGeneration
                     // Detect return type: non-void callbacks (e.g. returning IntPtr) need
                     // a return statement to avoid CS0161 (not all code paths return a value).
                     bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn, isProperty: false, propertySetter: false);
                     i = blockEnd + 1;
                     continue;
                 }
@@ -1328,55 +1326,75 @@ namespace BindingsGeneration
                     // Compute the indentation from the declaration line.
                     var declLine = lines[i];
                     var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn: false);
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn: false, isProperty: false, propertySetter: false);
                 }
                 else
                 {
-                    // Extract member name and containing type for scope-aware Level 2 stripping
                     var memberName = ExtractMemberName(trimmed);
-                    if (memberName != null && IsPropertyHelperName(memberName))
+
+                    // Public members referencing suppressed proxies: replace body with throw
+                    // instead of stripping. Stripping removes the member from the API surface,
+                    // which breaks downstream consumers and cascades to strip dependent members
+                    // (e.g., property helpers → property declarations).
+                    // Property helpers (_Get/_Set) must also be preserved to prevent Level 2
+                    // cascade-stripping of the public property declaration.
+                    // Private/internal methods that aren't property helpers can be stripped safely.
+                    bool isPublicMember = trimmed.StartsWith("public ", StringComparison.Ordinal);
+                    bool isPropertyHelper = memberName != null && IsPropertyHelperName(memberName);
+
+                    // Detect property declarations: body contains get/set accessor keywords.
+                    bool isPropertyDecl = false;
+                    bool hasSetter = false;
+                    if (isPublicMember)
                     {
-                        var containingType = i < lineToType.Length ? lineToType[i] : null;
-                        strippedCallerNames.Add(memberName);
-                        if (containingType != null)
-                            strippedCallerScopes.Add((memberName, containingType));
+                        for (int j = braceOpenLine + 1; j < blockEnd; j++)
+                        {
+                            var bodyTrimmed = lines[j].TrimStart();
+                            if (bodyTrimmed.StartsWith("get ", StringComparison.Ordinal) ||
+                                bodyTrimmed.StartsWith("get =>", StringComparison.Ordinal) ||
+                                bodyTrimmed.StartsWith("get{", StringComparison.Ordinal) ||
+                                bodyTrimmed == "get" || bodyTrimmed == "get;")
+                            {
+                                isPropertyDecl = true;
+                            }
+                            if (bodyTrimmed.StartsWith("set ", StringComparison.Ordinal) ||
+                                bodyTrimmed.StartsWith("set =>", StringComparison.Ordinal) ||
+                                bodyTrimmed.StartsWith("set{", StringComparison.Ordinal) ||
+                                bodyTrimmed == "set" || bodyTrimmed == "set;")
+                            {
+                                hasSetter = true;
+                            }
+                        }
                     }
 
-                    int preambleStart = ScanBackwardForPreamble(lines, i);
-                    for (int j = preambleStart; j <= blockEnd; j++)
-                        removals.Add(j);
+                    if (isPropertyDecl)
+                    {
+                        // Property declarations need get/set accessors in replacement body.
+                        var declLine = lines[i];
+                        var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
+                        replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
+                            isVoidReturn: false, isProperty: true, propertySetter: hasSetter);
+                    }
+                    else if (isPublicMember || isPropertyHelper)
+                    {
+                        var declLine = lines[i];
+                        var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
+                        bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
+                        replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn, isProperty: false, propertySetter: false);
+                    }
+                    else
+                    {
+                        int preambleStart = ScanBackwardForPreamble(lines, i);
+                        for (int j = preambleStart; j <= blockEnd; j++)
+                            removals.Add(j);
+                    }
                 }
 
                 i = blockEnd + 1;
             }
 
-            // Level 2: strip property forwarders that delegate to stripped helpers.
-            // Use scope-aware matching when the same method name appears in multiple types
-            // to avoid false-matching innocent methods in other types. E.g., "Subscript_Get"
-            // may exist in both PersistenceContainer (proxy ref) and Row (no proxy) —
-            // the Row version must be preserved.
-            if (strippedCallerNames.Count > 0)
-            {
-                var ambiguous = FindAmbiguousMethodDeclarations(lines, strippedCallerNames);
-                // For non-ambiguous names, use standard file-wide matching
-                var safeNames = new HashSet<string>(strippedCallerNames);
-                safeNames.ExceptWith(ambiguous);
-                if (safeNames.Count > 0)
-                {
-                    var _ = new HashSet<string>();
-                    FindAndMarkCallers(lines, safeNames, _, removals);
-                }
-                // For ambiguous names, use scope-aware matching
-                foreach (var ambName in ambiguous)
-                {
-                    var types = strippedCallerScopes
-                        .Where(s => s.name == ambName)
-                        .Select(s => s.type)
-                        .ToHashSet();
-                    if (types.Count == 0) continue;
-                    FindAndMarkCallersInScopes(lines, ambName, types, lineToType, removals);
-                }
-            }
+            // Level 2 (cascade stripping) is no longer needed: property helpers now get body
+            // replacement instead of stripping, so property forwarders are never orphaned.
 
             // Level 3: Remove orphaned subscript/property narrowing overloads.
             // These are single-line forwarders like "this[int x] => this[(nint)x];" that
@@ -1407,9 +1425,18 @@ namespace BindingsGeneration
                         if (!replacement.isVoidReturn)
                             sb.Append($"{replacement.indent}    return default;\n");
                     }
+                    else if (replacement.isProperty)
+                    {
+                        // Property declaration: replace get/set accessors with throws.
+                        // Must preserve valid C# property syntax (get/set blocks).
+                        var throwExpr = "throw new NotSupportedException(\"Protocol proxy not available: EveryProtocol conformance was not emitted.\")";
+                        sb.Append($"{replacement.indent}    get {{ {throwExpr}; }}\n");
+                        if (replacement.propertySetter)
+                            sb.Append($"{replacement.indent}    set {{ {throwExpr}; }}\n");
+                    }
                     else
                     {
-                        // Interface member: throw to preserve interface compliance
+                        // Method/helper: throw to preserve API surface
                         sb.Append($"{replacement.indent}    throw new NotSupportedException(\"Protocol proxy not available: EveryProtocol conformance was not emitted.\");\n");
                     }
                     // Keep the closing brace
@@ -1421,7 +1448,7 @@ namespace BindingsGeneration
                 sb.Append(lines[j]);
             }
 
-            int totalAffected = removals.Count > 0 ? 1 + strippedCallerNames.Count + replacements.Count : replacements.Count;
+            int totalAffected = removals.Count + replacements.Count;
             return new CoGatingResult
             {
                 Content = sb.ToString(),

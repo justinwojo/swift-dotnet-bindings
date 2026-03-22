@@ -727,7 +727,7 @@ namespace BindingsGeneration.Tests
     public class CoGaterSuppressedProxyReferenceTests
     {
         [Fact]
-        public void ProcessProxyReferences_MethodConstructingProxy_Removed()
+        public void ProcessProxyReferences_MethodConstructingProxy_BodyReplaced()
         {
             var input =
                 "public partial class MyClass {\n" +
@@ -739,12 +739,16 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var suppressedProxies = new HashSet<string> { "MyProtocolProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("GetValue", result.Content);
+            // Public method is preserved with body replaced
+            Assert.Contains("GetValue", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Original body with proxy is gone
             Assert.DoesNotContain("MyProtocolProxy", result.Content);
+            Assert.DoesNotContain("PInvoke_getValue", result.Content);
         }
 
         [Fact]
-        public void ProcessProxyReferences_QualifiedProxy_Removed()
+        public void ProcessProxyReferences_QualifiedProxy_BodyReplaced()
         {
             var input =
                 "public partial class MyClass {\n" +
@@ -756,8 +760,12 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var suppressedProxies = new HashSet<string> { "FooProtocolProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("MakeFoo", result.Content);
+            // Public method is preserved with body replaced
+            Assert.Contains("MakeFoo", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Original body with qualified proxy is gone
             Assert.DoesNotContain("FooProtocolProxy", result.Content);
+            Assert.DoesNotContain("PInvoke_makeFoo", result.Content);
         }
 
         [Fact]
@@ -792,10 +800,11 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ProcessProxyReferences_PropertyHelper_TransitiveStripping()
+        public void ProcessProxyReferences_PropertyHelper_BodyReplaced()
         {
             // When a property helper (Value_Get) constructs a suppressed proxy,
-            // it should be stripped AND its property forwarder should also be stripped.
+            // its body is replaced with throw (not stripped), which prevents
+            // Level 2 cascade from stripping the public property declaration.
             var input =
                 "public partial class MyClass {\n" +
                 "    private IMyProto Value_Get()\n" +
@@ -811,15 +820,19 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("Value_Get", result.Content);
+            // Property helper body replaced (not stripped)
+            Assert.Contains("Value_Get", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
             Assert.DoesNotContain("MyProtoProxy", result.Content);
-            Assert.DoesNotContain("public IMyProto Value", result.Content);
+            // Public property survives (no Level 2 cascade)
+            Assert.Contains("public IMyProto Value", result.Content);
         }
 
         [Fact]
-        public void ProcessProxyReferences_OptionalExistentialGetter_Removed()
+        public void ProcessProxyReferences_OptionalExistentialGetter_BodyReplaced()
         {
-            // Optional<existential> getter: checks for default container, then constructs proxy
+            // Optional<existential> getter: checks for default container, then constructs proxy.
+            // Property helper (_Get) gets body replaced, which prevents Level 2 cascade.
             var input =
                 "public partial class MyClass {\n" +
                 "    private IMyProto? OptValue_Get()\n" +
@@ -836,9 +849,12 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
-            Assert.DoesNotContain("OptValue_Get", result.Content);
+            // Property helper body replaced (not stripped)
+            Assert.Contains("OptValue_Get", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
             Assert.DoesNotContain("MyProtoProxy", result.Content);
-            Assert.DoesNotContain("public IMyProto? OptValue", result.Content);
+            // Public property survives (no Level 2 cascade)
+            Assert.Contains("public IMyProto? OptValue", result.Content);
         }
 
         [Fact]
@@ -913,9 +929,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ProcessProxyReferences_NonInterfaceMember_StillStripped()
+        public void ProcessProxyReferences_NonInterfacePublicMember_BodyReplaced()
         {
-            // Methods NOT implementing an interface should still be fully stripped
+            // Public methods NOT implementing an interface now get body replaced (not stripped)
             var input =
                 "public interface IObjectScopeProtocol {\n" +
                 "    IStorageProtocol MakeStorage();\n" +
@@ -935,15 +951,18 @@ namespace BindingsGeneration.Tests
             // Interface member preserved with throw
             Assert.Contains("MakeStorage", result.Content);
             Assert.Contains("throw new NotSupportedException", result.Content);
-            // Non-interface member fully stripped
-            Assert.DoesNotContain("GetSomething", result.Content);
+            // Public non-interface member also preserved with body replaced
+            Assert.Contains("GetSomething", result.Content);
+            // Original proxy references gone from both
+            Assert.DoesNotContain("StorageProtocolProxy", result.Content);
             Assert.DoesNotContain("FooProxy", result.Content);
         }
 
         [Fact]
-        public void ProcessProxyReferences_CdeclExistentialReturn_Removed()
+        public void ProcessProxyReferences_CdeclExistentialReturn_BodyReplaced()
         {
-            // @_cdecl existential return: reads from resultPtr then wraps in proxy
+            // @_cdecl existential return: reads from resultPtr then wraps in proxy.
+            // Public method gets body replaced (not stripped).
             var input =
                 "public partial class MyClass {\n" +
                 "    public static IMyProto CreateProto()\n" +
@@ -955,8 +974,12 @@ namespace BindingsGeneration.Tests
                 "}\n";
             var suppressedProxies = new HashSet<string> { "MyProtoProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Public method preserved with body replaced
+            Assert.Contains("CreateProto", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Original body with proxy is gone
             Assert.DoesNotContain("MyProtoProxy", result.Content);
-            Assert.DoesNotContain("CreateProto", result.Content);
+            Assert.DoesNotContain("PInvoke_create", result.Content);
         }
 
         [Fact]
@@ -982,6 +1005,63 @@ namespace BindingsGeneration.Tests
             Assert.Contains("no-op callback", result.Content);
             // Original body with suppressed proxy type is gone
             Assert.DoesNotContain("ResolverProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_PublicPropertyWithProxyGetter_BodyReplacedNotStripped()
+        {
+            // Regression test for N2 (ImageRequest.Processors): public property declarations
+            // with getter/setter bodies referencing suppressed proxies must have their body
+            // replaced with throw, not be stripped. Stripping removes the property from the API
+            // surface entirely.
+            var input =
+                "public partial class ImageRequest {\n" +
+                "    private SwiftArray<ExistentialContainer1> Processors_Get()\n" +
+                "    {\n" +
+                "        PInvoke_processors_Get(resultPtr, self);\n" +
+                "        return SwiftMarshal.MarshalFromSwift<SwiftArray<ExistentialContainer1>>(resultPtr);\n" +
+                "    }\n" +
+                "    private void Processors_Set(SwiftArray<ExistentialContainer1> value)\n" +
+                "    {\n" +
+                "        PInvoke_processors_Set(value.Payload, self);\n" +
+                "    }\n" +
+                "    public IReadOnlyList<IImageProcessing> Processors\n" +
+                "    {\n" +
+                "        get => Processors_Get().AsProjected(e => (IImageProcessing)new ImageProcessingProxy(e));\n" +
+                "        set { using var __val = SwiftArray<ExistentialContainer1>.FromEnumerable(value.Select(e => ExistentialContainerFactory.GetOrCreate<IImageProcessing>(e))); Processors_Set(__val); }\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "ImageProcessingProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            // Property declaration is preserved (not stripped)
+            Assert.Contains("public IReadOnlyList<IImageProcessing> Processors", result.Content);
+            // Property has get/set with throw bodies
+            Assert.Contains("get { throw new NotSupportedException", result.Content);
+            Assert.Contains("set { throw new NotSupportedException", result.Content);
+            // Original proxy reference is gone
+            Assert.DoesNotContain("ImageProcessingProxy", result.Content);
+            // Property helpers are preserved with throw bodies (private _Get/_Set)
+            Assert.Contains("Processors_Get", result.Content);
+            Assert.Contains("Processors_Set", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_PrivateNonHelperMethod_StillStripped()
+        {
+            // Private methods that are NOT property helpers should still be fully stripped
+            var input =
+                "public partial class MyClass {\n" +
+                "    private IFoo CreateInternalFoo()\n" +
+                "    {\n" +
+                "        return new FooProxy(result);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Private non-helper method fully stripped
+            Assert.DoesNotContain("CreateInternalFoo", result.Content);
+            Assert.DoesNotContain("FooProxy", result.Content);
         }
     }
 
@@ -1042,6 +1122,8 @@ namespace BindingsGeneration.Tests
         {
             // Regression test: Value_Get was stripping DatabaseValue_Get due to substring match.
             // The fix ensures ContainsCallTo uses word-boundary checking.
+            // Now Value_Get (property helper) gets body replaced instead of stripped,
+            // which also prevents Level 2 cascade to the Value property.
             var input =
                 "public interface IDatabaseValueConvertible {\n" +
                 "    GRDB.DatabaseValue DatabaseValue { get; }\n" +
@@ -1073,9 +1155,12 @@ namespace BindingsGeneration.Tests
             var suppressedProxies = new HashSet<string> { "DatabaseValueConvertibleProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
 
-            // SomeType.Value_Get references the proxy — should be stripped
-            Assert.DoesNotContain("GRDB.DatabaseValue Value_Get()", result.Content);
-            Assert.DoesNotContain("get => Value_Get()", result.Content);
+            // SomeType.Value_Get is a property helper — body replaced (not stripped)
+            Assert.Contains("Value_Get", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            Assert.DoesNotContain("DatabaseValueConvertibleProxy", result.Content);
+            // Value property survives (no Level 2 cascade)
+            Assert.Contains("get => Value_Get()", result.Content);
 
             // FTS3Pattern.DatabaseValue_Get does NOT reference any proxy — must be PRESERVED
             Assert.Contains("DatabaseValue_Get()", result.Content);
@@ -1085,7 +1170,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ProxyCoGater_SubscriptGet_DoesNotFalseMatchOtherGetSuffixed()
         {
-            // "Subscript_Get" should not match "SomeSubscript_Get" (prefix collision)
+            // "Subscript_Get" should not match "SomeSubscript_Get" (prefix collision).
+            // Subscript_Get is a property helper — body replaced (not stripped),
+            // which prevents Level 2 cascade to the Subscript property.
             var input =
                 "public partial class TypeA {\n" +
                 "    private int Subscript_Get()\n" +
@@ -1111,9 +1198,12 @@ namespace BindingsGeneration.Tests
             var suppressedProxies = new HashSet<string> { "FooProxy" };
             var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
 
-            // TypeA: Subscript_Get references proxy — stripped
-            Assert.DoesNotContain("int Subscript_Get()", result.Content);
-            Assert.DoesNotContain("get => Subscript_Get()", result.Content);
+            // TypeA: Subscript_Get is a property helper — body replaced (not stripped)
+            Assert.Contains("Subscript_Get", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            Assert.DoesNotContain("FooProxy", result.Content);
+            // Subscript property survives (no Level 2 cascade)
+            Assert.Contains("get => Subscript_Get()", result.Content);
 
             // TypeB: SomeSubscript_Get does NOT reference proxy and name doesn't match — preserved
             Assert.Contains("SomeSubscript_Get()", result.Content);
