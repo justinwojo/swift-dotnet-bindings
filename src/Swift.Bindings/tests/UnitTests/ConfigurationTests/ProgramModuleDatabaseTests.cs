@@ -197,9 +197,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void CurrentModuleDatabase_ReturnsNonZeroExitCode()
+        public void CurrentModuleDatabase_SilentlySkips()
         {
-            // Module database targets the same module as the ABI JSON → SWIFTBIND071
+            // Module database targets the same module as the ABI JSON → SWIFTBIND071 (info-level skip)
             using var fixture = new ModuleDatabaseCLIFixture("TestModule");
             var selfDbPath = Path.Combine(fixture.Dir, "TestModuleDatabase.xml");
             File.WriteAllText(selfDbPath, """
@@ -224,7 +224,8 @@ namespace BindingsGeneration.Tests
                     "-o", fixture.Dir,
                     "--module-database", selfDbPath
                 });
-                Assert.NotEqual(0, exitCode);
+                // Self-reference is silently skipped (info-level), generation continues
+                Assert.Equal(0, exitCode);
             }
             finally
             {

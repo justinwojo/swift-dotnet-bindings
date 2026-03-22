@@ -218,7 +218,7 @@ namespace BindingsGeneration
                     var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                         $"DiagnosticId = \"{diagnosticId}\", " +
-                        $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+                        $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
                 }
                 else
                 {

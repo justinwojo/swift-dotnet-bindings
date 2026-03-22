@@ -27,7 +27,7 @@ namespace SwiftBindingsTestLib
     public partial class Functions
     {
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with a where clause constraining to Summable.
         /// </summary>
@@ -75,7 +75,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_sumTwo_4DF32453( SwiftIndirectResult swiftIndirectResult,  IntPtr aPayload,  IntPtr bPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TSummablePWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with multiple where clauses.
         /// </summary>
@@ -319,7 +319,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_describeAll_223F08C1( IntPtr resultPtr,  IntPtr itemsBuffer);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns an opaque Describable type.
         /// </summary>
@@ -347,7 +347,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.Runtime.ExistentialContainer1 PInvoke_makeOpaqueDescribable_F4E1351D( Swift.SwiftString.Buffer text);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns an opaque Describable &amp; TestIdentifiable composition.
         /// </summary>
@@ -377,7 +377,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.Runtime.ExistentialContainer2 PInvoke_makeOpaqueComposition_D52B2840( Swift.SwiftString.Buffer id,  Swift.SwiftString.Buffer text);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Unconstrained generic identity function.
         /// </summary>
@@ -419,7 +419,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_identity_799A5111( SwiftIndirectResult swiftIndirectResult,  IntPtr valuePayload,  TypeMetadata TMetadata);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function returning a tuple pair.
         /// </summary>
@@ -468,7 +468,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_pair_E29B6888( SwiftIndirectResult swiftIndirectResult,  IntPtr firstPayload,  IntPtr secondPayload,  TypeMetadata TMetadata,  TypeMetadata UMetadata);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with a single protocol constraint.
         /// </summary>
@@ -506,7 +506,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_constrained_BBA98441( IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TDescribablePWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with multiple protocol constraints.
         /// </summary>
@@ -545,7 +545,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_multiConstrained_09235B5F( IntPtr itemPayload,  TypeMetadata TMetadata,  ProtocolWitnessTable TDescribablePWT,  ProtocolWitnessTable TTestIdentifiablePWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with where clause.
         /// </summary>
@@ -595,7 +595,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Checks whether two values have the same type.
         /// </summary>
@@ -3524,7 +3524,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_configure_D03D9C6E( IntPtr resultPtr,  Swift.SwiftString.Buffer host,  int port, [MarshalAs(UnmanagedType.U1)]  bool secure);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Increments an Int32 value in-place.
         /// </summary>
@@ -3550,7 +3550,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_incrementValue_362A0111(ref int value);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Swaps two Int32 values in-place.
         /// </summary>
@@ -3576,7 +3576,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_swapValues_F7EE6364(ref int a, ref int b);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Increments a FrozenPoint's x and y in-place.
         /// </summary>
@@ -3602,7 +3602,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_incrementPoint_67DEC76E(ref SwiftBindingsTestLib.FrozenPoint point);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Doubles a value in-place and returns the old value.
         /// </summary>
@@ -4383,7 +4383,7 @@ namespace SwiftBindingsTestLib
             SwiftMarshal.MarshalToSwift(result, ref resultSpan);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls an escaping closure that returns Optional&lt;String&gt;. Used to test B7 gate lift for String in container return types.
         /// </summary>
@@ -4431,7 +4431,7 @@ namespace SwiftBindingsTestLib
             SwiftMarshal.MarshalToSwift(result, ref resultSpan);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls an escaping closure that returns [String]. Used to test B7 gate lift for String in array return types.
         /// </summary>
@@ -4695,7 +4695,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_makeGreaterThan_42D53C07( IntPtr resultPtr,  int threshold);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls a C-convention function pointer with an Int32.
         /// </summary>
@@ -4725,7 +4725,7 @@ namespace SwiftBindingsTestLib
         private static unsafe partial int PInvoke_callCFunction_45DC8906( delegate* unmanaged[Swift]<int, int> fn);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls a C-convention void function pointer.
         /// </summary>
@@ -4757,7 +4757,7 @@ namespace SwiftBindingsTestLib
         /// Task-returning overload for <see cref="CallCVoidFunction"/>.
         /// </summary>
         /// <param name="cancellationToken">Cancels the returned Task but does not cancel the underlying operation.</param>
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
             public async Task CallCVoidFunctionAsync(global::System.Threading.CancellationToken cancellationToken = default)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4774,7 +4774,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls a C-convention function with two arguments.
         /// </summary>
@@ -4804,7 +4804,7 @@ namespace SwiftBindingsTestLib
         private static unsafe partial int PInvoke_callCBinaryFunction_E3C48FA7( delegate* unmanaged[Swift]<int, int, int> fn);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Calls a C-convention predicate.
         /// </summary>
@@ -5502,7 +5502,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_processNameableAgeable_C657A5A6( IntPtr resultPtr, ref Swift.Runtime.ExistentialContainer2 item);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with a compound 3-protocol constraint.
         /// </summary>
@@ -5541,7 +5541,7 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_applyThreeProtocols_952D693F( IntPtr valPayload,  int a,  int b,  int c,  TypeMetadata TMetadata,  ProtocolWitnessTable TAddablePWT,  ProtocolWitnessTable TMultipliablePWT,  ProtocolWitnessTable TSubtractablePWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Generic function with a compound 4-protocol constraint.
         /// </summary>
@@ -5581,7 +5581,7 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_applyFourProtocols_4675963C( IntPtr valPayload,  int a,  int b,  int c,  int d,  TypeMetadata TMetadata,  ProtocolWitnessTable TAddablePWT,  ProtocolWitnessTable TDividablePWT,  ProtocolWitnessTable TMultipliablePWT,  ProtocolWitnessTable TSubtractablePWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Function accepting Named protocol.
         /// </summary>
@@ -5619,7 +5619,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_describeName_E53CA03C( IntPtr namedPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0NamedPWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Function accepting Prioritized protocol.
         /// </summary>
@@ -5657,7 +5657,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_describePriority_FFCBFB08( IntPtr prioritizedPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0PrioritizedPWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Function accepting TaskDescriptor protocol.
         /// </summary>
@@ -5695,7 +5695,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_describeTask_859F36AC( IntPtr taskPayload,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0TaskDescriptorPWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Function accepting StringProcessor protocol.
         /// </summary>
@@ -5735,7 +5735,7 @@ namespace SwiftBindingsTestLib
         private static partial Swift.SwiftString.Buffer PInvoke_runProcessor_9985F4C4( IntPtr processorPayload,  Swift.SwiftString.Buffer input,  TypeMetadata T0Metadata,  ProtocolWitnessTable T0StringProcessorPWT);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Function accepting StatusHandler protocol.
         /// </summary>
@@ -6447,7 +6447,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public AcceptsSummable( T item)
         {
             unsafe
@@ -6480,7 +6480,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public T AddWith( T other)
         {
             unsafe
@@ -6679,7 +6679,7 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public ConstrainedBox( T item)
         {
             unsafe
@@ -6710,7 +6710,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public virtual string GetDescription()
         {
             unsafe
@@ -7865,7 +7865,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Creates a new instance of the stored type.
         /// </summary>
@@ -8053,7 +8053,7 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public GenericAbiBox( TElement value)
         {
             unsafe
@@ -8233,7 +8233,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public Wrapper( T wrapped)
         {
             unsafe
@@ -8265,7 +8265,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns the wrapped value.
         /// </summary>
@@ -8499,7 +8499,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public GenericPair( T first,  U second)
         {
             unsafe
@@ -9190,7 +9190,7 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public GenericClass( T value)
         {
             unsafe
@@ -9220,7 +9220,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns the stored value.
         /// </summary>
@@ -9259,7 +9259,7 @@ namespace SwiftBindingsTestLib
         
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Replaces the stored value.
         /// </summary>
@@ -9506,7 +9506,7 @@ namespace SwiftBindingsTestLib
         ExistentialContainer1 Swift.Runtime.IExistentialBoxable.BoxAsExistential1<TProtocol>()
             => ExistentialContainerFactory.Create<GenericNamedBox<T>, TProtocol>(this);
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public GenericNamedBox( T value,  string name)
         {
             unsafe
@@ -9756,7 +9756,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public OptionalWrapper( T? value)
         {
             unsafe
@@ -10125,7 +10125,7 @@ namespace SwiftBindingsTestLib
             return ProtocolConformanceDescriptor.LoadFromSymbol("SwiftBindingsTestLib", symbolName);
         }
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public TypedEntity( int entityId,  T content) : base(default(SwiftInheritanceChain))
         {
             unsafe
@@ -12502,7 +12502,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public UniqueResource( int id)
         {
             unsafe
@@ -12521,7 +12521,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_64990F26( SwiftIndirectResult swiftIndirectResult,  int id);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Consuming method — takes ownership and invalidates the caller's copy.
         /// </summary>
@@ -12556,7 +12556,7 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_consume_7B98E046( SwiftSelf self);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Borrowing method — read-only access without taking ownership.
         /// </summary>
@@ -12708,7 +12708,7 @@ namespace SwiftBindingsTestLib
         }
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public FileHandle( int descriptor)
         {
             unsafe
@@ -12727,7 +12727,7 @@ namespace SwiftBindingsTestLib
         private static partial void PInvoke_init_71AD70C8( SwiftIndirectResult swiftIndirectResult,  int descriptor);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns the file descriptor value.
         /// </summary>
@@ -12762,7 +12762,7 @@ namespace SwiftBindingsTestLib
         private static partial int PInvoke_getDescriptor_EEF881D1( SwiftSelf self);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Returns whether the handle is still open.
         /// </summary>
@@ -12798,7 +12798,7 @@ namespace SwiftBindingsTestLib
         private static partial bool PInvoke_isOpen_EA9FF2BD( SwiftSelf self);
         
         
-        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+        [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         /// <summary>
         /// Closes the handle, consuming ownership.
         /// </summary>
@@ -21143,7 +21143,7 @@ public unsafe partial struct Inner : ISwiftObject, IDisposable
 }
 
 
-[Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+[Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
 public NestedOuter( SwiftBindingsTestLib.NestedOuter.Inner inner,  string label)
 {
     unsafe
@@ -39127,7 +39127,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial IntPtr PInvoke_init_2C12EBEC( int initialCount);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Isolated method — accesses actor state.
     /// </summary>
@@ -39162,7 +39162,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial int PInvoke_increment_6DEA96AF( SwiftSelf self);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Isolated method — accesses actor state.
     /// </summary>
@@ -39197,7 +39197,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial int PInvoke_decrement_377D1E83( SwiftSelf self);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Isolated method — reads actor state.
     /// </summary>
@@ -39232,7 +39232,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial int PInvoke_getCount_F3D5CAD4( SwiftSelf self);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Isolated method with parameters.
     /// </summary>
@@ -39267,7 +39267,7 @@ public partial class Counter : ISwiftObject, IDisposable
     private static partial int PInvoke_add_236B8DA2( int amount,  SwiftSelf self);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Nonisolated method — does not access actor state.
     /// </summary>
@@ -39560,7 +39560,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 handle.Free();
             }
         }
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Async isolated method.
     /// </summary>
@@ -39632,7 +39632,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
     private static unsafe partial void PInvoke_process_6566B5F0( void* s_processCallback_6566B5F0,  void* s_processErrorCallback_6566B5F0,  IntPtr handle,  Swift.SwiftString.Buffer input,  IntPtr _selfClass);
     
     
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Returns the count of processed results.
     /// </summary>
@@ -39776,7 +39776,7 @@ private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> s_p
                 handle.Free();
             }
         }
-    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+    [Obsolete("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). May crash on Mono runtime. Safe on NativeAOT (PublishAot=true).", DiagnosticId = "SB0001", UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
     /// <summary>
     /// Nonisolated async method.
     /// </summary>
@@ -62874,10 +62874,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: return type 'τ_0_0' is not dispatchable. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: return type 'τ_0_0' is not dispatchable. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public Swift.AnyType Add(Swift.AnyType other)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -63766,10 +63765,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: parameter 'mode' has non-dispatchable type 'any SwiftBindingsTestLib.ProcessingMode'. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: parameter 'mode' has non-dispatchable type 'any SwiftBindingsTestLib.ProcessingMode'. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public string Consume(IProcessingMode mode)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -69662,10 +69660,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -69964,10 +69961,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -70315,10 +70311,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
             }
         }
         
-        [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable via witness table. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: property type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable via witness table. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskStatus StatusProperty
         {
             get
@@ -70332,10 +70327,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
             }
         }
         
-        [Obsolete("This member is not dispatchable to Swift: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: property type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable via witness table. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskPriority Priority
         {
             get
@@ -71016,10 +71010,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskStatus'. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskStatus'. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public void HandleStatus(SwiftBindingsTestLib.TaskStatus status)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71033,10 +71026,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskStatus GetCurrentStatus()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71047,10 +71039,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: return type 'SwiftBindingsTestLib.TaskStatus' is not dispatchable. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskStatus TransitionStatus(SwiftBindingsTestLib.TaskStatus from)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71361,10 +71352,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: parameter 'arg0' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public void SetPriority(SwiftBindingsTestLib.TaskPriority priority)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71378,10 +71368,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        [Obsolete("This member is not dispatchable to Swift: return type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: return type 'SwiftBindingsTestLib.TaskPriority' is not dispatchable. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public SwiftBindingsTestLib.TaskPriority GetPriority()
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71392,10 +71381,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
                 "Protocol member access is only supported when wrapping a C# implementation.");
         }
         
-        [Obsolete("This member is not dispatchable to Swift: parameter 'than' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: parameter 'than' has non-dispatchable type 'SwiftBindingsTestLib.TaskPriority'. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public bool IsHigherPriority(SwiftBindingsTestLib.TaskPriority other)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);
@@ -71680,10 +71668,9 @@ namespace SwiftBindingsTestLib.SwiftInterop
         }
         #region Interface Implementation
         
-        [Obsolete("This member is not dispatchable to Swift: parameter 'value' has non-dispatchable type 'any SwiftBindingsTestLib.HasValue'. Throws NotSupportedException " +
-            "on Swift-backed existential containers (SB0003).",
+        [Obsolete("This member cannot be called on protocol-typed values: parameter 'value' has non-dispatchable type 'any SwiftBindingsTestLib.HasValue'. Use a concrete type instead (SB0003).",
             DiagnosticId = "SB0003",
-            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md")]
+            UrlFormat = "https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting")]
         public void DidReceive(IHasValue value)
         {
             if (_disposed) throw new ObjectDisposedException(GetType().Name);

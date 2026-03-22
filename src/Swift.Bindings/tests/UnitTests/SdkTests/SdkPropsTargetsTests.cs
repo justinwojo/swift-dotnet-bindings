@@ -258,7 +258,7 @@ namespace BindingsGeneration.Tests
         public void Targets_HasSwiftBind002ErrorCode()
         {
             Assert.Contains("SWIFTBIND002", TargetsContent);
-            Assert.Contains("Multiple xcframeworks found", TargetsContent);
+            Assert.Contains("The SDK supports one xcframework per project", TargetsContent);
         }
 
         [Fact]

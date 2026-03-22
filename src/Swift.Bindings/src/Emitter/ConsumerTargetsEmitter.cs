@@ -105,11 +105,11 @@ namespace BindingsGeneration
                     </SwiftModuleDatabase>
                   </ItemGroup>
 
-                  <!-- Platform version warning (SWIFTBIND010) -->
+                  <!-- Platform version warning (SWIFTBIND011) -->
                   <Target Name="_Validate{sanitized}PlatformVersion" BeforeTargets="Build"
                           Condition="'$(SupportedOSPlatformVersion)' != '' AND $([System.Version]::Parse('$(SupportedOSPlatformVersion)').CompareTo($([System.Version]::Parse('{options.EffectiveMinimumOSVersion}')))) &lt; 0">
                     <Warning Text="{options.PackageId} requires {pi.Platform} {options.EffectiveMinimumOSVersion}+, but SupportedOSPlatformVersion is '$(SupportedOSPlatformVersion)'. Update your project's SupportedOSPlatformVersion to at least {options.EffectiveMinimumOSVersion}."
-                             Code="SWIFTBIND010" />
+                             Code="SWIFTBIND011" />
                   </Target>
                 </Project>
                 """;

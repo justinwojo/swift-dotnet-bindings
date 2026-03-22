@@ -2155,7 +2155,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("SB0003", output);
-        Assert.Contains("not dispatchable to Swift", output);
+        Assert.Contains("cannot be called on protocol-typed values", output);
     }
 
     [Fact]
@@ -2688,7 +2688,7 @@ public class ProtocolProxyEmitterTests
         var output = stringWriter.ToString();
 
         // Closure + existential method should have NotSupportedException (closure wins)
-        Assert.Contains("Closure parameters cannot be marshalled", output);
+        Assert.Contains("closure parameters cannot be marshalled", output);
         // No receiver for the closure-skipped method
         Assert.DoesNotContain("Receive_update_0", output);
     }
@@ -4951,7 +4951,7 @@ public class ProtocolProxyEmitterTests
         RegisterSwiftInt32();
         var output = EmitProxyClass(protocol);
 
-        Assert.Contains("subscript dispatch is not yet implemented", output);
+        Assert.Contains("subscript dispatch is not yet supported", output);
         Assert.Contains("SB0003", output);
     }
 

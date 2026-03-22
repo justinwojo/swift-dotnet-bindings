@@ -101,9 +101,8 @@ namespace BindingsGeneration
 
                     if (currentModuleName != null && dbModuleName == currentModuleName)
                     {
-                        logger.LogError("SWIFTBIND071: Module database '{Path}' targets current module '{Module}'. " +
-                            "Do not pass the current module's own database as a dependency.", dbPath, dbModuleName);
-                        return false;
+                        logger.LogInformation("SWIFTBIND071: Skipping module database '{Path}' — it targets the current module '{Module}'.", dbPath, dbModuleName);
+                        continue;
                     }
 
                     if (typeDatabase.IsModuleLoaded(dbModuleName))

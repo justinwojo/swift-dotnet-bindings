@@ -168,7 +168,7 @@ namespace BindingsGeneration
             if (!slice.LibraryPath.Contains(".framework"))
             {
                 throw new StaticLibraryException(
-                    "Static xcframeworks (.a archives) are not supported for Swift binding. " +
+                    "SWIFTBIND101: Static xcframeworks (.a archives) are not supported for Swift binding. " +
                     "This may be an ObjC framework distributed as a static library.");
             }
 
@@ -707,7 +707,7 @@ namespace BindingsGeneration
             if (!stdout.Contains("dynamically linked shared library", StringComparison.OrdinalIgnoreCase))
             {
                 throw new StaticLibraryException(
-                    $"Binary at '{binaryPath}' is a static library, not a dynamic library. " +
+                    $"SWIFTBIND101: Binary at '{binaryPath}' is a static library, not a dynamic library. " +
                     "This may be an ObjC framework distributed as a static library.");
             }
         }
@@ -717,7 +717,7 @@ namespace BindingsGeneration
             if (!Directory.Exists(modulesDir))
             {
                 throw new SwiftModuleNotFoundException(
-                    "No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
+                    "SWIFTBIND102: No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
             }
 
             var swiftModules = Directory.GetDirectories(modulesDir, "*.swiftmodule");
@@ -725,7 +725,7 @@ namespace BindingsGeneration
             if (swiftModules.Length == 0)
             {
                 throw new SwiftModuleNotFoundException(
-                    "No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
+                    "SWIFTBIND102: No Swift module found. This may be an Objective-C framework (use ObjC binding tools) or a Swift framework without library evolution.");
             }
 
             if (swiftModules.Length > 1)
@@ -849,7 +849,7 @@ namespace BindingsGeneration
             if (exitCode != 0 || !File.Exists(abiOutputPath))
             {
                 throw new InvalidOperationException(
-                    $"Failed to extract ABI from Swift interface: {stderr}. Ensure Xcode is installed.");
+                    $"SWIFTBIND103: swift-frontend failed to extract ABI from Swift interface: {stderr}. Ensure Xcode is installed.");
             }
 
             return abiOutputPath;

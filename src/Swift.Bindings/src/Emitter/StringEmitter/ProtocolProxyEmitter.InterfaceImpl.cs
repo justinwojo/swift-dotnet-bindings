@@ -84,7 +84,7 @@ public partial class ProtocolProxyEmitter
                         var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                         if (!emittedCSharpKeys.Add(projectedKeySkipped))
                             continue;
-                        EmitNotSupportedMethodStub(writer, method, "Closure parameters cannot be marshalled in protocol proxy.", emittedCSharpPropertyNames);
+                        EmitNotSupportedMethodStub(writer, method, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
                     }
                     continue;
                 }
@@ -303,12 +303,11 @@ public partial class ProtocolProxyEmitter
         {
             var propReason = dispatchEmitter.GetPropertyNonDispatchReason(property);
             var reasonSuffix = propReason != null
-                ? $": {propReason}. Throws"
-                : " and throws";
-            writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
-            writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
+                ? $": {propReason}. Use"
+                : ". Use";
+            writer.WriteLine($"[Obsolete(\"This member cannot be called on protocol-typed values{reasonSuffix} a concrete type instead (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
-            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         }
 
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
@@ -554,10 +553,9 @@ public partial class ProtocolProxyEmitter
             NameProvider.GetCSharpParameterName(p)).ToList();
         var argsString = string.Join(", ", argNames);
 
-        writer.WriteLine("[Obsolete(\"This member is not dispatchable to Swift: subscript dispatch is not yet implemented. \" +");
-        writer.WriteLine("    \"Throws NotSupportedException on Swift-backed existential containers (SB0003).\",");
+        writer.WriteLine("[Obsolete(\"This member cannot be called on protocol-typed values: subscript dispatch is not yet supported. Use a concrete type instead (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
 
         writer.WriteLine($"public {returnTypeName} this[{parametersString}]");
         writer.WriteLine("{");
@@ -773,12 +771,11 @@ public partial class ProtocolProxyEmitter
         if (!isDispatchable)
         {
             var reasonSuffix = dispatchReason != null
-                ? $": {dispatchReason}. Throws"
-                : " and throws";
-            writer.WriteLine($"[Obsolete(\"This member is not dispatchable to Swift{reasonSuffix} NotSupportedException \" +");
-            writer.WriteLine("    \"on Swift-backed existential containers (SB0003).\",");
+                ? $": {dispatchReason}. Use"
+                : ". Use";
+            writer.WriteLine($"[Obsolete(\"This member cannot be called on protocol-typed values{reasonSuffix} a concrete type instead (SB0003).\",");
             writer.WriteLine("    DiagnosticId = \"SB0003\",");
-            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+            writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         }
 
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
@@ -1784,9 +1781,9 @@ public partial class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
 
-        writer.WriteLine("[Obsolete(\"This member has closure parameters that cannot be marshalled in protocol proxy (SB0003).\",");
+        writer.WriteLine("[Obsolete(\"This member cannot be called on protocol-typed values: closure parameters cannot be marshalled. Use a concrete type instead (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         writer.WriteLine($"public {csharpTypeName} {propertyName}");
         writer.WriteLine("{");
         writer.Indent++;
@@ -1872,9 +1869,9 @@ public partial class ProtocolProxyEmitter
             propertyNames: propertyNames, isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
-        writer.WriteLine($"[Obsolete(\"{reason} (SB0003)\",");
+        writer.WriteLine($"[Obsolete(\"This member cannot be called on protocol-typed values: {reason}. Use a concrete type instead (SB0003).\",");
         writer.WriteLine("    DiagnosticId = \"SB0003\",");
-        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+        writer.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
         writer.WriteLine($"public {returnTypeName} {methodName}({parametersString})");
         writer.WriteLine("{");
         writer.Indent++;

@@ -2820,7 +2820,7 @@ public class ProtocolHandlerOutputTests
         // (The SB0003 NotSupportedException is expected for the Swift-container fallback path,
         // but the key assertion is that the receiver + vtable + _csharpImpl dispatch are present,
         // proving the method was NOT skipped from emission.)
-        Assert.DoesNotContain("Closure parameters cannot be marshalled", csOutput);
+        Assert.DoesNotContain("closure parameters cannot be marshalled", csOutput);
     }
 
     [Fact]
@@ -2888,7 +2888,7 @@ public class ProtocolHandlerOutputTests
 
         // Proxy should emit NotSupportedException stub (closure param forces skip)
         Assert.Contains("class MixedHandlerProxy", csOutput);
-        Assert.Contains("Closure parameters cannot be marshalled", csOutput);
+        Assert.Contains("closure parameters cannot be marshalled", csOutput);
 
         // No receiver should be emitted for this method
         Assert.DoesNotContain("Receive_handleWith_0", csOutput);

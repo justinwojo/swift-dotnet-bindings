@@ -41,7 +41,7 @@
     <!-- Validation: multiple auto-discovered frameworks (v1 supports one per project) -->
     <Error Condition="@(SwiftFramework->Count()) &gt; 1"
            Code="SWIFTBIND002"
-           Text="Multiple xcframeworks found: @(SwiftFramework, ', '). Add explicit &lt;SwiftFramework&gt; items to your project file to select which to bind." />
+           Text="The SDK supports one xcframework per project. Found: @(SwiftFramework, ', '). Create separate binding projects for each xcframework." />
 
     <!-- Validation: xcframework path exists -->
     <Error Condition="!Exists('%(SwiftFramework.Identity)')"
@@ -256,8 +256,8 @@
       <Output TaskParameter="Result" PropertyName="_SwiftBindingDependencies" />
     </XmlPeek>
 
-    <!-- Warn on version placeholder (SWIFTBIND020) -->
-    <Warning Condition="'$(_SwiftBindingIsVersionPlaceholder)' == 'True'"
+    <!-- Warn on version placeholder (SWIFTBIND020) — only when user hasn't overridden PackageVersion -->
+    <Warning Condition="'$(_SwiftBindingIsVersionPlaceholder)' == 'True' AND '$(PackageVersion)' == '$(_SwiftBindingPackageVersion)'"
              Code="SWIFTBIND020"
              Text="The xcframework version (1.0) appears to be an Xcode placeholder. Set &lt;PackageVersion&gt; explicitly in your project file." />
   </Target>

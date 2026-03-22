@@ -388,7 +388,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"[Obsolete(\"All {totalDeclaredMembers} protocol member(s) were skipped during binding generation (SB0004). \" +");
                 csWriter.WriteLine("    \"This interface is empty because no members could be projected to C#.\",");
                 csWriter.WriteLine("    DiagnosticId = \"SB0004\",");
-                csWriter.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/blob/main/src/docs/known-issues-workarounds.md\")]");
+                csWriter.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
             }
             if (protocolDecl.Name.StartsWith("_"))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");

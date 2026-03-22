@@ -108,7 +108,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("SWIFTBIND010", content);
+                Assert.Contains("SWIFTBIND011", content);
                 Assert.Contains("System.Version", content);
             }
             finally { Directory.Delete(dir, true); }

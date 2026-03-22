@@ -258,7 +258,7 @@ public class AbiContractCheckerTests
         var tj = result.Violations.Where(v => v.RuleId == "Tj-XM").ToList();
         Assert.Single(tj);
         Assert.Equal("SWIFTBIND092", tj[0].DiagnosticCode);
-        Assert.Contains("OtherModule", tj[0].Explanation);
+        Assert.Contains("cross-module reference mismatch", tj[0].Explanation);
     }
 
     [Fact]

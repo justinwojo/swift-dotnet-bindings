@@ -202,9 +202,9 @@ public static class AbiContractChecker
             RuleId = "CC-001",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"CallConvSwift P/Invoke '{pinvoke.MethodName}' has " +
-                $"{nonBlittable.Count} non-blittable parameter(s). " +
-                $"Both Mono and NativeAOT will throw InvalidProgramException.",
+            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
+                $"({nonBlittable.Count} incompatible parameter(s)). " +
+                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
             AffectedElements = nonBlittable
                 .Select(p => $"{p.CSharpType} {p.Name}")
                 .ToImmutableArray(),
@@ -228,8 +228,9 @@ public static class AbiContractChecker
             RuleId = "CC-002",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"CallConvSwift P/Invoke '{pinvoke.MethodName}' has non-blittable " +
-                $"return type '{pinvoke.ReturnType}'.",
+            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
+                $"(incompatible return type). " +
+                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
             AffectedElements = ImmutableArray.Create($"return: {pinvoke.ReturnType}"),
         });
     }
@@ -255,9 +256,9 @@ public static class AbiContractChecker
             RuleId = "CC-003",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"P/Invoke '{pinvoke.MethodName}' has SBW_ entry point " +
-                $"'{pinvoke.EntryPoint}' but targets original library '{pinvoke.LibraryName}'. " +
-                $"The @_cdecl wrapper is in the wrapper library.",
+            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
+                $"(incorrect library target). " +
+                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
         });
     }
 
@@ -279,9 +280,9 @@ public static class AbiContractChecker
             RuleId = "CC-004",
             MethodName = pinvoke.MethodName,
             EntryPoint = pinvoke.EntryPoint,
-            Explanation = $"CallConvCdecl P/Invoke '{pinvoke.MethodName}' targets mangled " +
-                $"Swift symbol '{TruncateSymbol(pinvoke.EntryPoint)}'. " +
-                $"C calling convention will corrupt Swift register layout.",
+            Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
+                $"(calling convention mismatch). " +
+                $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
         });
     }
 
@@ -320,9 +321,9 @@ public static class AbiContractChecker
                     RuleId = "Tj-XM",
                     MethodName = pinvoke.MethodName,
                     EntryPoint = pinvoke.EntryPoint,
-                    Explanation = $"P/Invoke '{pinvoke.MethodName}' targets Tj dispatch thunk " +
-                        $"from module '{extractedModule}' but is linked to library '{moduleName}'. " +
-                        $"The thunk does not exist in the target library.",
+                    Explanation = $"Internal validation detected an issue with the generated binding for '{pinvoke.MethodName}' " +
+                        $"(cross-module reference mismatch). " +
+                        $"This method may not work correctly at runtime. Please file an issue with your xcframework.",
                     AffectedElements = ImmutableArray.Create(
                         $"symbol module: {extractedModule}",
                         $"target library: {moduleName}"),
