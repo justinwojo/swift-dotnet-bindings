@@ -8,7 +8,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Describes a native ARM64 thunk to be generated.
 /// </summary>
-/// <param name="ThunkSymbol">The exported symbol name for the thunk (e.g., "_thunk_Module_methodName_a1b2c3d4").</param>
+/// <param name="ThunkSymbol">The C-level symbol name for the thunk (e.g., "thunk_Module_a1b2c3d4"). Assembly emitter adds platform prefix.</param>
 /// <param name="SwiftSymbol">The target Swift symbol to call (with underscore prefix, e.g., "_$s6Module6methodyyF").</param>
 /// <param name="ReturnLowering">How the return type maps to ARM64 registers. Null for void returns.</param>
 /// <param name="SelfLowering">How the self parameter maps to registers. Null for free functions and constructors.</param>
@@ -89,9 +89,10 @@ public static class ThunkAssemblyEmitter
         // Classify the thunk to select the optimal template
         var classification = ClassifyThunk(descriptor);
 
-        sb.AppendLine($".globl {descriptor.ThunkSymbol}");
+        // Mach-O convention: C symbol "thunk_Module_hash" → Mach-O symbol "_thunk_Module_hash"
+        sb.AppendLine($".globl _{descriptor.ThunkSymbol}");
         sb.AppendLine($".p2align 2");
-        sb.AppendLine($"{descriptor.ThunkSymbol}:");
+        sb.AppendLine($"_{descriptor.ThunkSymbol}:");
 
         switch (classification)
         {
@@ -367,13 +368,13 @@ public static class ThunkAssemblyEmitter
     /// </summary>
     /// <param name="moduleName">The Swift module name.</param>
     /// <param name="mangledName">The Swift mangled name of the method.</param>
-    /// <returns>The thunk symbol with leading underscore (e.g., "_thunk_Module_a1b2c3d4").</returns>
+    /// <returns>The thunk C symbol name (e.g., "thunk_Module_a1b2c3d4"). No platform prefix — assembly emitter adds it.</returns>
     public static string GenerateThunkSymbol(string moduleName, string mangledName)
     {
         // Use a stable hash of the full mangled name for uniqueness
         var hash = ComputeStableHash(mangledName);
         var sanitizedModule = SanitizeForSymbol(moduleName);
-        return $"_thunk_{sanitizedModule}_{hash:x8}";
+        return $"thunk_{sanitizedModule}_{hash:x8}";
     }
 
     /// <summary>

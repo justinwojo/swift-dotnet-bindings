@@ -35,7 +35,7 @@ namespace BindingsGeneration.Tests
         {
             // Free function, return ≤ 16 bytes, no self, no throws → tail call (b instruction)
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_simple",
+                ThunkSymbol: "thunk_test_simple",
                 SwiftSymbol: "_$s4Test6simpleyyF",
                 ReturnLowering: null, // void
                 SelfLowering: null,
@@ -67,7 +67,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 8);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_getInt",
+                ThunkSymbol: "thunk_test_getInt",
                 SwiftSymbol: "_$s4Test6getIntSiyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -99,7 +99,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 16);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makePoint",
+                ThunkSymbol: "thunk_test_makePoint",
                 SwiftSymbol: "_$s4Test9makePointAA0D0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -137,7 +137,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 32);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makeRect",
+                ThunkSymbol: "thunk_test_makeRect",
                 SwiftSymbol: "_$s4Test8makeRectAA0D0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -180,7 +180,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 24);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makeVec3",
+                ThunkSymbol: "thunk_test_makeVec3",
                 SwiftSymbol: "_$s4Test8makeVec3AA0D0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -217,7 +217,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 32);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makeMixed",
+                ThunkSymbol: "thunk_test_makeMixed",
                 SwiftSymbol: "_$s4Test9makeMixedAA0D0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -254,7 +254,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 40);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makeBig",
+                ThunkSymbol: "thunk_test_makeBig",
                 SwiftSymbol: "_$s4Test7makeBigAA0D0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -282,7 +282,7 @@ namespace BindingsGeneration.Tests
         {
             // Instance method: cdecl self is x0, Swift self is x20
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_counter_add",
+                ThunkSymbol: "thunk_test_counter_add",
                 SwiftSymbol: "_$s4Test7CounterC3addyS2iF",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -317,7 +317,7 @@ namespace BindingsGeneration.Tests
             // Instance method with 3 params: self=x0, p0=x1, p1=x2, p2=x3
             // After bridge: x20=self, x0=p0, x1=p1, x2=p2
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_method3",
+                ThunkSymbol: "thunk_test_method3",
                 SwiftSymbol: "_$s4Test3FooCmethod3yyF",
                 ReturnLowering: null,
                 SelfLowering: new TypeLoweringResult(
@@ -354,7 +354,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 24);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_getVec",
+                ThunkSymbol: "thunk_test_getVec",
                 SwiftSymbol: "_$s4Test3FooC6getVecAA4Vec3VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: new TypeLoweringResult(
@@ -386,7 +386,7 @@ namespace BindingsGeneration.Tests
         {
             // Constructor: calls metadata accessor → x0, moves to x20, then calls init
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_init",
+                ThunkSymbol: "thunk_test_Foo_init",
                 SwiftSymbol: "_$s4Test3FooCACycfC",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -419,7 +419,7 @@ namespace BindingsGeneration.Tests
             // Constructor with params: must save params before metadata accessor call,
             // then restore them before the init call
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_initVal",
+                ThunkSymbol: "thunk_test_Foo_initVal",
                 SwiftSymbol: "_$s4Test3FooC5valueSi_tcfC",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -452,7 +452,7 @@ namespace BindingsGeneration.Tests
         public void EmitThunk_StaticMethod_CallsMetadataAccessor()
         {
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_create",
+                ThunkSymbol: "thunk_test_Foo_create",
                 SwiftSymbol: "_$s4Test3FooC6createACyFZ",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -483,7 +483,7 @@ namespace BindingsGeneration.Tests
         {
             // Throwing free function: error out pointer is the last cdecl parameter
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_divide",
+                ThunkSymbol: "thunk_test_divide",
                 SwiftSymbol: "_$s4Test6divideyS2i_SitKF",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -515,7 +515,7 @@ namespace BindingsGeneration.Tests
             // Instance method that throws: cdecl is (self, param0, error_out)
             // error_out is at x2 (self=x0, param=x1, error=x2)
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_throwing_method",
+                ThunkSymbol: "thunk_test_throwing_method",
                 SwiftSymbol: "_$s4Test3FooC6methodySiSiKF",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -557,7 +557,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 24);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_throwingReturnStruct",
+                ThunkSymbol: "thunk_test_throwingReturnStruct",
                 SwiftSymbol: "_$s4Test9getVec3OryAA0D0VyKF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -591,7 +591,7 @@ namespace BindingsGeneration.Tests
         {
             var symbol = ThunkAssemblyEmitter.GenerateThunkSymbol("Nuke", "$s4Nuke5ImageC");
 
-            Assert.StartsWith("_thunk_Nuke_", symbol);
+            Assert.StartsWith("thunk_Nuke_", symbol);
         }
 
         [Fact]
@@ -617,7 +617,7 @@ namespace BindingsGeneration.Tests
         {
             var symbol = ThunkAssemblyEmitter.GenerateThunkSymbol("My-Module.Name", "$s4Test");
 
-            Assert.StartsWith("_thunk_My_Module_Name_", symbol);
+            Assert.StartsWith("thunk_My_Module_Name_", symbol);
             Assert.DoesNotContain("-", symbol);
             Assert.DoesNotContain(".", symbol);
         }
@@ -723,7 +723,7 @@ namespace BindingsGeneration.Tests
         public void EmitThunk_VoidReturnNoParams_TailCall()
         {
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_noop",
+                ThunkSymbol: "thunk_test_noop",
                 SwiftSymbol: "_$s4Test4noopyyF",
                 ReturnLowering: null,
                 SelfLowering: null,
@@ -746,7 +746,7 @@ namespace BindingsGeneration.Tests
             // Edge case: constructor without metadata accessor symbol (shouldn't happen,
             // but must not crash)
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_init",
+                ThunkSymbol: "thunk_test_init",
                 SwiftSymbol: "_$s4Test3FooCACycfC",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -781,7 +781,7 @@ namespace BindingsGeneration.Tests
                 TotalByteSize: 16);
 
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_makeFloatPair",
+                ThunkSymbol: "thunk_test_makeFloatPair",
                 SwiftSymbol: "_$s4Test13makeFloatPairAA0dE0VyF",
                 ReturnLowering: returnLowering,
                 SelfLowering: null,
@@ -805,7 +805,7 @@ namespace BindingsGeneration.Tests
         {
             // All thunks should have .p2align 2 for ARM64 instruction alignment
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_aligned",
+                ThunkSymbol: "thunk_test_aligned",
                 SwiftSymbol: "_$s4Test7alignedyyF",
                 ReturnLowering: null,
                 SelfLowering: null,
@@ -830,7 +830,7 @@ namespace BindingsGeneration.Tests
         public void EmitThunk_ConstructorWith2Params_SavesAndRestores()
         {
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_init2",
+                ThunkSymbol: "thunk_test_Foo_init2",
                 SwiftSymbol: "_$s4Test3FooC1x1ySi_SitcfC",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -862,7 +862,7 @@ namespace BindingsGeneration.Tests
         public void EmitThunk_ConstructorWith3Params_StackAligned()
         {
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_init3",
+                ThunkSymbol: "thunk_test_Foo_init3",
                 SwiftSymbol: "_$s4Test3FooC3init3yyF",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
@@ -889,7 +889,7 @@ namespace BindingsGeneration.Tests
         {
             // Constructor with 1 int param + 1 float param — must save/restore both
             var descriptor = new ThunkDescriptor(
-                ThunkSymbol: "_thunk_test_Foo_initMixed",
+                ThunkSymbol: "thunk_test_Foo_initMixed",
                 SwiftSymbol: "_$s4Test3FooC5value6factorSi_SdtcfC",
                 ReturnLowering: new TypeLoweringResult(
                     new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },

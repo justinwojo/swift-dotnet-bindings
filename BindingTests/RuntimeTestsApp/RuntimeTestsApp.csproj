@@ -39,7 +39,7 @@
 
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
        Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->
-  <ItemGroup>
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">
     <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
   </ItemGroup>
 

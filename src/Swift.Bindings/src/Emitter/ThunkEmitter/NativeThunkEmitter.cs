@@ -149,7 +149,7 @@ public static class NativeThunkEmitter
     /// </summary>
     /// <param name="methodDecl">The method declaration.</param>
     /// <param name="moduleName">The Swift module name.</param>
-    /// <returns>The thunk symbol (with leading underscore).</returns>
+    /// <returns>The thunk C symbol name (without platform prefix).</returns>
     public static string GetThunkSymbol(MethodDecl methodDecl, string moduleName)
     {
         return ThunkAssemblyEmitter.GenerateThunkSymbol(moduleName, methodDecl.MangledName);
@@ -373,17 +373,18 @@ public static class NativeThunkEmitter
         // Multi-register self (InlineSize > 8) requires splitting across x20+x21 etc.,
         // which the assembly emitter doesn't support yet. Route to @_cdecl instead.
         var parentSpec = new NamedTypeSpec(parentType.SwiftTypeName.ModuleQualifiedName);
-        if (env.TypeDatabase.TryGetTypeRecord(parentSpec, out var record))
+        if (env.TypeDatabase.TryGetTypeRecord(parentSpec, out var record)
+            && record.InlineSize.HasValue)
         {
-            if (record.InlineSize.HasValue && record.InlineSize.Value > 8)
-            {
-                // Multi-register self — ThunkAssemblyEmitter can't handle this yet.
-                // Fall back to @_cdecl which handles it correctly.
-                return false;
-            }
+            if (record.InlineSize.Value > 8)
+                return false; // Multi-register self — ThunkAssemblyEmitter can't handle this yet.
+
+            return true; // Confirmed single-register (≤ 8 bytes)
         }
 
-        return true; // Single-register or unknown — thunk can handle
+        // TypeRecord not found or InlineSize unknown — conservatively reject.
+        // Without InlineSize data we can't safely determine register count.
+        return false;
     }
 
     /// <summary>
@@ -402,9 +403,8 @@ public static class NativeThunkEmitter
 
         // Resolve the symbol the thunk would call (including Tj suffix for vtable dispatch)
         var swiftSymbol = SwiftCallTargetResolver.Resolve(methodDecl, env.ParentDecl);
-        // The TBD uses the underscore-prefixed symbol
-        var prefixedSymbol = "_" + swiftSymbol;
-        return moduleDecl.ExportedSymbols.Contains(prefixedSymbol);
+        // ExportedSymbols stores symbols without leading underscore (stripped by TBD parser)
+        return moduleDecl.ExportedSymbols.Contains(swiftSymbol);
     }
 
     /// <summary>

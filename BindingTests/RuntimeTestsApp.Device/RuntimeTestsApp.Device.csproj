@@ -73,14 +73,35 @@
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
   </ItemGroup>
 
+  <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace. -->
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+
   <!-- Generated bindings -->
   <ItemGroup>
     <Compile Include="../output/SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
   </ItemGroup>
 
   <!-- SwiftBindingsTestLib xcframework (must have ios-arm64 device slice) -->
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Include dependency xcframework (cross-module testing) -->
+  <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Include dependency wrapper framework (thunks + @_cdecl wrappers for dependency module) -->
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependencySwiftBindings.xcframework/ios-arm64')">
+    <NativeReference Include="../output/SwiftBindingsTestLibDependencySwiftBindings.xcframework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

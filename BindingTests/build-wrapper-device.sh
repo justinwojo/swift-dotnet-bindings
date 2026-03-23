@@ -230,6 +230,15 @@ if [ -z "$CLEANED_FILES" ]; then
     exit 0
 fi
 
+# Compile native ARM64 thunk assembly files (if any) to object files.
+THUNK_OBJECTS=""
+for ASM_FILE in "$OUTPUT_BASE"/*.arm64.s; do
+    [ -f "$ASM_FILE" ] || continue
+    OBJ_FILE="${ASM_FILE%.s}.o"
+    xcrun clang -c "$ASM_FILE" -o "$OBJ_FILE" -target "$TARGET_TRIPLE"
+    THUNK_OBJECTS="$THUNK_OBJECTS $OBJ_FILE"
+done
+
 # Create device slice in xcframework (preserve existing simulator slice)
 mkdir -p "$OUTPUT_FW_DIR"
 
@@ -253,7 +262,7 @@ while [ $ATTEMPT -lt $MAX_RETRIES ]; do
         -strict-concurrency=minimal \
         -Xlinker -install_name -Xlinker "@rpath/${WRAPPER_MODULE}.framework/${WRAPPER_MODULE}" \
         -o "$OUTPUT_FW_DIR/$WRAPPER_MODULE" \
-        $CLEANED_FILES > "$COMPILE_LOG" 2>&1
+        $CLEANED_FILES $THUNK_OBJECTS > "$COMPILE_LOG" 2>&1
     COMPILE_EXIT=$?
     set -e
     if [ $COMPILE_EXIT -eq 0 ]; then break; fi

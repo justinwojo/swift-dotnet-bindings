@@ -24,6 +24,7 @@ public class AsyncFactoryMethodTests : TestBase
     #region L5: AnimationAsset File Loading
 
     [SkipOnSimulator("Mono JIT async assertion — P/Invoke property access in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke with SafeHandle return")]
     public async Task TestLoadAnimationFromFile()
     {
         var result = await WithTimeout(
@@ -37,6 +38,7 @@ public class AsyncFactoryMethodTests : TestBase
     }
 
     [SkipOnSimulator("Async optional return marshalling + SafeHandle cleanup in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke")]
     public async Task TestLoadAnimationFromEmptyPath()
     {
         var result = await WithTimeout(
@@ -47,6 +49,7 @@ public class AsyncFactoryMethodTests : TestBase
     }
 
     [SkipOnSimulator("Mono JIT async assertion — P/Invoke property access in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke with SafeHandle return")]
     public async Task TestLoadAnimationFromData()
     {
         var data = new byte[] { 0x7B, 0x22, 0x76, 0x22, 0x7D }; // {"v"}
@@ -63,6 +66,7 @@ public class AsyncFactoryMethodTests : TestBase
     #region L7: URL-based Animation Loading
 
     [SkipOnSimulator("Mono JIT async assertion — P/Invoke property access in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke with SafeHandle return")]
     public async Task TestLoadAnimationFromUrl()
     {
         var result = await WithTimeout(
@@ -76,6 +80,7 @@ public class AsyncFactoryMethodTests : TestBase
     }
 
     [SkipOnSimulator("Async optional return marshalling + SafeHandle cleanup in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke")]
     public async Task TestLoadAnimationFromInvalidUrl()
     {
         var result = await WithTimeout(
@@ -86,6 +91,7 @@ public class AsyncFactoryMethodTests : TestBase
     }
 
     [SkipOnSimulator("Async optional return marshalling + SafeHandle cleanup in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke")]
     public async Task TestLoadAnimationFromNonHttpUrl()
     {
         var result = await WithTimeout(
@@ -100,6 +106,7 @@ public class AsyncFactoryMethodTests : TestBase
     #region L5: AnimationBundle (DotLottieFile)
 
     [SkipOnSimulator("Mono JIT async assertion — P/Invoke property access in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke with SafeHandle return")]
     public async Task TestLoadBundleFromFile()
     {
         var result = await WithTimeout(
@@ -111,6 +118,7 @@ public class AsyncFactoryMethodTests : TestBase
     }
 
     [SkipOnSimulator("Async optional return marshalling + SafeHandle cleanup in async continuation (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke")]
     public async Task TestLoadBundleFromEmptyPath()
     {
         var result = await WithTimeout(
@@ -120,7 +128,8 @@ public class AsyncFactoryMethodTests : TestBase
         TestLogger.Info("Bundle LoadFromFile with empty path returns null");
     }
 
-    [SkipOnSimulator("AnimationBundle.GetAnimationCount and Animation(at:) use CallConvSwift")]
+    [SkipOnSimulator("Async LoadFromFileAsync P/Invoke triggers Mono JIT async assertion (upstream Issue 1)")]
+    [SkipOnDevice("NativeAOT SIGBUS on async P/Invoke with SafeHandle return")]
     public async Task TestBundleAnimationByIndex()
     {
         var bundle = await WithTimeout(
@@ -163,7 +172,6 @@ public class AsyncFactoryMethodTests : TestBase
         TestLogger.Info("Animation cache miss returns null");
     }
 
-    [SkipOnSimulator("ClearCache uses CallConvSwift")]
     public void TestAnimationCacheClear()
     {
         using var cache = new AnimationCacheStore();

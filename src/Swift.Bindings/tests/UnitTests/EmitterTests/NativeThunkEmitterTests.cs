@@ -232,7 +232,7 @@ namespace BindingsGeneration.Tests
 
             var symbol = NativeThunkEmitter.GetThunkSymbol(method, "Test");
 
-            Assert.StartsWith("_thunk_", symbol);
+            Assert.StartsWith("thunk_", symbol);
             Assert.Contains("Test", symbol);
         }
 
@@ -681,7 +681,7 @@ namespace BindingsGeneration.Tests
             var info = new PInvokeEmissionInfo
             {
                 LibraryPath = "libTest.dylib",
-                EntryPoint = "_thunk_Test_12345678",
+                EntryPoint = "thunk_Test_12345678",
                 MethodName = "DoWork",
                 ReturnType = "void",
                 ParametersString = "",
@@ -984,6 +984,129 @@ namespace BindingsGeneration.Tests
                 MakeArg(new NamedTypeSpec("Swift.Int"), "value")
             };
 
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        #endregion
+
+        #region Bug Fix: TBD symbol lookup underscore prefix mismatch
+
+        [Fact]
+        public void ShouldEmitThunk_SymbolInExportedSymbols_ReturnsTrue()
+        {
+            // BUG: IsSwiftCallTargetExported added "_" prefix before checking ExportedSymbols,
+            // but ExportedSymbols stores symbols WITHOUT the leading underscore (stripped by TBD parser).
+            // This caused ALL methods (846/1239 = 68%) to be rejected from thunk emission.
+            var module = new ModuleDecl
+            {
+                Name = "Test",
+                ParentDecl = null,
+                ModuleDecl = null,
+                Types = new List<TypeDecl>(),
+                Protocols = new List<ProtocolDecl>(),
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Dependencies = new List<string>(),
+                ExportedSymbols = new HashSet<string>
+                {
+                    "$s4Test7MyClass6doWorkyyFZ" // Without leading underscore, as TBD parser stores it
+                }
+            };
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.ModuleDecl = module;
+
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+            method.ModuleDecl = module;
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            var env = new MethodEnvironment(method, db);
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_SymbolNotInExportedSymbols_ReturnsFalse()
+        {
+            // Symbol not in TBD — should correctly reject (e.g., ObjC-routed method).
+            var module = new ModuleDecl
+            {
+                Name = "Test",
+                ParentDecl = null,
+                ModuleDecl = null,
+                Types = new List<TypeDecl>(),
+                Protocols = new List<ProtocolDecl>(),
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Dependencies = new List<string>(),
+                ExportedSymbols = new HashSet<string>
+                {
+                    "$s4Test5OtheryyF" // Different symbol
+                }
+            };
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.ModuleDecl = module;
+
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClass6doWorkyyFZ";
+            method.ModuleDecl = module;
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            var env = new MethodEnvironment(method, db);
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_TjSymbolInExportedSymbols_ReturnsTrue()
+        {
+            // Non-final class instance methods need Tj dispatch thunk suffix.
+            // Verify the Tj-suffixed symbol is looked up correctly in ExportedSymbols.
+            var module = new ModuleDecl
+            {
+                Name = "Test",
+                ParentDecl = null,
+                ModuleDecl = null,
+                Types = new List<TypeDecl>(),
+                Protocols = new List<ProtocolDecl>(),
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Dependencies = new List<string>(),
+                ExportedSymbols = new HashSet<string>
+                {
+                    "$s4Test7MyClass6doWorkyyFTj" // Tj dispatch thunk, no underscore prefix
+                }
+            };
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = false;
+            parentDecl.ModuleDecl = module;
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClass6doWorkyyF";
+            method.IsFinal = false;
+            method.ModuleDecl = module;
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            var env = new MethodEnvironment(method, db);
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NullExportedSymbols_ReturnsTrue()
+        {
+            // No TBD available — optimistically allow thunk emission.
+            var env = CreateMethodEnv(
+                methodType: MethodType.Static,
+                parentDecl: CreateClassDecl());
+
+            // TestModule has ExportedSymbols = null (default)
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
