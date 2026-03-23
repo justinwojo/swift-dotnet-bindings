@@ -148,6 +148,10 @@ namespace BindingsGeneration
             if (record.InlineSize.HasValue)
                 writer.WriteAttributeString("inlineSize", record.InlineSize.Value.ToString());
 
+            // ABI field layout for ARM64 thunk register decomposition (e.g., "i,f,i,f")
+            if (!string.IsNullOrEmpty(record.AbiFieldLayout))
+                writer.WriteAttributeString("abiLayout", record.AbiFieldLayout);
+
             // Native type name (e.g., Foundation.NSUrl for URL)
             if (record.NativeTypeName != null)
             {

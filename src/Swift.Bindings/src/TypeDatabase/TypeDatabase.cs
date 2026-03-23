@@ -182,6 +182,7 @@ namespace BindingsGeneration
                 string? superclassStr = typeDeclarationNode?.Attributes?["superclass"]?.Value;
                 string? inlineSizeStr = typeDeclarationNode?.Attributes?["inlineSize"]?.Value;
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
+                string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -237,6 +238,7 @@ namespace BindingsGeneration
                         ? SwiftTypeName.FromModuleQualifiedName(superclassStr)
                         : null,
                     InlineSize = inlineSize,
+                    AbiFieldLayout = abiFieldLayout,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

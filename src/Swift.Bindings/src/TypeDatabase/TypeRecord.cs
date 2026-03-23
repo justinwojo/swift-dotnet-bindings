@@ -163,4 +163,15 @@ public record TypeRecord
     /// Null means unknown — falls back to IntPtr.Size for RequiresMemoryManagement types.
     /// </summary>
     public int? InlineSize { get; init; }
+
+    /// <summary>
+    /// Compact ABI field layout string describing per-field register classification for ARM64 thunks.
+    /// Each character represents one field: 'i' = integer (8B), 'f' = float (8B),
+    /// 'b' = bool (1B padded to 8B), 'p' = pointer (8B). Fields are comma-separated.
+    /// Example: "i,f,i,f" for a struct { Int, Double, Int, Double }.
+    /// Computed during parsing from TypeDecl.Properties and persisted in module database XML.
+    /// Null means layout is unknown (non-frozen, cross-module without persisted layout, etc.).
+    /// When null, functions returning this type cannot use native thunks and must fall back to @_cdecl.
+    /// </summary>
+    public string? AbiFieldLayout { get; init; }
 }

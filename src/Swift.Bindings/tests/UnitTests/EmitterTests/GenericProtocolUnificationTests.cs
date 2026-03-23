@@ -583,7 +583,7 @@ public class GenericProtocolUnificationTests
 
     #endregion
 
-    #region IsInheritedGenericContext — Constructor still protected in RequiresCdeclForAbiSafety
+    #region IsInheritedGenericContext — Constructor guard for inherited generic context
 
     [Fact]
     public void RequiresCdeclForAbiSafety_Constructor_InheritedGenericContext_ReturnsFalse()

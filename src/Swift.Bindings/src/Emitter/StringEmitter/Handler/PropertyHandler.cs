@@ -414,48 +414,66 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
-        // Check if this property needs @_cdecl wrappers BEFORE emitting accessor methods.
-        // PropertyWrapperEmitter takes priority; ObjCOverridePropertyWrapperEmitter is fallback.
-        bool needsCdeclWrapper = false;
+        // Check wrapper strategy per-accessor BEFORE emitting accessor methods.
+        // Native thunk takes priority over @_cdecl wrapper;
+        // PropertyWrapperEmitter is fallback; ObjCOverridePropertyWrapperEmitter is last resort.
+        // Each accessor is evaluated independently because getter/setter may have different
+        // thunk eligibility (e.g., getter returns a large struct but setter takes simple params).
+        var accessorThunkFlags = new Dictionary<AccessorDecl, bool>();
+        var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>();
         bool needsObjCOverrideWrapper = false;
-        MethodEnvironment? firstAccessorEnv = null;
-        if (propertyDecl.Accessors.Count > 0)
+        foreach (var accessor in propertyDecl.Accessors)
         {
-            // Use the first accessor for the check (ShouldEmitWrapper only looks at property + class context)
-            var firstAccessor = propertyDecl.Accessors[0];
-            firstAccessor.Method.IsAccessor = true;
-            if (conductor.TryGetMethodHandler(firstAccessor.Method, out var checkHandler))
+            bool thunkEligible = false;
+            bool cdeclEligible = false;
+            accessor.Method.IsAccessor = true;
+            if (conductor.TryGetMethodHandler(accessor.Method, out var checkHandler))
             {
-                firstAccessorEnv = (MethodEnvironment)checkHandler.Marshal(firstAccessor.Method, propertyEnv.TypeDatabase);
-                needsCdeclWrapper = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, firstAccessorEnv) == WrapperDecision.WrapperRequired;
-                // Only check ObjC override if @_cdecl doesn't handle it
-                if (!needsCdeclWrapper)
-                    needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, firstAccessorEnv);
+                var checkEnv = (MethodEnvironment)checkHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                // Try native ARM64 thunk first (preferred over @_cdecl)
+                thunkEligible = NativeThunkEmitter.ShouldEmitThunk(checkEnv);
+                if (!thunkEligible)
+                {
+                    cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, checkEnv) == WrapperDecision.WrapperRequired;
+                    // Only check ObjC override if no accessor got @_cdecl or thunk
+                    if (!cdeclEligible && !needsObjCOverrideWrapper)
+                        needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
+                }
             }
+            accessorThunkFlags[accessor] = thunkEligible;
+            accessorCdeclFlags[accessor] = cdeclEligible;
         }
 
-        // Track property wrapper strategy and skip reasons for emission report (one entry per property).
+        // Track property wrapper strategy and skip reasons for emission report (per accessor).
         if (WrapperValidation.IsXCFrameworkMode(propertyEnv.TypeDatabase))
         {
-            if (needsCdeclWrapper)
+            foreach (var acc in propertyDecl.Accessors)
             {
-                context.GetEmissionContext().IncrementWrapperStrategy("CdeclProperty");
-            }
-            else
-            {
-                context.GetEmissionContext().IncrementWrapperStrategy("LegacyCallConvSwift");
-                if (firstAccessorEnv != null)
+                if (accessorThunkFlags.TryGetValue(acc, out var thunk) && thunk)
                 {
-                    var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, firstAccessorEnv);
-                    if (skipReason != null)
-                        context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
+                    context.GetEmissionContext().IncrementWrapperStrategy("NativeThunk");
+                }
+                else if (accessorCdeclFlags.TryGetValue(acc, out var cdecl) && cdecl)
+                {
+                    context.GetEmissionContext().IncrementWrapperStrategy("CdeclProperty");
+                }
+                else
+                {
+                    context.GetEmissionContext().IncrementWrapperStrategy("DirectCdecl");
+                    if (conductor.TryGetMethodHandler(acc.Method, out var skipCheckHandler))
+                    {
+                        var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(acc.Method, propertyEnv.TypeDatabase);
+                        var skipReason = PropertyWrapperEmitter.GetRejectionReason(propertyDecl, skipCheckEnv);
+                        if (skipReason != null)
+                            context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
+                    }
                 }
             }
         }
 
-        // Note: properties with CallConvSwift + non-blittable parameters (SafeHandle) will
-        // crash at runtime with InvalidProgramException. They are still emitted (suppression
-        // would break protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
+        // Note: properties without @_cdecl wrappers or native thunks may crash at runtime
+        // with non-blittable parameters. They are still emitted (suppression would break
+        // protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
         // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
         // tracking it, causing incorrect coverage data.
 
@@ -468,9 +486,57 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Type conversions would cause a mismatch between property type and accessor return/param types
                 accessor.Method.IsAccessor = true;
 
+                // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
+                // If EmitThunk fails, revert flags and fall through to @_cdecl path.
+                // Per-accessor thunk eligibility: each accessor independently decides thunk vs @_cdecl.
+                bool thunkHandled = false;
+                if (accessorThunkFlags.TryGetValue(accessor, out var useThunk) && useThunk &&
+                    propertyDecl.ParentDecl is TypeDecl thunkParentType && thunkParentType.SwiftTypeName != null)
+                {
+                    var originalMangledName = accessor.Method.MangledName;
+                    var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(accessor.Method, thunkParentType.SwiftTypeName.Module);
+                    accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
+                    accessor.Method.UsesWrapperLibrary = true;
+                    accessor.Method.MangledName = thunkSymbol;
+
+                    // Emit the thunk assembly — pass the original mangled name since MangledName
+                    // has been overwritten with the thunk symbol above
+                    var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                    bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, thunkParentType.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName);
+                    if (emitted)
+                    {
+                        // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
+                        accessor.Method.ThunkAssemblyEmitted = true;
+                        thunkHandled = true;
+                    }
+                    else
+                    {
+                        // Revert thunk state — fall through to @_cdecl path below
+                        accessor.Method.WrapperStrategy = WrapperStrategy.None;
+                        accessor.Method.UsesWrapperLibrary = false;
+                        accessor.Method.MangledName = originalMangledName;
+                    }
+                }
                 // @_cdecl property wrapper: set flags BEFORE Marshal/Emit so that
                 // SignatureHandler and PInvokeEmitter see the updated MangledName and flags.
-                if (needsCdeclWrapper && propertyDecl.ParentDecl is TypeDecl parentTypeDecl3 && parentTypeDecl3.SwiftTypeName != null)
+                // Per-accessor @_cdecl eligibility: each accessor independently decides.
+                // Also fires as fallback when thunk emission fails above — in that case,
+                // accessorCdeclFlags may not have been computed (only set when thunk was rejected
+                // upfront), so we re-evaluate eligibility on-the-fly.
+                bool cdeclEligible = accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl;
+                if (!thunkHandled && !cdeclEligible && !accessor.Method.UsesCdeclPropertyWrapper)
+                {
+                    // Thunk failed at emission time — check @_cdecl eligibility now
+                    if (conductor.TryGetMethodHandler(accessor.Method, out var fallbackHandler))
+                    {
+                        var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                        cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, fallbackEnv) == WrapperDecision.WrapperRequired;
+                        if (cdeclEligible)
+                            accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
+                    }
+                }
+                if (!thunkHandled && cdeclEligible &&
+                    propertyDecl.ParentDecl is TypeDecl parentTypeDecl3 && parentTypeDecl3.SwiftTypeName != null)
                 {
                     bool isGetter = accessor is GetAccessorDecl;
 
@@ -481,7 +547,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
                         optClosureNts.GenericParameters[0] is ClosureTypeSpec)
                     {
-                        // Leave setter on CallConvSwift — skip @_cdecl wrapping
+                        // Leave setter without @_cdecl wrapping — uses direct P/Invoke
                     }
                     else
                     {
@@ -563,7 +629,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         // @_cdecl property wrapper: emit SBW_Free P/Invoke for string getters (once per type)
-        if (needsCdeclWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
+        bool anyCdeclWrapper = accessorCdeclFlags.Values.Any(v => v);
+        if (anyCdeclWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
         {
             var typeKey = (propertyDecl.ParentDecl as TypeDecl)?.SwiftTypeName?.ModuleQualifiedName
                 ?? propertyDecl.ModuleDecl?.Name ?? "";
@@ -585,7 +652,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         MethodName = "SBW_Free",
                         ReturnType = "void",
                         ParametersString = "IntPtr ptr",
-                        OmitCallingConvention = true,
                         UsePrivateVisibility = false,
                     });
                 }

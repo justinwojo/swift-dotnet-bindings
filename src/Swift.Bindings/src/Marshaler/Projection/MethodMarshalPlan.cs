@@ -98,8 +98,8 @@ public record PInvokeDeclarationInfo
     /// <summary>The P/Invoke parameters.</summary>
     public required IReadOnlyList<PInvokeParameterInfo> Parameters { get; init; }
 
-    /// <summary>Calling convention types (e.g., "typeof(CallConvSwift)").</summary>
-    public IReadOnlyList<string> CallingConventions { get; init; } = new[] { "typeof(CallConvSwift)" };
+    /// <summary>Calling convention types (always CallConvCdecl).</summary>
+    public IReadOnlyList<string> CallingConventions { get; init; } = new[] { "typeof(CallConvCdecl)" };
 }
 
 /// <summary>

@@ -453,13 +453,13 @@ public class WrapperConsistencyTests
         method.UsesCdeclConstructorWrapper = true;
         Assert.True(method.UsesCdeclWrapper);
 
-        method.WrapperStrategy = WrapperStrategy.LegacyCallConvSwift;
+        method.WrapperStrategy = WrapperStrategy.None;
         Assert.False(method.UsesCdeclWrapper);
 
         method.UsesCdeclPropertyWrapper = true;
         Assert.True(method.UsesCdeclWrapper);
 
-        method.WrapperStrategy = WrapperStrategy.LegacyCallConvSwift;
+        method.WrapperStrategy = WrapperStrategy.None;
         method.UsesCdeclMethodWrapper = true;
         Assert.True(method.UsesCdeclWrapper);
     }
@@ -476,10 +476,10 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void WrapperStrategy_Default_IsLegacyCallConvSwift()
+    public void WrapperStrategy_Default_IsNone()
     {
         var method = CreateSimpleMethod();
-        Assert.Equal(WrapperStrategy.LegacyCallConvSwift, method.WrapperStrategy);
+        Assert.Equal(WrapperStrategy.None, method.WrapperStrategy);
     }
 
     [Fact]
@@ -512,13 +512,13 @@ public class WrapperConsistencyTests
         Assert.True(method.HasCdeclClosureMarshalling);
 
         // Neither
-        method.WrapperStrategy = WrapperStrategy.LegacyCallConvSwift;
+        method.WrapperStrategy = WrapperStrategy.None;
         method.HasClosureParams = false;
         Assert.False(method.HasCdeclClosureMarshalling);
     }
 
     [Fact]
-    public void WrapperStrategy_ClearingBooleanFlag_ResetsToLegacy()
+    public void WrapperStrategy_ClearingBooleanFlag_ResetsToNone()
     {
         var method = CreateSimpleMethod();
 
@@ -526,14 +526,14 @@ public class WrapperConsistencyTests
         method.UsesCdeclMethodWrapper = true;
         Assert.Equal(WrapperStrategy.CdeclMethod, method.WrapperStrategy);
 
-        // Clear it — must reset to LegacyCallConvSwift, not leave stale strategy
+        // Clear it — must reset to None, not leave stale strategy
         method.UsesCdeclMethodWrapper = false;
-        Assert.Equal(WrapperStrategy.LegacyCallConvSwift, method.WrapperStrategy);
+        Assert.Equal(WrapperStrategy.None, method.WrapperStrategy);
         Assert.False(method.UsesCdeclWrapper);
     }
 
     [Fact]
-    public void WrapperStrategy_ClearingConstructorFlag_ResetsToLegacy()
+    public void WrapperStrategy_ClearingConstructorFlag_ResetsToNone()
     {
         var method = CreateSimpleMethod();
 
@@ -541,12 +541,12 @@ public class WrapperConsistencyTests
         Assert.True(method.UsesCdeclConstructorWrapper);
 
         method.UsesCdeclConstructorWrapper = false;
-        Assert.Equal(WrapperStrategy.LegacyCallConvSwift, method.WrapperStrategy);
+        Assert.Equal(WrapperStrategy.None, method.WrapperStrategy);
         Assert.False(method.UsesCdeclWrapper);
     }
 
     [Fact]
-    public void WrapperStrategy_ClearingPropertyFlag_ResetsToLegacy()
+    public void WrapperStrategy_ClearingPropertyFlag_ResetsToNone()
     {
         var method = CreateSimpleMethod();
 
@@ -554,7 +554,7 @@ public class WrapperConsistencyTests
         Assert.True(method.UsesCdeclPropertyWrapper);
 
         method.UsesCdeclPropertyWrapper = false;
-        Assert.Equal(WrapperStrategy.LegacyCallConvSwift, method.WrapperStrategy);
+        Assert.Equal(WrapperStrategy.None, method.WrapperStrategy);
         Assert.False(method.UsesCdeclWrapper);
     }
 
@@ -571,14 +571,14 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void WrapperStrategy_ClearingActiveFlag_ResetsToLegacy()
+    public void WrapperStrategy_ClearingActiveFlag_ResetsToNone()
     {
         var method = CreateSimpleMethod();
 
         // Set to CdeclMethod, then clear CdeclMethod — must reset
         method.UsesCdeclMethodWrapper = true;
         method.UsesCdeclMethodWrapper = false;
-        Assert.Equal(WrapperStrategy.LegacyCallConvSwift, method.WrapperStrategy);
+        Assert.Equal(WrapperStrategy.None, method.WrapperStrategy);
     }
 
     #endregion

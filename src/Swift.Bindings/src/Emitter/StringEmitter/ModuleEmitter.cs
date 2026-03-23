@@ -125,6 +125,21 @@ namespace BindingsGeneration
                     outputFile.Write(swiftStringWriter.ToString());
                 }
 
+                // Write ARM64 assembly thunk file if any thunks were emitted
+                if (emissionContext.HasThunkAssembly)
+                {
+                    var asmContent = new System.Text.StringBuilder();
+                    asmContent.Append(ThunkAssemblyEmitter.EmitFileHeader(moduleDecl.Name));
+                    asmContent.Append(emissionContext.AssemblyBuilder);
+                    asmContent.Append(ThunkAssemblyEmitter.EmitFileFooter());
+
+                    string asmOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.arm64.s");
+                    using (StreamWriter outputFile = new(asmOutputPath))
+                    {
+                        outputFile.Write(asmContent.ToString());
+                    }
+                }
+
                 // Detect theme-bridgeable types (classes with singleton + Color/Font properties)
                 var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);
                 var hasViews = collectedViews.Count > 0;

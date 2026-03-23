@@ -167,32 +167,42 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Determine per-accessor @_cdecl eligibility
+                // Determine per-accessor thunk and @_cdecl eligibility
+                var accessorThunkFlags = new Dictionary<AccessorDecl, bool>();
                 var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>();
                 foreach (var accessor in subscriptDecl.Accessors)
                 {
-                    bool eligible = false;
+                    bool thunkEligible = false;
+                    bool cdeclEligible = false;
                     if (typeDecl.SwiftTypeName != null && conductor.TryGetMethodHandler(accessor.Method, out var checkHandler))
                     {
                         accessor.Method.IsAccessor = true;
                         var checkEnv = (MethodEnvironment)checkHandler.Marshal(accessor.Method, typeDatabase);
-                        eligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, checkEnv);
+                        // Thunk takes priority over @_cdecl
+                        thunkEligible = NativeThunkEmitter.ShouldEmitThunk(checkEnv);
+                        if (!thunkEligible)
+                            cdeclEligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, checkEnv);
                     }
-                    accessorCdeclFlags[accessor] = eligible;
+                    accessorThunkFlags[accessor] = thunkEligible;
+                    accessorCdeclFlags[accessor] = cdeclEligible;
                 }
 
                 // Track subscript wrapper strategy and skip reasons for emission report (per accessor).
                 if (WrapperValidation.IsXCFrameworkMode(typeDatabase))
                 {
-                    foreach (var (acc, cdecl) in accessorCdeclFlags)
+                    foreach (var acc in subscriptDecl.Accessors)
                     {
-                        if (cdecl)
+                        if (accessorThunkFlags.TryGetValue(acc, out var thunk) && thunk)
+                        {
+                            context.GetEmissionContext().IncrementWrapperStrategy("NativeThunk");
+                        }
+                        else if (accessorCdeclFlags.TryGetValue(acc, out var cdecl) && cdecl)
                         {
                             context.GetEmissionContext().IncrementWrapperStrategy("CdeclSubscript");
                         }
                         else
                         {
-                            context.GetEmissionContext().IncrementWrapperStrategy("LegacyCallConvSwift");
+                            context.GetEmissionContext().IncrementWrapperStrategy("DirectCdecl");
                             if (conductor.TryGetMethodHandler(acc.Method, out var skipCheckHandler))
                             {
                                 var skipCheckEnv = (MethodEnvironment)skipCheckHandler.Marshal(acc.Method, typeDatabase);
@@ -211,8 +221,55 @@ namespace BindingsGeneration
                     {
                         accessor.Method.IsAccessor = true;
 
+                        // Native ARM64 thunk: set flags BEFORE Marshal/Emit.
+                        // If EmitThunk fails, revert flags and fall through to @_cdecl path.
+                        bool thunkHandled = false;
+                        if (accessorThunkFlags.TryGetValue(accessor, out var useThunk) && useThunk &&
+                            typeDecl.SwiftTypeName != null)
+                        {
+                            var originalMangledName = accessor.Method.MangledName;
+                            var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(accessor.Method, typeDecl.SwiftTypeName.Module);
+                            accessor.Method.WrapperStrategy = WrapperStrategy.NativeThunk;
+                            accessor.Method.IsSubscriptAccessor = true;
+                            accessor.Method.UsesWrapperLibrary = true;
+                            accessor.Method.MangledName = thunkSymbol;
+
+                            // Emit thunk assembly — pass the original mangled name since MangledName
+                            // has been overwritten with the thunk symbol above
+                            var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
+                            bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName);
+                            if (emitted)
+                            {
+                                // Mark as emitted to prevent duplicate emission in MethodHandler.Emit
+                                accessor.Method.ThunkAssemblyEmitted = true;
+                                thunkHandled = true;
+                            }
+                            else
+                            {
+                                // Revert thunk state — fall through to @_cdecl path below
+                                accessor.Method.WrapperStrategy = WrapperStrategy.None;
+                                accessor.Method.IsSubscriptAccessor = false;
+                                accessor.Method.UsesWrapperLibrary = false;
+                                accessor.Method.MangledName = originalMangledName;
+                            }
+                        }
                         // @_cdecl subscript wrapper: set flags BEFORE Marshal/Emit
-                        if (accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl &&
+                        // Also fires as fallback when thunk emission fails above — in that case,
+                        // accessorCdeclFlags may not have been computed (only set when thunk was
+                        // rejected upfront), so we re-evaluate eligibility on-the-fly.
+                        bool cdeclEligible = accessorCdeclFlags.TryGetValue(accessor, out var useCdecl) && useCdecl;
+                        if (!thunkHandled && !cdeclEligible && !accessor.Method.UsesCdeclPropertyWrapper)
+                        {
+                            // Thunk failed at emission time — check @_cdecl eligibility now
+                            if (conductor.TryGetMethodHandler(accessor.Method, out var fallbackHandler))
+                            {
+                                var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, typeDatabase);
+                                cdeclEligible = SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, fallbackEnv);
+                                if (cdeclEligible)
+                                    accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
+                            }
+                        }
+                        if (!thunkHandled && cdeclEligible &&
                             typeDecl.SwiftTypeName != null)
                         {
                             bool isGetter = accessor is GetAccessorDecl;
@@ -266,7 +323,6 @@ namespace BindingsGeneration
                                 MethodName = "SBW_Free",
                                 ReturnType = "void",
                                 ParametersString = "IntPtr ptr",
-                                OmitCallingConvention = true,
                                 UsePrivateVisibility = false,
                             });
                         }

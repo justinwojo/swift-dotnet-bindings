@@ -347,7 +347,7 @@ namespace BindingsGeneration
 
             // Build the P/Invoke call with arguments
             // For @_cdecl wrappers: associated value args first, resultPtr (buffer) last
-            // For CallConvSwift: indirectResult first, then associated value args
+            // For direct P/Invoke: indirectResult first, then associated value args
             var argList = new List<string>();
             if (!useCdeclWrapper)
             {
@@ -528,7 +528,6 @@ namespace BindingsGeneration
                         ReturnType = "void",
                         ParametersString = string.Join(", ", pInvokeParams),
                         IsAsync = false,
-                        OmitCallingConvention = true, // Use Cdecl instead of Swift
                         MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
                     });
                 }
@@ -548,7 +547,7 @@ namespace BindingsGeneration
             }
             else
             {
-                // Original CallConvSwift path with SwiftIndirectResult
+                // Direct P/Invoke path with SwiftIndirectResult
                 // C5: Use unique name for indirect result param to avoid CS0100 if an associated value
                 // is also named "result"
                 var indirectResultParamName = parameters.Any(p => p.name == "result") ? "__result" : "result";

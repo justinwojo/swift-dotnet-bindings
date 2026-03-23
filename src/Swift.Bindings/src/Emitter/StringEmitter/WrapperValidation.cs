@@ -4,8 +4,8 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Result of the combined ShouldEmitWrapper + RequiresCdeclForAbiSafety decision.
-/// Replaces the implicit AND gate pattern at call sites.
+/// Result of the wrapper eligibility decision.
+/// All eligible methods get @_cdecl wrappers — there is no CallConvSwift fallback.
 /// </summary>
 public enum WrapperDecision
 {
@@ -16,13 +16,7 @@ public enum WrapperDecision
     CannotWrap,
 
     /// <summary>
-    /// Wrapping is possible (ShouldEmitWrapper passed) but not required for ABI safety
-    /// (RequiresCdeclForAbiSafety returned false). Use legacy CallConvSwift.
-    /// </summary>
-    NoWrapperNeeded,
-
-    /// <summary>
-    /// Wrapping is both possible and required for ABI safety. Emit the @_cdecl wrapper.
+    /// Wrapping is possible (ShouldEmitWrapper passed). Emit the @_cdecl wrapper.
     /// </summary>
     WrapperRequired
 }
@@ -75,56 +69,59 @@ public static class WrapperValidation
 
     /// <summary>
     /// Centralized decision for method @_cdecl wrapper emission.
-    /// Combines MethodWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// All eligible methods get @_cdecl wrappers — CallConvSwift is eliminated.
     /// </summary>
     public static WrapperDecision DetermineMethodWrapperDecision(MethodEnvironment env)
     {
         if (!MethodWrapperEmitter.ShouldEmitWrapper(env))
             return WrapperDecision.CannotWrap;
-        if (!RequiresCdeclForAbiSafety(env))
-            return WrapperDecision.NoWrapperNeeded;
         return WrapperDecision.WrapperRequired;
     }
 
     /// <summary>
     /// Centralized decision for constructor @_cdecl wrapper emission.
-    /// Combines ConstructorWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// All eligible constructors get @_cdecl wrappers — CallConvSwift is eliminated.
     /// </summary>
     public static WrapperDecision DetermineConstructorWrapperDecision(MethodEnvironment env)
     {
         if (!ConstructorWrapperEmitter.ShouldEmitWrapper(env))
             return WrapperDecision.CannotWrap;
-        if (!RequiresCdeclForAbiSafety(env))
-            return WrapperDecision.NoWrapperNeeded;
         return WrapperDecision.WrapperRequired;
     }
 
     /// <summary>
     /// Centralized decision for property @_cdecl wrapper emission.
-    /// Combines PropertyWrapperEmitter.ShouldEmitWrapper + RequiresCdeclForAbiSafety.
+    /// All eligible properties get @_cdecl wrappers — CallConvSwift is eliminated.
     /// </summary>
     public static WrapperDecision DeterminePropertyWrapperDecision(PropertyDecl propertyDecl, MethodEnvironment env)
     {
         if (!PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env))
             return WrapperDecision.CannotWrap;
-        if (!RequiresCdeclForAbiSafety(env, propertyDecl))
-            return WrapperDecision.NoWrapperNeeded;
         return WrapperDecision.WrapperRequired;
     }
 
     /// <summary>
-    /// Returns the P/Invoke calling convention for a method based on its wrapper strategy.
-    /// Centralizes the UsesCdeclWrapper → CallingConvention mapping that was previously
-    /// inlined at multiple sites in PInvokeEmitter and OperatorHandler.
-    ///
-    /// Methods with @_cdecl wrappers use CallConvCdecl (C calling convention).
-    /// Methods without wrappers use CallConvSwift (Swift calling convention).
+    /// Returns the P/Invoke calling convention for a method.
+    /// Methods routed through @_cdecl wrappers or native ARM64 thunks use CallConvCdecl.
+    /// Methods using @_silgen_name wrappers (ObjCOverridePropertyWrapper, DefaultParameterOverload,
+    /// standalone closure wrappers without @_cdecl conversion) use CallConvSwift because
+    /// @_silgen_name only assigns a symbol name — the function itself uses Swift calling convention.
     /// </summary>
     public static PInvokeCallingConvention GetCallingConvention(MethodDecl methodDecl)
     {
-        return methodDecl.UsesCdeclWrapper
-            ? PInvokeCallingConvention.Cdecl
-            : PInvokeCallingConvention.Swift;
+        // @_cdecl wrappers and native thunks use C calling convention
+        if (methodDecl.UsesCdeclMethodWrapper || methodDecl.UsesCdeclConstructorWrapper ||
+            methodDecl.UsesCdeclPropertyWrapper || methodDecl.UsesNativeThunk)
+            return PInvokeCallingConvention.Cdecl;
+
+        // Standalone closure @_cdecl wrappers (HasClosureCdeclWrapper=true with UsesCdeclMethodWrapper=true
+        // already caught above). HasClosureCdeclWrapper alone means @_silgen_name — Swift convention.
+
+        // Everything else (direct Swift calls, @_silgen_name wrappers) uses Swift calling convention.
+        // This includes: ObjCOverridePropertyWrapper, DefaultParameterOverload without @_cdecl,
+        // standalone closure wrappers that couldn't convert to @_cdecl, OptionalPointerWrapper
+        // without @_cdecl conversion — all use @_silgen_name with Swift ABI.
+        return PInvokeCallingConvention.Swift;
     }
 
     /// <summary>
@@ -929,17 +926,9 @@ public static class WrapperValidation
 
     /// <summary>
     /// Determines whether a method requires @_cdecl wrapping for ABI safety or functional reasons.
-    /// Returns true when any parameter or return type would cause an ABI mismatch
-    /// if used directly with CallConvSwift on ARM64, or when the method has closure params
-    /// that require the @_cdecl adapter mechanism.
-    ///
-    /// Decision framework (from NativeAOT investigation evidence matrix):
-    /// - Non-blittable param (SafeHandle: non-frozen struct, complex enum) → required
-    /// - ValueTuple param/return → required (StructLayout.Auto)
-    /// - Custom struct with float/double fields → required (param AND return)
-    /// - Custom integer struct > 16 bytes → required (param only)
-    /// - Closure params → required (adapter mechanism only works inside @_cdecl wrappers)
-    /// - Everything else → CallConvSwift safe
+    /// Note: With CallConvSwift eliminated, all eligible methods now get @_cdecl wrappers
+    /// regardless of this check. This method is retained for diagnostic/reporting purposes
+    /// (SB0001 diagnostic, operator wrapper decisions).
     /// </summary>
     public static bool RequiresCdeclForAbiSafety(MethodEnvironment env)
     {
@@ -1104,28 +1093,22 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Returns true when a method's P/Invoke would use CallConvSwift with non-blittable
-    /// parameters AND no @_cdecl wrapper is available. Used for reporting purposes — these
-    /// methods are still emitted but will crash at runtime with InvalidProgramException.
-    /// Suppression was not feasible because it breaks protocol conformance (CS0535).
-    ///
-    /// Only triggers for actual non-blittable P/Invoke types (SafeHandle from non-frozen
-    /// structs, non-blittable generic containers, tuples). Does NOT flag closures, Tj
-    /// dispatch, or typed throws — those are separate ABI concerns.
+    /// Returns true when a method has no @_cdecl wrapper or native thunk AND has non-blittable
+    /// P/Invoke types. Used for SB0001 diagnostic — these methods are still emitted but may
+    /// crash at runtime. Suppression was not feasible because it breaks protocol conformance (CS0535).
     /// </summary>
     public static bool ShouldSuppressNonBlittableCallConvSwift(MethodEnvironment env)
     {
-        // If the method already has a @_cdecl wrapper, it's safe — no suppression needed
-        if (env.MethodDecl.UsesCdeclWrapper)
+        // If the method already has a @_cdecl wrapper or native thunk, it's safe — no suppression needed
+        if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesNativeThunk)
             return false;
 
-        // Check the method wrapper decision: only suppress when wrapping is needed but impossible
+        // Check the method wrapper decision: only flag when wrapping is not possible
         var decision = env.MethodDecl.IsConstructor
             ? DetermineConstructorWrapperDecision(env)
             : DetermineMethodWrapperDecision(env);
 
-        // CannotWrap: ShouldEmitWrapper=false but RequiresCdeclForAbiSafety may be true
-        // NoWrapperNeeded: RequiresCdeclForAbiSafety=false — safe for CallConvSwift
+        // CannotWrap: ShouldEmitWrapper=false — method has no wrapper/thunk path
         // WrapperRequired: will get a wrapper — safe
         if (decision != WrapperDecision.CannotWrap)
             return false;
@@ -1135,14 +1118,13 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Property-specific overload: returns true when a property accessor's P/Invoke would
-    /// use CallConvSwift with non-blittable parameters AND no @_cdecl wrapper is available.
-    /// Used for reporting purposes — properties are still emitted but will crash at runtime.
+    /// Property-specific overload: returns true when a property accessor has no @_cdecl
+    /// wrapper or native thunk AND has non-blittable P/Invoke types. Used for SB0001 diagnostic.
     /// </summary>
     public static bool ShouldSuppressNonBlittableCallConvSwift(PropertyDecl propertyDecl, MethodEnvironment env)
     {
-        // If the property already has a @_cdecl wrapper, it's safe
-        if (env.MethodDecl.UsesCdeclWrapper)
+        // If the property already has a @_cdecl wrapper or native thunk, it's safe
+        if (env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.UsesNativeThunk)
             return false;
 
         var decision = DeterminePropertyWrapperDecision(propertyDecl, env);

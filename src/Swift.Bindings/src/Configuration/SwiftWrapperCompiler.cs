@@ -121,7 +121,8 @@ namespace BindingsGeneration
             PlatformInfo? platformInfo = null,
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
-            string? swiftInterfacePath = null)
+            string? swiftInterfacePath = null,
+            bool skipThunkCompilation = false)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -129,7 +130,8 @@ namespace BindingsGeneration
                 simSlice, logger, commandRunner, internalTypeNames,
                 additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision,
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                swiftInterfacePath: swiftInterfacePath);
+                swiftInterfacePath: swiftInterfacePath,
+                skipThunkCompilation: skipThunkCompilation);
         }
 
         /// <summary>
@@ -147,6 +149,7 @@ namespace BindingsGeneration
             HashSet<string>? internalTypeNames = null,
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
+            bool skipThunkCompilation = false,
             PlatformInfo? platformInfo = null,
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
@@ -161,14 +164,17 @@ namespace BindingsGeneration
 
             // 1. Collect and post-process Swift files (once — source is architecture-agnostic)
             var swiftFiles = CollectSwiftFiles(outputDirectory);
-            if (swiftFiles.Count == 0)
+            var hasAssemblyFiles = !skipThunkCompilation &&
+                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory).Count > 0;
+
+            if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
-                logger.LogInformation("No Swift wrapper files found in {Dir} — skipping wrapper compilation.", outputDirectory);
+                logger.LogInformation("No Swift wrapper files or thunk assembly files found in {Dir} — skipping wrapper compilation.", outputDirectory);
                 return null;
             }
 
-            logger.LogInformation("Compiling {Count} Swift wrapper file(s) into {Module}.xcframework...",
-                swiftFiles.Count, wrapperModuleName);
+            logger.LogInformation("Compiling wrapper into {Module}.xcframework ({SwiftCount} Swift file(s), thunks: {HasThunks})...",
+                wrapperModuleName, swiftFiles.Count, hasAssemblyFiles ? "yes" : "no");
 
             var cleanedDir = Path.Combine(outputDirectory, ".wrapper-build");
             if (Directory.Exists(cleanedDir))
@@ -211,7 +217,7 @@ namespace BindingsGeneration
                     }
                 }
 
-                if (cleanedFiles.Count == 0)
+                if (cleanedFiles.Count == 0 && !hasAssemblyFiles)
                 {
                     logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s)).", totalStripped);
                     return new SwiftWrapperCompilationResult
@@ -243,6 +249,27 @@ namespace BindingsGeneration
                 var simTargetTriple = simSlice.GetTargetTriple(minOS);
                 var simBinaryPath = Path.Combine(simFrameworkDir, wrapperModuleName);
 
+                // Compile thunk assembly for simulator slice
+                // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
+                NativeThunkCompilationResult? simThunkResult = null;
+                if (!skipThunkCompilation)
+                {
+                    try
+                    {
+                        simThunkResult = NativeThunkCompiler.CompileThunkObjects(
+                            outputDirectory, simTargetTriple, simSdkPath, logger, commandRunner);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (hasAssemblyFiles)
+                        {
+                            logger.LogError("Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            throw;
+                        }
+                        logger.LogWarning("Thunk compilation failed for simulator slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
+                    }
+                }
+
                 // Pre-compile colliding module for simulator slice (EC-1)
                 string? simPrecompiledModulePath = null;
                 if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
@@ -253,14 +280,28 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass);
                 }
 
-                InvokeSwiftCompiler(
-                    cleanedFiles, simBinaryPath, wrapperModuleName,
-                    simTargetTriple, simSdkPath,
-                    simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                    simAdditionalSearchPaths, simPrecompiledModulePath);
-                sliceCount++;
+                if (cleanedFiles.Count > 0)
+                {
+                    InvokeSwiftCompiler(
+                        cleanedFiles, simBinaryPath, wrapperModuleName,
+                        simTargetTriple, simSdkPath,
+                        simulatorResolution.FrameworkSearchPath, commandRunner, logger,
+                        simAdditionalSearchPaths, simPrecompiledModulePath,
+                        simThunkResult?.ObjectFiles, moduleName);
+                    sliceCount++;
+                }
+                else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
+                {
+                    logger.LogInformation("No Swift wrappers — linking thunk objects with clang (simulator).");
+                    NativeThunkCompiler.LinkWithClang(
+                        simThunkResult.ObjectFiles, simBinaryPath, wrapperModuleName,
+                        simTargetTriple, simSdkPath, commandRunner, logger,
+                        simulatorResolution.FrameworkSearchPath, moduleName);
+                    sliceCount++;
+                }
 
-                logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
+                if (sliceCount > 0)
+                    logger.LogInformation("Compiled simulator slice for {Module}.", wrapperModuleName);
 
                 // 5. Compile device slice (if available)
                 if (deviceResolution != null)
@@ -272,6 +313,27 @@ namespace BindingsGeneration
                     var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
                     var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
                     var devBinaryPath = Path.Combine(devFrameworkDir, wrapperModuleName);
+
+                    // Compile thunk assembly for device slice
+                    // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
+                    NativeThunkCompilationResult? devThunkResult = null;
+                    if (!skipThunkCompilation)
+                    {
+                        try
+                        {
+                            devThunkResult = NativeThunkCompiler.CompileThunkObjects(
+                                outputDirectory, devTargetTriple, devSdkPath, logger, commandRunner);
+                        }
+                        catch (Exception ex)
+                        {
+                            if (hasAssemblyFiles)
+                            {
+                                logger.LogError("Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                                throw;
+                            }
+                            logger.LogWarning("Thunk compilation failed for device slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
+                        }
+                    }
 
                     // Pre-compile colliding module for device slice (EC-1)
                     // Must be per-slice as target triple and SDK differ.
@@ -286,14 +348,42 @@ namespace BindingsGeneration
                             nestedTypesInCollidingClass);
                     }
 
-                    InvokeSwiftCompiler(
-                        cleanedFiles, devBinaryPath, wrapperModuleName,
-                        devTargetTriple, devSdkPath,
-                        deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                        deviceAdditionalSearchPaths, devPrecompiledModulePath);
-                    sliceCount++;
+                    if (cleanedFiles.Count > 0)
+                    {
+                        InvokeSwiftCompiler(
+                            cleanedFiles, devBinaryPath, wrapperModuleName,
+                            devTargetTriple, devSdkPath,
+                            deviceResolution.FrameworkSearchPath, commandRunner, logger,
+                            deviceAdditionalSearchPaths, devPrecompiledModulePath,
+                            devThunkResult?.ObjectFiles, moduleName);
+                        sliceCount++;
+                    }
+                    else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
+                    {
+                        logger.LogInformation("No Swift wrappers — linking thunk objects with clang (device).");
+                        NativeThunkCompiler.LinkWithClang(
+                            devThunkResult.ObjectFiles, devBinaryPath, wrapperModuleName,
+                            devTargetTriple, devSdkPath, commandRunner, logger,
+                            deviceResolution.FrameworkSearchPath, moduleName);
+                        sliceCount++;
+                    }
 
-                    logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
+                    if (sliceCount > 1)
+                        logger.LogInformation("Compiled device slice for {Module}.", wrapperModuleName);
+                }
+
+                // Guard: if no slices were compiled (all Swift stripped + thunks failed), return failure
+                if (sliceCount == 0)
+                {
+                    logger.LogWarning("No wrapper binary produced: Swift wrappers stripped and thunk compilation failed.");
+                    return new SwiftWrapperCompilationResult
+                    {
+                        XCFrameworkPath = "",
+                        CompiledFileCount = 0,
+                        StrippedBlockCount = totalStripped,
+                        StrippedSymbols = allStrippedSymbols,
+                        SliceCount = 0
+                    };
                 }
 
                 // 6. Write xcframework Info.plist
@@ -362,23 +452,27 @@ namespace BindingsGeneration
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
-            string? swiftInterfacePath = null)
+            string? swiftInterfacePath = null,
+            bool skipThunkCompilation = false)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
 
-            // 1. Collect Swift files (exclude SwiftUI bridge)
+            // 1. Collect Swift files and assembly files
             var swiftFiles = CollectSwiftFiles(outputDirectory);
-            if (swiftFiles.Count == 0)
+            var hasAssemblyFiles = !skipThunkCompilation &&
+                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory).Count > 0;
+
+            if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
-                logger.LogInformation("No Swift wrapper files found in {Dir} — skipping wrapper compilation.", outputDirectory);
+                logger.LogInformation("No Swift wrapper files or thunk assembly files found in {Dir} — skipping wrapper compilation.", outputDirectory);
                 return null;
             }
 
-            logger.LogInformation("Compiling {Count} Swift wrapper file(s) into {Module}.xcframework...",
-                swiftFiles.Count, wrapperModuleName);
+            logger.LogInformation("Compiling wrapper into {Module}.xcframework ({SwiftCount} Swift file(s), thunks: {HasThunks})...",
+                wrapperModuleName, swiftFiles.Count, hasAssemblyFiles ? "yes" : "no");
 
-            // 2. Post-process each file into temp dir
+            // 2. Post-process Swift files into temp dir
             var cleanedDir = Path.Combine(outputDirectory, ".wrapper-build");
             if (Directory.Exists(cleanedDir))
                 Directory.Delete(cleanedDir, true);
@@ -421,7 +515,7 @@ namespace BindingsGeneration
                     }
                 }
 
-                if (cleanedFiles.Count == 0)
+                if (cleanedFiles.Count == 0 && !hasAssemblyFiles)
                 {
                     logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s)).", totalStripped);
                     return new SwiftWrapperCompilationResult
@@ -450,6 +544,29 @@ namespace BindingsGeneration
                 // 6. Build target triple
                 var targetTriple = slice.GetTargetTriple(minOS);
 
+                // 6a. Compile thunk assembly files (.arm64.s → .o)
+                // FATAL if .arm64.s files exist — generated P/Invokes reference thunk symbols
+                // that won't exist in the binary if compilation fails.
+                NativeThunkCompilationResult? thunkResult = null;
+                if (!skipThunkCompilation)
+                {
+                    try
+                    {
+                        thunkResult = NativeThunkCompiler.CompileThunkObjects(
+                            outputDirectory, targetTriple, sdkPath, logger, commandRunner);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (hasAssemblyFiles)
+                        {
+                            // .arm64.s files exist → P/Invokes reference thunk symbols → compilation MUST succeed
+                            logger.LogError("Thunk compilation failed and .arm64.s files exist — generated P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            throw;
+                        }
+                        logger.LogWarning("Thunk compilation failed (non-fatal, no .arm64.s files): {Message}", ex.Message);
+                    }
+                }
+
                 // 6b. Pre-compile colliding module if needed (EC-1)
                 string? precompiledModulePath = null;
                 if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
@@ -460,11 +577,38 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass);
                 }
 
-                // 7. Invoke swiftc
-                InvokeSwiftCompiler(
-                    cleanedFiles, outputBinaryPath, wrapperModuleName,
-                    targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                    additionalFrameworkSearchPaths, precompiledModulePath);
+                // 7. Link into wrapper binary
+                if (cleanedFiles.Count > 0)
+                {
+                    // Normal path: swiftc compiles Swift + links thunk .o files
+                    InvokeSwiftCompiler(
+                        cleanedFiles, outputBinaryPath, wrapperModuleName,
+                        targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
+                        additionalFrameworkSearchPaths, precompiledModulePath,
+                        thunkResult?.ObjectFiles, moduleName);
+                }
+                else if (thunkResult != null && thunkResult.ObjectFiles.Count > 0)
+                {
+                    // Edge case: no Swift wrappers (all functions thunked).
+                    // swiftc requires at least one .swift input, so use clang -shared.
+                    logger.LogInformation("No Swift wrappers — linking thunk objects with clang.");
+                    NativeThunkCompiler.LinkWithClang(
+                        thunkResult.ObjectFiles, outputBinaryPath, wrapperModuleName,
+                        targetTriple, sdkPath, commandRunner, logger,
+                        frameworkSearchPath, moduleName);
+                }
+                else if (cleanedFiles.Count == 0)
+                {
+                    // All Swift wrappers stripped AND thunk compilation failed — nothing to link
+                    logger.LogWarning("No wrapper binary produced: Swift wrappers stripped and thunk compilation failed.");
+                    return new SwiftWrapperCompilationResult
+                    {
+                        XCFrameworkPath = "",
+                        CompiledFileCount = 0,
+                        StrippedBlockCount = totalStripped,
+                        StrippedSymbols = allStrippedSymbols
+                    };
+                }
 
                 logger.LogInformation("{Module}.xcframework built successfully at {Path}",
                     wrapperModuleName, xcframeworkPath);
@@ -496,7 +640,7 @@ namespace BindingsGeneration
             }
             finally
             {
-                // 7. Cleanup temp dir
+                // 8. Cleanup temp dir
                 try
                 {
                     if (Directory.Exists(cleanedDir))
@@ -521,7 +665,8 @@ namespace BindingsGeneration
             PlatformInfo? platformInfo = null,
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
-            string? swiftInterfacePath = null)
+            string? swiftInterfacePath = null,
+            bool skipThunkCompilation = false)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -530,7 +675,8 @@ namespace BindingsGeneration
                 slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths,
                 moduleNameForCollision: moduleNameForCollision,
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                swiftInterfacePath: swiftInterfacePath);
+                swiftInterfacePath: swiftInterfacePath,
+                skipThunkCompilation: skipThunkCompilation);
         }
 
         /// <summary>
@@ -761,9 +907,29 @@ namespace BindingsGeneration
             ICommandRunner commandRunner,
             ILogger logger,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            string? precompiledModulePath = null)
+            string? precompiledModulePath = null,
+            IReadOnlyList<string>? thunkObjectFiles = null,
+            string? originalModuleName = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
+
+            // Append thunk .o files — swiftc passes them through to the linker.
+            // Also add -framework for the original module so the linker can resolve
+            // external symbols (Tj dispatch thunks, metadata accessors) referenced by thunk .o code.
+            var thunkLinkerFlags = "";
+            if (thunkObjectFiles != null && thunkObjectFiles.Count > 0)
+            {
+                var objectArgs = string.Join(" ", thunkObjectFiles.Select(f => $"\"{f}\""));
+                fileArgs += " " + objectArgs;
+
+                // The Swift import in the wrapper .swift file auto-links the framework for Swift symbols,
+                // but thunk .o files reference symbols via bl instructions that the linker needs to resolve.
+                // Adding -framework explicitly ensures the linker includes the framework in its search.
+                if (!string.IsNullOrEmpty(originalModuleName))
+                {
+                    thunkLinkerFlags = $"-Xlinker -framework -Xlinker {originalModuleName} ";
+                }
+            }
 
             var additionalFFlags = "";
             if (additionalFrameworkSearchPaths != null)
@@ -788,6 +954,7 @@ namespace BindingsGeneration
                        $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
                        $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
                        $"-module-name {wrapperModuleName} " +
+                       $"{thunkLinkerFlags}" +
                        $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                        $"-o \"{outputBinaryPath}\" " +
                        fileArgs;

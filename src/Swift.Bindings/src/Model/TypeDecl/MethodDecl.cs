@@ -258,46 +258,42 @@ namespace BindingsGeneration
         /// Enforces mutual exclusivity of CdeclConstructor/CdeclProperty/CdeclMethod
         /// by the type system instead of guard ordering.
         /// </summary>
-        public WrapperStrategy WrapperStrategy { get; set; } = WrapperStrategy.LegacyCallConvSwift;
+        public WrapperStrategy WrapperStrategy { get; set; } = WrapperStrategy.None;
 
         /// <summary>
-        /// When true, this constructor uses a @_cdecl Swift wrapper with C calling convention
-        /// instead of CallConvSwift. Routes constructor P/Invokes through CallingConvention.Cdecl
-        /// to avoid NativeAOT/ARM64 ABI mismatches with struct parameters and indirect results.
+        /// When true, this constructor uses a @_cdecl Swift wrapper with C calling convention.
+        /// Routes constructor P/Invokes through CallingConvention.Cdecl.
         /// Set by ConstructorWrapperEmitter before SignatureHandler construction.
         /// </summary>
         public bool UsesCdeclConstructorWrapper
         {
             get => WrapperStrategy == WrapperStrategy.CdeclConstructor;
             set { if (value) WrapperStrategy = WrapperStrategy.CdeclConstructor;
-                  else if (WrapperStrategy == WrapperStrategy.CdeclConstructor) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+                  else if (WrapperStrategy == WrapperStrategy.CdeclConstructor) WrapperStrategy = WrapperStrategy.None; }
         }
 
         /// <summary>
-        /// When true, this property accessor uses a @_cdecl Swift wrapper with C calling convention
-        /// instead of CallConvSwift. Routes property getter/setter P/Invokes through CallingConvention.Cdecl
-        /// to avoid NativeAOT/ARM64 ABI mismatches with enum, string, and non-blittable struct properties.
+        /// When true, this property accessor uses a @_cdecl Swift wrapper with C calling convention.
+        /// Routes property getter/setter P/Invokes through CallingConvention.Cdecl.
         /// Set by PropertyWrapperEmitter before SignatureHandler construction.
         /// </summary>
         public bool UsesCdeclPropertyWrapper
         {
             get => WrapperStrategy == WrapperStrategy.CdeclProperty;
             set { if (value) WrapperStrategy = WrapperStrategy.CdeclProperty;
-                  else if (WrapperStrategy == WrapperStrategy.CdeclProperty) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+                  else if (WrapperStrategy == WrapperStrategy.CdeclProperty) WrapperStrategy = WrapperStrategy.None; }
         }
 
         /// <summary>
-        /// When true, this method uses a @_cdecl Swift wrapper with C calling convention
-        /// instead of CallConvSwift. Routes method P/Invokes through CallingConvention.Cdecl
-        /// to avoid NativeAOT/ARM64 ABI mismatches with non-blittable params (NSUrl, etc.)
-        /// and remaining Mono JIT crashes on device.
+        /// When true, this method uses a @_cdecl Swift wrapper with C calling convention.
+        /// Routes method P/Invokes through CallingConvention.Cdecl.
         /// Set by MethodWrapperEmitter before SignatureHandler construction.
         /// </summary>
         public bool UsesCdeclMethodWrapper
         {
             get => WrapperStrategy == WrapperStrategy.CdeclMethod;
             set { if (value) WrapperStrategy = WrapperStrategy.CdeclMethod;
-                  else if (WrapperStrategy == WrapperStrategy.CdeclMethod) WrapperStrategy = WrapperStrategy.LegacyCallConvSwift; }
+                  else if (WrapperStrategy == WrapperStrategy.CdeclMethod) WrapperStrategy = WrapperStrategy.None; }
         }
 
         /// <summary>
@@ -307,6 +303,20 @@ namespace BindingsGeneration
         public bool UsesCdeclWrapper => WrapperStrategy is WrapperStrategy.CdeclConstructor
             or WrapperStrategy.CdeclProperty
             or WrapperStrategy.CdeclMethod;
+
+        /// <summary>
+        /// Computed property: true if this method is routed through a native ARM64 assembly thunk.
+        /// Thunks bridge cdecl → swiftcc at the native level, eliminating the need for @_cdecl
+        /// Swift wrappers or CallConvSwift runtime support.
+        /// </summary>
+        public bool UsesNativeThunk => WrapperStrategy == WrapperStrategy.NativeThunk;
+
+        /// <summary>
+        /// Whether the native ARM64 thunk assembly has already been emitted for this method.
+        /// Set by PropertyHandler and SubscriptHandler when they emit thunks directly,
+        /// to prevent MethodHandler from emitting a duplicate thunk.
+        /// </summary>
+        public bool ThunkAssemblyEmitted { get; set; } = false;
 
         /// <summary>
         /// Whether this method has closure parameters handled by the @_cdecl wrapper.
@@ -345,10 +355,7 @@ namespace BindingsGeneration
     /// </summary>
     public enum WrapperStrategy
     {
-        /// <summary>Default: no wrapper, uses CallConvSwift calling convention.</summary>
-        LegacyCallConvSwift,
-
-        /// <summary>Method intentionally not emitted (skipped by a gate).</summary>
+        /// <summary>Default: no wrapper or thunk. Uses CallConvSwift for direct Swift symbol P/Invoke.</summary>
         None,
 
         /// <summary>Constructor routed through a @_cdecl Swift wrapper.</summary>
@@ -359,5 +366,8 @@ namespace BindingsGeneration
 
         /// <summary>Method routed through a @_cdecl Swift wrapper.</summary>
         CdeclMethod,
+
+        /// <summary>Method routed through a native ARM64 assembly thunk (cdecl → swiftcc bridge).</summary>
+        NativeThunk,
     }
 }

@@ -2063,8 +2063,8 @@ public class AbiSafetyTests
         };
         moduleDecl.Types.Add(parentDecl);
 
-        // Method with only Int params on final class — NO ABI safety issue
-        // UsesCdeclMethodWrapper is NOT set (primary method uses CallConvSwift)
+        // Method with only Int params on final class
+        // UsesCdeclMethodWrapper is NOT set on primary method
         var method = new MethodDecl
         {
             Name = "compute",
@@ -2112,7 +2112,7 @@ public class AbiSafetyTests
             Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public,
-            // Primary method does NOT use @_cdecl (all primitives, final class)
+            // Primary method does not have explicit wrapper set
             UsesCdeclMethodWrapper = false,
             UsesWrapperLibrary = false,
         };
@@ -2135,9 +2135,8 @@ public class AbiSafetyTests
         Assert.Contains("@_silgen_name", swiftOutput);
         Assert.Contains("_dbw_compute_", swiftOutput);
 
-        // Should NOT emit @_cdecl wrapper (method doesn't need it for ABI safety)
-        Assert.DoesNotContain("@_cdecl", swiftOutput);
-        Assert.DoesNotContain("SBW_TestModule_Calculator_compute_", swiftOutput);
+        // All eligible methods now get @_cdecl wrappers (CallConvSwift eliminated)
+        Assert.Contains("@_cdecl", swiftOutput);
     }
 
     #endregion

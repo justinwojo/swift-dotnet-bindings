@@ -173,10 +173,11 @@ namespace BindingsGeneration
             // String @_cdecl property wrappers use indirect result (resultPtr) because
             // @_cdecl can't return Swift structs (SBW_Utf8Slice). Falls through to indirect result path below.
 
-            // DynamicSelf (Self return type) on @_cdecl class wrappers:
+            // DynamicSelf (Self return type) on @_cdecl class wrappers or native thunks:
             // Swift wrapper returns retained class pointer (UnsafeMutableRawPointer) directly.
             // P/Invoke receives IntPtr — no indirect result needed.
-            if (returnType.SwiftTypeSpec.IsDynamicSelf && _env.MethodDecl.UsesCdeclWrapper)
+            // Thunks also return class pointers in x0 (single register, no indirect result).
+            if (returnType.SwiftTypeSpec.IsDynamicSelf && (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk))
             {
                 SetReturnType("IntPtr");
                 return;
@@ -186,7 +187,12 @@ namespace BindingsGeneration
             {
                 if (_env.MethodDecl.UsesCdeclWrapper)
                 {
-                    // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register
+                    // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
+                    // Under CallConvCdecl, SwiftIndirectResult would be placed in a regular register (x0)
+                    // instead of the x8 register that the wrapper expects.
+                    // NOTE: Native thunks are NOT included here. Thunks rely on AAPCS64's hidden x8
+                    // register for struct return buffers (the thunk prologue does `mov x19, x8`).
+                    // Replacing SwiftIndirectResult with IntPtr would put resultPtr in x0 instead of x8.
                     AddParameter("IntPtr", "resultPtr");
                     // Decomposed Optional getter: add hasValuePtr after resultPtr.
                     // The Swift wrapper writes the inner payload to resultPtr and the hasValue flag to hasValuePtr.
@@ -624,11 +630,13 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleSwiftSelf()
         {
-            // Standalone closure Cdecl wrapper and @_cdecl method wrapper use free-function Swift wrapper.
+            // Standalone closure Cdecl wrapper, @_cdecl method wrapper, and native thunks use free-function style.
             // Pass self as explicit IntPtr (same as async pattern).
+            // Under CallConvCdecl, SwiftSelf would be placed in a regular register instead of x20,
+            // which doesn't match what the thunk/wrapper expects. Use plain IntPtr instead.
             // Wrapper generator paths (ArraySlice, DefaultParam) keep extension methods
             // with implicit self via SwiftSelf — they set HasClosureCdeclWrapper but NOT UsesFreeFunctionWrapper.
-            if ((_env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
+            if ((_env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper || _env.MethodDecl.UsesNativeThunk) && MarshallingHelpers.MethodRequiresSwiftSelf(_env))
             {
                 if (_env.ParentDecl is ClassDecl classParentFree && classParentFree.IsObjCRooted)
                 {
@@ -718,9 +726,11 @@ namespace BindingsGeneration
 
             if (_env.MethodDecl.Throws)
             {
-                if (_env.MethodDecl.UsesCdeclWrapper)
+                if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk)
                 {
-                    // @_cdecl wrapper: error reported via out-pointer, not SwiftError register.
+                    // @_cdecl wrapper / native thunk: error reported via out-pointer, not SwiftError register.
+                    // Under CallConvCdecl, SwiftError would be placed in a regular register instead of x21,
+                    // which doesn't match what the thunk/wrapper expects. Use plain IntPtr instead.
                     // 'out IntPtr' marshals as a pointer parameter — callee writes through it.
                     AddParameter("IntPtr", "errorPtr", "out");
                 }
@@ -790,29 +800,17 @@ namespace BindingsGeneration
         {
             var hasOpaqueReturn = methodDecl.CSSignature.First().SwiftTypeSpec is ProtocolListTypeSpec { IsOpaque: true };
             var needsWrapperLib = methodDecl.IsAsync || hasOpaqueReturn || methodDecl.UsesWrapperLibrary;
-            var entryPoint = NameProvider.GetMangledName(methodDecl);
 
-            // With library evolution, non-final class instance methods and property accessors
-            // are dispatched through vtable thunks. The bare method symbol is a local
-            // (non-exported) symbol in the dylib; only the dispatch thunk (Tj suffix) is
-            // globally exported. Final classes use direct dispatch and export bare symbols.
-            // Individual members can also be final (e.g. stored let properties) — these
-            // use direct dispatch even inside non-final classes.
-            // Constructors and static methods are directly exported and don't need this.
-            // Wrapper library methods use @_silgen_name/@_cdecl free functions, not thunked.
-            // Extension methods use static dispatch — they have no vtable entry and no Tj
-            // thunk symbol. This is critical for cross-module extensions (e.g., StripePayments
-            // extending StripeCore.STPAPIClient) where Tj thunks don't exist in any binary.
-            if (!needsWrapperLib &&
-                methodDecl.ParentDecl is ClassDecl classParent &&
-                !classParent.IsFinal &&
-                !methodDecl.IsFinal &&
-                methodDecl.MethodType == MethodType.Instance &&
-                !methodDecl.IsConstructor &&
-                !methodDecl.IsExtensionMethod)
+            // Native thunks and @_cdecl wrappers: entry point is the thunk/wrapper symbol
+            // (already set in MangledName by MethodHandler/PropertyHandler/SubscriptHandler).
+            // The wrapper library hosts both thunk .o files and @_cdecl Swift functions.
+            if (needsWrapperLib)
             {
-                entryPoint += "Tj";
+                return (NameProvider.GetMangledName(methodDecl), needsWrapperLib);
             }
+
+            // Direct Swift call: use SwiftCallTargetResolver for Tj dispatch thunk logic.
+            var entryPoint = SwiftCallTargetResolver.Resolve(methodDecl, methodDecl.ParentDecl);
 
             return (entryPoint, needsWrapperLib);
         }
@@ -849,10 +847,9 @@ namespace BindingsGeneration
                     ReturnType = pInvokeSignature.ReturnType,
                     ParametersString = pInvokeSignature.PInvokeParametersString(),
                     IsAsync = methodDecl.IsAsync,
-                    // @_cdecl wrappers use C calling convention, not Swift calling convention.
-                    // Must propagate UsesCdeclWrapper to the helper class P/Invoke declaration
-                    // to emit CallConvCdecl instead of CallConvSwift.
-                    OmitCallingConvention = methodDecl.UsesCdeclWrapper,
+                    // Propagate the correct calling convention to the helper class P/Invoke declaration.
+                    // @_cdecl wrappers and native thunks use Cdecl; @_silgen_name wrappers use Swift.
+                    CallingConvention = WrapperValidation.GetCallingConvention(methodDecl),
                     // Methods with GenericParameters already have per-param TypeMetadata in the
                     // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
                     // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).
@@ -861,7 +858,7 @@ namespace BindingsGeneration
                     // @_cdecl constructors: metadata is already included via HandleGenericMetadata()
                     // (maps to _metadata0 in the @_cdecl wrapper). No extra metatype param needed —
                     // the @_cdecl wrapper handles metatype dispatch internally.
-                    MetadataParameters = methodDecl.UsesCdeclWrapper
+                    MetadataParameters = methodDecl.UsesCdeclWrapper || methodDecl.UsesNativeThunk
                         ? Array.Empty<string>()
                         : methodDecl.GenericParameters.Count > 0
                             ? (methodDecl.IsConstructor

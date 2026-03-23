@@ -444,7 +444,8 @@ namespace BindingsGeneration
             string xcframeworkPath, string outputDirectory,
             string? platformStr, string? platformTargetStr,
             string? wrapperArchitectures, string[]? frameworkDependencies,
-            ILogger logger, PlatformInfo platformInfo)
+            ILogger logger, PlatformInfo platformInfo,
+            bool skipThunkCompilation = false)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -524,6 +525,7 @@ namespace BindingsGeneration
                         internalTypeNames: internalTypeNames,
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
+                        skipThunkCompilation: skipThunkCompilation,
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
@@ -554,7 +556,8 @@ namespace BindingsGeneration
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: deviceResolution.SwiftInterfacePath);
+                        swiftInterfacePath: deviceResolution.SwiftInterfacePath,
+                        skipThunkCompilation: skipThunkCompilation);
                 }
                 else
                 {
@@ -566,7 +569,8 @@ namespace BindingsGeneration
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        skipThunkCompilation: skipThunkCompilation);
                 }
             }
             catch (Exception ex)

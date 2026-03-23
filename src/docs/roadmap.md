@@ -1,14 +1,15 @@
 # Roadmap
 
-**Updated**: March 22, 2026
+**Updated**: March 23, 2026
 
 Previous sessions archived in `Completed/`:
 - Sessions 0–14, architecture audit, post-audit fixes → `roadmap-march-2026-sessions.md`
 - Stability Sessions 1–2, Post-Stability Sessions A–F, error code audit, CONTRIBUTING.md → `post-stability-sessions-a-f.md`
+- Native thunk migration Sessions 1–6 → `ThunkMigration.md`
 
 ---
 
-## Current State (March 22, 2026)
+## Current State (March 23, 2026)
 
 | Metric | Value |
 |--------|-------|
@@ -74,8 +75,8 @@ Small items that can be tackled opportunistically or folded into any session.
 |------|---------|--------|
 | Optional\<Bool\>/Optional\<SimpleEnum\> in closures | ~5-10 skips (RxSwift, Alamofire) | Medium — requires extra inhabitant encoding support in `MarshalOptionalFromSwift<T>` |
 | SwiftUI type public construction | Consumer ergonomics | Small |
-| ObjC-bridged optional setter @_cdecl wrapper | Final class `UIViewController?`/`NSString?` setters still CallConvSwift — `ShouldEmitWrapper` rejects due to IntPtr reconstruction incompatibility | Medium |
-| Optional-closure property setter @_cdecl wrapper | Final class `((…) -> Void)?` setters still CallConvSwift — `ShouldEmitWrapper` rejects closure properties | Medium |
+| ObjC-bridged optional setter @_cdecl wrapper | Final class `UIViewController?`/`NSString?` setters emit with SB0001 — `ShouldEmitWrapper` rejects due to IntPtr reconstruction incompatibility | Medium |
+| Optional-closure property setter @_cdecl wrapper | Final class `((…) -> Void)?` setters emit with SB0001 — `ShouldEmitWrapper` rejects closure properties | Medium |
 
 ---
 

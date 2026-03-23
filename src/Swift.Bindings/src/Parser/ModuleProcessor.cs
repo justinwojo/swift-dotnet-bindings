@@ -349,6 +349,15 @@ namespace BindingsGeneration
                 }
             }
 
+            // Compute ABI field layout for frozen structs (used by ARM64 thunk register decomposition).
+            // Each stored instance property is classified as: i (integer), f (float), b (bool), p (pointer).
+            // Nested frozen structs are recursively flattened. Layout is null if any field can't be classified.
+            string? abiFieldLayout = null;
+            if ((flags & TypeRecordFlags.Frozen) != 0)
+            {
+                abiFieldLayout = ComputeAbiFieldLayout(structDecl);
+            }
+
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = structDecl.SwiftTypeName,
@@ -358,9 +367,155 @@ namespace BindingsGeneration
                 Flags = flags,
                 Kind = TypeRecordKind.Struct,
                 InlineSize = inlineSize,
+                AbiFieldLayout = abiFieldLayout,
             };
 
             _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
+        }
+
+        /// <summary>
+        /// Computes the ABI field layout string for a frozen struct by classifying each stored
+        /// instance property as integer (i), float (f), bool (b), or pointer (p).
+        /// Nested frozen structs are recursively flattened.
+        /// Returns null if any field cannot be classified (e.g., generic, existential, non-frozen nested struct).
+        /// </summary>
+        private string? ComputeAbiFieldLayout(StructDecl structDecl)
+        {
+            var fields = new List<string>();
+
+            foreach (var propertyDecl in structDecl.Properties)
+            {
+                // Skip computed/static properties — only stored instance properties affect ABI layout
+                if (propertyDecl.IsStatic || !propertyDecl.HasStorage)
+                    continue;
+
+                if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedType)
+                {
+                    _logger.LogDebug("ABI layout: field '{Field}' in '{Type}' is not a NamedTypeSpec — falling back to @_cdecl.",
+                        propertyDecl.Name, structDecl.Name);
+                    return null; // Can't classify (e.g., tuple, closure, protocol composition)
+                }
+
+                var fieldLayout = ClassifyFieldType(namedType);
+                if (fieldLayout == null)
+                {
+                    _logger.LogDebug("ABI layout: field '{Field}' (type {FieldType}) in '{Type}' cannot be classified — falling back to @_cdecl.",
+                        propertyDecl.Name, namedType.Name, structDecl.Name);
+                    return null; // Can't classify — layout unknown
+                }
+
+                fields.Add(fieldLayout);
+            }
+
+            return fields.Count > 0 ? string.Join(",", fields) : null;
+        }
+
+        /// <summary>
+        /// Classifies a single field type for ABI layout purposes.
+        /// Returns a layout fragment: "i" for integer, "f" for float, "b" for bool, "p" for pointer,
+        /// or a comma-separated list for nested frozen structs (e.g., "i,f" for a struct with Int and Double).
+        /// Returns null if the type cannot be classified.
+        ///
+        /// NOTE: Sub-8-byte integer types (Int8, Int16, Int32) are classified as "i" (8-byte integer slot)
+        /// because the layout string represents register FILE classification, not exact byte widths.
+        /// Each leaf scalar field occupies one full ARM64 register in swiftcc. The exact byte sizes
+        /// needed for thunk store instructions are resolved at thunk emission time (Session 2) from
+        /// the original TypeSpec, not from this layout string.
+        /// </summary>
+        private string? ClassifyFieldType(NamedTypeSpec namedType)
+        {
+            // Primitive scalar types
+            switch (namedType.Name)
+            {
+                case "Swift.Int":
+                case "Swift.UInt":
+                case "Swift.Int8":
+                case "Swift.UInt8":
+                case "Swift.Int16":
+                case "Swift.UInt16":
+                case "Swift.Int32":
+                case "Swift.UInt32":
+                case "Swift.Int64":
+                case "Swift.UInt64":
+                    return "i";
+
+                case "Swift.Float":
+                case "Swift.Double":
+                case "CoreFoundation.CGFloat":
+                case "CoreGraphics.CGFloat":
+                    return "f";
+
+                case "Swift.Bool":
+                    return "b";
+
+                case "Swift.OpaquePointer":
+                case "Swift.UnsafeRawPointer":
+                case "Swift.UnsafeMutableRawPointer":
+                    return "p";
+            }
+
+            // Generic types can't be classified without specialization
+            if (namedType.ContainsGenericParameters)
+            {
+                // Special case: Optional wraps a classifiable inner type
+                if (namedType.Name == "Swift.Optional" && namedType.GenericParameters.Count == 1)
+                {
+                    // Optional<class> is a single nullable pointer — no tag
+                    if (namedType.GenericParameters[0] is NamedTypeSpec innerType)
+                    {
+                        if (TryGetTypeRecord(innerType, out var innerRecord) && innerRecord.Kind == TypeRecordKind.Class)
+                            return "p";
+
+                        // Optional<value type> = inner layout + tag byte (integer slot)
+                        var innerLayout = ClassifyFieldType(innerType);
+                        if (innerLayout != null)
+                            return $"{innerLayout},i";
+                    }
+                    return null;
+                }
+
+                // UnsafePointer<T>, UnsafeMutablePointer<T> — pointer regardless of T
+                if (namedType.Name is "Swift.UnsafePointer" or "Swift.UnsafeMutablePointer")
+                    return "p";
+
+                return null;
+            }
+
+            // Existential types can't be classified
+            if (namedType.IsAny)
+                return null;
+
+            // Look up in type database for struct/class/enum
+            if (!TryGetTypeRecord(namedType, out var record))
+                return null;
+
+            switch (record.Kind)
+            {
+                case TypeRecordKind.Class:
+                    return "p"; // Class reference is always a pointer
+
+                case TypeRecordKind.Enum:
+                    if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                        return "i"; // Simple enum with raw integer value
+                    return null; // Complex enum — can't classify without deeper analysis
+
+                case TypeRecordKind.Struct:
+                    // Non-frozen struct — layout unknown at compile time
+                    if (!record.Flags.HasFlag(TypeRecordFlags.Frozen))
+                        return null;
+
+                    // If the nested struct already has a computed ABI layout, use it
+                    if (!string.IsNullOrEmpty(record.AbiFieldLayout))
+                        return record.AbiFieldLayout;
+
+                    // Frozen struct without layout — e.g., cross-module dependency emitted by an older
+                    // generator that predates abiLayout persistence. This causes the entire parent struct's
+                    // layout to become null, routing the function to @_cdecl instead of native thunk.
+                    return null;
+
+                default:
+                    return null;
+            }
         }
 
         /// <summary>

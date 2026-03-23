@@ -1101,6 +1101,139 @@ public class PInvokeEmitterTests
 
     #endregion
 
+    #region NativeThunk P/Invoke Signatures
+
+    [Fact]
+    public void NativeThunk_InstanceMethod_UsesIntPtrSelf_NotSwiftSelf()
+    {
+        // NativeThunk instance methods should use plain IntPtr for self (like @_cdecl),
+        // not SwiftSelf which uses the x20 register under CallConvSwift.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Widget", moduleDecl);
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+
+        var typeDb = CreateBasicTypeDatabase("Widget");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Should contain IntPtr self parameter, not SwiftSelf
+        var paramStr = sig.PInvokeParametersString();
+        Assert.Contains("IntPtr _selfClass", paramStr);
+        Assert.DoesNotContain("SwiftSelf", paramStr);
+    }
+
+    [Fact]
+    public void NativeThunk_ThrowingMethod_UsesOutIntPtrError_NotSwiftError()
+    {
+        // NativeThunk throwing methods should use 'out IntPtr errorPtr' (like @_cdecl),
+        // not 'ref SwiftError swiftError' which uses the x21 register under CallConvSwift.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Parser", moduleDecl);
+        var method = CreateMethod("parse", classDecl, moduleDecl);
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+        method.Throws = true;
+
+        var typeDb = CreateBasicTypeDatabase("Parser");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        var paramStr = sig.PInvokeParametersString();
+        Assert.Contains("out IntPtr errorPtr", paramStr);
+        Assert.DoesNotContain("SwiftError", paramStr);
+    }
+
+    [Fact]
+    public void NativeThunk_IndirectResult_UsesSwiftIndirectResult_NotIntPtrResultPtr()
+    {
+        // NativeThunk methods with indirect result should use 'SwiftIndirectResult' (x8 register),
+        // NOT 'IntPtr resultPtr'. Thunks rely on AAPCS64's hidden x8 register for struct return
+        // buffers — the thunk prologue does 'mov x19, x8' to save the buffer. If C# puts resultPtr
+        // in x0 (as a regular IntPtr param), the thunk reads x8 which is something else entirely.
+        // Only @_cdecl wrappers use IntPtr resultPtr (because the Swift wrapper has resultPtr as
+        // an explicit parameter in x0).
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getData", classDecl, moduleDecl);
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+        // Return a non-frozen struct type which triggers indirect result
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.Data"), moduleDecl);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Loader"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Loader"),
+                MetadataAccessor = "$s10TestModule6LoaderCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Data"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Data"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Data"),
+                MetadataAccessor = "$s10TestModule4DataVMa",
+                Flags = TypeRecordFlags.None, // Non-frozen → triggers indirect result
+                Kind = TypeRecordKind.Struct
+            });
+        var typeDb = CreateBasicTypeDatabase(testModule: testModule);
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        var paramStr = sig.PInvokeParametersString();
+        Assert.Contains("SwiftIndirectResult", paramStr);
+        Assert.DoesNotContain("IntPtr resultPtr", paramStr);
+        Assert.Equal("void", sig.ReturnType);
+    }
+
+    [Fact]
+    public void NativeThunk_FrozenStructSelf_UsesIntPtrSelf_NotSwiftSelfTyped()
+    {
+        // NativeThunk instance methods on frozen structs should use IntPtr for self (like @_cdecl),
+        // not SwiftSelf<T> which uses the x20 register under CallConvSwift.
+        var moduleDecl = CreateModuleDecl();
+        var structDecl = CreateFrozenStructDecl("Point", moduleDecl);
+        var method = CreateMethod("magnitude", structDecl, moduleDecl);
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("Swift.Double"), moduleDecl);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
+            });
+        var typeDb = CreateBasicTypeDatabase(testModule: testModule);
+
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        var paramStr = sig.PInvokeParametersString();
+        Assert.Contains("IntPtr _selfFixed", paramStr);
+        Assert.DoesNotContain("SwiftSelf", paramStr);
+    }
+
+    [Fact]
+    public void NativeThunk_CallingConvention_IsCdecl()
+    {
+        // NativeThunk methods should use CallConvCdecl, not CallConvSwift.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Widget", moduleDecl);
+        var method = CreateMethod("doWork", classDecl, moduleDecl);
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+
+        var convention = WrapperValidation.GetCallingConvention(method);
+        Assert.Equal(PInvokeCallingConvention.Cdecl, convention);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static Signature GetPInvokeSignature(MethodDecl method, TypeDatabase typeDb)

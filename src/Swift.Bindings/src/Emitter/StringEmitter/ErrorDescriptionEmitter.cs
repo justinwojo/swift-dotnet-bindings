@@ -267,7 +267,6 @@ public static class ErrorDescriptionEmitter
                 MethodName = "SBW_GetErrorDescription",
                 ReturnType = "IntPtr",
                 ParametersString = "IntPtr error",
-                OmitCallingConvention = true,
                 UsePrivateVisibility = false,
             });
             pInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
@@ -277,7 +276,6 @@ public static class ErrorDescriptionEmitter
                 MethodName = "SBW_ReleaseError",
                 ReturnType = "void",
                 ParametersString = "IntPtr error",
-                OmitCallingConvention = true,
                 UsePrivateVisibility = false,
             });
 
@@ -291,7 +289,6 @@ public static class ErrorDescriptionEmitter
                     MethodName = "SBW_Free",
                     ReturnType = "void",
                     ParametersString = "IntPtr ptr",
-                    OmitCallingConvention = true,
                     UsePrivateVisibility = false,
                 });
             }
@@ -347,7 +344,6 @@ public static class ErrorDescriptionEmitter
                 MethodName = $"SBW_ExtractTypedError_{typedErrorSafeSuffix}",
                 ReturnType = "IntPtr",
                 ParametersString = "IntPtr error",
-                OmitCallingConvention = true,
                 UsePrivateVisibility = false,
             });
         }

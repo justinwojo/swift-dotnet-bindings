@@ -17,27 +17,27 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class ConsumerSafetyAttributeTests
 {
-    #region Deliverable 1: CallConvSwift Fallback [Obsolete]
+    #region Deliverable 1: No Wrapper/Thunk Fallback [Obsolete]
 
     [Fact]
-    public void CallConvSwiftFallback_NoWrapper_EmitsObsoleteWithSB0001()
+    public void NoWrapperOrThunk_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("handle", classDecl, moduleDecl);
-        // No @_cdecl wrapper → uses CallConvSwift → gets warning
+        // No @_cdecl wrapper or native thunk → gets warning
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Contains("No @_cdecl wrapper or native thunk available", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         Assert.DoesNotContain(", true)]", csOutput);
     }
 
     [Fact]
-    public void CallConvSwiftFallback_CdeclMethodWrapper_NoObsolete()
+    public void CdeclMethodWrapper_NoObsolete()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -52,7 +52,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void CallConvSwiftFallback_CdeclConstructorWrapper_NoObsolete()
+    public void CdeclConstructorWrapper_NoObsolete()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -67,7 +67,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void CallConvSwiftFallback_Constructor_NoWrapper_EmitsObsoleteWithSB0001()
+    public void NoWrapperOrThunk_Constructor_EmitsObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -77,7 +77,7 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
 
         Assert.Contains("[Obsolete(\"", csOutput);
-        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Contains("No @_cdecl wrapper or native thunk available", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
     }
 
@@ -176,7 +176,7 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
-    public void CombinedCallConvSwiftAndMissingSymbol_SingleObsoleteWithSB0001()
+    public void CombinedNoWrapperAndMissingSymbol_SingleObsoleteWithSB0001()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl();
@@ -188,7 +188,7 @@ public class ConsumerSafetyAttributeTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // Should have a single [Obsolete] with both messages, using SB0001 (broader scope)
-        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Contains("No @_cdecl wrapper or native thunk available", csOutput);
         Assert.Contains("EntryPointNotFoundException", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         // Only one [Obsolete] attribute
@@ -344,23 +344,23 @@ public class ConsumerSafetyAttributeTests
     #region GetSafetyObsoleteAttribute (async wrapper propagation)
 
     [Fact]
-    public void GetSafetyObsoleteAttribute_CallConvSwift_ReturnsSB0001()
+    public void GetSafetyObsoleteAttribute_NoWrapperOrThunk_ReturnsSB0001()
     {
         var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
-        // No @_cdecl wrapper → CallConvSwift fallback
+        // No @_cdecl wrapper or native thunk → gets SB0001
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
 
         Assert.NotNull(attr);
         Assert.Contains("SB0001", attr);
-        Assert.Contains("CallConvSwift", attr);
+        Assert.Contains("No @_cdecl wrapper or native thunk available", attr);
     }
 
     [Fact]
     public void GetSafetyObsoleteAttribute_MissingSymbol_ReturnsSB0002()
     {
         var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
-        method.UsesCdeclMethodWrapper = true; // Has wrapper, so no CallConvSwift warning
+        method.UsesCdeclMethodWrapper = true; // Has wrapper, so no SB0001 warning
         method.IsMissingExportedSymbol = true;
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(method);

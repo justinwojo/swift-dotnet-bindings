@@ -112,6 +112,12 @@ public class CliOptions
                      "Used by the SDK to defer wrapper compilation until after dependencies are built.",
         getDefaultValue: () => false);
 
+    public Option<bool> SkipThunkCompilation { get; } = new(
+        aliases: new[] { "--skip-thunk-compilation" },
+        description: "Skip native thunk assembly compilation. Generated .arm64.s files will not be compiled or linked. " +
+                     "Thunk symbols will be missing from the wrapper binary.",
+        getDefaultValue: () => false);
+
     public Option<bool> CompileWrapperOnly { get; } = new(
         aliases: new[] { "--compile-wrapper-only" },
         description: "Compile-wrapper-only mode: skips all parsing and C# generation, compiles existing .swift wrapper files " +
@@ -154,6 +160,7 @@ public class CliOptions
             NoAutoDetect,
             ObjC,
             SkipWrapperCompilation,
+            SkipThunkCompilation,
             CompileWrapperOnly,
             Config,
             Verbose,

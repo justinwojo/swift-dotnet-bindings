@@ -5,13 +5,17 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Calling convention for P/Invoke declarations.
+/// Most methods use CallConvCdecl (routed through @_cdecl wrappers or native ARM64 thunks).
+/// Methods with WrapperStrategy.None that target raw Swift symbols use CallConvSwift.
 /// </summary>
 public enum PInvokeCallingConvention
 {
-    /// <summary>Swift calling convention via CallConvSwift.</summary>
-    Swift,
-    /// <summary>C calling convention via CallConvCdecl.</summary>
-    Cdecl
+    /// <summary>C calling convention via CallConvCdecl. Used for @_cdecl wrappers and native thunks.</summary>
+    Cdecl,
+
+    /// <summary>Swift calling convention via CallConvSwift. Used for direct Swift symbol calls
+    /// (WrapperStrategy.None) where no wrapper or thunk is available.</summary>
+    Swift
 }
 
 /// <summary>
@@ -44,8 +48,8 @@ public record PInvokeEmissionInfo
     /// <summary>The parameter list string for the P/Invoke method.</summary>
     public required string ParametersString { get; init; }
 
-    /// <summary>Calling convention (Swift or Cdecl).</summary>
-    public PInvokeCallingConvention CallingConvention { get; init; } = PInvokeCallingConvention.Swift;
+    /// <summary>Calling convention: Cdecl for wrappers/thunks, Swift for direct symbol calls.</summary>
+    public PInvokeCallingConvention CallingConvention { get; init; } = PInvokeCallingConvention.Cdecl;
 
     /// <summary>Visibility modifier for the declaration.</summary>
     public PInvokeVisibility Visibility { get; init; } = PInvokeVisibility.Private;
@@ -91,10 +95,12 @@ public static class PInvokeEmitHelper
     {
         var lines = new List<string>();
 
-        // Calling convention attribute
-        var callConvType = info.CallingConvention == PInvokeCallingConvention.Swift
-            ? "CallConvSwift"
-            : "CallConvCdecl";
+        // Calling convention attribute — use the specified convention
+        var callConvType = info.CallingConvention switch
+        {
+            PInvokeCallingConvention.Swift => "CallConvSwift",
+            _ => "CallConvCdecl"
+        };
 
         // If any parameter or return type is string, add StringMarshalling attribute
         var needsStringMarshalling = info.ParametersString.Contains("string ")

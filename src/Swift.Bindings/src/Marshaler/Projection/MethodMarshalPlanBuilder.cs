@@ -156,8 +156,8 @@ internal class MethodMarshalPlanBuilder
         }
 
         // Pre-declare SwiftError for 'ref' passing (caller must zero-initialize per Swift ABI).
-        // @_cdecl wrappers use 'out IntPtr errorPtr' — no SwiftError needed.
-        if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper)
+        // @_cdecl wrappers and native thunks use 'out IntPtr errorPtr' — no SwiftError needed.
+        if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
             lines.Add("var swiftError = default(SwiftError);");
 
         // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
@@ -216,9 +216,9 @@ internal class MethodMarshalPlanBuilder
         if (!_requiresSwiftSelf)
             return null;
 
-        // Async methods, standalone closure Cdecl wrappers, and @_cdecl method wrappers
+        // Async methods, standalone closure Cdecl wrappers, @_cdecl method wrappers, and native thunks
         // pass self as explicit IntPtr parameter — no SwiftSelf needed.
-        if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper)
+        if (_requiresSwiftAsync || _env.MethodDecl.UsesFreeFunctionWrapper || _env.MethodDecl.UsesCdeclMethodWrapper || _env.MethodDecl.UsesNativeThunk)
             return null;
 
         // Frozen struct setters use a fixed block to get a pointer to 'this'
@@ -390,6 +390,8 @@ internal class MethodMarshalPlanBuilder
                 // @_cdecl wrapper: plain IntPtr result buffer, not SwiftIndirectResult register.
                 // _cdeclBuf is declared before try block (EmitCdeclPayloadDeclaration)
                 // so it's accessible in finally for NativeMemory.Free cleanup.
+                // NOTE: Native thunks are NOT included here. Thunks rely on AAPCS64's hidden x8
+                // register for struct return buffers — SwiftIndirectResult is correct for thunks.
                 var returnArg = _env.MethodDecl.CSSignature.First();
                 var allocTypeName = _wrapperSignature.ReturnType;
 
@@ -658,10 +660,10 @@ internal class MethodMarshalPlanBuilder
         // Prefix all calls with the helper class name.
         var hp = _env.PInvokeHelperContext != null ? $"{_env.PInvokeHelperContext.HelperClassName}." : "";
 
-        // @_cdecl constructor wrappers use out IntPtr errorPtr instead of SwiftError swiftError.
+        // @_cdecl wrappers and native thunks use out IntPtr errorPtr instead of SwiftError swiftError.
         // The error pointer is the same retained AnyObject as SwiftError.Value — all downstream
         // error infrastructure (SBW_GetErrorDescription, SBW_ReleaseError) works identically.
-        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclWrapper;
+        bool isCdeclConstructor = _env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesNativeThunk;
 
         string errorCheckCode;
         if (syncTypedErrorType != null)

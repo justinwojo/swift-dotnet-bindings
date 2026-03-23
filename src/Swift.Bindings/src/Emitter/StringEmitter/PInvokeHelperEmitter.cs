@@ -198,11 +198,11 @@ public class PInvokeDeclaration
     public IReadOnlyList<string>? MetadataParameters { get; init; }
 
     /// <summary>
-    /// When true, omits the CallConvSwift calling convention attribute.
-    /// Used for helper P/Invokes (SBW_GetErrorDescription, SBW_ReleaseError, SBW_Free)
-    /// that use the default C calling convention via @_cdecl.
+    /// The calling convention for this P/Invoke declaration.
+    /// Defaults to Cdecl for backward compatibility (most helper P/Invokes target @_cdecl symbols).
+    /// Set explicitly when the P/Invoke targets a @_silgen_name wrapper (Swift convention).
     /// </summary>
-    public bool OmitCallingConvention { get; init; }
+    public PInvokeCallingConvention CallingConvention { get; init; } = PInvokeCallingConvention.Cdecl;
 
     /// <summary>
     /// When set, uses <c>private</c> instead of <c>internal</c> visibility.
@@ -222,7 +222,7 @@ public class PInvokeDeclaration
             MethodName = MethodName,
             ReturnType = ReturnType,
             ParametersString = ParametersString,
-            CallingConvention = OmitCallingConvention ? PInvokeCallingConvention.Cdecl : PInvokeCallingConvention.Swift,
+            CallingConvention = CallingConvention,
             Visibility = UsePrivateVisibility ? PInvokeVisibility.Private : PInvokeVisibility.Internal,
             IsAsync = IsAsync,
             MetadataParameters = MetadataParameters

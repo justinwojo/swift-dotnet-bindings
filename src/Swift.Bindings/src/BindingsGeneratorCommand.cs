@@ -42,6 +42,7 @@ public static class BindingsGeneratorCommand
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
         var objcForced = parseResult.GetValueForOption(options.ObjC);
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
+        var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var configPath = parseResult.GetValueForOption(options.Config);
         var verbose = parseResult.GetValueForOption(options.Verbose);
@@ -102,7 +103,8 @@ public static class BindingsGeneratorCommand
             }
             context.ExitCode = BindingsGenerator.RunCompileWrapperOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
-                wrapperArchitectures, frameworkDependencies, logger, platformInfo);
+                wrapperArchitectures, frameworkDependencies, logger, platformInfo,
+                skipThunkCompilation);
             return;
         }
 
@@ -434,6 +436,7 @@ public static class BindingsGeneratorCommand
                         internalTypeNames: internalTypeNames,
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
+                        skipThunkCompilation: skipThunkCompilation,
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
@@ -466,7 +469,8 @@ public static class BindingsGeneratorCommand
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath);
+                        swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath,
+                        skipThunkCompilation: skipThunkCompilation);
                 }
                 else
                 {
@@ -479,7 +483,8 @@ public static class BindingsGeneratorCommand
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        skipThunkCompilation: skipThunkCompilation);
                 }
             }
             catch (Exception ex)
@@ -646,6 +651,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
         Console.WriteLine("  --objc               Optional. Force ObjC binding pipeline (auto-detected if not specified).");
         Console.WriteLine("  --skip-wrapper-compilation  Optional. Skip wrapper compilation (SDK defers to _CompileSwiftWrapper target).");
+        Console.WriteLine("  --skip-thunk-compilation    Optional. Skip native thunk assembly compilation.");
         Console.WriteLine("  --compile-wrapper-only      Optional. Compile existing .swift wrapper files only (no parsing/generation).");
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");

@@ -161,7 +161,8 @@ namespace BindingsGeneration
             // returns null (user-defined generics). Uses the wrapper signature's return type.
             if (_requiresIndirectResult)
             {
-                // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult
+                // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult.
+                // Native thunks use SwiftIndirectResult (x8 register passthrough) — NOT resultPtr.
                 var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
 
                 // @_cdecl Optional<closure> return: read SwiftClosureData from resultPtr buffer,
@@ -619,9 +620,11 @@ namespace BindingsGeneration
             if (projection == null) return false;
 
             var strategy = DetermineReturnStrategy();
+            bool usesCdecl = _env.MethodDecl.UsesCdeclWrapper;
             string resultName = strategy switch
             {
-                ReturnStrategy.IndirectResult => _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)",
+                // @_cdecl uses IntPtr resultPtr; thunks use SwiftIndirectResult (x8 passthrough).
+                ReturnStrategy.IndirectResult => usesCdecl ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)",
                 ReturnStrategy.OutBuffer => "_optRetPtr",
                 _ => "result"
             };
@@ -631,7 +634,7 @@ namespace BindingsGeneration
             // @_cdecl indirect result with PassThrough projection (e.g. BlittableProjection for frozen structs):
             // PassThrough would emit "return resultPtr;" but resultPtr is IntPtr, not the return type.
             // Fall through to the MarshalFromSwift<T> fallback at the IndirectResult handler below.
-            if (strategy == ReturnStrategy.IndirectResult && _env.MethodDecl.UsesCdeclWrapper &&
+            if (strategy == ReturnStrategy.IndirectResult && usesCdecl &&
                 plan.SetupStatements.Count == 0 && plan.CleanupStatements.Count == 0 &&
                 plan.PInvokeExpression == resultName)
                 return false;
@@ -640,7 +643,7 @@ namespace BindingsGeneration
             // in a proxy (e.g. "new DescribableProxy(resultPtr)"), but resultPtr is IntPtr — the
             // container must be read first via SwiftMarshal.MarshalFromSwift<T>(resultPtr).
             // Fall through to the dedicated @_cdecl existential return handler below.
-            if (strategy == ReturnStrategy.IndirectResult && _env.MethodDecl.UsesCdeclWrapper &&
+            if (strategy == ReturnStrategy.IndirectResult && usesCdecl &&
                 projection is ExistentialProjection)
                 return false;
 

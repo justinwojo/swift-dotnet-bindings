@@ -236,10 +236,13 @@ namespace BindingsGeneration
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
-            // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler creation.
+            // Constructor thunks are deferred — C# ConstructorHandler codegen is coupled with
+            // @_cdecl pattern (UsesCdeclConstructorWrapper, explicit resultPtr, IntPtr vs SwiftIndirectResult).
+            // NativeThunkEmitter.ShouldEmitThunk returns false for all constructors.
+            // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
-            // Only wrap if the constructor NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
+            // All eligible constructors get @_cdecl wrappers — CallConvSwift is eliminated.
             if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
@@ -609,10 +612,12 @@ namespace BindingsGeneration
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
-            // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler creation.
+            // Constructor thunks are deferred — NativeThunkEmitter.ShouldEmitThunk returns false
+            // for all constructors (C# codegen coupled with @_cdecl pattern).
+            // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
-            // Only wrap if the constructor NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
+            // All eligible constructors get @_cdecl wrappers — CallConvSwift is eliminated.
             string? originalMangledNameForCtor = null;
             if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
             {
@@ -639,7 +644,8 @@ namespace BindingsGeneration
             string? debugSilgenTarget = null;
             if (hadDebugParams &&
                 methodEnv.MethodDecl.UsesWrapperLibrary &&
-                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper)
+                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                !methodEnv.MethodDecl.UsesNativeThunk)
             {
                 methodEnv.MethodDecl.UsesWrapperLibrary = false;
                 bool debugCdeclEligible = WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired;
@@ -663,13 +669,33 @@ namespace BindingsGeneration
                 }
             }
 
-            // Set @_cdecl method wrapper flags BEFORE SignatureHandler creation.
+            // Try native ARM64 thunk for methods (preferred over @_cdecl).
             // Must come after constructor wrapper check (mutually exclusive).
-            // Only wrap if the method NEEDS @_cdecl for ABI safety (Session 3: CallConvSwift migration).
+            // Skip if any other wrapper strategy is already set.
+            string? originalMangledNameForThunk = null;
             if (!methodEnv.MethodDecl.IsConstructor &&
                 !methodEnv.MethodDecl.UsesCdeclPropertyWrapper &&
                 !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                !methodEnv.MethodDecl.UsesCdeclMethodWrapper &&
+                !methodEnv.MethodDecl.UsesNativeThunk &&
+                NativeThunkEmitter.ShouldEmitThunk(methodEnv))
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                string moduleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(methodEnv.MethodDecl, moduleName);
+                originalMangledNameForThunk = methodEnv.MethodDecl.MangledName;
+                methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.MangledName = thunkSymbol;
+            }
+            // Fall back to @_cdecl method wrapper if thunk is not available.
+            // All eligible methods get @_cdecl wrappers — CallConvSwift is eliminated.
+            else if (!methodEnv.MethodDecl.IsConstructor &&
+                !methodEnv.MethodDecl.UsesCdeclPropertyWrapper &&
+                !methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
                 !methodEnv.MethodDecl.UsesCdeclMethodWrapper && // Not already set by debug-param path
+                !methodEnv.MethodDecl.UsesNativeThunk &&
                 WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
@@ -790,9 +816,10 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.MangledName = cdeclSymbol;
             }
 
-            // Log when a method in xcframework mode falls back to CallConvSwift (no wrapper).
+            // Log when a method in xcframework mode has no wrapper or thunk.
             // Makes silent fallbacks visible for debugging wrapper coverage gaps.
             if (!methodEnv.MethodDecl.UsesCdeclWrapper &&
+                !methodEnv.MethodDecl.UsesNativeThunk &&
                 !methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAccessor &&
                 !isAccessor &&
@@ -801,7 +828,7 @@ namespace BindingsGeneration
                 var reason = WrapperValidation.GetRejectionReason(methodEnv);
                 if (reason != null)
                 {
-                    _logger.LogDebug("Method {MethodName} on {ParentName}: falling back to CallConvSwift ({Reason})",
+                    _logger.LogDebug("Method {MethodName} on {ParentName}: no wrapper/thunk available ({Reason})",
                         methodEnv.MethodDecl.Name,
                         methodEnv.ParentDecl?.Name ?? "free",
                         reason);
@@ -813,7 +840,7 @@ namespace BindingsGeneration
             if (!isAccessor)
             {
                 context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
-                if (!methodEnv.MethodDecl.UsesCdeclWrapper && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
+                if (!methodEnv.MethodDecl.UsesCdeclWrapper && !methodEnv.MethodDecl.UsesNativeThunk && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
                 {
                     var skipReason = WrapperValidation.GetRejectionReason(methodEnv);
                     if (skipReason != null)
@@ -892,6 +919,45 @@ namespace BindingsGeneration
                     useCdecl: optPtrCdecl, emissionContext: context.GetEmissionContext());
             }
 
+            // Emit native ARM64 thunk assembly for thunk-routed methods.
+            // Skip if already emitted by PropertyHandler or SubscriptHandler (ThunkAssemblyEmitted flag).
+            // If EmitThunk fails (lowering/metadata issue), revert to None
+            // so the P/Invoke doesn't target a non-existent thunk symbol.
+            if (methodEnv.MethodDecl.UsesNativeThunk && !methodEnv.MethodDecl.ThunkAssemblyEmitted)
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                var parentModule = methodEnv.ParentDecl as ModuleDecl;
+                string thunkModuleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
+                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledNameForThunk);
+                if (!emitted && originalMangledNameForThunk != null)
+                {
+                    // Revert thunk state
+                    methodEnv.MethodDecl.MangledName = originalMangledNameForThunk;
+                    methodEnv.MethodDecl.UsesWrapperLibrary = false;
+
+                    // Retry @_cdecl wrapper path instead of falling to WrapperStrategy.None
+                    if (WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+                    {
+                        var fallbackParentType = methodEnv.ParentDecl as TypeDecl;
+                        var fallbackParentModule = methodEnv.ParentDecl as ModuleDecl;
+                        string fallbackModuleName = fallbackParentType?.SwiftTypeName.Module ?? fallbackParentModule?.Name ?? "";
+                        string fallbackTypeName = fallbackParentType?.Name ?? "Free";
+                        var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
+                            fallbackModuleName, fallbackTypeName,
+                            methodEnv.MethodDecl.Name,
+                            methodEnv.MethodDecl.MangledName);
+                        methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.CdeclMethod;
+                        methodEnv.MethodDecl.UsesCdeclMethodWrapper = true;
+                        methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                        methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    }
+                    else
+                    {
+                        methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
+                    }
+                }
+            }
+
             // Emit Swift @_cdecl method wrapper AFTER signature validation, BEFORE WrapperEmitter.
             // Only for standard method wrappers — closure, optional-pointer, and async paths
             // emit their own @_cdecl wrappers.
@@ -931,7 +997,6 @@ namespace BindingsGeneration
                             MethodName = "SBW_Free",
                             ReturnType = "void",
                             ParametersString = "IntPtr ptr",
-                            OmitCallingConvention = true,
                             UsePrivateVisibility = false,
                         });
                     }
@@ -1194,11 +1259,11 @@ namespace BindingsGeneration
             bool hasJitRisk = false;
             var issues = new List<string>();
 
-            if (!methodDecl.UsesCdeclWrapper)
+            if (!methodDecl.UsesCdeclWrapper && !methodDecl.UsesNativeThunk)
             {
                 hasJitRisk = true;
-                issues.Add("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). " +
-                    "May crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
+                issues.Add("No @_cdecl wrapper or native thunk available. " +
+                    "P/Invoke calling convention may not match Swift ABI");
             }
 
             if (methodDecl.IsMissingExportedSymbol)

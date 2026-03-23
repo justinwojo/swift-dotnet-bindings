@@ -3186,11 +3186,11 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_CdeclEnumCaseWithProjectedTuple_FallsBackToCallConvSwift()
+    public void Emit_CdeclEnumCaseWithProjectedTuple_UsesDirectPInvoke()
     {
         // Tuple with string element: C# IntPtr (8 bytes) vs Swift String (16 bytes).
         // Memory layouts don't match, so @_cdecl pointer transport would give Swift
-        // the wrong data. The case factory must use CallConvSwift (by-value tuple passing).
+        // the wrong data. The case factory uses direct P/Invoke (SwiftIndirectResult pattern).
         var typeDatabase = CreateTypeDatabaseWithString();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -3207,9 +3207,9 @@ public class EnumHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
-        // The Tagged case factory should use CallConvSwift (SwiftIndirectResult pattern)
+        // The Tagged case factory uses CallConvCdecl (SwiftIndirectResult pattern)
         Assert.Contains("SwiftIndirectResult", csOutput);
-        Assert.Contains("CallConvSwift", csOutput);
+        Assert.Contains("CallConvCdecl", csOutput);
         // No @_cdecl case factory wrapper should be emitted on the Swift side
         Assert.DoesNotContain("SBW_TestModule_Message_tagged", swiftOutput);
     }

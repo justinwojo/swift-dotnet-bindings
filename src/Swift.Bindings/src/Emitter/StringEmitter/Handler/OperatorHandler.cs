@@ -599,7 +599,7 @@ namespace BindingsGeneration
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
             // For @_cdecl wrappers, adjust calling convention and parameter types
-            var callingConvention = usesCdeclWrapper ? PInvokeCallingConvention.Cdecl : PInvokeCallingConvention.Swift;
+            var callingConvention = PInvokeCallingConvention.Cdecl;
             string returnType;
             string parametersString;
 
@@ -636,8 +636,7 @@ namespace BindingsGeneration
                     ReturnType = returnType,
                     ParametersString = parametersString,
                     IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
-                    OmitCallingConvention = usesCdeclWrapper // @_cdecl wrappers use Cdecl, not CallConvSwift
+                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }
@@ -822,9 +821,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Determines if an operator should use a @_cdecl wrapper.
-        /// Only needed when ABI safety requires it: float/double fields (NativeAOT HFA bug)
-        /// or structs > 16 bytes (NativeAOT register mismatch). Simple integer-only frozen
-        /// structs ≤ 16 bytes work correctly with direct CallConvSwift.
+        /// All eligible operators get @_cdecl wrappers — CallConvSwift is eliminated.
         /// </summary>
         /// <summary>
         /// Full ABI safety check: delegates to RequiresCdeclForAbiSafety which checks

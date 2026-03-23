@@ -101,11 +101,12 @@ namespace BindingsGeneration
                 if (!MarshallingHelpers.RequiresMemoryManagement(typeRecord))
                 {
                     // Setters always need the fixed block for pointer-based mutation.
-                    // Standalone closure Cdecl wrappers need it only for instance methods
-                    // (static methods have no self parameter to pin).
+                    // Standalone closure Cdecl wrappers, @_cdecl method wrappers, and native thunks
+                    // need it only for instance methods (static methods have no self parameter to pin).
                     _requiresFixedBlock = MarshallingHelpers.MethodIsSetter(_env.MethodDecl)
                         || (_env.MethodDecl.UsesFreeFunctionWrapper && _requiresSwiftSelf)
-                        || (_env.MethodDecl.UsesCdeclMethodWrapper && _requiresSwiftSelf);
+                        || (_env.MethodDecl.UsesCdeclMethodWrapper && _requiresSwiftSelf)
+                        || (_env.MethodDecl.UsesNativeThunk && _requiresSwiftSelf);
                 }
             }
 

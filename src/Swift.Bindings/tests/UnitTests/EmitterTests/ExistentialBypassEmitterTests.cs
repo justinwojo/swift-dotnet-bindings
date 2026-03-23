@@ -179,7 +179,7 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
-    public void TryEmit_PInvoke_UsesCallConvSwift()
+    public void TryEmit_PInvoke_UsesCallConvCdecl()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -198,8 +198,7 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("CallConvSwift", csOutput);
-        // ExistentialBypassEmitter has its own P/Invoke emission (LibraryImport, not PInvokeEmitter)
+        Assert.Contains("CallConvCdecl", csOutput);
         Assert.Contains("LibraryImport", csOutput);
     }
 

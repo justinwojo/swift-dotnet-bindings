@@ -1,11 +1,11 @@
 {
-  "git_sha": "fa56eb38",
+  "git_sha": "2d76326d",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46653,
+        "lines": 46553,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12473,
+        "lines": 12468,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,49 +33,49 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22083,
+        "lines": 22086,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 81231,
+        "lines": 81050,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4636,
+        "lines": 4622,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 53550,
+        "lines": 53517,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31466,
+        "lines": 31431,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50965,
+        "lines": 50963,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MicroblinkPlatform": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4558,
+        "lines": 4555,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,28 +89,28 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21683,
+        "lines": 21648,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21683,
+        "lines": 21648,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21683,
+        "lines": 21648,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10812,
+        "lines": 10823,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -124,14 +124,14 @@
       "SmartCardIO": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5279,
+        "lines": 5282,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SnapKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11055,
+        "lines": 11036,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -173,7 +173,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7300,
+        "lines": 7297,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -215,14 +215,14 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 61939,
+        "lines": 61938,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32148,
+        "lines": 32147,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -257,35 +257,35 @@
       "DeviceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6246,
+        "lines": 6342,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4089,
+        "lines": 4097,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15468,
+        "lines": 15486,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4612,
+        "lines": 4570,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7485,
+        "lines": 7489,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -299,28 +299,28 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7827,
+        "lines": 7845,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4877,
+        "lines": 4878,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14183,
+        "lines": 14186,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17481,
+        "lines": 17453,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -341,7 +341,7 @@
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4412,
+        "lines": 4420,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -397,7 +397,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12697,
+        "lines": 12721,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -425,7 +425,7 @@
       "CocoaLumberjackSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1057,
+        "lines": 1055,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

@@ -381,6 +381,16 @@ public sealed class ModuleEmissionContext
         _wrapperSkipReasons[reason] = count + 1;
     }
 
+    // ==================== Native ARM64 Thunks ====================
+
+    private readonly System.Text.StringBuilder _assemblyBuilder = new();
+
+    /// <summary>Accumulated ARM64 assembly thunk code for this module.</summary>
+    public System.Text.StringBuilder AssemblyBuilder => _assemblyBuilder;
+
+    /// <summary>Whether any thunk assembly has been emitted.</summary>
+    public bool HasThunkAssembly => _assemblyBuilder.Length > 0;
+
     // ==================== Protocol Conformance Decisions ====================
 
     private readonly Dictionary<string, ProtocolConformanceDecision> _conformanceDecisions = new();

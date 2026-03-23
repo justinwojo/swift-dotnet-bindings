@@ -192,12 +192,12 @@ namespace BindingsGeneration
             if (deprecationMsg != null)
                 issues.Insert(0, $"Deprecated: {deprecationMsg}");
 
-            // CallConvSwift fallback warning (skip accessors — see property deferral)
-            if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.UsesCdeclWrapper)
+            // No wrapper/thunk warning (skip accessors — see property deferral)
+            if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
             {
                 hasJitRisk = true;
-                issues.Add("Uses CallConvSwift P/Invoke (no @_cdecl wrapper available). " +
-                    "May crash on Mono runtime. Safe on NativeAOT (PublishAot=true)");
+                issues.Add("No @_cdecl wrapper or native thunk available. " +
+                    "P/Invoke calling convention may not match Swift ABI");
             }
 
             // Deliverable 2: Missing symbol (skip accessors — same as JIT risk above)
