@@ -3,6 +3,7 @@
 
 #nullable enable
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -834,24 +835,28 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
-        #region Bug Fix: Multi-register frozen struct self rejected from thunks
+        #region Frozen struct self — all sizes accepted for thunking
 
-        [Fact]
-        public void ShouldEmitThunk_FrozenStructSelf_LargerThan8B_ReturnsFalse()
+        [Theory]
+        [InlineData(16)]
+        [InlineData(24)]
+        [InlineData(32)]
+        public void ShouldEmitThunk_FrozenStructSelf_LargerThan8B_ReturnsTrue(int inlineSize)
         {
-            // BUG 3 FIX: ThunkAssemblyEmitter only handles single-register self (`mov x20, x0`).
-            // Frozen structs with InlineSize > 8 need multi-register self which is unsupported.
-            // ShouldEmitThunk should return false, routing to @_cdecl instead.
+            // >8B frozen struct self: swiftcc passes self as pointer in x20.
+            // PInvokeEmitter emits IntPtr for thunked methods. Thunk's
+            // `mov x20, x{ParameterCount}` forwards the pointer correctly.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            var fieldCount = inlineSize / 8;
             db.AddType("Test.MyStruct", new TypeRecord
             {
                 Kind = TypeRecordKind.Struct,
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
                 Flags = TypeRecordFlags.Frozen,
-                InlineSize = 16,  // 2 registers — too big for thunk self
-                AbiFieldLayout = "i,i",
+                InlineSize = inlineSize,
+                AbiFieldLayout = string.Join(",", Enumerable.Repeat("i", fieldCount)),
                 MetadataAccessor = "$s4Test8MyStructVMa"
             });
 
@@ -859,13 +864,18 @@ namespace BindingsGeneration.Tests
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
             var env = new MethodEnvironment(method, db);
 
-            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         [Fact]
         public void ShouldEmitThunk_FrozenStructSelf_8B_ReturnsTrue()
         {
-            // Frozen struct with InlineSize <= 8 fits in a single register — thunk can handle.
+            // ≤8B frozen struct: IsSelfTypeLowerable accepts this (since Phase 1).
+            // Note: swiftcc passes ≤8B self by VALUE in x20, but PInvokeEmitter emits
+            // IntPtr (pointer) for thunked methods. This is safe in practice because
+            // ≤8B frozen struct methods are @inlinable, have no TBD export, and are
+            // filtered by IsSwiftCallTargetExported before reaching assembly emission.
+            // This test verifies the gate accepts the size — not calling-convention correctness.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyStruct", new TypeRecord
@@ -874,7 +884,7 @@ namespace BindingsGeneration.Tests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
                 Flags = TypeRecordFlags.Frozen,
-                InlineSize = 8,  // Fits in 1 register
+                InlineSize = 8,
                 AbiFieldLayout = "i",
                 MetadataAccessor = "$s4Test8MyStructVMa"
             });
@@ -887,9 +897,9 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ShouldEmitThunk_FrozenStructSelf_24B_ReturnsFalse()
+        public void ShouldEmitThunk_FrozenStructSelf_UnknownInlineSize_ReturnsFalse()
         {
-            // Frozen struct with InlineSize 24 (3 registers) — way too big for thunk self.
+            // Without InlineSize we can't confirm safe thunking — conservatively reject.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyStruct", new TypeRecord
@@ -898,8 +908,7 @@ namespace BindingsGeneration.Tests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
                 Flags = TypeRecordFlags.Frozen,
-                InlineSize = 24,
-                AbiFieldLayout = "i,i,i",
+                InlineSize = null,  // Unknown
                 MetadataAccessor = "$s4Test8MyStructVMa"
             });
 
@@ -932,7 +941,60 @@ namespace BindingsGeneration.Tests
             var env = new MethodEnvironment(method, db);
 
             // Static method — no self parameter, so large struct size is irrelevant
-            // (Constructors are already rejected by the constructor gate, not the self gate)
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructSelf_FloatFields_32B_ReturnsTrue()
+        {
+            // Frozen struct with mixed int/float fields, 32B (4 register slots).
+            // Field layout is irrelevant for self thunking — the thunk passes a pointer
+            // (IntPtr from PInvokeEmitter) in x20, not decomposed register values.
+            // TypeLowering.SelfLowering models this as 4 direct slots, but ThunkAssemblyEmitter
+            // never reads SelfLowering — it only does `mov x20, x{ParameterCount}`.
+            var structDecl = CreateStructDecl(isFrozen: true);
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyStruct", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                InlineSize = 32,
+                AbiFieldLayout = "i,f,i,f", // mixed int/float — worst case for register mapping
+                MetadataAccessor = "$s4Test8MyStructVMa"
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: structDecl);
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+            var env = new MethodEnvironment(method, db);
+
+            // Accepted: self is a pointer in x20 regardless of field layout
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructSelf_16B_FloatOnly_ReturnsTrue()
+        {
+            // Frozen struct with only float fields (like CGPoint {Double, Double}).
+            // Same rationale: thunk passes pointer, doesn't decompose registers.
+            var structDecl = CreateStructDecl(isFrozen: true);
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyStruct", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                InlineSize = 16,
+                AbiFieldLayout = "f,f",
+                MetadataAccessor = "$s4Test8MyStructVMa"
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: structDecl);
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+            var env = new MethodEnvironment(method, db);
+
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 

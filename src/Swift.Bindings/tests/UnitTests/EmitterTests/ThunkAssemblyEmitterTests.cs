@@ -280,7 +280,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void EmitThunk_InstanceMethod_MovesSelfToX20()
         {
-            // Instance method: cdecl self is x0, Swift self is x20
+            // Instance method with 1 param: cdecl order is [value, self]
+            // CdeclSignatureContract: [Arguments] [Self] → x0=value, x1=self
+            // Thunk must: mov x20, x1 (self at x{ParameterCount}), value stays in x0
             var descriptor = new ThunkDescriptor(
                 ThunkSymbol: "thunk_test_counter_add",
                 SwiftSymbol: "_$s4Test7CounterC3addyS2iF",
@@ -302,20 +304,21 @@ namespace BindingsGeneration.Tests
 
             var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
 
-            // Must move self from x0 to x20
-            Assert.Contains("mov     x20, x0", asm);
-            // Must shift parameter: x1 → x0
-            Assert.Contains("mov     x0, x1", asm);
+            // Must move self from x1 (last param) to x20
+            Assert.Contains("mov     x20, x1", asm);
+            // Value param stays in x0 — no parameter shift needed
+            Assert.DoesNotContain("mov     x0, x1", asm);
             // Must use bl (not tail call, since we modify x20)
             Assert.Contains("bl      _$s4Test7CounterC3addyS2iF", asm);
             Assert.Contains("ret", asm);
         }
 
         [Fact]
-        public void EmitThunk_InstanceMethodMultipleParams_ShiftsAll()
+        public void EmitThunk_InstanceMethodMultipleParams_SelfAtLastPosition()
         {
-            // Instance method with 3 params: self=x0, p0=x1, p1=x2, p2=x3
-            // After bridge: x20=self, x0=p0, x1=p1, x2=p2
+            // Instance method with 3 params: cdecl order is [p0, p1, p2, self]
+            // x0=p0, x1=p1, x2=p2, x3=self → self at x{ParameterCount}=x3
+            // No parameter shift — params already in x0-x2 for swiftcc
             var descriptor = new ThunkDescriptor(
                 ThunkSymbol: "thunk_test_method3",
                 SwiftSymbol: "_$s4Test3FooCmethod3yyF",
@@ -334,10 +337,12 @@ namespace BindingsGeneration.Tests
 
             var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
 
-            Assert.Contains("mov     x20, x0", asm);
-            Assert.Contains("mov     x0, x1", asm);
-            Assert.Contains("mov     x1, x2", asm);
-            Assert.Contains("mov     x2, x3", asm);
+            // Self at x3 (x{ParameterCount}=x{3}) → x20
+            Assert.Contains("mov     x20, x3", asm);
+            // No parameter shifting — values stay in x0, x1, x2
+            Assert.DoesNotContain("mov     x0, x1", asm);
+            Assert.DoesNotContain("mov     x1, x2", asm);
+            Assert.DoesNotContain("mov     x2, x3", asm);
         }
 
         [Fact]
@@ -375,6 +380,98 @@ namespace BindingsGeneration.Tests
             Assert.Contains("mov     x19, x8", asm);    // return buffer save
             Assert.Contains("mov     x20, x0", asm);    // self → x20
             Assert.Contains("str     x0, [x19]", asm);  // return store
+        }
+
+        [Fact]
+        public void EmitThunk_InstanceMethodZeroParams_SelfAtX0()
+        {
+            // Instance method with 0 params (e.g., getter): self is x0
+            // cdecl: x0=self → thunk: mov x20, x0
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_getter",
+                SwiftSymbol: "_$s4Test3FooC8getValueSiyF",
+                ReturnLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                SelfLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: true,
+                IsStaticMethod: false,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: null);
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
+
+            // Self at x0 (x{ParameterCount=0}) → x20
+            Assert.Contains("mov     x20, x0", asm);
+            Assert.Contains("bl      _$s4Test3FooC8getValueSiyF", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_PropertySetter_ValueInX0SelfInX1()
+        {
+            // Property setter: cdecl order [newValue, self]
+            // x0=newValue (Int), x1=self → thunk: mov x20, x1, x0 stays
+            // This is the exact pattern that caused SIGSEGV in Session 1 (test #30)
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_setIntValue",
+                SwiftSymbol: "_$s4Test19FinalPropertyHolderC8intValueSivs",
+                ReturnLowering: null, // setter returns void
+                SelfLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                ParameterCount: 1, // the newValue
+                FloatParameterCount: 0,
+                IsInstanceMethod: true,
+                IsStaticMethod: false,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: null);
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
+
+            // Self at x1 (after 1 value param) → x20
+            Assert.Contains("mov     x20, x1", asm);
+            // Value (x0) must NOT be moved — it's already correct for swiftcc
+            Assert.DoesNotContain("mov     x20, x0", asm);
+            Assert.DoesNotContain("mov     x0, x1", asm);
+            Assert.Contains("bl      _$s4Test19FinalPropertyHolderC8intValueSivs", asm);
+            Assert.Contains("ret", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_PropertySetterWithFloatValue_SelfStillInIntReg()
+        {
+            // Setter for a Double property: newValue in d0, self in x0
+            // Float params go in d-registers, so self is at x{intParamCount=0}=x0
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_setDoubleValue",
+                SwiftSymbol: "_$s4Test19FinalPropertyHolderC11doubleValueSdvs",
+                ReturnLowering: null,
+                SelfLowering: new TypeLoweringResult(
+                    new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+                    IsIndirect: false,
+                    TotalByteSize: 8),
+                ParameterCount: 0, // float param counted separately
+                FloatParameterCount: 1, // the newValue (Double)
+                IsInstanceMethod: true,
+                IsStaticMethod: false,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: null);
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
+
+            // Self at x0 (0 int params, float params don't occupy x-registers)
+            Assert.Contains("mov     x20, x0", asm);
+            Assert.Contains("bl      _$s4Test19FinalPropertyHolderC11doubleValueSdvs", asm);
         }
 
         #endregion
@@ -510,10 +607,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void EmitThunk_ThrowingInstanceMethod_ErrorAfterShiftedParams()
+        public void EmitThunk_ThrowingInstanceMethod_ErrorAfterSelf()
         {
-            // Instance method that throws: cdecl is (self, param0, error_out)
-            // error_out is at x2 (self=x0, param=x1, error=x2)
+            // Instance method that throws: cdecl order [param0, self, error_out]
+            // x0=param, x1=self, x2=error_out
             var descriptor = new ThunkDescriptor(
                 ThunkSymbol: "thunk_test_throwing_method",
                 SwiftSymbol: "_$s4Test3FooC6methodySiSiKF",
@@ -535,10 +632,10 @@ namespace BindingsGeneration.Tests
 
             var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
 
-            // Instance method: self → x20, param shift, plus error handling
-            Assert.Contains("mov     x20, x0", asm);
+            // Self at x1 (x{ParameterCount=1}) → x20
+            Assert.Contains("mov     x20, x1", asm);
             Assert.Contains("mov     x21, xzr", asm);
-            // Error out at x2 (self=x0 + 1 param at x1 → error at x2)
+            // Error out at x2 (baseIndex=1 + ParameterCount=1 = 2)
             Assert.Contains("mov     x19, x2", asm);
             Assert.Contains("str     x21, [x19]", asm);
         }

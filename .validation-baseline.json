@@ -1,5 +1,5 @@
 {
-  "git_sha": "73fb0a04",
+  "git_sha": "28ab01a5",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -96,7 +96,7 @@
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21375,
+        "lines": 21357,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

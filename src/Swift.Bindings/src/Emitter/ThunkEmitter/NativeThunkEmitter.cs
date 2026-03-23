@@ -347,10 +347,30 @@ public static class NativeThunkEmitter
     }
 
     /// <summary>
-    /// Checks if the self type can be lowered for instance methods on frozen structs.
-    /// Non-frozen structs and classes don't need self lowering (they use pointer self).
-    /// Frozen structs with InlineSize > 8 need multi-register self passing which
-    /// ThunkAssemblyEmitter doesn't support yet (only does `mov x20, x0` for single register).
+    /// Checks if the self type can be handled by the thunk for instance methods.
+    ///
+    /// ABI background: ARM64 swiftcc uses a single register (x20) for self via the
+    /// LLVM `swiftself` attribute. x21 is swifterror — NOT a self overflow register.
+    /// For value types &gt; 8B, self is passed indirectly (pointer in x20), because
+    /// x20 is a single 64-bit register that can't hold a multi-field struct value.
+    ///
+    /// PInvokeEmitter always emits IntPtr for self on thunked methods (line ~639),
+    /// so cdecl passes self as a single pointer register. The thunk's
+    /// `mov x20, x{ParameterCount}` puts this pointer in x20.
+    ///
+    /// For &gt; 8B frozen structs, this is correct: Swift reads self indirectly through
+    /// the pointer. Field layout (int/float mix) is irrelevant — the thunk forwards
+    /// the pointer without decomposing the struct.
+    ///
+    /// For ≤ 8B frozen structs, there is an ABI mismatch: swiftcc expects the VALUE
+    /// in x20, but the thunk puts a pointer. In practice this is safe because ≤ 8B
+    /// frozen struct instance methods are @inlinable and not exported in the TBD, so
+    /// IsSwiftCallTargetExported() filters them before they reach assembly emission.
+    /// This gate was accepted since Phase 1 and is not modified here.
+    ///
+    /// Note: TypeLowering.LowerStruct() models frozen structs as multi-register direct
+    /// values (for return type bridging). That lowering is NOT used for self — the
+    /// ThunkDescriptor.SelfLowering field is stored but never read by ThunkAssemblyEmitter.
     /// </summary>
     private static bool IsSelfTypeLowerable(MethodEnvironment env)
     {
@@ -368,22 +388,21 @@ public static class NativeThunkEmitter
         if (env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen)
             return true;
 
-        // Frozen struct — check if self fits in a single register (8 bytes).
-        // ThunkAssemblyEmitter only handles single-register self (`mov x20, x0`).
-        // Multi-register self (InlineSize > 8) requires splitting across x20+x21 etc.,
-        // which the assembly emitter doesn't support yet. Route to @_cdecl instead.
+        // Frozen struct — verify InlineSize is available.
+        // >8B: swiftcc passes self as pointer in x20. PInvokeEmitter passes IntPtr.
+        //      Thunk's `mov x20, x{ParameterCount}` forwards the pointer. Correct.
+        // ≤8B: swiftcc passes self as value in x20, but the thunk passes IntPtr (pointer).
+        //      Accepted since Phase 1. Safe in practice: ≤8B frozen struct methods are
+        //      @inlinable, have no TBD entry, and are filtered by IsSwiftCallTargetExported.
         var parentSpec = new NamedTypeSpec(parentType.SwiftTypeName.ModuleQualifiedName);
         if (env.TypeDatabase.TryGetTypeRecord(parentSpec, out var record)
             && record.InlineSize.HasValue)
         {
-            if (record.InlineSize.Value > 8)
-                return false; // Multi-register self — ThunkAssemblyEmitter can't handle this yet.
-
-            return true; // Confirmed single-register (≤ 8 bytes)
+            return true; // InlineSize known — >8B is pointer ABI, ≤8B filtered by TBD gate
         }
 
         // TypeRecord not found or InlineSize unknown — conservatively reject.
-        // Without InlineSize data we can't safely determine register count.
+        // Without InlineSize data we can't confirm this is a valid frozen struct.
         return false;
     }
 

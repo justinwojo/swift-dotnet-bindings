@@ -217,11 +217,14 @@ public static class ThunkAssemblyEmitter
             sb.AppendLine($"    str     x{errorOutRegIndex}, [sp, #-16]!");
         }
 
-        // Handle self parameter (instance methods): move x0 → x20, shift params down
+        // Handle self parameter (instance methods): self is the last integer register
+        // parameter before error_out, at position x{ParameterCount}.
+        // CdeclSignatureContract orders: [Arguments] [Metadata] [Self] [ErrorOut]
+        // Value parameters (x0..x{ParameterCount-1}) are already in the correct registers
+        // for swiftcc — no shift needed. Only self needs to move to x20.
         if (needsSelfBridge)
         {
-            sb.AppendLine("    mov     x20, x0");
-            EmitParameterShift(sb, descriptor.ParameterCount);
+            sb.AppendLine($"    mov     x20, x{descriptor.ParameterCount}");
         }
 
         // Handle metatype (constructors/static methods)
@@ -260,9 +263,9 @@ public static class ThunkAssemblyEmitter
     }
 
     /// <summary>
-    /// Emits parameter shift instructions for instance methods.
-    /// When self moves from x0 → x20, the remaining parameters need to shift down:
-    /// x1 → x0, x2 → x1, etc.
+    /// Emits parameter shift instructions. Previously used for instance method self handling
+    /// (when self was assumed at x0). No longer called — self is now correctly handled at
+    /// x{ParameterCount} per CdeclSignatureContract ordering. Retained for potential future use.
     /// </summary>
     private static void EmitParameterShift(StringBuilder sb, int parameterCount)
     {

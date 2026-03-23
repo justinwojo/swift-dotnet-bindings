@@ -1,6 +1,6 @@
 # Design Doc: Native ARM64 Thunks — Phase 2
 
-**Status**: Session 1 complete
+**Status**: Session 2 complete
 **Prerequisite**: Phase 1 complete (see `Completed/ThunkMigration.md`)
 
 ## Overview
@@ -26,18 +26,14 @@ The 69 remaining CallConvSwift P/Invokes are genuinely un-thunkable: generic met
 
 ## Work Order
 
-Sessions 2-6 are independent of each other and can be done in any order. Priority recommendation:
-
-| Order | Session | Impact | Complexity |
+| Order | Session | Scope | Complexity |
 |---|---|---|---|
 | ~~1~~ | ~~Runtime Validation~~ | ~~Critical~~ | ~~Done~~ |
-| 2 | Constructor Thunks | High — constructors are very common | Medium-large |
-| 3 | Indirect Result Returns | Medium-high — unlocks many return patterns | Medium |
-| 4 | Multi-Register Struct Self | Medium — less common pattern | Medium |
-| 5 | Multi-Slot Value Params | Low-medium — rare in practice | Large |
-| **6** | **Thunk ABI: Class Property Setters** | **High — crash on setter thunks** | **Medium** |
+| ~~2~~ | ~~Assembly Register Mapping~~ | ~~Setter crash fix + multi-register struct self~~ | ~~Done~~ |
+| 3 | Constructor Thunks | Class + struct constructors | Medium-large |
+| 4 | Indirect Result Returns | P/Invoke indirect return + remaining multi-slot work | Medium |
 
-**Session 6 should be done before any other session** — it fixes a crash in class property setter thunks discovered during Session 1 runtime validation.
+Sessions 2-4 are independent and can be done in any order.
 
 ---
 
@@ -59,14 +55,56 @@ When a frozen struct's TypeRecord had null `InlineSize`, the check fell through 
 - Removed stale `[Skip]` attributes on tests where CallConvSwift was replaced by thunks (`TestAnimationCacheClear`).
 - Updated skip reasons on async tests to reference the actual blocker (upstream Mono async Issue 1), not the now-fixed CallConvSwift.
 
-### Remaining: Class property setter crash (→ Session 6)
-Runtime testing passed 29 tests then crashed on `FinalPropertyHolder.IntValue` setter. The thunk's register mapping for class instance method setters is incorrect — value + self parameter shuffling is wrong. Tracked as Session 6.
+### Remaining: Class property setter crash (→ Session 2)
+Runtime testing passed 29 tests then crashed on `FinalPropertyHolder.IntValue` setter. The thunk's register mapping for class instance method setters is incorrect — value + self parameter shuffling is wrong. Tracked as Session 2.
 
-**Validation**: 9,249 unit tests pass, 90/90 library validation, simulator runtime: 29 pass before crash (crash is Session 6 scope).
+**Validation**: 9,249 unit tests pass, 90/90 library validation, simulator runtime: 29 pass before crash (crash is Session 2 scope).
 
 ---
 
-## Session 2: Constructor Thunks
+## Session 2: Assembly Register Mapping (COMPLETE)
+
+Parts A and B complete. Part C (stretch goal) assessed and deferred to Session 4.
+
+### Part A: Class Property Setter Crash Fix
+
+**Root cause**: `EmitFullFrame()` assumed cdecl puts self in x0 (first param), but `CdeclSignatureContract` orders `[Arguments] [Metadata] [Self] [ErrorOut]` — self is LAST. For a setter with 1 value param, cdecl had `x0=value, x1=self`, but the thunk did `mov x20, x0` (moved value to x20 instead of self), then `mov x0, x1` (moved self to x0 instead of value). Both registers wrong → SIGSEGV.
+
+**Fix**: Changed self handling from `mov x20, x0` + parameter shift to `mov x20, x{ParameterCount}` with no shift. Value params are already in the correct swiftcc registers (x0..xN-1); only self needs to move to x20 from its position after all value params. Removed `EmitParameterShift()` call.
+
+**Modified files**:
+- `ThunkAssemblyEmitter.cs` — Self handling in `EmitFullFrame()`: `mov x20, x{ParameterCount}`, no param shift
+- `ThunkAssemblyEmitterTests.cs` — Updated 3 existing tests, added 4 new tests (getter 0-param, setter Int, setter Double, explicit 0-param self-at-x0)
+
+### Part B: Frozen Struct Self >8B
+
+**Finding**: The Phase 1 rejection of >8B frozen struct self was based on the misconception that self decomposes across x20+x21+... registers. In reality, x21 is `swifterror` (not self overflow), and x20 is the ONLY self register via LLVM's `swiftself` attribute. For >8B value types, swiftcc passes self indirectly — a pointer in x20. PInvokeEmitter already emits `IntPtr` for self on all thunked methods (`UsesNativeThunk` path, line ~639). The thunk's `mov x20, x{ParameterCount}` forwards the pointer correctly. Field layout (int/float mix) is irrelevant — the thunk passes a pointer, not decomposed registers.
+
+**Fix**: Removed the `InlineSize > 8` rejection in `IsSelfTypeLowerable()`. All frozen struct sizes with known InlineSize are now accepted.
+
+**ABI caveat (pre-existing, not introduced here)**: For ≤8B frozen structs, swiftcc expects the VALUE in x20 (not a pointer), but PInvokeEmitter still passes IntPtr. This was accepted since Phase 1. Safe in practice: ≤8B frozen struct methods are `@inlinable`, have no TBD export, and are filtered by `IsSwiftCallTargetExported()` before reaching assembly emission. No ≤8B frozen struct instance methods are thunked in any validation library.
+
+**Modified files**:
+- `NativeThunkEmitter.cs` — `IsSelfTypeLowerable()`: removed >8B gate, added ABI doc comment
+- `NativeThunkEmitterTests.cs` — Replaced 3 size-specific tests with: >8B theory (16/24/32), ≤8B fact with caveat comment, unknown-size rejection, static-method pass-through, float-field 32B, float-only 16B
+
+### Part C: Multi-Slot Value Parameters (Assessed, Deferred)
+
+Multi-slot value params (e.g., CGPoint 16B, CGRect 32B as method arguments) are common in Apple APIs. For homogeneous types (all-int or all-float), cdecl and swiftcc register allocation matches — no remapping needed. For mixed types (e.g., `{Int, Double}`), cdecl puts both in integer registers but swiftcc splits across int/float — needs `fmov`. Enabling this requires changes to both `AreAllParametersLowerable()` (gate) and parameter counting in `EmitThunk()` (multi-slot params occupy multiple cdecl registers but count as 1 logical param). Deferred to Session 4.
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| Unit tests | 9,256 pass, 0 fail |
+| Library validation | 90/90 pass |
+| Runtime (simulator) | 167 pass (up from 29), 1 pre-existing failure, 1 pre-existing crash |
+
+Runtime improvements: The Session 1 setter crash at test #30 (`TestFinalPropertyHolderIntSetGet`) is fixed. All FinalPropertyHolder setter tests now pass (Int, Float, String, Bool, Summary). Execution proceeds to test #168 where a pre-existing crash occurs in `BasicProtocolDispatchTests.TestPriorityHandlerGetPriority` (witness dispatch with `SwiftIndirectResult` — protocol dispatch, not thunks).
+
+---
+
+## Session 3: Constructor Thunks
 <!-- commit: pending -->
 
 **What**: Enable thunking for class allocating constructors and struct constructors (Phase 1 condition map rows 3-4). These are currently handled by @_cdecl wrappers.
@@ -90,64 +128,16 @@ Runtime testing passed 29 tests then crashed on `FinalPropertyHolder.IntValue` s
 3. For **struct constructors**: The thunk handles x8 indirect return. But the P/Invoke must NOT use `SwiftIndirectResult` under CallConvCdecl (it maps to x8 only under CallConvSwift). Research whether returning a correctly-sized blittable struct causes .NET to use AAPCS64 x8 naturally. If not, struct constructors may need to stay on @_cdecl.
 4. Add constructor-specific tests for both class and struct cases
 
-**Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
-
----
-
-## Session 3: Multi-Register Struct Self
-<!-- commit: pending -->
-
-**What**: Enable thunking for instance methods on frozen structs where self >8B (Phase 1 condition map row 8).
-
-**Why deferred**: ThunkAssemblyEmitter only handles single-register self (`mov x20, x0`). Frozen structs 9-32B need multi-register self.
-
-**Modified files**:
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/ThunkAssemblyEmitter.cs` — New assembly template for multi-register self
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/NativeThunkEmitter.cs` — Update `IsSelfTypeLowerable()` to accept multi-register self
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ThunkAssemblyEmitterTests.cs` — Assembly output tests
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/NativeThunkEmitterTests.cs` — Eligibility tests
-
-**Implementation details**:
-1. **Research first**: How does swiftcc handle struct self >8B? Two possibilities:
-   - **Pointer in x20**: Swift passes a pointer to the struct in x20. Thunk just needs to pass the cdecl pointer through to x20 (like classes). This would be simple.
-   - **Decomposed in registers**: Swift expects struct fields in individual registers around x20. Thunk needs to load from the cdecl pointer and distribute. This is complex.
-   - Check the experiments worktree (`RESEARCH.md`) and Swift ABI docs.
-2. If pointer-in-x20: Update `EmitSelfSetup` to handle struct pointers (may be identical to class self — just `mov x20, x0`)
-3. If decomposed: New template that loads fields from the pointer into the correct registers per `TypeLoweringResult.Slots`
-4. Update `IsSelfTypeLowerable()` in NativeThunkEmitter to allow `InlineSize > 8` for frozen structs
+**Note**: The x8 research question here overlaps with Session 4 (indirect result returns). If Session 4 is done first, its findings apply directly to struct constructors.
 
 **Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
 
 ---
 
-## Session 4: Multi-Slot Value Parameters
+## Session 4: Indirect Result Returns
 <!-- commit: pending -->
 
-**What**: Enable thunking for methods with value-type parameters >8B (Phase 1 condition map row 11).
-
-**Why deferred**: ThunkAssemblyEmitter only does 1:1 register shifting for parameters. A 16B struct parameter occupies 2 cdecl registers (x0+x1) but may need different register placement in swiftcc (e.g., `{ Int, Double }` → x0 + d0).
-
-**Modified files**:
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/ThunkAssemblyEmitter.cs` — Register remapping for multi-slot params
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/NativeThunkEmitter.cs` — Update `AreAllParametersLowerable()` and `EmitThunk()` parameter handling
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/TypeLowering.cs` — May need parameter-specific lowering adjustments
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ThunkAssemblyEmitterTests.cs` — Assembly output tests
-
-**Implementation details**:
-1. Parameter lowering in the thunk: use `TypeLoweringResult.Slots` to map each cdecl register to the correct swiftcc register
-2. Handle mixed int/float decomposition: `{ Int, Double }` arrives in x0+x1 (cdecl, all integer) but Swift expects x0+d0 (int+float). Thunk needs `fmov d0, x1` for the float field.
-3. Handle parameter count expansion: a method with 2 params where one is a 16B struct uses 3 cdecl registers but potentially different swiftcc registers
-4. Update `AreAllParametersLowerable()` to accept multi-slot params once assembly supports it
-5. Consider scope: if multi-slot struct parameters are rare in real-world Swift APIs, this may not be worth the complexity. Run `./validate-libraries.sh --verbose` and grep for methods rejected by the multi-slot gate to assess impact.
-
-**Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
-
----
-
-## Session 5: Indirect Result Returns via Thunks
-<!-- commit: pending -->
-
-**What**: Enable thunking for methods that return types requiring the indirect result pattern (SwiftIndirectResult).
+**What**: Enable thunking for methods that return types requiring the indirect result pattern (SwiftIndirectResult). Also pick up any multi-slot value parameter work deferred from Session 2 Part C.
 
 **Why deferred**: The thunk assembly CAN bridge registers to x8 buffer (it already does this for 17-32B frozen struct returns). But the C# P/Invoke side can't express this cleanly:
 - `SwiftIndirectResult` maps to x8 only under `CallConvSwift`
@@ -168,32 +158,8 @@ Runtime testing passed 29 tests then crashed on `FinalPropertyHolder.IntValue` s
 2. If blittable struct return works: Generate a `[StructLayout(LayoutKind.Sequential, Size=N)]` return type for the P/Invoke, matched to the Swift return size. The thunk stores registers to [x8], .NET reads from the buffer. No explicit resultPtr parameter needed.
 3. Types that would benefit: non-frozen struct returns, Optional<value-type> returns, string returns (in wrapper context), existential returns
 4. Update `ShouldEmitThunk()` to accept these return types once the P/Invoke side supports them
+5. If Session 2 Part C (multi-slot value params) was deferred, pick it up here — the register remapping patterns from Session 2 Parts A/B will inform the implementation.
+
+**Note**: The x8 research findings here also apply to struct constructors in Session 3. Whichever session runs first should document the result.
 
 **Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
-
----
-
-## Session 6: Thunk ABI Fix — Class Property Setters
-<!-- commit: pending -->
-
-**What**: Fix the thunk assembly register mapping for class instance method property setters. Discovered during Session 1 runtime validation — SIGSEGV on `FinalPropertyHolder.IntValue` setter.
-
-**Root cause**: For a class property setter like `intValue { set }`:
-- cdecl ABI: x0 = value (Int32), x1 = self pointer
-- Swift ABI: x0 = value (Int32), x20 = self pointer
-- The thunk must move x1 → x20 while preserving x0. The current assembly template isn't handling this correctly for the setter pattern.
-
-**Symptoms**: Runtime crash at test #30 (`TestFinalPropertyHolderIntSetGet`). Tests 1-29 pass (getters, methods, constructors all work). The setter-specific register shuffle is broken.
-
-**Modified files**:
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/ThunkAssemblyEmitter.cs` — Fix register mapping for instance method setters (value in x0, self in x1 → self to x20)
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/ThunkAssemblyEmitterTests.cs` — Add setter-specific assembly output tests
-- `BindingTests/RuntimeTestsApp/` — Verify `FinalPropertyHolder` setter tests pass
-
-**Implementation details**:
-1. Read the current `EmitInstanceMethodSetup()` in ThunkAssemblyEmitter — understand how it maps cdecl params to swiftcc
-2. The issue is likely in parameter counting: for a setter, the "value" parameter is x0 and "self" is x1 (cdecl). The thunk sees 1 parameter + self. But the self-movement code may be incorrectly treating x0 as self.
-3. Write a targeted assembly test: `ThunkDescriptor` with `IsInstanceMethod=true`, `ParameterCount=1` (the value), verify the assembly moves x1→x20 (self) and keeps x0 (value)
-4. After fixing, run the full BindingTests runtime suite to verify no other ABI patterns regressed
-
-**Validation**: `./run-tests.sh` + `cd BindingTests && ./run-runtime-tests.sh --timeout 90`
