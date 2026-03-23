@@ -959,6 +959,33 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ProcessProxyReferences_InterfaceProperty_EmitsGetSetThrow()
+        {
+            // Interface property whose body references a suppressed proxy must emit
+            // get { throw } / set { throw } — NOT bare throw (which is invalid C#).
+            var input =
+                "public interface IDataProvider {\n" +
+                "    IReadOnlyList<IItem> Items { get; set; }\n" +
+                "}\n" +
+                "public partial class DataStore : ISwiftObject, IDataProvider {\n" +
+                "    public virtual IReadOnlyList<IItem> Items\n" +
+                "    {\n" +
+                "        get => Items_Get().AsProjected(e => (IItem)new ItemProxy(e));\n" +
+                "        set { Items_Set(value); }\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "ItemProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            // Property declaration is preserved
+            Assert.Contains("public virtual IReadOnlyList<IItem> Items", result.Content);
+            // Property emits valid get/set with throw (not bare throw)
+            Assert.Contains("get { throw new NotSupportedException", result.Content);
+            Assert.Contains("set { throw new NotSupportedException", result.Content);
+            // Original proxy reference is gone
+            Assert.DoesNotContain("ItemProxy", result.Content);
+        }
+
+        [Fact]
         public void ProcessProxyReferences_CdeclExistentialReturn_BodyReplaced()
         {
             // @_cdecl existential return: reads from resultPtr then wraps in proxy.

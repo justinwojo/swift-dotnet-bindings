@@ -1326,7 +1326,32 @@ namespace BindingsGeneration
                     // Compute the indentation from the declaration line.
                     var declLine = lines[i];
                     var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
-                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn: false, isProperty: false, propertySetter: false);
+
+                    // Detect property declarations: interface properties need get/set accessors
+                    // to emit valid C# (bare throw inside a property body is a compile error).
+                    bool isIfacePropertyDecl = false;
+                    bool ifaceHasSetter = false;
+                    for (int j = braceOpenLine + 1; j < blockEnd; j++)
+                    {
+                        var bodyTrimmed = lines[j].TrimStart();
+                        if (bodyTrimmed.StartsWith("get ", StringComparison.Ordinal) ||
+                            bodyTrimmed.StartsWith("get =>", StringComparison.Ordinal) ||
+                            bodyTrimmed.StartsWith("get{", StringComparison.Ordinal) ||
+                            bodyTrimmed == "get" || bodyTrimmed == "get;")
+                        {
+                            isIfacePropertyDecl = true;
+                        }
+                        if (bodyTrimmed.StartsWith("set ", StringComparison.Ordinal) ||
+                            bodyTrimmed.StartsWith("set =>", StringComparison.Ordinal) ||
+                            bodyTrimmed.StartsWith("set{", StringComparison.Ordinal) ||
+                            bodyTrimmed == "set" || bodyTrimmed == "set;")
+                        {
+                            ifaceHasSetter = true;
+                        }
+                    }
+
+                    replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
+                        isVoidReturn: false, isProperty: isIfacePropertyDecl, propertySetter: ifaceHasSetter);
                 }
                 else
                 {

@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Swift;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 
 namespace Swift;
 
@@ -21,6 +22,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     private SwiftSafeHandle<URLRequest> _payload = SwiftSafeHandle<URLRequest>.Zero;
     private bool _disposed;
     private URL? _constructionUrl;
+    private Dictionary<string, string>? _managedHeaders;
 
     private static TypeMetadata? _cachedMetadata;
 
@@ -48,7 +50,11 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         {
             PInvoke_InitWithURL(new SwiftIndirectResult((void*)buffer), url.Payload);
             var request = new URLRequest(buffer, ownsBuffer: true);
-            request._constructionUrl = url;
+            // Create our own copy of the URL so we're independent of the caller's
+            // object lifetime. The Swift URLRequest already holds the URL value
+            // internally, but Optional<URL> extraction requires non-frozen struct
+            // marshalling infrastructure that doesn't exist yet.
+            request._constructionUrl = URL.FromString(url.AbsoluteString);
             return request;
         }
         catch
@@ -65,7 +71,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     /// <returns>A new URLRequest instance, or null if the URL string is invalid.</returns>
     public static URLRequest? FromString(string urlString)
     {
-        var url = URL.FromString(urlString);
+        using var url = URL.FromString(urlString);
         if (url == null)
             return null;
         return FromURL(url);
@@ -74,7 +80,47 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Gets the URL of the request.
     /// </summary>
-    public URL? URL => _constructionUrl;
+    public URL? URL
+    {
+        get
+        {
+            if (_constructionUrl != null)
+                return _constructionUrl;
+            // Fallback: extract from the Swift payload (NewFromPayload instances).
+            var url = GetURLFromPayload();
+            if (url != null)
+                _constructionUrl = url;
+            return url;
+        }
+    }
+
+    /// <summary>
+    /// Extracts the URL from the Swift URLRequest payload via P/Invoke.
+    /// Used when _constructionUrl is null (NewFromPayload instances).
+    /// </summary>
+    private unsafe URL? GetURLFromPayload()
+    {
+        if (_disposed)
+            return null;
+
+        var optionalUrlMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<URL>>();
+        var bufferSize = Math.Max((nuint)optionalUrlMetadata.Size, 16);
+        void* buffer = NativeMemory.AllocZeroed(bufferSize);
+        try
+        {
+            PInvoke_GetURL(new SwiftIndirectResult(buffer),
+                new SwiftSelf((void*)_payload.DangerousGetHandle()));
+
+            using var optionalUrl = SwiftMarshal.MarshalFromSwift<SwiftOptional<URL>>((IntPtr)buffer);
+            if (!optionalUrl.HasValue)
+                return null;
+            return optionalUrl.Some;
+        }
+        finally
+        {
+            NativeMemory.Free(buffer);
+        }
+    }
 
     /// <summary>
     /// Gets or sets the HTTP request method.
@@ -156,6 +202,9 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
             using var valueBuffer = valueSwift.PayloadBuffer;
             PInvoke_SetValue(valueBuffer.Buffer, fieldBuffer.Buffer,
                 new SwiftSelf((void*)_payload.DangerousGetHandle()));
+
+            _managedHeaders ??= new(StringComparer.OrdinalIgnoreCase);
+            _managedHeaders[forHTTPHeaderField] = value;
         }
         else
         {
@@ -174,6 +223,8 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
                 if (success)
                     none.Payload.DangerousRelease();
             }
+
+            _managedHeaders?.Remove(forHTTPHeaderField);
         }
     }
 
@@ -194,6 +245,12 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         using var fieldBuffer = fieldSwift.PayloadBuffer;
         PInvoke_AddValue(valueBuffer.Buffer, fieldBuffer.Buffer,
             new SwiftSelf((void*)_payload.DangerousGetHandle()));
+
+        _managedHeaders ??= new(StringComparer.OrdinalIgnoreCase);
+        if (_managedHeaders.TryGetValue(forHTTPHeaderField, out var existing))
+            _managedHeaders[forHTTPHeaderField] = existing + ", " + value;
+        else
+            _managedHeaders[forHTTPHeaderField] = value;
     }
 
     /// <summary>
@@ -213,10 +270,17 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
 #if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
     /// Converts this Swift.URLRequest to a .NET iOS Foundation.NSUrlRequest.
-    /// Copies URL, HTTP method, timeout, and all HTTP headers.
+    /// Copies URL, HTTP method, timeout, and HTTP headers set via <see cref="SetValue"/>/<see cref="AddValue"/>.
     /// </summary>
     /// <returns>An NSUrlRequest representation of this URLRequest.</returns>
     /// <exception cref="InvalidOperationException">Thrown if this URLRequest has no URL.</exception>
+    /// <remarks>
+    /// Headers are copied from the managed tracking dictionary, which covers headers set
+    /// through this wrapper's SetValue/AddValue methods and headers imported via FromNSUrlRequest.
+    /// Headers present only in the Swift payload (e.g., on a URLRequest returned from Swift code)
+    /// are not bridged, because reading allHTTPHeaderFields requires Dictionary&lt;String,String&gt;
+    /// marshalling that is not yet implemented.
+    /// </remarks>
     public Foundation.NSUrlRequest ToNSUrlRequest()
     {
         var url = URL?.ToNSUrl();
@@ -226,6 +290,25 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         var request = new Foundation.NSMutableUrlRequest(url);
         request.HttpMethod = HTTPMethod ?? "GET";
         request.TimeoutInterval = TimeoutInterval;
+
+        // Copy tracked HTTP headers to the NSMutableUrlRequest.
+        // Headers set via SetValue/AddValue are tracked in _managedHeaders
+        // since we can't enumerate the Swift URLRequest's allHTTPHeaderFields
+        // without Dictionary<String,String> marshalling.
+        if (_managedHeaders != null && _managedHeaders.Count > 0)
+        {
+            var keys = new Foundation.NSString[_managedHeaders.Count];
+            var values = new Foundation.NSString[_managedHeaders.Count];
+            int idx = 0;
+            foreach (var kvp in _managedHeaders)
+            {
+                keys[idx] = new Foundation.NSString(kvp.Key);
+                values[idx] = new Foundation.NSString(kvp.Value);
+                idx++;
+            }
+            request.Headers = Foundation.NSDictionary.FromObjectsAndKeys(values, keys);
+        }
+
         return request;
     }
 
@@ -245,13 +328,26 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         if (nsUrlRequest.Url == null)
             throw new ArgumentException("NSUrlRequest has no URL", nameof(nsUrlRequest));
 
-        var swiftUrl = Swift.URL.FromNSUrl(nsUrlRequest.Url);
+        using var swiftUrl = Swift.URL.FromNSUrl(nsUrlRequest.Url);
         var request = FromURL(swiftUrl);
 
         if (nsUrlRequest.HttpMethod != null)
             request.HTTPMethod = nsUrlRequest.HttpMethod;
 
         request.TimeoutInterval = nsUrlRequest.TimeoutInterval;
+
+        // Copy headers from the NSUrlRequest if present.
+        if (nsUrlRequest.Headers != null)
+        {
+            foreach (var key in nsUrlRequest.Headers.Keys)
+            {
+                var field = key.ToString();
+                var headerValue = nsUrlRequest.Headers[key]?.ToString();
+                if (field != null && headerValue != null)
+                    request.SetValue(headerValue, field);
+            }
+        }
+
         return request;
     }
 #endif
@@ -340,6 +436,12 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestV3urlAcA3URLV_tcfC")]
     private static extern void PInvoke_InitWithURL(SwiftIndirectResult result, SafeHandle url);
 
+    // Property getter: var url: URL?
+    // Returns Optional<URL> via indirect result (non-frozen struct).
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
+    [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestV3urlAA3URLVSgvg")]
+    private static extern void PInvoke_GetURL(SwiftIndirectResult result, SwiftSelf self);
+
     // Property getter: var httpMethod: String?
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestV10httpMethodSSSgvg")]
@@ -388,6 +490,9 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         if (!_disposed)
         {
             _payload.Dispose();
+            _constructionUrl?.Dispose();
+            _constructionUrl = null;
+            _managedHeaders = null;
             _disposed = true;
         }
     }
