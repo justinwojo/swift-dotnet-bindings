@@ -843,17 +843,18 @@ namespace BindingsGeneration
                     return "IntPtr";
                 }
 
-                // Frozen types with memory management use Buffer type
-                if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 &&
-                    (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
-                {
-                    return $"{typeRecord.CSharpTypeName.FullyQualifiedName}.Buffer";
-                }
-
-                // Frozen blittable structs — use type name directly
+                // ALL frozen structs use IntPtr in tuple callbacks — the Swift wrapper
+                // heap-allocates non-primitive types and passes via UnsafeMutableRawPointer
+                // to avoid @convention(c) ABI issues (ObjC bridging, Mono JIT struct params).
+                // This matches the closure emitter's pattern of UnsafeMutableRawPointer for
+                // all non-primitive types in @convention(c).
                 if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
                 {
-                    return typeRecord.CSharpTypeName.FullyQualifiedName;
+                    // Blittable primitive structs (Int, Double, etc.) are passed directly
+                    // by the Swift wrapper — only non-primitive structs are heap-allocated.
+                    if (IsSwiftPrimitive(named.Name))
+                        return typeRecord.CSharpTypeName.FullyQualifiedName;
+                    return "IntPtr";
                 }
 
                 // Fallback — IntPtr is safe for any unknown type
@@ -1014,6 +1015,15 @@ namespace BindingsGeneration
                 }
             }
 
+            // Swift.String → string conversion (received as IntPtr to heap-allocated buffer)
+            // Must check before generic IntPtr path since non-primitive structs all use IntPtr.
+            if (MarshallingHelpers.IsSwiftString(element))
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<SwiftString>({itemName}).ToString();";
+
+            // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer)
+            if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
+                return $"var {resultName} = (*(Swift.Data*)(void*){itemName}).ToByteArray();";
+
             // Use the computed P/Invoke type to determine marshalling
             if (pinvokeType == "IntPtr")
             {
@@ -1036,10 +1046,6 @@ namespace BindingsGeneration
             {
                 return $"var {resultName} = ({csharpType}){itemName};";
             }
-
-            // Foundation.Data → byte[] conversion
-            if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
-                return $"var {resultName} = {itemName}.ToByteArray();";
 
             // Frozen blittable primitives — use directly
             return $"var {resultName} = {itemName};";

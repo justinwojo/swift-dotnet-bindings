@@ -4,7 +4,7 @@
 
 Previous sessions archived in `Completed/`:
 - Sessions 0–14, architecture audit, post-audit fixes → `roadmap-march-2026-sessions.md`
-- Stability Sessions 1–2, Post-Stability Sessions A–F → `post-stability-sessions-a-f.md`
+- Stability Sessions 1–2, Post-Stability Sessions A–F, error code audit, CONTRIBUTING.md → `post-stability-sessions-a-f.md`
 
 ---
 
@@ -74,7 +74,6 @@ Small items that can be tackled opportunistically or folded into any session.
 |------|---------|--------|
 | Optional\<Bool\>/Optional\<SimpleEnum\> in closures | ~5-10 skips (RxSwift, Alamofire) | Medium — requires extra inhabitant encoding support in `MarshalOptionalFromSwift<T>` |
 | SwiftUI type public construction | Consumer ergonomics | Small |
-| ~~SDK property documentation~~ | ~~Consumer onboarding~~ | ~~Done — [wiki Customization page](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Customization)~~ |
 | ObjC-bridged optional setter @_cdecl wrapper | Final class `UIViewController?`/`NSString?` setters still CallConvSwift — `ShouldEmitWrapper` rejects due to IntPtr reconstruction incompatibility | Medium |
 | Optional-closure property setter @_cdecl wrapper | Final class `((…) -> Void)?` setters still CallConvSwift — `ShouldEmitWrapper` rejects closure properties | Medium |
 
@@ -157,14 +156,6 @@ Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`
 | Item | Effort | Notes |
 |------|--------|-------|
 | Bulk retain/release helpers | Low-medium | Perf win for large collections. Deferred — do when relevant. |
-
----
-
-## Contributor Onboarding
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| ~~`CONTRIBUTING.md`~~ | ~~0.5 session~~ | ~~Done — architecture overview, development workflow, issue/PR guidelines, code conventions~~ |
 
 ---
 

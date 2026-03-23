@@ -366,6 +366,37 @@ public class AsyncSwiftWrapperTests
         Assert.DoesNotContain("passRetained", swiftOutput);
     }
 
+    [Fact]
+    public void AsyncWrapper_TupleWithNativeRemappedData_UsesPointerIndirection()
+    {
+        // Foundation.Data is a NativeRemapped frozen struct. When passed by value in a
+        // @convention(c) callback, it can cause ABI issues (ObjC bridging, Mono JIT struct
+        // parameter handling). The fix is to heap-allocate and pass via UnsafeMutableRawPointer.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Foundation.Data", TypeRecordKind.Struct, false),
+                ("Foundation.URLResponse", TypeRecordKind.Class, true),
+            },
+            nativeRemappedTypes: new Dictionary<string, string> { { "Foundation.Data", "Foundation.NSData" } });
+
+        // Swift: callback type should use UnsafeMutableRawPointer, not Foundation.Data
+        Assert.Contains("UnsafeMutableRawPointer", swiftOutput);
+        Assert.DoesNotContain("@convention(c) (Foundation.Data,", swiftOutput);
+
+        // Swift: should heap-allocate Data before callback
+        Assert.Contains("MemoryLayout<Foundation.Data>.size", swiftOutput);
+        Assert.Contains("initializeMemory(as: Foundation.Data.self", swiftOutput);
+        Assert.Contains("defer", swiftOutput);
+        Assert.Contains("deinitialize", swiftOutput);
+
+        // C#: callback delegate should use IntPtr for Data, not the struct type
+        Assert.Contains("IntPtr", csOutput);
+        // C#: should read Data from pointer and convert to byte[]
+        Assert.Contains("Swift.Data*", csOutput);
+        Assert.Contains("ToByteArray()", csOutput);
+    }
+
     #endregion
 
     #region Async DynamicSelf Return Type Tests
@@ -627,7 +658,8 @@ public class AsyncSwiftWrapperTests
     /// </summary>
     private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithTupleReturn(
         (string typeName, TypeRecordKind kind, bool isObjCBridged)[] elements,
-        (string typeName, TypeRecordKind kind, bool isObjCBridged)? optionalObjCElement = null)
+        (string typeName, TypeRecordKind kind, bool isObjCBridged)? optionalObjCElement = null,
+        Dictionary<string, string> nativeRemappedTypes = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -740,13 +772,21 @@ public class AsyncSwiftWrapperTests
             if (isObjCBridged)
                 flags |= TypeRecordFlags.ObjCBridged;
             var ns = typeName.Contains('.') ? typeName.Substring(0, typeName.IndexOf('.')) : "TestModule";
+            CSharpTypeName nativeType = null;
+            if (nativeRemappedTypes != null && nativeRemappedTypes.TryGetValue(typeName, out var nativeTypeName))
+            {
+                nativeType = CSharpTypeName.FromNamespaceAndName(
+                    nativeTypeName.Contains('.') ? nativeTypeName.Substring(0, nativeTypeName.IndexOf('.')) : ns,
+                    nativeTypeName.Split('.').Last());
+            }
             var record = new TypeRecord
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(ns, typeName.Split('.').Last()),
                 SwiftTypeName = swiftName,
                 MetadataAccessor = $"$s{typeName.Replace(".", "")}Ma",
                 Flags = flags,
-                Kind = kind
+                Kind = kind,
+                NativeTypeName = nativeType
             };
             var elemModule = swiftName.Module;
             if (elemModule == "TestModule")

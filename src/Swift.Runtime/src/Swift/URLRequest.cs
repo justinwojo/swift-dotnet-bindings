@@ -48,7 +48,19 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
         IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);
         try
         {
-            PInvoke_InitWithURL(new SwiftIndirectResult((void*)buffer), url.Payload);
+            // Use DangerousAddRef/Release instead of passing SafeHandle directly,
+            // because CallConvSwift rejects non-blittable types like SafeHandle.
+            bool success = false;
+            url.Payload.DangerousAddRef(ref success);
+            try
+            {
+                PInvoke_InitWithURL(new SwiftIndirectResult((void*)buffer), url.Payload.DangerousGetHandle());
+            }
+            finally
+            {
+                if (success)
+                    url.Payload.DangerousRelease();
+            }
             var request = new URLRequest(buffer, ownsBuffer: true);
             // Create our own copy of the URL so we're independent of the caller's
             // object lifetime. The Swift URLRequest already holds the URL value
@@ -431,10 +443,11 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     private static extern TypeMetadata PInvoke_GetMetadata();
 
     // Constructor: init(url: URL)
-    // Non-frozen struct init returns via indirect result. URL param passed via SafeHandle (pointer).
+    // Non-frozen struct init returns via indirect result. URL passed as raw IntPtr
+    // (not SafeHandle) because CallConvSwift rejects non-blittable types.
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestV3urlAcA3URLV_tcfC")]
-    private static extern void PInvoke_InitWithURL(SwiftIndirectResult result, SafeHandle url);
+    private static extern void PInvoke_InitWithURL(SwiftIndirectResult result, IntPtr url);
 
     // Property getter: var url: URL?
     // Returns Optional<URL> via indirect result (non-frozen struct).

@@ -260,10 +260,74 @@ namespace BindingsGeneration
             {
                 // Flatten tuple elements for @convention(c) compatibility
                 var tupleTypeSpec = (TupleTypeSpec)returnTypeArg.SwiftTypeSpec;
-                var elementTypes = tupleTypeSpec.Elements.Select(e => e.ToString()).ToList();
+                var resultVar = $"result{_env.MethodDecl.Name}";
+
+                // Build callback param types and invocation args, handling VALUE TYPES that
+                // can't be passed by value in @convention(c) callbacks.
+                // Non-primitive value types (Foundation.Data, Swift.String, frozen structs)
+                // may have ABI issues: ObjC bridging, Mono JIT struct parameter bugs, or
+                // size mismatches. Heap-allocate and pass via pointer to avoid these issues.
+                //
+                // Class types and Optional<Class> are ALREADY raw pointers in @convention(c)
+                // and must NOT be heap-allocated — the C# side unmarshals them as direct
+                // object pointers (GetNSObject<T>, etc.).
+                var elementTypes = new List<string>();
+                var callbackArgParts = new List<string>();
+                var heapAllocLines = new List<string>();
+                var heapCleanupLines = new List<string>();
+                for (int i = 0; i < tupleTypeSpec.Elements.Count; i++)
+                {
+                    var element = tupleTypeSpec.Elements[i];
+                    bool needsHeapAlloc = false;
+
+                    if (element is NamedTypeSpec elemNamed)
+                    {
+                        // Skip class types — they're already raw pointers in @convention(c)
+                        if (_env.TypeDatabase.TryGetTypeRecord(elemNamed, out var elemRecord) &&
+                            elemRecord.Kind == TypeRecordKind.Class)
+                        {
+                            needsHeapAlloc = false;
+                        }
+                        // Skip Optional<Class> — uses nil-pointer ABI (pointer or null)
+                        else if (elemNamed.ContainsGenericParameters &&
+                                 elemNamed.Name == "Swift.Optional" &&
+                                 elemNamed.GenericParameters.Count > 0 &&
+                                 elemNamed.GenericParameters[0] is NamedTypeSpec innerNamed &&
+                                 _env.TypeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+                                 innerRecord.Kind == TypeRecordKind.Class)
+                        {
+                            needsHeapAlloc = false;
+                        }
+                        // Non-primitive value types need heap allocation
+                        else if (!IsSwiftPrimitive(elemNamed.Name))
+                        {
+                            needsHeapAlloc = true;
+                        }
+                    }
+
+                    if (needsHeapAlloc)
+                    {
+                        // Non-primitive value type: heap-allocate and pass via pointer.
+                        // C# reads the struct from the pointer via MarshalFromSwift or direct cast.
+                        var swiftTypeName = element.ToString();
+                        var ptrVar = $"_tupleBuf{i}";
+                        elementTypes.Add("UnsafeMutableRawPointer");
+                        callbackArgParts.Add(ptrVar);
+                        heapAllocLines.Add(
+                            $"let {ptrVar} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftTypeName}>.size, alignment: MemoryLayout<{swiftTypeName}>.alignment)\n" +
+                            $"                        {ptrVar}.initializeMemory(as: {swiftTypeName}.self, repeating: {resultVar}.{i}, count: 1)");
+                        heapCleanupLines.Add(
+                            $"{ptrVar}.assumingMemoryBound(to: {swiftTypeName}.self).deinitialize(count: 1)\n" +
+                            $"                        {ptrVar}.deallocate()");
+                    }
+                    else
+                    {
+                        elementTypes.Add(element.ToString());
+                        callbackArgParts.Add($"{resultVar}.{i}");
+                    }
+                }
                 callbackParams = string.Join(", ", elementTypes) + ", ";
-                // For callback invocation, access tuple elements with .0, .1, etc.
-                callbackResultArgs = string.Join(", ", Enumerable.Range(0, tupleTypeSpec.Elements.Count).Select(i => $"result{_env.MethodDecl.Name}.{i}")) + ", ";
+                callbackResultArgs = string.Join(", ", callbackArgParts) + ", ";
 
                 // Retain ObjC class objects in tuple elements for C# ownership.
                 // When an ObjC class is passed through @convention(c), Swift passes the raw pointer
@@ -272,7 +336,6 @@ namespace BindingsGeneration
                 // Bridgeable value types (e.g., Foundation.Data → NSData) are automatically bridged
                 // with +1 retain by Swift, so they don't need this treatment.
                 var retainLines = new List<string>();
-                var resultVar = $"result{_env.MethodDecl.Name}";
                 for (int i = 0; i < tupleTypeSpec.Elements.Count; i++)
                 {
                     var element = tupleTypeSpec.Elements[i];
@@ -324,10 +387,30 @@ namespace BindingsGeneration
                         }
                     }
                 }
+                // Build stringMarshalCode: data buffer allocation + ObjC retain lines
+                var marshalParts = new List<string>();
+
+                // Non-primitive types: allocate heap buffer before callback, cleanup via defer
+                if (heapAllocLines.Count > 0)
+                {
+                    marshalParts.Add(
+                        "// Heap-allocate non-primitive types for @convention(c) callback (avoids ABI issues)\n" +
+                        "                        " + string.Join("\n                        ", heapAllocLines) + "\n" +
+                        "                        defer {\n" +
+                        "                            " + string.Join("\n                            ", heapCleanupLines) + "\n" +
+                        "                        }");
+                }
+
                 if (retainLines.Count > 0)
                 {
-                    stringMarshalCode = "// Retain ObjC class objects for C# ownership (GetNSObject takes ownership of this retain)\n" +
-                        "                        " + string.Join("\n                        ", retainLines);
+                    marshalParts.Add(
+                        "// Retain ObjC class objects for C# ownership (GetNSObject takes ownership of this retain)\n" +
+                        "                        " + string.Join("\n                        ", retainLines));
+                }
+
+                if (marshalParts.Count > 0)
+                {
+                    stringMarshalCode = string.Join("\n                        ", marshalParts);
                 }
             }
             else if (isStringReturn)

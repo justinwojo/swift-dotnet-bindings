@@ -194,6 +194,41 @@ public struct AsyncComplexWorker {
     }
 }
 
+// MARK: - Async Tuple Returns with Foundation.Data
+
+/// Class with async methods returning tuples containing Foundation.Data.
+/// Tests the @convention(c) callback fix: Foundation.Data must be passed via
+/// UnsafeMutableRawPointer (heap-allocated) to avoid ABI issues with struct
+/// value parameters in C-calling-convention callbacks.
+public class AsyncDataWorker {
+    public let identifier: String
+
+    public init(identifier: String) {
+        self.identifier = identifier
+    }
+
+    /// Async method returning (Data, Int) — tests Data in tuple position 0.
+    public func fetchDataWithSize() async -> (Foundation.Data, Int) {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        let bytes: [UInt8] = Array(identifier.utf8)
+        return (Foundation.Data(bytes), bytes.count)
+    }
+
+    /// Async method returning (Int, Data) — tests Data in tuple position 1.
+    public func fetchSizeWithData() async -> (Int, Foundation.Data) {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        let bytes: [UInt8] = Array(identifier.utf8)
+        return (bytes.count, Foundation.Data(bytes))
+    }
+
+    /// Async method returning (Data, String) — tests Data + String in same tuple.
+    public func fetchDataWithLabel() async -> (Foundation.Data, String) {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        let bytes: [UInt8] = [0xCA, 0xFE, 0xBA, 0xBE]
+        return (Foundation.Data(bytes), identifier)
+    }
+}
+
 // MARK: - Async Free Functions with Complex Returns
 // NOTE: Async free functions temporarily disabled. Generator bug: uses `_payload` and `this`
 // in static methods. The struct/class methods above still work (they're instance methods).
