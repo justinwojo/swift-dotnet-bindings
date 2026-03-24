@@ -87,7 +87,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("ToggleSwitch with initial state=true");
     }
 
-    [SkipOnSimulator("SetIsOn uses CallConvSwift")]
     public void TestToggleSwitchSetIsOn()
     {
         using var toggle = new ToggleSwitch();
@@ -98,7 +97,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("SetIsOn(true, animated:false) works");
     }
 
-    [SkipOnSimulator("SetIsOn uses CallConvSwift")]
     public void TestToggleSwitchSetIsOnAnimated()
     {
         using var toggle = new ToggleSwitch();
@@ -108,7 +106,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("SetIsOn(true, animated:true) triggers animation");
     }
 
-    [SkipOnSimulator("SetIsOn uses CallConvSwift")]
     public void TestToggleSwitchSetIsOnNoChange()
     {
         using var toggle = new ToggleSwitch();
@@ -117,7 +114,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("SetIsOn with same state doesn't count as change");
     }
 
-    [SkipOnSimulator("SetIsOn uses CallConvSwift")]
     public void TestToggleSwitchMultipleToggles()
     {
         using var toggle = new ToggleSwitch();
@@ -171,7 +167,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("TapButton with animation: enabled");
     }
 
-    [SkipOnSimulator("PerformTap uses CallConvSwift")]
     public void TestTapButtonPerformTap()
     {
         using var button = new TapButton(animationName: "tap");
@@ -181,7 +176,6 @@ public class ControlHierarchyTests : TestBase
         TestLogger.Info("TapButton.PerformTap triggers animation");
     }
 
-    [SkipOnSimulator("PerformTap uses CallConvSwift")]
     public void TestTapButtonMultipleTaps()
     {
         using var button = new TapButton(animationName: "tap");

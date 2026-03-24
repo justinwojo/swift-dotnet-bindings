@@ -39,8 +39,7 @@ public class DisposeScopeTests : TestBase
         TestLogger.Info("Scope correctly disposed Animal on exit");
     }
 
-    // Depends on createUniqueResource whose wrapper was stripped during compilation
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestScopeDisposesMultipleObjects()
     {
         Animal animal;

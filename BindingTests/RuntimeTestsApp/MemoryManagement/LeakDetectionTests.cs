@@ -24,7 +24,6 @@ public class LeakDetectionTests : TestBase
         AssertEqual(42, fs.GetValue(), "Frozen struct with ref preserves value");
     }
 
-    [SkipOnSimulator("PassThroughFrozenWithRef uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestFrozenStructWithRefPassThrough()
     {
         using var fs = new FrozenStructWithRef(99);
@@ -42,7 +41,6 @@ public class LeakDetectionTests : TestBase
         AssertEqual(77, nfs.GetValue(), "Nested frozen struct preserves value");
     }
 
-    [SkipOnSimulator("PassThroughNestedFrozenWithRef uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestNestedFrozenStructWithRefPassThrough()
     {
         using var nfs = new NestedFrozenStructWithRef(55);

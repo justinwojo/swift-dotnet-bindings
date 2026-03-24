@@ -81,7 +81,7 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("MixedEmittability.Increment called without crash");
     }
 
-    [Skip("Opaque return @_silgen_name wrapper stripped during compilation — EntryPointNotFoundException")]
+    [Skip("Opaque return (some CustomStringConvertible): EntryPointNotFoundException — CallConvSwift fallback symbol not in dylib")]
     public void TestMixedEmittabilityOpaqueReturn()
     {
         // asDescribable() -> some CustomStringConvertible — emitted with CallConvSwift
@@ -105,7 +105,7 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("VariadicHolder(IEnumerable) construction passed");
     }
 
-    [Skip("Variadic init marshalling: IEnumerable values not retained in non-frozen struct")]
+    [Skip("Variadic init values not retained: IEnumerable<int> → Swift Array passed to variadic init, but non-frozen struct loses data (Sum returns 0)")]
     public void TestVariadicHolderSum()
     {
         var holder = new VariadicHolder(values: new[] { 10, 20, 30 });

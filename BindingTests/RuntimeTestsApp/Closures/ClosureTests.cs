@@ -143,7 +143,7 @@ public class ClosureTests : TestBase
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
     // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
 
-    [Skip("Non-blittable closure callback returns SwiftString — no @_cdecl callback wrapper emitted. Mono: non-blittable rejection. NativeAOT: SwiftRuntimeException resolving String TypeMetadata in UnmanagedCallersOnly context")]
+    [Skip("Closure returning Optional<String>: generator emits CallConvSwift fallback (SB0001) — no @_cdecl callback wrapper for non-primitive closure returns")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -152,7 +152,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    [Skip("Non-blittable closure callback returns SwiftString array — no @_cdecl callback wrapper emitted. Mono: non-blittable rejection. NativeAOT: SwiftRuntimeException resolving String TypeMetadata in UnmanagedCallersOnly context")]
+    [Skip("Closure returning [String]: generator emits CallConvSwift fallback (SB0001) — no @_cdecl callback wrapper for non-primitive closure returns")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>
@@ -249,7 +249,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithNilInt(none) = {result}");
     }
 
-    [Skip("No @_cdecl wrapper for Optional<Bool> closure param — Mono: JIT !ji->async assertion (upstream Issue 1), NativeAOT: NullReferenceException in CallConvSwift P/Invoke")]
+    [Skip("Optional<Bool> closure param: generator emits CallConvSwift fallback (SB0001) — no @_cdecl wrapper for Optional<T> closure params")]
     public void TestClosureWithOptionalBoolSome()
     {
         // Swift calls callback(true), C# receives bool? = true
@@ -267,7 +267,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithNilBool(none) = {result}");
     }
 
-    [Skip("Optional<SimpleEnum> MarshalOptionalFromSwift crashes Mono JIT generic instantiation")]
+    [Skip("Optional<Enum> closure param: generator emits CallConvSwift fallback (SB0001) — no @_cdecl wrapper for Optional<T> closure params")]
     public void TestClosureWithOptionalEnumSome()
     {
         // Swift calls callback(.blue), C# receives Color? = Color.Blue

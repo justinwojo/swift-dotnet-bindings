@@ -35,8 +35,7 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Double-dispose did not crash");
     }
 
-    // createUniqueResource wrapper stripped during compilation
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceDoubleDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
@@ -104,8 +103,7 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Describe after dispose correctly throws");
     }
 
-    // createUniqueResource wrapper stripped during compilation
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceAccessAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -119,8 +117,7 @@ public class OwnershipTests : TestBase
         TestLogger.Info("UniqueResource access after dispose correctly throws");
     }
 
-    // createUniqueResource wrapper stripped during compilation
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceMethodAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -156,8 +153,7 @@ public class OwnershipTests : TestBase
         TestLogger.Info("Independent objects have independent lifetimes");
     }
 
-    // createUniqueResource wrapper stripped during compilation
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestMultipleResourcesIndependent()
     {
         var r1 = TestLibFunctions.CreateUniqueResource(1);
@@ -226,7 +222,7 @@ public class OwnershipTests : TestBase
 
     #region Ownership Transfer Patterns
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper .pointee copy fails compilation")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestBorrowResourcePreservesOwnership()
     {
         // BorrowResource should not consume the resource

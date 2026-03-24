@@ -26,7 +26,7 @@ public class ConstructorParamTests : TestBase
 
     #region DescriptionPrinter — Protocol Existential Constructor Param
 
-    [Skip("ExistentialContainer1 constructor param crashes — container boxing for non-frozen struct values needs Swift allocBox semantics")]
+    [Skip("ExistentialContainer1 constructor param crashes Mono JIT — !ji->async assertion in existential boxing path")]
     public void TestProtocolExistentialParamConstruction()
     {
         // DescriptionPrinter(source: any Describable) — exercises IsProtocolExistentialType branch.
@@ -37,7 +37,7 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info("DescriptionPrinter(IDescribable) construction passed");
     }
 
-    [Skip("ExistentialContainer1 constructor param crashes — container boxing for non-frozen struct values needs Swift allocBox semantics")]
+    [Skip("ExistentialContainer1 constructor param crashes Mono JIT — !ji->async assertion in existential boxing path")]
     public void TestProtocolExistentialParamGetText()
     {
         var item = new SimpleItem(id: "ex-1", label: "Existential test");
@@ -166,7 +166,6 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info($"DirectionHolder.GetDescribe() = {desc}");
     }
 
-    [Skip("DirectionHolder.direction @_cdecl wrapper stripped during compilation — falls back to CallConvSwift + Tj dispatch which crashes Mono (misaligned raw pointer)")]
     public void TestTagOnlyEnumParamProperties()
     {
         var holder = new DirectionHolder(direction: Direction.West, label: "left");

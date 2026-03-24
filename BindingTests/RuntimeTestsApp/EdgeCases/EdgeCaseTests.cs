@@ -17,14 +17,12 @@ public class EdgeCaseTests : TestBase
 
     #region Visibility
 
-    [SkipOnSimulator("VisibilityTest constructor uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestVisibilityTestPublicValue()
     {
         using var v = new VisibilityTest(10);
         AssertEqual(10, v.PublicValue, "Public value accessible");
     }
 
-    [SkipOnSimulator("VisibilityTest constructor uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestVisibilityTestGetPublic()
     {
         using var v = new VisibilityTest(5);
@@ -65,7 +63,7 @@ public class EdgeCaseTests : TestBase
 
     #region Keywords
 
-    [Skip("KeywordTest wrapper stripped: Swift keyword params (operator:, class:) fail wrapper compilation")]
+    [Skip("KeywordTest constructor SIGSEGV crash on Mono — 4 SwiftString params through @_cdecl wrapper")]
     public void TestKeywordTestCreation()
     {
         using var kt = new KeywordTest("evt", "del", "op", "cls");

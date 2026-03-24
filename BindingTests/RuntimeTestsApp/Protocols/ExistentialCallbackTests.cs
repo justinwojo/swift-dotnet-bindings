@@ -22,7 +22,6 @@ public class ExistentialCallbackTests : TestBase
     /// Tests that Swift can call a C# protocol implementation passing
     /// an existential parameter (any HasValue) through proxy receiver dispatch.
     /// </summary>
-    [Skip("Generator emits CallConvSwift fallback (not @_cdecl wrapper) for this existential free function — ExistentialContainer1 (40B) by value crashes Mono JIT and NativeAOT SIGSEGV (upstream Issue 7). Golden has @_cdecl path but generator doesn't emit it yet")]
     public void TestExistentialParamCallbackDelivery()
     {
         var impl = new TestExistentialDelegate();

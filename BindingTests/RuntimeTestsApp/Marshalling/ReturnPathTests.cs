@@ -35,7 +35,7 @@ public class ReturnPathTests : TestBase
         TestLogger.Info("PairMaker construction passed");
     }
 
-    [Skip("Tuple return with SwiftString element — C# marshalling crashes resolving String TypeMetadata (P/Invoke is CallConvCdecl, crash is in marshalling layer)")]
+    [Skip("Tuple return with SwiftString element — SIGSEGV crash in marshalling layer when reading string from tuple buffer")]
     public void TestPairMakerTupleReturn()
     {
         var maker = new PairMaker(label: "item");

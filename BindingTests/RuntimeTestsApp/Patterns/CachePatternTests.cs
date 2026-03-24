@@ -30,7 +30,6 @@ public class CachePatternTests : TestBase
         TestLogger.Info($"DataPipeline created with label '{pipeline.Label}'");
     }
 
-    [SkipOnSimulator("DataPipeline.Shared uses CallConvSwift static property")]
     public void TestDataPipelineSharedSingleton()
     {
         using var shared = DataPipeline.Shared;
@@ -118,7 +117,6 @@ public class CachePatternTests : TestBase
         TestLogger.Info("Cache item removed successfully");
     }
 
-    [SkipOnSimulator("RemoveAll uses CallConvSwift")]
     public void TestCacheRemoveAll()
     {
         using var pipeline = new DataPipeline(label: "clear-test");

@@ -193,7 +193,6 @@ public class ValueProviderPatternTests : TestBase
         TestLogger.Info($"getProviderKind(GradientProvider) = \"{kind}\"");
     }
 
-    [SkipOnSimulator("CallConvSwift free function with existential parameter — crashes on Mono JIT")]
     public void TestCheckProviderUpdateFreeFunction()
     {
         using var fp = new FloatProvider(floatValue: 1.0);

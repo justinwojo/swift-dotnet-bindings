@@ -45,7 +45,6 @@ public class HierarchyInspectionTests : TestBase
 
     #region Keypath Enumeration
 
-    [SkipOnSimulator("GetAllKeypaths uses CallConvSwift — array return not wrappable")]
     public void TestAllKeypathsPopulated()
     {
         using var container = CreateTestHierarchy();
@@ -82,7 +81,7 @@ public class HierarchyInspectionTests : TestBase
         TestLogger.Info($"ConvertPoint: (30,40) -> ({point!.Value.X},{point!.Value.Y})");
     }
 
-    [Skip("SwiftOptional<CGPoint> None → Nullable<CGPoint> conversion returns HasValue=true — Mono JIT Nullable<struct> return issue")]
+    [Skip("SwiftOptional<CGPoint> None → Nullable<CGPoint>: Mono returns HasValue=true for .none (optional struct return marshalling bug)")]
     public void TestConvertPointInvalidKeypath()
     {
         using var container = CreateTestHierarchy();
@@ -104,7 +103,7 @@ public class HierarchyInspectionTests : TestBase
         TestLogger.Info($"ConvertRect: origin ({rect!.Value.X},{rect!.Value.Y}), size {rect!.Value.Width}x{rect!.Value.Height}");
     }
 
-    [Skip("SwiftOptional<CGRect> None → Nullable<CGRect> conversion returns HasValue=true — Mono JIT Nullable<struct> return issue")]
+    [Skip("SwiftOptional<CGRect> None → Nullable<CGRect>: Mono returns HasValue=true for .none (optional struct return marshalling bug)")]
     public void TestConvertRectInvalidKeypath()
     {
         using var container = CreateTestHierarchy();

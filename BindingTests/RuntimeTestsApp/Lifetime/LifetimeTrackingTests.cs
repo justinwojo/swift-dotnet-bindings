@@ -17,7 +17,6 @@ public class LifetimeTrackingTests : TestBase
 
     #region TrackedObject Construction
 
-    [SkipOnSimulator("CreateTrackedObject(int) uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestTrackedObjectCreation()
     {
         using var obj = TestLibFunctions.CreateTrackedObject(1);
@@ -31,7 +30,6 @@ public class LifetimeTrackingTests : TestBase
         AssertEqual("custom", obj.Label.ToString(), "Label preserved");
     }
 
-    [SkipOnSimulator("CreateTrackedObject(int) uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestTrackedObjectIsAlive()
     {
         using var obj = TestLibFunctions.CreateTrackedObject(3);
@@ -67,7 +65,6 @@ public class LifetimeTrackingTests : TestBase
 
     #region Reference Semantics
 
-    [SkipOnSimulator("CreateTrackedObject(int) uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestIdentityPreservesObject()
     {
         using var obj = TestLibFunctions.CreateTrackedObject(20);
@@ -87,7 +84,6 @@ public class LifetimeTrackingTests : TestBase
 
     #region ValuePoint (Frozen Struct Value Semantics)
 
-    [SkipOnSimulator("CreateValuePoint uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestValuePointCreation()
     {
         var pt = TestLibFunctions.CreateValuePoint(3, 4);
@@ -95,7 +91,6 @@ public class LifetimeTrackingTests : TestBase
         AssertEqual(4, pt.Y, "Y preserved");
     }
 
-    [SkipOnSimulator("ModifyValuePoint uses CallConvSwift (no @_cdecl wrapper)")]
     public void TestValuePointModifyCopy()
     {
         var original = TestLibFunctions.CreateValuePoint(10, 20);
@@ -109,16 +104,31 @@ public class LifetimeTrackingTests : TestBase
 
     #region Closure Capture
 
-    [Skip("Closure returns: non-blittable callback through CallConvSwift")]
     public void TestCapturingClosureRetainsObject()
     {
-        // createCapturingClosure returns a closure that captures a TrackedObject
+        // createCapturingClosure captures a TrackedObject(objectId) and returns its objectId
+        var closure = TestLibFunctions.CreateCapturingClosure(objectId: 99);
+        AssertNotNull(closure, "CreateCapturingClosure returned non-null");
+        var result = closure();
+        AssertEqual(99, result, "Captured closure returns objectId 99");
+        // Call again to verify closure is stable
+        var result2 = closure();
+        AssertEqual(99, result2, "Second invocation still returns 99");
+        TestLogger.Info($"CreateCapturingClosure(99)() = {result}");
     }
 
-    [Skip("Closure returns: non-blittable callback through CallConvSwift")]
     public void TestMutatingClosureCaptureLifetime()
     {
-        // createMutatingClosure returns a closure that mutates captured state
+        // createMutatingClosure captures a TrackedObject + callCount, returns incremented callCount
+        var closure = TestLibFunctions.CreateMutatingClosure(objectId: 42);
+        AssertNotNull(closure, "CreateMutatingClosure returned non-null");
+        var call1 = closure();
+        AssertEqual(1, call1, "First call returns count 1");
+        var call2 = closure();
+        AssertEqual(2, call2, "Second call returns count 2");
+        var call3 = closure();
+        AssertEqual(3, call3, "Third call returns count 3");
+        TestLogger.Info($"CreateMutatingClosure: call counts = {call1}, {call2}, {call3}");
     }
 
     #endregion

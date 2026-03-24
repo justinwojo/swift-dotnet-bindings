@@ -8,7 +8,9 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Parameters;
 
 /// <summary>
-/// Tests for inout parameters. Default and variadic parameters are skipped.
+/// Tests for inout, default, and variadic parameters.
+/// All are currently stubs — the generator emits these but the test bodies
+/// need real implementations before they can be considered passing.
 /// </summary>
 public class ParameterTests : TestBase
 {
@@ -16,25 +18,25 @@ public class ParameterTests : TestBase
 
     #region Inout Parameters
 
-    [Skip("inout parameters: ref semantics not fully supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify ref parameter marshalling")]
     public void TestIncrementValue()
     {
         // incrementValue(_ value: inout Int32) — requires ref parameter marshalling
     }
 
-    [Skip("inout parameters: ref semantics not fully supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify ref parameter marshalling")]
     public void TestSwapValues()
     {
         // swapValues — requires two ref parameters
     }
 
-    [Skip("inout parameters: ref semantics not fully supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify ref parameter marshalling")]
     public void TestIncrementPoint()
     {
         // incrementPoint — inout on struct parameter
     }
 
-    [Skip("inout parameters: ref semantics not fully supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify ref parameter marshalling")]
     public void TestDoubleInPlace()
     {
         // doubleInPlace — inout with return value
@@ -42,21 +44,21 @@ public class ParameterTests : TestBase
 
     #endregion
 
-    #region Default Parameters (Unsupported)
+    #region Default Parameters
 
-    [Skip("Default parameters not P/Invoke-expressible")]
+    [Skip("Test stub — needs real implementation to verify default parameter emission")]
     public void TestGreetDefault()
     {
         // greet(name:greeting:) has default greeting parameter
     }
 
-    [Skip("Default parameters not P/Invoke-expressible")]
+    [Skip("Test stub — needs real implementation to verify default parameter emission")]
     public void TestSearchDefaults()
     {
         // search(query:limit:offset:) has multiple defaults
     }
 
-    [Skip("Default parameters not P/Invoke-expressible")]
+    [Skip("Test stub — needs real implementation to verify default parameter emission")]
     public void TestConfigureDefaults()
     {
         // configure(host:port:secure:) has mixed defaults
@@ -64,21 +66,21 @@ public class ParameterTests : TestBase
 
     #endregion
 
-    #region Variadic Parameters (Unsupported)
+    #region Variadic Parameters
 
-    [Skip("Variadic parameters not supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify variadic parameter emission")]
     public void TestSumAll()
     {
         // sumAll(_ values: Int32...) — variadic Int32
     }
 
-    [Skip("Variadic parameters not supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify variadic parameter emission")]
     public void TestJoinStrings()
     {
         // joinStrings(_ strings: String...) — variadic String
     }
 
-    [Skip("Variadic parameters not supported in P/Invoke")]
+    [Skip("Test stub — needs real implementation to verify variadic parameter emission")]
     public void TestVariadicConsumer()
     {
         // VariadicConsumer.sumWithPrefix — variadic on struct method

@@ -93,8 +93,7 @@ public class ClassMarshallingTests : TestBase
 
     #region UniqueResource (via public constructor)
 
-    // createUniqueResource wrapper stripped during compilation — Swift wrapper can't compile this function
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper needs move semantics")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceCreation()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -114,7 +113,7 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper .pointee copy fails compilation")]
+    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestBorrowResource()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);
