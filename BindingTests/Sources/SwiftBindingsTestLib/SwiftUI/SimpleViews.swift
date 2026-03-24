@@ -256,3 +256,33 @@ public struct UpdatableMixedView: View {
         Text(title)
     }
 }
+
+// MARK: - Closure Non-Primitive Returns (Session 1B)
+
+/// Tests TypedClosure with String return: (Int32) -> String.
+/// C# callback encodes returned string as UTF-8 native buffer; Swift decodes.
+public struct StringReturnClosureView: View {
+    public let transformer: (Int32) -> String
+
+    public init(transformer: @escaping (Int32) -> String) {
+        self.transformer = transformer
+    }
+
+    public var body: some View {
+        Text(transformer(42))
+    }
+}
+
+/// Tests TypedClosure with class return: (Int32) -> SimpleModel.
+/// C# callback retains via Arc.Retain; Swift takes ownership via Unmanaged.takeRetainedValue.
+public struct ClassReturnClosureView: View {
+    public let factory: (Int32) -> SimpleModel
+
+    public init(factory: @escaping (Int32) -> SimpleModel) {
+        self.factory = factory
+    }
+
+    public var body: some View {
+        Text("ClassReturn: \(factory(1).getValue())")
+    }
+}

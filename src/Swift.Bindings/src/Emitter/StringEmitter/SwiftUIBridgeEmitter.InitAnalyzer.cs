@@ -174,14 +174,20 @@ public static partial class SwiftUIBridgeEmitter
             argIndex++;
         }
 
-        // Map return type (primitives only — String/class returns deferred to 1B)
+        // Map return type (primitives, String, and class types)
         BridgeParameter? closureReturn = null;
         if (hasReturn)
         {
             if (closureSpec.ReturnType is not NamedTypeSpec namedReturn)
                 return null;
             var mapped = MapPrimitiveOrString("result", namedReturn);
-            if (mapped == null || mapped.Kind == BridgeParameterKind.String)
+            if (mapped == null && context?.TypeDatabase != null)
+            {
+                mapped = MapDatabaseType("result", namedReturn, context);
+                if (mapped != null && mapped.Kind != BridgeParameterKind.BoundType)
+                    mapped = null; // Only classes for closure returns, not enums/structs
+            }
+            if (mapped == null)
                 return null;
             closureReturn = mapped;
         }
@@ -195,8 +201,14 @@ public static partial class SwiftUIBridgeEmitter
             if (a.Kind == BridgeParameterKind.String)
                 abiArgTypes.Add("Int"); // length companion
         }
+        // String-returning closures need a return-length out-parameter
+        if (closureReturn?.Kind == BridgeParameterKind.String)
+            abiArgTypes.Add("UnsafeMutablePointer<Int>");
         abiArgTypes.Add("UnsafeMutableRawPointer?");
         var abiReturnType = closureReturn?.SwiftAbiType ?? "Void";
+        // Class return from closure needs nullable pointer to handle nil returns
+        if (closureReturn?.Kind == BridgeParameterKind.BoundType)
+            abiReturnType += "?";
         var swiftAbiType = $"(@convention(c) ({string.Join(", ", abiArgTypes)}) -> {abiReturnType})?";
 
         return new BridgeParameter(

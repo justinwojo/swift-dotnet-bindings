@@ -4467,12 +4467,84 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void InitAnalyzer_TypedClosure_StringReturn_StillRejected()
+    public void InitAnalyzer_TypedClosure_StringReturn_IsSupported()
     {
-        // String returns in closures are deferred to 1B
+        var ctor = CreateConstructorWithTypedClosure("transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureReturn);
+        Assert.Equal(BridgeParameterKind.String, result[0].ClosureReturn!.Kind);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_StringReturn_AbiHasRetLenOutParam()
+    {
+        var ctor = CreateConstructorWithTypedClosure("transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        // ABI should include retLen out-parameter and UnsafePointer return
+        Assert.Contains("UnsafeMutablePointer<Int>", result[0].SwiftAbiType);
+        Assert.Contains("UnsafePointer<UInt8>?", result[0].SwiftAbiType);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_VoidToString_IsSupported()
+    {
         var ctor = CreateConstructorWithTypedClosure("getter",
             TupleTypeSpec.Empty, new NamedTypeSpec("Swift.String"));
         var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureReturn);
+        Assert.Equal(BridgeParameterKind.String, result[0].ClosureReturn!.Kind);
+        Assert.Empty(result[0].ClosureArguments!);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_ClassReturn_IsSupported_WithTypeDatabase()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithTypedClosure("factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result[0].Kind);
+        Assert.NotNull(result[0].ClosureReturn);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].ClosureReturn!.Kind);
+        Assert.Equal("LottieAnimation", result[0].ClosureReturn!.BridgeTypeName);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_ClassReturn_FallsBackToTemplate_WithoutTypeDatabase()
+    {
+        var ctor = CreateConstructorWithTypedClosure("factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        // Without TypeDatabase, class returns can't be mapped
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void InitAnalyzer_TypedClosure_EnumReturn_StillRejected()
+    {
+        // Enum returns are not supported (only primitives, String, and class)
+        var typeDb = CreateEnumTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithTypedClosure("getter",
+            TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.AlertStyle"));
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
 
         Assert.Null(result);
     }
@@ -4632,6 +4704,202 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         Assert.Contains("Action<TestModule.LottieAnimation>", csContent);
     }
+
+    #endregion
+
+    #region Closure Non-Primitive Returns (Session 1B)
+
+    [Fact]
+    public void EmitStringReturnClosure_Swift_HasRetLenOutParameter()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("UnsafeMutablePointer<Int>", swiftContent);
+        Assert.Contains("UnsafePointer<UInt8>?", swiftContent);
+    }
+
+    [Fact]
+    public void EmitStringReturnClosure_Swift_DecodesReturnedBuffer()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Swift decodes the returned UTF-8 buffer
+        Assert.Contains("var retLen: Int = 0", swiftContent);
+        Assert.Contains("withUnsafeMutablePointer(to: &retLen)", swiftContent);
+        Assert.Contains("retPtr?.deallocate()", swiftContent);
+        Assert.Contains("UnsafeBufferPointer(start: retBuf, count: retLen)", swiftContent);
+    }
+
+    [Fact]
+    public void EmitStringReturnClosure_CSharp_HasNativeMemoryAlloc()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("NativeMemory.Alloc", csContent);
+        Assert.Contains("Encoding.UTF8.GetBytes(result", csContent);
+        Assert.Contains("retLenPtr", csContent);
+    }
+
+    [Fact]
+    public void EmitStringReturnClosure_CSharp_HasFuncStringDelegate()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Func<int, string?>", csContent);
+    }
+
+    [Fact]
+    public void EmitStringReturnClosure_CSharp_FnPtrHasRetLenParam()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // fn ptr type should have extra IntPtr for retLenPtr: <int, IntPtr, IntPtr, IntPtr>
+        // args: int (arg0), IntPtr (retLenPtr), IntPtr (userData), IntPtr (return)
+        Assert.Contains("delegate* unmanaged[Cdecl]<int, IntPtr, IntPtr, IntPtr>", csContent);
+    }
+
+    [Fact]
+    public void EmitStringReturnClosure_GeneratesFunctionalBridge()
+    {
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "transformer",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CbView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_Swift_UsesUnmanagedTakeRetainedValue()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("Unmanaged<LottieAnimation>.fromOpaque(retPtr).takeRetainedValue()", swiftContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_Swift_HasNullGuard()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("guard let retPtr", swiftContent);
+        Assert.Contains("fatalError", swiftContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_CSharp_UsesArcRetain()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Arc.Retain(ptr)", csContent);
+        Assert.Contains("Payload.DangerousGetHandle()", csContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_CSharp_HasFuncClassDelegate()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Func<int, TestModule.LottieAnimation>", csContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_CSharp_HasSwiftRuntimeImport()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("using Swift.Runtime;", csContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_GeneratesFunctionalBridge()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_CbView_Create\")", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    [Fact]
+    public void EmitClassReturnClosure_Swift_AbiHasNullableReturnPointer()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var views = new List<TypeDecl> { CreateViewWithTypedClosureInit("CbView", "factory",
+            new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("TestModule.LottieAnimation")) };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // ABI return type should be nullable to handle nil from C#
+        Assert.Contains("UnsafeMutableRawPointer?)", swiftContent);
+    }
+
+    #endregion
 
     [Fact]
     public void EmitOptionalString_Swift_HasNilCheckBranching()
@@ -4809,8 +5077,6 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             },
         };
     }
-
-    #endregion
 
     #region Generic View Support (Session 2)
 

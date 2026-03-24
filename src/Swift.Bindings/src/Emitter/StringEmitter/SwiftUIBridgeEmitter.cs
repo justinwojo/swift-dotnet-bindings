@@ -1689,6 +1689,13 @@ public static partial class SwiftUIBridgeEmitter
                     p.ClosureArguments.Any(a => a.Kind == BridgeParameterKind.BoundType)));
             if (hasClassClosureArgs)
                 sb.AppendLine("using Swift.Runtime.InteropServices;");
+            // Add Swift.Runtime when class closure returns need Arc.Retain
+            bool hasClassClosureReturns = bridgeResults.Any(r => r.IsFunctional && r.Params != null &&
+                r.Params.Any(p => p.Kind == BridgeParameterKind.TypedClosure &&
+                    p.ClosureReturn != null &&
+                    p.ClosureReturn.Kind == BridgeParameterKind.BoundType));
+            if (hasClassClosureReturns)
+                sb.AppendLine("using Swift.Runtime;");
             sb.AppendLine();
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
@@ -2285,11 +2292,12 @@ public static partial class SwiftUIBridgeEmitter
             $"arg{i}: {GetSwiftTypeFromAbi(a)}").ToList();
         var argDeclStr = string.Join(", ", swiftArgDecls);
 
-        // Check if we have String or class args that need special encoding
+        // Check if we have String or class args/returns that need special encoding
         var hasStringArgs = closureArgs.Any(a => a.Kind == BridgeParameterKind.String);
         var hasClassArgs = closureArgs.Any(a => a.Kind == BridgeParameterKind.BoundType);
+        var hasNonPrimitiveReturn = closureReturn?.Kind is BridgeParameterKind.String or BridgeParameterKind.BoundType;
 
-        if (hasStringArgs || hasClassArgs)
+        if (hasStringArgs || hasClassArgs || hasNonPrimitiveReturn)
         {
             return BuildComplexClosureViewInitArg(param, closureArgs, closureReturn, argDeclStr);
         }
@@ -2393,22 +2401,51 @@ public static partial class SwiftUIBridgeEmitter
                 callbackArgs.Add($"arg{i}");
             }
         }
+        // String-returning closures: add retLen out-parameter before userData
+        if (closureReturn?.Kind == BridgeParameterKind.String)
+            callbackArgs.Add("lenPtr");
         callbackArgs.Add($"ud_{param.Name}");
         var callbackArgStr = string.Join(", ", callbackArgs);
 
         if (hasReturn)
         {
-            // Non-void return: default value + optional chaining + conversion
-            var defaultVal = closureReturn!.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
-            var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
-            if (closureReturn.SwiftConversion != null)
-                callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
+            var isStringReturn = closureReturn!.Kind == BridgeParameterKind.String;
+            var isClassReturn = closureReturn.Kind == BridgeParameterKind.BoundType;
 
-            // String args require `return` keyword inside withUnsafeBufferPointer blocks
-            if (stringArgIndices.Count > 0)
-                sb.Append($"{currentIndent}return {callExpr}\n");
+            if (isStringReturn)
+            {
+                // String return: decode UTF-8 buffer returned from C# callback
+                sb.Append($"{currentIndent}var retLen: Int = 0\n");
+                sb.Append($"{currentIndent}let retPtr = withUnsafeMutablePointer(to: &retLen) {{ lenPtr in\n");
+                sb.Append($"{currentIndent}    cb_{param.Name}?({callbackArgStr})\n");
+                sb.Append($"{currentIndent}}}\n");
+                sb.Append($"{currentIndent}defer {{ retPtr?.deallocate() }}\n");
+                sb.Append($"{currentIndent}guard let retBuf = retPtr, retLen > 0 else {{ return \"\" }}\n");
+                sb.Append($"{currentIndent}return String(bytes: UnsafeBufferPointer(start: retBuf, count: retLen), encoding: .utf8) ?? \"\"\n");
+            }
+            else if (isClassReturn)
+            {
+                // Class return: unwrap Unmanaged pointer with ownership transfer
+                var callExpr = $"cb_{param.Name}?({callbackArgStr})";
+                sb.Append($"{currentIndent}guard let retPtr = {callExpr} else {{\n");
+                sb.Append($"{currentIndent}    fatalError(\"SBW: closure returned null for non-optional class return\")\n");
+                sb.Append($"{currentIndent}}}\n");
+                sb.Append($"{currentIndent}return Unmanaged<{closureReturn.BridgeTypeName}>.fromOpaque(retPtr).takeRetainedValue()\n");
+            }
             else
-                sb.Append($"{currentIndent}{callExpr}\n");
+            {
+                // Primitive return: default value + optional chaining + conversion
+                var defaultVal = closureReturn.SwiftAbiType is "Double" or "Float" ? "0.0" : "0";
+                var callExpr = $"cb_{param.Name}?({callbackArgStr}) ?? {defaultVal}";
+                if (closureReturn.SwiftConversion != null)
+                    callExpr = $"({callExpr}) {closureReturn.SwiftConversion}";
+
+                // String args require `return` keyword inside withUnsafeBufferPointer blocks
+                if (stringArgIndices.Count > 0)
+                    sb.Append($"{currentIndent}return {callExpr}\n");
+                else
+                    sb.Append($"{currentIndent}{callExpr}\n");
+            }
         }
         else
         {
@@ -2462,6 +2499,9 @@ public static partial class SwiftUIBridgeEmitter
                 trampolineParams.Add($"{a.CSharpPInvokeType} arg{i}");
             }
         }
+        // String-returning closures: add retLen out-parameter before userData
+        if (closureReturn?.Kind == BridgeParameterKind.String)
+            trampolineParams.Add("IntPtr retLenPtr");
         trampolineParams.Add("IntPtr userData");
         var returnType = closureReturn?.CSharpPInvokeType ?? "void";
 
@@ -2520,10 +2560,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"                if (h.Target is {delegateType} func)");
                 sb.AppendLine("                {");
                 sb.AppendLine($"                    var result = func({delegateArgStr});");
-                if (closureReturn.CSharpConversion != null)
-                    sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
-                else
-                    sb.AppendLine($"                    return result;");
+                EmitTrampolineReturnEncoding(sb, closureReturn);
                 sb.AppendLine("                }");
             }
         }
@@ -2544,19 +2581,64 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"                if (h.Target is {delegateType} func)");
                 sb.AppendLine("                {");
                 sb.AppendLine($"                    var result = func({delegateArgStr});");
-                if (closureReturn.CSharpConversion != null)
-                    sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
-                else
-                    sb.AppendLine($"                    return result;");
+                EmitTrampolineReturnEncoding(sb, closureReturn);
                 sb.AppendLine("                }");
             }
         }
 
         sb.AppendLine("            }");
         if (closureReturn != null)
-            sb.AppendLine("            return 0;");
+        {
+            var defaultReturn = closureReturn.Kind is BridgeParameterKind.String or BridgeParameterKind.BoundType
+                ? "IntPtr.Zero" : "0";
+            sb.AppendLine($"            return {defaultReturn};");
+        }
         sb.AppendLine("        }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits the return encoding for a typed closure trampoline based on return type kind.
+    /// String return: allocates native buffer, encodes UTF-8. Class return: retains + returns pointer.
+    /// </summary>
+    private static void EmitTrampolineReturnEncoding(StringBuilder sb, BridgeParameter closureReturn)
+    {
+        if (closureReturn.Kind == BridgeParameterKind.String)
+        {
+            // String return: encode to native UTF-8 buffer, write length to out-parameter
+            sb.AppendLine("                    var bytes = Encoding.UTF8.GetBytes(result ?? \"\");");
+            sb.AppendLine("                    if (bytes.Length > 0)");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        unsafe");
+            sb.AppendLine("                        {");
+            sb.AppendLine("                            var nativePtr = (byte*)NativeMemory.Alloc((nuint)bytes.Length);");
+            sb.AppendLine("                            bytes.CopyTo(new Span<byte>(nativePtr, bytes.Length));");
+            sb.AppendLine("                            *(nint*)retLenPtr = bytes.Length;");
+            sb.AppendLine("                            return (IntPtr)nativePtr;");
+            sb.AppendLine("                        }");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                    unsafe { *(nint*)retLenPtr = 0; }");
+            sb.AppendLine("                    return IntPtr.Zero;");
+        }
+        else if (closureReturn.Kind == BridgeParameterKind.BoundType)
+        {
+            // Class return: retain the Swift object and return its pointer
+            sb.AppendLine("                    if (result != null)");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        var ptr = result.Payload.DangerousGetHandle();");
+            sb.AppendLine("                        Swift.Runtime.Arc.Retain(ptr);");
+            sb.AppendLine("                        return ptr;");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                    return IntPtr.Zero;");
+        }
+        else if (closureReturn.CSharpConversion != null)
+        {
+            sb.AppendLine($"                    return result {closureReturn.CSharpConversion};");
+        }
+        else
+        {
+            sb.AppendLine($"                    return result;");
+        }
     }
 
     /// <summary>
@@ -2624,6 +2706,9 @@ public static partial class SwiftUIBridgeEmitter
                 fnPtrTypes.Add(a.CSharpPInvokeType);
             }
         }
+        // String-returning closures: add retLen out-parameter before userData
+        if (closureReturn?.Kind == BridgeParameterKind.String)
+            fnPtrTypes.Add("IntPtr"); // retLenPtr
         fnPtrTypes.Add("IntPtr"); // userData
         fnPtrTypes.Add(closureReturn?.CSharpPInvokeType ?? "void"); // return type
         return $"delegate* unmanaged[Cdecl]<{string.Join(", ", fnPtrTypes)}>";
