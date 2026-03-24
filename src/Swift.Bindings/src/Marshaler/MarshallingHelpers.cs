@@ -92,7 +92,7 @@ namespace BindingsGeneration
                 return false;
             var innerTypeName = SwiftTypeName.FromModuleQualifiedName(innerNamed.Name);
             if (typeDatabase.TryGetTypeRecord(innerTypeName, out var typeRecord))
-                return IsObjCBridged(typeRecord);
+                return IsObjCBridged(typeRecord) || IsObjCBridgeable(typeRecord);
             // Fallback: Apple framework ObjC classes (e.g., QuartzCore.CALayer) not in the module
             // database. Must match TypeProjectionFactory's Optional<T> fallback exactly:
             // IsOptionalFallbackModule + HasObjCClassPrefix → ObjCBridgedProjection.
@@ -272,6 +272,10 @@ namespace BindingsGeneration
                 (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
                 return false;
 
+            // ObjC-bridgeable value types (e.g., URL) return as ObjC class pointers, not indirect result.
+            if (IsObjCBridgeable(typeRecord))
+                return false;
+
             if (!IsTypeFrozen(typeRecord)) return true;
 
             // @_cdecl: frozen structs also need indirect result (except primitives).
@@ -317,6 +321,34 @@ namespace BindingsGeneration
         public static bool IsObjCBridged(TypeRecord typeRecord)
         {
             return (typeRecord.Flags & TypeRecordFlags.ObjCBridged) != 0;
+        }
+
+        /// <summary>
+        /// Checks whether a type record represents an ObjC-bridgeable value type (e.g., Foundation.URL).
+        /// These Swift value types freely bridge to ObjC classes via _ObjectiveCBridgeable and cross
+        /// the @_cdecl boundary as ObjC object pointers instead of Swift struct bytes.
+        /// </summary>
+        public static bool IsObjCBridgeable(TypeRecord typeRecord)
+        {
+            return (typeRecord.Flags & TypeRecordFlags.ObjCBridgeable) != 0;
+        }
+
+        /// <summary>
+        /// Unwraps Optional&lt;T&gt; to get the inner type spec, recursively handling nested optionals.
+        /// Returns null if the input is not a NamedTypeSpec.
+        /// </summary>
+        public static TypeSpec? UnwrapOptionalTypeSpec(TypeSpec typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec namedType)
+                return null;
+
+            var nameWithoutModule = namedType.Name.Contains('.')
+                ? namedType.Name.Substring(namedType.Name.LastIndexOf('.') + 1)
+                : namedType.Name;
+            if (nameWithoutModule == "Optional" && namedType.GenericParameters.Count == 1)
+                return UnwrapOptionalTypeSpec(namedType.GenericParameters[0]);
+
+            return namedType;
         }
 
         /// <summary>

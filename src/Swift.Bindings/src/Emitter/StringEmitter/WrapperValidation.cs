@@ -407,6 +407,11 @@ public static class WrapperValidation
         // Path 1: Type has a TypeRecord — check kind directly
         if (typeDatabase.TryGetTypeRecord(inner, out var typeRecord))
         {
+            // ObjC-bridgeable value types (e.g., Foundation.URL) bridge to ObjC class pointers
+            // at the @_cdecl boundary via _ObjectiveCBridgeable — they use nullable pointer ABI like classes.
+            if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
+                return true;
+
             // ObjC-bridged/ObjC-rooted structs (e.g., UIFont.Weight, PHPickerResult,
             // CALayerContentsGravity) are flagged ObjCBridged/ObjCRooted in the type database
             // but are Swift structs, not class instances. Unmanaged<T> requires T: AnyObject,

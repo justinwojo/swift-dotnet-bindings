@@ -5,7 +5,7 @@
             <typedeclaration kind="struct" name="Data" module="Foundation" mangledName="s10Foundation4DataV" frozen="true" requiresMemoryManagement="false" nativeType="Foundation.NSData" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="URL">
-            <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" />
+            <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" objcBridgeable="true" />
         </entity>
         <entity managedNameSpace="" managedTypeName="double">
             <typedeclaration kind="struct" name="Date" module="Foundation" mangledName="$s10Foundation4DateV" frozen="true" requiresMemoryManagement="false" />

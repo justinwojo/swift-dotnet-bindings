@@ -323,7 +323,13 @@ public class TypeProjectionFactory
             return new ClassProjection(typeName);
         }
 
-        // Native remapped types (URL → NSUrl, Data → NSData)
+        // ObjC-bridgeable value types (URL → NSUrl via ObjC bridge pointer)
+        // Must be checked BEFORE nativeType so URL uses ObjCBridgeableProjection (IntPtr)
+        // instead of NativeRemappedProjection (SafeHandle). Data (no objcBridgeable) is unaffected.
+        if (typeRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable) && typeRecord.NativeTypeName != null)
+            return new ObjCBridgeableProjection(typeRecord.NativeTypeName.FullyQualifiedName);
+
+        // Native remapped types (Data → NSData) — types with nativeType but NOT objcBridgeable
         if (typeRecord.NativeTypeName != null)
         {
             var isFrozen = MarshallingHelpers.IsTypeFrozen(typeRecord);

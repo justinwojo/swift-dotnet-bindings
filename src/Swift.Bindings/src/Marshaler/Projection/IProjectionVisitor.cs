@@ -25,6 +25,7 @@ public interface IProjectionVisitor<T>
     T Visit(ClosureProjection p);
     T Visit(AsyncProjection p);
     T Visit(ObjCBridgedProjection p);
+    T Visit(ObjCBridgeableProjection p);
     T Visit(ObjCRootedClassProjection p);
     T Visit(NativeRemappedProjection p);
     T Visit(TupleProjection p);

@@ -192,11 +192,11 @@ mkdir -p "$FRAMEWORK_DIR/Modules/$MODULE_NAME.swiftmodule"
 # This matches the exclusions in Package.swift
 SWIFT_FILES=$(find Sources/SwiftBindingsTestLib \
     -type d -name '*.disabled' -prune -o \
-    -type d -name 'Foundation' -prune -o \
     -name '*.swift' -type f -print \
     | grep -v 'Closures/Autoclosures\.swift$' \
     | grep -v 'UnsafeTypes/Span\.swift$' \
-    | grep -v 'UnsafeTypes/PointerGenerics\.swift$')
+    | grep -v 'UnsafeTypes/PointerGenerics\.swift$' \
+    | grep -v 'Foundation/Date\.swift$')
 FILE_COUNT=$(echo "$SWIFT_FILES" | wc -l | tr -d ' ')
 echo "Compiling $FILE_COUNT Swift source files..."
 

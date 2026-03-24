@@ -300,6 +300,16 @@ public static class CdeclParamMapper
                         $"{argLabel}{label}Val");
             }
 
+            // ObjC-bridgeable value types (URL): Swift auto-bridges to ObjC class pointer
+            // via _ObjectiveCBridgeable. Use Unmanaged<AnyObject> + cast, same as ObjCBridged.
+            if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
+            {
+                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                return ($"_ {label}: UnsafeMutableRawPointer",
+                        $"let {label}Val = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
+                        $"{argLabel}{label}Val");
+            }
+
             // Protocol/Existential TypeRecords: not C-representable, pass as pointer
             if (typeRecord.Kind == TypeRecordKind.Protocol ||
                 typeRecord.Kind == TypeRecordKind.Existential)

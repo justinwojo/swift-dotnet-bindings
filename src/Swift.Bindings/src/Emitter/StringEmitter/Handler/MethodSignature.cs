@@ -757,6 +757,14 @@ namespace BindingsGeneration
             if (_env.ExistentialHandler.IsOptionalExistential(typeSpec))
                 return false;
 
+            // ObjC-bridgeable types (URL) must use projection even for accessors:
+            // the P/Invoke returns IntPtr (ObjC pointer), so the accessor method must
+            // return the native type (Foundation.NSUrl), not the managed type (Swift.URL).
+            if (typeSpec is NamedTypeSpec named &&
+                _env.TypeDatabase.TryGetTypeRecord(named, out var tr) &&
+                MarshallingHelpers.IsObjCBridgeable(tr))
+                return false;
+
             return MarshallingHelpers.IsConvertibleType(typeSpec) ||
                    _env.TypeConversionHandler.HasNativeTypeRemapping(typeSpec);
         }

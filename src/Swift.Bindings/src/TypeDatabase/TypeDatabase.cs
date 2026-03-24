@@ -176,6 +176,7 @@ namespace BindingsGeneration
                 string nonCopyable = typeDeclarationNode?.Attributes?["nonCopyable"]?.Value ?? "false";
                 string hasFloatFields = typeDeclarationNode?.Attributes?["hasFloatFields"]?.Value ?? "false";
                 string hasBoolFields = typeDeclarationNode?.Attributes?["hasBoolFields"]?.Value ?? "false";
+                string objcBridgeable = typeDeclarationNode?.Attributes?["objcBridgeable"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
@@ -222,7 +223,8 @@ namespace BindingsGeneration
                             (hasMethodSelfTypeParams.ToLower() == "true" ? TypeRecordFlags.HasMethodSelfTypeParams : TypeRecordFlags.None) |
                             (nonCopyable.ToLower() == "true" ? TypeRecordFlags.NonCopyable : TypeRecordFlags.None) |
                             (hasFloatFields.ToLower() == "true" ? TypeRecordFlags.HasFloatFields : TypeRecordFlags.None) |
-                            (hasBoolFields.ToLower() == "true" ? TypeRecordFlags.HasBoolFields : TypeRecordFlags.None),
+                            (hasBoolFields.ToLower() == "true" ? TypeRecordFlags.HasBoolFields : TypeRecordFlags.None) |
+                            (objcBridgeable.ToLower() == "true" ? TypeRecordFlags.ObjCBridgeable : TypeRecordFlags.None),
                     Kind = kindStr.ToLower() switch
                     {
                         "class" => TypeRecordKind.Class,

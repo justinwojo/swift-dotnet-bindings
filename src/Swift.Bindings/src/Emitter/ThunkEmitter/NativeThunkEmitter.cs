@@ -116,6 +116,11 @@ public static class NativeThunkEmitter
         if (methodDecl.IsConstructor && HasClassReferenceParameters(env))
             return false;
 
+        // ObjC-bridgeable value types (URL) require @_cdecl wrappers for ObjC→Swift bridge
+        // conversion. Thunks pass raw IntPtr (ObjC pointer) but Swift expects the value type.
+        if (HasObjCBridgeableParamsOrReturn(env))
+            return false;
+
         // Inout parameters — write-back semantics incompatible
         if (methodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
             return false;
@@ -363,6 +368,32 @@ public static class NativeThunkEmitter
                 && record.Kind == TypeRecordKind.Class)
                 return true;
         }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the method has any ObjC-bridgeable value type parameters or return type.
+    /// ObjC-bridgeable types (URL) cross the @_cdecl boundary as ObjC pointers and need
+    /// Swift-side bridge conversion (Unmanaged → as! URL) that only @_cdecl wrappers provide.
+    /// </summary>
+    private static bool HasObjCBridgeableParamsOrReturn(MethodEnvironment env)
+    {
+        // Check parameters (unwrap Optional<T> to check inner type)
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            var spec = MarshallingHelpers.UnwrapOptionalTypeSpec(arg.SwiftTypeSpec) ?? arg.SwiftTypeSpec;
+            if (env.TypeDatabase.TryGetTypeRecord(spec, out var record)
+                && MarshallingHelpers.IsObjCBridgeable(record))
+                return true;
+        }
+        // Check return type (unwrap Optional<T> to check inner type)
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        var unwrappedReturn = MarshallingHelpers.UnwrapOptionalTypeSpec(returnSpec) ?? returnSpec;
+        if (!unwrappedReturn.IsEmptyTuple && env.TypeDatabase.TryGetTypeRecord(unwrappedReturn, out var retRecord)
+            && MarshallingHelpers.IsObjCBridgeable(retRecord))
+            return true;
         return false;
     }
 

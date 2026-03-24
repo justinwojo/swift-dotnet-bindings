@@ -1,11 +1,11 @@
 {
-  "git_sha": "ed9e535c",
+  "git_sha": "4ebb8042",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 45473,
+        "lines": 45421,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -47,21 +47,21 @@
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4401,
+        "lines": 4396,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52618,
+        "lines": 52464,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 29600,
+        "lines": 29555,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21106,
+        "lines": 21072,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21106,
+        "lines": 21072,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21106,
+        "lines": 21072,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -173,7 +173,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7232,
+        "lines": 7112,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -215,7 +215,7 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56669,
+        "lines": 56540,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14573,
+        "lines": 14567,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7402,
+        "lines": 7390,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,14 +306,14 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4830,
+        "lines": 4820,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13776,
+        "lines": 13774,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17981,
+        "lines": 17976,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

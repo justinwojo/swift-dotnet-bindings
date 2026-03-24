@@ -72,6 +72,12 @@ public enum TypeRecordFlags
     // Bool is non-blittable in .NET CallConvSwift — the runtime rejects structs containing Bool
     // with "Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported".
     HasBoolFields = 1 << 13,
+    // This flag indicates a Swift value type that freely bridges to an ObjC class via
+    // _ObjectiveCBridgeable (e.g., Foundation.URL ↔ NSURL). At the @_cdecl boundary,
+    // these types cross as ObjC object pointers (UnsafeMutableRawPointer) instead of
+    // attempting to pass the Swift struct directly. Distinct from ObjCBridged (which marks
+    // ObjC class wrappers) and nativeType (which controls public API remapping).
+    ObjCBridgeable = 1 << 14,
 }
 
 /// <summary>

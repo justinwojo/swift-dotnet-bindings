@@ -535,9 +535,10 @@ namespace BindingsGeneration
                 }
 
                 // ObjC bridged types: wrap IntPtr result with GetNSObject<T>
-                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                // ObjC-bridgeable value types (URL): same pattern — IntPtr → GetNSObject<T>
+                if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCBridgeable(typeRecord))
                 {
-                    csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result")};");
+                    csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true)};");
                     return;
                 }
 

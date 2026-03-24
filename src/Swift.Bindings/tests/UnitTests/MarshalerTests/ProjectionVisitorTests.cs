@@ -546,6 +546,7 @@ public class ProjectionVisitorTests
         public string Visit(ClosureProjection p) => "ClosureProjection";
         public string Visit(AsyncProjection p) => "AsyncProjection";
         public string Visit(ObjCBridgedProjection p) => "ObjCBridgedProjection";
+        public string Visit(ObjCBridgeableProjection p) => "ObjCBridgeableProjection";
         public string Visit(ObjCRootedClassProjection p) => "ObjCRootedClassProjection";
         public string Visit(NativeRemappedProjection p) => "NativeRemappedProjection";
         public string Visit(TupleProjection p) => "TupleProjection";

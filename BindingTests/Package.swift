@@ -37,7 +37,7 @@ let package = Package(
             exclude: [
                 // Genuinely unsupported — no generator support for @propertyWrapper
                 "PropertyWrappers.disabled",
-                "Foundation",  // Foundation types not fully supported
+                "Foundation/Date.swift",  // Date tests separate — not part of URL bridge scope
                 // Individual unsupported files within enabled directories
                 "Closures/Autoclosures.swift",  // @autoclosure not supported
                 "UnsafeTypes/Span.swift",  // Span<T> not supported

@@ -73,6 +73,54 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
+    public void Project_ObjCBridgeableType_ReturnsObjCBridgeableProjection()
+    {
+        var db = new MockTypeDatabase();
+        db.AddType("Foundation.URL", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftURL"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+            Kind = TypeRecordKind.Struct,
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.URL");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<ObjCBridgeableProjection>(projection);
+        Assert.Equal("Foundation.NSUrl", projection.PublicType);
+        Assert.Equal("IntPtr", projection.PInvokeType);
+    }
+
+    [Fact]
+    public void Project_ObjCBridgeable_TakesPriorityOverNativeRemapped()
+    {
+        // ObjCBridgeable flag should win over NativeTypeName → NativeRemappedProjection dispatch
+        var db = new MockTypeDatabase();
+        db.AddType("Foundation.URL", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftURL"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+            Kind = TypeRecordKind.Struct,
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Foundation.URL");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        // Must NOT be NativeRemappedProjection (SafeHandle) — must be ObjCBridgeableProjection (IntPtr)
+        Assert.IsNotType<NativeRemappedProjection>(projection);
+        Assert.IsType<ObjCBridgeableProjection>(projection);
+    }
+
+    [Fact]
     public void Project_SimpleEnum_ReturnsSimpleEnumProjection()
     {
         var db = new MockTypeDatabase();
@@ -260,6 +308,96 @@ public class TypeProjectionFactoryTests
         // Return element conversion is null — when used inside Optional, ToNullable() handles
         // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
         Assert.Null(projection.GetReturnElementConversion("e"));
+    }
+
+    #endregion
+
+    #region ObjCBridgeableProjection
+
+    [Fact]
+    public void ObjCBridgeableProjection_ParameterPlan_ExtractsHandle()
+    {
+        var projection = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var plan = projection.GetParameterPlan("url");
+
+        Assert.Equal("urlHandle", plan.PInvokeExpression);
+        Assert.Single(plan.SetupStatements);
+        var line = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Equal("var urlHandle = url.Handle;", line.Code);
+    }
+
+    [Fact]
+    public void ObjCBridgeableProjection_ReturnPlan_UsesObjCBridgeCall()
+    {
+        var projection = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        // Should use FormatObjCBridgeCall — wraps IntPtr via GetNSObject/GetINativeObject
+        Assert.Contains("result", plan.PInvokeExpression);
+        Assert.Contains("NSUrl", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void ObjCBridgeableProjection_Properties()
+    {
+        var projection = new ObjCBridgeableProjection("Foundation.NSUrl");
+
+        Assert.Equal("Foundation.NSUrl", projection.PublicType);
+        Assert.Equal("IntPtr", projection.PInvokeType);
+        Assert.Null(projection.PInvokeAttribute);
+        Assert.True(projection.UsesObjCContainerBridge);
+        Assert.False(projection.RequiresSwiftWrapper);
+        Assert.False(projection.ElementRequiresDisposal);
+    }
+
+    [Fact]
+    public void ObjCBridgeableProjection_ElementConversions()
+    {
+        var projection = new ObjCBridgeableProjection("Foundation.NSUrl");
+
+        // Parameter element: extract Handle for container bridging
+        Assert.Equal("e.Handle", projection.GetParameterElementConversion("e"));
+
+        // Return element: wrap IntPtr via ObjC bridge call
+        var returnConv = projection.GetReturnElementConversion("e");
+        Assert.NotNull(returnConv);
+        Assert.Contains("NSUrl", returnConv!);
+    }
+
+    [Fact]
+    public void ObjCBridgeableProjection_AcceptDispatchesToCorrectVisitOverload()
+    {
+        var projection = new ObjCBridgeableProjection("Foundation.NSUrl");
+        // Verify Accept() calls Visit(ObjCBridgeableProjection) — compile-time exhaustive
+        var visitor = new BridgeableVisitorProbe();
+        var result = projection.Accept(visitor);
+        Assert.True(result);
+    }
+
+    private class BridgeableVisitorProbe : IProjectionVisitor<bool>
+    {
+        public bool Visit(ObjCBridgeableProjection p) => true;
+        // All other overloads return false
+        public bool Visit(StringProjection p) => false;
+        public bool Visit(BlittableProjection p) => false;
+        public bool Visit(BoolProjection p) => false;
+        public bool Visit(SimpleEnumProjection p) => false;
+        public bool Visit(ClassProjection p) => false;
+        public bool Visit(NonFrozenStructProjection p) => false;
+        public bool Visit(FrozenWithMemoryProjection p) => false;
+        public bool Visit(ArrayProjection p) => false;
+        public bool Visit(DictionaryProjection p) => false;
+        public bool Visit(SetProjection p) => false;
+        public bool Visit(DataProjection p) => false;
+        public bool Visit(OptionalProjection p) => false;
+        public bool Visit(ExistentialProjection p) => false;
+        public bool Visit(ClosureProjection p) => false;
+        public bool Visit(AsyncProjection p) => false;
+        public bool Visit(ObjCBridgedProjection p) => false;
+        public bool Visit(ObjCRootedClassProjection p) => false;
+        public bool Visit(NativeRemappedProjection p) => false;
+        public bool Visit(TupleProjection p) => false;
+        public bool Visit(DateProjection p) => false;
     }
 
     #endregion

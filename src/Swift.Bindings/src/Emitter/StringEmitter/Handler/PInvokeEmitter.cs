@@ -220,6 +220,13 @@ namespace BindingsGeneration
                 return;
             }
 
+            // ObjC-bridgeable value types (URL) return IntPtr (ObjC class pointer via bridge)
+            if (MarshallingHelpers.IsObjCBridgeable(returnTypeRecord))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             // Swift classes return pointers directly in registers (not via indirect result)
             // Since classes don't have a Buffer struct, return IntPtr and create the object from it
             if (returnTypeRecord.Kind == TypeRecordKind.Class)
@@ -430,9 +437,14 @@ namespace BindingsGeneration
                 {
                     TypeRecord nativeRemapTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
                     var swiftWrapperType = _env.TypeConversionHandler.GetSwiftWrapperTypeForNative(argument.SwiftTypeSpec);
-                    if (!MarshallingHelpers.IsTypeFrozen(nativeRemapTypeRecord))
+                    if (nativeRemapTypeRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable))
                     {
-                        // Non-frozen (URL): use NativeRemappedNonFrozen marker
+                        // ObjC-bridgeable (URL): use ObjCBridged (IntPtr) instead of SafeHandle
+                        AddParameter(new MarshalledType.ObjCBridged(nativeRemapTypeRecord.NativeTypeName!.FullyQualifiedName), csName);
+                    }
+                    else if (!MarshallingHelpers.IsTypeFrozen(nativeRemapTypeRecord))
+                    {
+                        // Non-frozen (non-bridgeable): use NativeRemappedNonFrozen marker
                         AddParameter(MarshalledType.NativeRemappedNonFrozen, csName);
                     }
                     else
@@ -478,11 +490,12 @@ namespace BindingsGeneration
 
                 TypeRecord argumentTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(argument.SwiftTypeSpec);
 
-                // ObjC bridged/rooted types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding.
+                // ObjC bridged/rooted/bridgeable types use IntPtr in P/Invoke, Handle extracted from the .NET iOS binding.
                 // ObjC-rooted classes (same-module Swift classes inheriting NSObject) use the same
                 // marshalling as ObjC-bridged types — .Handle instead of .Payload.
                 if (MarshallingHelpers.IsObjCBridged(argumentTypeRecord) ||
-                    MarshallingHelpers.IsObjCRooted(argumentTypeRecord))
+                    MarshallingHelpers.IsObjCRooted(argumentTypeRecord) ||
+                    MarshallingHelpers.IsObjCBridgeable(argumentTypeRecord))
                 {
                     // Store the original C# type name for use in wrapper generation
                     AddParameter(new MarshalledType.ObjCBridged(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);

@@ -32,6 +32,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
     public (string?, bool) Visit(AsyncProjection p) => (null, false);
     public (string?, bool) Visit(ObjCBridgedProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCBridgeableProjection p) => (null, false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
 
@@ -118,6 +119,8 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
     public (string?, bool) Visit(ObjCBridgedProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
+    public (string?, bool) Visit(ObjCBridgeableProjection p) =>
+        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
     public (string?, bool) Visit(ArrayProjection p) =>
         AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
     public (string?, bool) Visit(DictionaryProjection p) =>
@@ -183,6 +186,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
     public (string?, bool) Visit(AsyncProjection p) => (null, false);
     public (string?, bool) Visit(ObjCBridgedProjection p) => (null, false);
+    public (string?, bool) Visit(ObjCBridgeableProjection p) => (null, false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
 
@@ -264,8 +268,8 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         if (inner is ClassProjection or NonFrozenStructProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
 
-        // ObjC bridged inner — nullable pointer ABI, no SwiftOptional wrapper needed
-        if (inner is ObjCBridgedProjection)
+        // ObjC bridged/bridgeable inner — nullable pointer ABI, no SwiftOptional wrapper needed
+        if (inner is ObjCBridgedProjection or ObjCBridgeableProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? {valueExpr}Val.Handle : IntPtr.Zero)", false);
 
         // ObjC-rooted inner — pass as-is

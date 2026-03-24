@@ -83,6 +83,10 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
                  && typeRecord.Kind != TypeRecordKind.Struct))
                 return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
 
+            // ObjC-bridgeable value types (URL): bridge to ObjC class pointer via `as AnyObject`.
+            if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
+                return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+
             // Simple enums: return raw value type
             if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {

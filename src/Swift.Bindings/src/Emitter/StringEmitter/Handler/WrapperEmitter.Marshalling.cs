@@ -770,8 +770,11 @@ namespace BindingsGeneration
                 // ObjC bridged/rooted types: extract Handle from .NET iOS binding object.
                 // ObjC-rooted classes (same-module Swift classes inheriting NSObject) use .Handle
                 // instead of .Payload, just like Apple framework ObjC-bridged types.
+                // ObjC-bridgeable value types (URL) use the same pattern for accessors only —
+                // non-accessor methods are handled by EmitTypeConversions via projection plan.
                 if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
-                    MarshallingHelpers.IsObjCRooted(typeRecord))
+                    MarshallingHelpers.IsObjCRooted(typeRecord) ||
+                    (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsObjCBridgeable(typeRecord)))
                 {
                     csWriter.WriteLine($"IntPtr {csName}Handle = {csName}?.Handle ?? IntPtr.Zero;");
                     continue;
