@@ -321,12 +321,13 @@ public class SwiftClassHandleTests
 /// <summary>
 /// Tests for SwiftSafeHandle&lt;T&gt; shutdown behavior — struct-handle exit guard path.
 /// Verifies that finalizer-triggered cleanup is skipped during process exit,
-/// while explicit Dispose still runs the destroy action.
+/// while explicit Dispose still runs VWT Destroy via Cdecl trampoline.
 /// </summary>
 public class SwiftSafeHandleShutdownTests
 {
     /// <summary>
     /// Mock ISwiftObject for testing SwiftSafeHandle without real Swift objects.
+    /// GetTypeMetadata() throws, so _metadataHandle will be IntPtr.Zero (VWT Destroy skipped).
     /// </summary>
     private sealed class MockSwiftStruct : ISwiftObject, ISwiftStruct, IDisposable
     {
@@ -388,7 +389,8 @@ public class SwiftSafeHandleShutdownTests
     public void ExplicitDispose_NormalExecution_ClosesHandle()
     {
         // Baseline: explicit Dispose during normal execution closes the handle.
-        // VWT Destroy is attempted via metadata (may fail silently for mock types).
+        // VWT Destroy via Cdecl trampoline is attempted (skipped for mock types
+        // because _metadataHandle is IntPtr.Zero due to GetTypeMetadata() throwing).
         var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
 
         SwiftExitGuard.SetProcessExitingForTest(false);
@@ -401,6 +403,8 @@ public class SwiftSafeHandleShutdownTests
 /// Tests for GC/finalizer lifecycle safety of SwiftClassHandle and SwiftSafeHandle.
 /// Verifies that abandoned handles survive GC collection without double-free or SIGSEGV.
 /// These tests use mock handles that don't require real Swift objects.
+/// Mock types have GetTypeMetadata() that throws, so _metadataHandle = IntPtr.Zero
+/// and VWT Destroy via Cdecl trampoline is skipped (only NativeMemory.Free runs).
 /// </summary>
 public class HandleGCLifecycleTests
 {
@@ -565,8 +569,8 @@ public class HandleGCLifecycleTests
     public void SafeHandle_AbandonedHandles_SurviveGC()
     {
         // Allocate real NativeMemory buffers, abandon them, and force GC.
-        // ReleaseHandle should free them safely (VWT Destroy throws because mock metadata
-        // is invalid, but the exception is caught, and NativeMemory.Free runs).
+        // ReleaseHandle frees them safely — VWT Destroy is skipped because mock types
+        // have _metadataHandle = IntPtr.Zero, and NativeMemory.Free runs.
         for (int i = 0; i < 50; i++)
         {
             _ = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
@@ -653,18 +657,14 @@ public class HandleGCLifecycleTests
     [Fact]
     public void FinalizerCleanup_ValidPayload_DisposesHandle()
     {
-        // FinalizerCleanup should call Dispose on valid, non-Mono handles.
-        // Note: on Mono (simulator), FinalizerCleanup is a no-op.
+        // FinalizerCleanup should call Close on valid handles on all runtimes.
+        // VWT Destroy is routed through the Cdecl trampoline, safe from any thread.
         var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
         Assert.False(handle.IsInvalid);
 
         SwiftDispose.FinalizerCleanup(handle);
 
-        // On non-Mono, the handle should be closed. On Mono, it's a no-op.
-        if (!SwiftRuntimeInfo.IsMonoRuntime)
-        {
-            Assert.True(handle.IsClosed);
-        }
+        Assert.True(handle.IsClosed);
     }
 
     [Fact]
@@ -677,6 +677,101 @@ public class HandleGCLifecycleTests
 
         // This should not throw even though handle is already closed
         SwiftDispose.FinalizerCleanup(handle);
+    }
+
+    #endregion
+
+    #region Metadata caching
+
+    [Fact]
+    public void SafeHandle_ZeroHandle_SkipsMetadataCaching()
+    {
+        // Zero handles should not attempt to cache metadata.
+        // This prevents metadata resolution during static initialization
+        // (SwiftSafeHandle<T>.Zero).
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(IntPtr.Zero);
+
+        // The handle is invalid, so no metadata caching was attempted.
+        // GetTypeMetadata() throwing would have caused an error if caching ran.
+        Assert.True(handle.IsInvalid);
+        handle.Dispose();
+    }
+
+    [Fact]
+    public void SafeHandle_NonZeroHandle_CachesMetadataGracefully()
+    {
+        // For non-zero handles with mock types, GetTypeMetadata() throws.
+        // The constructor should catch this and set _metadataHandle to IntPtr.Zero.
+        // Disposal should still work (VWT Destroy skipped, buffer freed).
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+
+        Assert.False(handle.IsInvalid);
+
+        // Dispose should work — VWT Destroy is skipped because metadata unavailable,
+        // but NativeMemory.Free still runs.
+        handle.Dispose();
+        Assert.True(handle.IsClosed);
+    }
+
+    [Fact]
+    public void FinalizerCleanup_PreservesProcessExitGuard()
+    {
+        // FinalizerCleanup uses Close() (not Dispose()) so _explicitDispose stays false.
+        // During process exit, the exit guard should kick in and skip VWT Destroy.
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+
+            // Close() triggers ReleaseHandle with _explicitDispose=false.
+            // With the exit guard active, HandleProcessExitCleanup runs (frees buffer only).
+            SwiftDispose.FinalizerCleanup(handle);
+
+            Assert.True(handle.IsClosed);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+    }
+
+    [Fact]
+    public void SafeHandle_FinalizerPath_DuringProcessExit_SkipsVwtDestroy()
+    {
+        // Simulate finalizer path during process exit:
+        // Close() does not set _explicitDispose, so the exit guard skips VWT Destroy.
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Close(); // finalizer path — _explicitDispose=false → exit guard
+            Assert.True(handle.IsClosed);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
+    }
+
+    [Fact]
+    public void SafeHandle_ExplicitDispose_DuringProcessExit_StillRunsRelease()
+    {
+        // Explicit Dispose sets _explicitDispose=true, bypassing the exit guard.
+        // VWT Destroy should still be attempted (for Swift deinit side effects).
+        var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
+
+        try
+        {
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            handle.Dispose(); // explicit — _explicitDispose=true → HandleNormalRelease
+            Assert.True(handle.IsClosed);
+        }
+        finally
+        {
+            SwiftExitGuard.SetProcessExitingForTest(false);
+        }
     }
 
     #endregion

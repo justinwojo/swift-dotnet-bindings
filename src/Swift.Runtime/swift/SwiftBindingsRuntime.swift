@@ -221,6 +221,28 @@ public func sbw_swiftStringGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(String.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
 
+// MARK: - Generic VWT Destroy
+
+/// Generic VWT Destroy: deinitializes any Swift value given its type metadata.
+/// Called from the .NET GC finalizer thread via CallingConvention.Cdecl.
+/// This avoids JIT compilation on the finalizer thread, which crashes Mono
+/// when CallConvSwift compilations have contaminated JIT state.
+///
+/// The VWT pointer is stored at metadata[-1] in Swift's ABI (stable since Swift 5.0).
+/// Destroy is the second entry (offset 1) in the VWT.
+///
+/// - Parameters:
+///   - ptr: Pointer to the Swift value to destroy (the SwiftSafeHandle buffer).
+///   - metadataPtr: Pointer to the Swift type metadata for the value.
+@_cdecl("SBW_VWTDestroy")
+public func sbw_vwtDestroy(_ ptr: UnsafeMutableRawPointer, _ metadataPtr: UnsafeRawPointer) {
+    let vwtPtr = metadataPtr.advanced(by: -MemoryLayout<UnsafeRawPointer>.size)
+        .load(as: UnsafeRawPointer.self)
+    let destroy = vwtPtr.advanced(by: MemoryLayout<UnsafeRawPointer>.size)
+        .load(as: (@convention(c) (UnsafeMutableRawPointer, UnsafeRawPointer) -> Void).self)
+    destroy(ptr, metadataPtr)
+}
+
 // MARK: - CoreGraphics Type Metadata
 //
 // CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors

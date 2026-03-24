@@ -66,7 +66,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// Registers a custom destroy action for this SafeHandle type parameter.
     /// This method exists for backward compatibility with previously-generated bindings
     /// that emitted @_cdecl destroy wrappers. New bindings no longer emit these wrappers
-    /// since VWT Destroy via CallConvSwift is proven safe on both Mono and NativeAOT.
+    /// since VWT Destroy via the Cdecl trampoline is safe on both Mono and NativeAOT.
     /// The registered action is ignored — VWT Destroy is always used directly.
     /// </summary>
     /// <param name="action">The destroy action (ignored).</param>
@@ -78,11 +78,19 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
 
     /// <summary>
     /// Tracks whether Dispose() was explicitly called.
-    /// If true, we're in explicit disposal — VWT Destroy always runs (safe from user thread).
-    /// If false when ReleaseHandle runs, we're in finalization — VWT Destroy runs on
-    /// NativeAOT (safe) but is skipped on Mono (jit-info.c:918 crash risk).
+    /// Used to distinguish explicit disposal from finalizer-triggered cleanup during
+    /// process exit: explicit Dispose still runs VWT Destroy (Swift deinit may have
+    /// side effects), while finalizer-triggered cleanup skips it (runtime may be torn down).
     /// </summary>
     private volatile bool _explicitDispose;
+
+    /// <summary>
+    /// Cached type metadata handle for the Swift type T. Populated eagerly during
+    /// construction on a user thread so that the finalizer path can call VWT Destroy
+    /// via the Cdecl trampoline without any JIT compilation or generic resolution.
+    /// IntPtr.Zero if metadata was not available (e.g., zero handle or mock types in tests).
+    /// </summary>
+    private readonly IntPtr _metadataHandle;
 
     /// <summary>
     /// Constructs a SwiftSafeHandle from the given IntPtr
@@ -91,6 +99,24 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         : base(ownsHandle: true)
     {
         SetHandle(handle);
+
+        // Cache metadata eagerly on user thread so the finalizer can use it without JIT.
+        // Skip for zero handles (e.g., SwiftSafeHandle<T>.Zero static field) to avoid
+        // triggering type metadata resolution during static initialization.
+        if (handle != IntPtr.Zero)
+        {
+            try
+            {
+                var metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+                _metadataHandle = metadata.IsValid ? metadata.Handle : IntPtr.Zero;
+            }
+            catch
+            {
+                // Metadata not available (e.g., mock types in unit tests).
+                // Finalizer will skip VWT Destroy but still free the buffer.
+                _metadataHandle = IntPtr.Zero;
+            }
+        }
     }
 
     /// <summary>
@@ -105,14 +131,15 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
 
     /// <summary>
     /// Disposes the handle. Call this to properly clean up Swift resources.
-    /// During explicit disposal, VWT Destroy is called to decrement reference counts.
-    /// Also suppresses finalization since cleanup is already handled.
+    /// VWT Destroy is called directly to decrement reference counts, then the
+    /// .NET buffer is freed. Suppresses finalization since cleanup is handled.
     /// </summary>
     /// <remarks>
-    /// Failing to call Dispose() will cause the finalizer to run. On NativeAOT (production),
-    /// VWT Destroy runs from the finalizer, providing the same cleanup as explicit Dispose.
-    /// On Mono (simulator), the finalizer only frees the buffer without calling Destroy —
-    /// use 'using' or call Dispose() explicitly in dev builds.
+    /// Failing to call Dispose() will cause the finalizer to run. The finalizer
+    /// calls VWT Destroy via a Cdecl trampoline (<c>SBW_VWTDestroy</c>), providing
+    /// identical cleanup on both Mono (simulator) and NativeAOT (device). Disposal
+    /// is never required for correctness — use <c>using</c> for deterministic cleanup
+    /// of scarce resources.
     /// </remarks>
     public new void Dispose()
     {
@@ -127,19 +154,21 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     /// </summary>
     /// <remarks>
     /// <para>
-    /// During explicit disposal: calls VWT Destroy to properly decrement reference counts,
-    /// then frees the buffer. VWT Destroy via <c>delegate* unmanaged[Swift]</c> is proven
-    /// safe on both Mono and NativeAOT from user threads.
+    /// During explicit disposal: calls VWT Destroy directly via the cached VWT function
+    /// pointer. This runs on a user thread where JIT compilation is always safe.
     /// </para>
     /// <para>
-    /// During finalization on NativeAOT: calls VWT Destroy — safe from the finalizer thread.
-    /// This makes struct lifecycle match class lifecycle: the finalizer is a reliable safety net.
+    /// During finalization: calls VWT Destroy via <c>SBW_VWTDestroy</c>, a <c>@_cdecl</c>
+    /// function in <c>SwiftBindingsRuntime.dylib</c> called with
+    /// <c>CallingConvention.Cdecl</c>. DllImport stubs are resolved by the runtime loader
+    /// (not JIT-compiled), making this safe from the GC finalizer thread on all runtimes
+    /// including Mono (which crashes on JIT from the finalizer when CallConvSwift
+    /// compilations have contaminated JIT state).
     /// </para>
     /// <para>
-    /// During finalization on Mono: skips ALL P/Invoke calls (both VWT Destroy and
-    /// NativeMemory.Free) to avoid jit-info.c:918 crashes. When earlier CallConvSwift
-    /// compilations contaminate Mono's JIT state with the async flag, any P/Invoke from
-    /// the finalizer thread crashes. Accepts a small memory leak on simulator dev builds.
+    /// During process exit (finalizer only): skips VWT Destroy because Swift deinit
+    /// may reference torn-down runtime state. Explicit Dispose() during process exit
+    /// still calls VWT Destroy — Swift deinit may flush/close/persist.
     /// </para>
     /// </remarks>
     protected override unsafe bool ReleaseHandle()
@@ -148,32 +177,16 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         if (handle == IntPtr.Zero)
             return true;
 
-        // Mono finalizer → skip ALL P/Invoke (jit-info.c:918 crash risk)
-        if (!_explicitDispose && SwiftRuntimeInfo.IsMonoRuntime)
-            return HandleMonoFinalizerCleanup();
-
         // Process exit finalizer → free buffer only (Swift runtime may be torn down)
         if (IsProcessExiting && !_explicitDispose)
             return HandleProcessExitCleanup();
 
-        // Normal path → VWT Destroy + free buffer
-        return HandleNormalRelease();
-    }
+        // Explicit Dispose → direct VWT Destroy (safe from user thread)
+        if (_explicitDispose)
+            return HandleNormalRelease();
 
-    /// <summary>
-    /// Handles cleanup when the finalizer runs on Mono.
-    /// Skips ALL P/Invoke calls — both VWT Destroy and NativeMemory.Free.
-    /// NativeMemory.Free calls native free() via P/Invoke, and when earlier
-    /// CallConvSwift compilations have contaminated Mono's JIT state with the
-    /// async flag, any P/Invoke from the finalizer thread triggers
-    /// jit-info.c:918 (!ji->async assertion). Accepts a small memory leak on
-    /// Mono simulator dev builds; explicit Dispose() from user threads still
-    /// frees everything. NativeAOT (production) is unaffected.
-    /// </summary>
-    private bool HandleMonoFinalizerCleanup()
-    {
-        handle = IntPtr.Zero;
-        return true;
+        // GC Finalizer → Cdecl trampoline (safe on both Mono and NativeAOT)
+        return HandleFinalizerRelease();
     }
 
     /// <summary>
@@ -190,9 +203,9 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
-    /// Handles the normal release path: calls VWT Destroy to decrement Swift ARC
-    /// reference counts, then frees the .NET-allocated buffer.
-    /// Used for both explicit Dispose() and NativeAOT finalizer cleanup.
+    /// Handles the normal release path for explicit Dispose: calls VWT Destroy directly
+    /// to decrement Swift ARC reference counts, then frees the .NET-allocated buffer.
+    /// Always runs on a user thread where JIT compilation is safe.
     /// </summary>
     private unsafe bool HandleNormalRelease()
     {
@@ -200,8 +213,7 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
         {
             // VWT Destroy is in a separate NoInlining method so that Mono's JIT
             // does not eagerly compile SwiftObjectHelper<T>.GetTypeMetadata() when
-            // compiling ReleaseHandle() on the finalizer thread. On the Mono finalizer
-            // path we've already returned above, so this is always safe here.
+            // compiling ReleaseHandle(). On user threads, this JIT is always safe.
             PerformVwtDestroy(handle);
         }
         catch
@@ -217,10 +229,41 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     }
 
     /// <summary>
+    /// Handles GC finalizer release: calls VWT Destroy via Cdecl trampoline
+    /// (<c>SBW_VWTDestroy</c> in SwiftBindingsRuntime.dylib) using metadata cached
+    /// at construction time. DllImport stubs are resolved by the runtime loader —
+    /// no JIT compilation needed — making this safe from the finalizer thread on
+    /// both Mono and NativeAOT.
+    /// </summary>
+    private unsafe bool HandleFinalizerRelease()
+    {
+        try
+        {
+            // Metadata was cached at construction time (on a user thread).
+            // The Cdecl trampoline is a [DllImport] resolved by the runtime loader —
+            // no JIT compilation, no generic resolution, safe from the finalizer thread.
+            if (_metadataHandle != IntPtr.Zero)
+                VwtDestroyTrampoline.Destroy(handle, _metadataHandle);
+        }
+        catch
+        {
+            // Swallow exceptions - ReleaseHandle must not throw per SafeHandle contract.
+            // DllNotFoundException if SwiftBindingsRuntime.dylib is not loaded (e.g., unit tests).
+        }
+
+        // Free the .NET-allocated buffer
+        NativeMemory.Free((void*)handle);
+        handle = IntPtr.Zero;
+
+        return true;
+    }
+
+    /// <summary>
     /// Calls VWT Destroy to properly decrement Swift ARC reference counts.
     /// Extracted into a separate NoInlining method so that Mono's JIT does not
     /// attempt to compile <see cref="SwiftObjectHelper{T}.GetTypeMetadata()"/> when
     /// compiling <see cref="ReleaseHandle"/> on the finalizer thread.
+    /// Only called from the explicit dispose path (user thread).
     /// </summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private unsafe void PerformVwtDestroy(IntPtr handle)
@@ -231,6 +274,25 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
             metadata.ValueWitnessTable->Destroy((void*)handle, metadata);
         }
     }
+}
+
+/// <summary>
+/// Non-generic helper for the VWT Destroy Cdecl trampoline.
+/// <c>[DllImport]</c> cannot be applied to methods in generic types (CS7042),
+/// so the P/Invoke declaration lives here and is called from <see cref="SwiftSafeHandle{T}"/>.
+/// </summary>
+internal static class VwtDestroyTrampoline
+{
+    /// <summary>
+    /// Calls VWT Destroy on the Swift side via a <c>@_cdecl</c> function in
+    /// <c>SwiftBindingsRuntime.dylib</c>. The function reads VWT Destroy from
+    /// <c>metadata[-1]</c> (the VWT pointer, ABI-stable since Swift 5.0) and
+    /// calls it with the value pointer and metadata.
+    /// </summary>
+    /// <param name="ptr">Pointer to the Swift value buffer to destroy.</param>
+    /// <param name="metadata">Swift type metadata pointer for the value's type.</param>
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_VWTDestroy")]
+    internal static extern void Destroy(IntPtr ptr, IntPtr metadata);
 }
 
 /// <summary>

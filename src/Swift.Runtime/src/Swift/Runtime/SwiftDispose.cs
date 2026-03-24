@@ -8,12 +8,12 @@ namespace Swift.Runtime
     /// </summary>
     /// <remarks>
     /// <para>
-    /// For structs (<see cref="SwiftSafeHandle{T}"/>): On NativeAOT (non-Mono), calls full
-    /// Dispose which triggers the @_cdecl destroy action. On Mono (JIT or AOT), no-op —
-    /// SafeHandle's own finalizer handles buffer deallocation without Destroy, avoiding
-    /// jit-info.c assertion crashes. Note: SwiftSafeHandle.ReleaseHandle now also calls
-    /// the @_cdecl destroy action on NativeAOT during finalization, so the generated
-    /// finalizer is a belt-and-suspenders safety net.
+    /// For structs (<see cref="SwiftSafeHandle{T}"/>): Calls <c>Close()</c> on the
+    /// SafeHandle to trigger ReleaseHandle, which uses a Cdecl trampoline
+    /// (<c>SBW_VWTDestroy</c>) for VWT Destroy. This is safe from the GC finalizer
+    /// thread on both Mono and NativeAOT. Uses <c>Close()</c> rather than
+    /// <c>Dispose()</c> to leave <c>_explicitDispose</c> false, preserving the process
+    /// exit guard that skips VWT Destroy when the Swift runtime may be torn down.
     /// </para>
     /// <para>
     /// For classes (<see cref="SwiftClassHandle{T}"/>): Not needed — SwiftClassHandle's
@@ -24,13 +24,12 @@ namespace Swift.Runtime
     {
         /// <summary>
         /// Called from generated struct finalizers to ensure Swift ARC cleanup.
-        /// On NativeAOT: calls full Dispose (triggers @_cdecl destroy action).
-        /// On Mono: no-op (SafeHandle's own finalizer handles buffer-only cleanup).
+        /// Triggers VWT Destroy via Cdecl trampoline — safe on both Mono and NativeAOT.
         /// </summary>
         public static void FinalizerCleanup<T>(SwiftSafeHandle<T>? payload) where T : ISwiftObject
         {
-            if (!SwiftRuntimeInfo.IsMonoRuntime && payload != null && !payload.IsInvalid)
-                payload.Dispose();
+            if (payload != null && !payload.IsInvalid && !payload.IsClosed)
+                payload.Close();
         }
     }
 }
