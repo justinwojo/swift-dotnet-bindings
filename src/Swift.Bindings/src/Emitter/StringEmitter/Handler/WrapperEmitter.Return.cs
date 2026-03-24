@@ -730,8 +730,17 @@ namespace BindingsGeneration
             csWriter.WriteLine("var _tupleMetaPtr = returnMetadata.AsTupleMetadata();");
 
             // Phase 1: Read each element from the buffer into a typed local matching the
-            // P/Invoke type. This produces the same typed locals that `result.ItemN` would
-            // give in the non-@_cdecl path.
+            // P/Invoke type. The Swift @_cdecl wrapper writes the entire tuple inline via
+            // `resultPtr.initializeMemory(as: TupleType.self)`, so ALL elements are inline
+            // in the buffer — regardless of whether they're primitives, structs, or classes.
+            //
+            // For reference types (classes, ObjC), the inline value IS a pointer (8 bytes),
+            // so *(IntPtr*) correctly reads the pointer value for NewFromPayload.
+            //
+            // For value types > 8 bytes (String=16B, Data=16B, frozen/non-frozen structs),
+            // the inline data is larger than IntPtr. We must compute the ADDRESS of the data
+            // within the buffer and pass that to MarshalFromSwift, which reads the full size
+            // via NewFromPayload's VWT copy.
             var rawNames = new List<string>();
             for (int i = 0; i < elements.Count; i++)
             {
@@ -740,7 +749,17 @@ namespace BindingsGeneration
                 var pinvokeType = GetPInvokeTypeForTupleElement(element);
                 var offsetExpr = $"(nint)_tupleMetaPtr->GetElementOffset({i})";
 
-                csWriter.WriteLine($"{pinvokeType} {rawName} = *({pinvokeType}*)((byte*){resultExpr} + {offsetExpr});");
+                if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
+                {
+                    // Inline value type: compute address within buffer (data may be > 8 bytes).
+                    // MarshalFromSwift/NewFromPayload reads the full value from this address.
+                    csWriter.WriteLine($"IntPtr {rawName} = (IntPtr)((byte*){resultExpr} + {offsetExpr});");
+                }
+                else
+                {
+                    // Primitive (reads exact size) or reference type (reads 8-byte pointer).
+                    csWriter.WriteLine($"{pinvokeType} {rawName} = *({pinvokeType}*)((byte*){resultExpr} + {offsetExpr});");
+                }
                 rawNames.Add(rawName);
             }
 
@@ -835,11 +854,11 @@ namespace BindingsGeneration
                     return "IntPtr";
                 }
 
-                // ALL frozen structs use IntPtr in tuple callbacks — the Swift wrapper
-                // heap-allocates non-primitive types and passes via UnsafeMutableRawPointer
-                // to avoid @convention(c) ABI issues (ObjC bridging, Mono JIT struct params).
-                // This matches the closure emitter's pattern of UnsafeMutableRawPointer for
-                // all non-primitive types in @convention(c).
+                // Non-primitive frozen structs use IntPtr. The Swift @_cdecl wrapper writes
+                // them inline in the tuple buffer via initializeMemory(as:). The companion
+                // method IsTupleElementInlineValue() tells the reader to use address-of
+                // instead of dereference, so MarshalFromSwift gets a pointer to the full
+                // inline data (which may be > 8 bytes).
                 if (typeRecord.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(typeRecord))
                 {
                     // Blittable primitive structs (Int, Double, etc.) are passed directly
@@ -854,6 +873,55 @@ namespace BindingsGeneration
             }
 
             return "IntPtr";
+        }
+
+        /// <summary>
+        /// Determines whether a tuple element is stored as an inline value in the tuple buffer
+        /// (vs. a reference/pointer). The Swift @_cdecl wrapper writes the entire tuple via
+        /// <c>resultPtr.initializeMemory(as: TupleType.self)</c>, so all elements are inline.
+        /// For reference types (classes, ObjC), the inline value IS a pointer (8 bytes) and
+        /// NewFromPayload expects the pointer value directly. For value types (structs, enums,
+        /// String, Data), the inline data may be larger than IntPtr and NewFromPayload expects
+        /// a pointer TO the data.
+        /// </summary>
+        private bool IsTupleElementInlineValue(TypeSpec element)
+        {
+            // String (16 bytes) and Data (16 bytes) are inline value types
+            if (MarshallingHelpers.IsSwiftString(element))
+                return true;
+            if (element is NamedTypeSpec dataCheck && dataCheck.Name == "Foundation.Data")
+                return true;
+
+            if (element is NamedTypeSpec named)
+            {
+                var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(named);
+
+                // Classes store a pointer — NewFromPayload wraps the pointer value directly
+                if (typeRecord.Kind == TypeRecordKind.Class)
+                    return false;
+
+                // ObjC bridged types store a pointer
+                if (MarshallingHelpers.IsObjCBridged(typeRecord))
+                    return false;
+
+                // Structs (frozen and non-frozen) store inline data.
+                // Primitives (Int, Double, etc.) are read with their actual type, not IntPtr,
+                // so they don't reach this check. Non-primitive structs (FrozenPoint, etc.)
+                // use IntPtr and store inline data that may be > 8 bytes.
+                if (typeRecord.Kind == TypeRecordKind.Struct)
+                    return true;
+
+                // Complex enums store inline data (tag + payload)
+                if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                    return true;
+            }
+
+            // Bound generics: Array<T>, Dictionary<K,V>, Set<T> are 8-byte value types
+            // containing a single pointer. NewFromPayload wraps the pointer value directly,
+            // so dereference is correct. Optional<T> varies but is handled by the
+            // Optional-specific code path in GetTupleElementMarshalCode.
+            // Default to dereference (pointer) for unknown/generic types.
+            return false;
         }
 
         /// <summary>

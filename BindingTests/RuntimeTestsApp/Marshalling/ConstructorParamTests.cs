@@ -26,7 +26,7 @@ public class ConstructorParamTests : TestBase
 
     #region DescriptionPrinter — Protocol Existential Constructor Param
 
-    [Skip("ExistentialContainer1 constructor param crashes Mono JIT — !ji->async assertion in existential boxing path")]
+    [Skip("ExistentialContainerFactory.GetOrCreate crash — repro proved @_cdecl pathway works when container is correctly built. Our container layout or boxing code has a bug")]
     public void TestProtocolExistentialParamConstruction()
     {
         // DescriptionPrinter(source: any Describable) — exercises IsProtocolExistentialType branch.
@@ -37,7 +37,7 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info("DescriptionPrinter(IDescribable) construction passed");
     }
 
-    [Skip("ExistentialContainer1 constructor param crashes Mono JIT — !ji->async assertion in existential boxing path")]
+    [Skip("ExistentialContainerFactory.GetOrCreate crash — repro proved @_cdecl pathway works when container is correctly built. Our container layout or boxing code has a bug")]
     public void TestProtocolExistentialParamGetText()
     {
         var item = new SimpleItem(id: "ex-1", label: "Existential test");

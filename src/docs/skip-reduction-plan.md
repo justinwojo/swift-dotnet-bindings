@@ -1,83 +1,72 @@
 # Skip Reduction Plan
 
-**Status**: 920 passing, 78 skipped (as of 2026-03-24)
-**Previous**: 897 passing, 101 skipped
-**This session**: +23 real tests unskipped by removing stale attributes after thunk migration
+**Status**: 928 passing, 70 skipped (as of 2026-03-24)
+**Previous**: 920 passing, 78 skipped
+**This session**: +8 tests unskipped (7 parameter tests + 1 tuple return fix)
 
-This document catalogs all 78 remaining skipped runtime tests, categorized by fix path. Use this to plan future sessions.
+This document catalogs all 70 remaining skipped runtime tests, categorized by fix path. Use this to plan future sessions.
 
 ---
 
-## Tier 1: Clear path, proven fix (30 tests)
+## Completed This Session
 
-These have been prototyped or partially validated. Each needs a focused session.
+### Parameter Test Stubs → 7 unskipped, 3 remain (variadic)
 
-### URL/URLRequest P/Invoke Refactoring (16 tests)
+- **4 inout tests**: All pass via CallConvSwift. Public API passes by value (mutations not visible to caller), but P/Invoke path works without crash.
+- **3 default param tests**: All pass via CallConvCdecl @_cdecl wrappers. Verified with/without explicit args.
+- **3 variadic tests**: Remain skipped — generator does not emit variadic bindings (ABI JSON represents `T...` as `Array<T>`, neither @_cdecl nor CallConvSwift can dispatch correctly).
+
+### Tuple+String Return Crash → FIXED (1 test unskipped)
+
+**Root cause**: `WrapperEmitter.Return.cs` `EmitCdeclTupleReturn` read String elements as 8-byte `IntPtr` (dereference) instead of computing the 16-byte address. The Swift wrapper writes tuples inline via `initializeMemory(as:)`, not heap-allocated.
+
+**Fix**: In Phase 1 of `EmitCdeclTupleReturn`, String/Data elements now compute `(IntPtr)((byte*)resultPtr + offset)` (address-of) instead of `*(IntPtr*)((byte*)resultPtr + offset)` (dereference). Phase 2 `MarshalFromSwift<SwiftString>` correctly reads all 16 bytes from the address.
+
+### Repro Investigation → 3 patterns classified
+
+Repro project: `/Users/wojo/Dev/swift-interop-repro/` (3 new test classes added)
+
+| Pattern | Verdict | Detail |
+|---------|---------|--------|
+| **KeywordTest SIGSEGV** | OUR BUG | 4 `SwiftString.Buffer` structs (16 bytes each) exceed 8 GPR slots on arm64. AAPCS64 puts 4th struct on stack, but @_cdecl expects `x7` + stack split. Fix: decompose Buffer into `nint` pairs in P/Invoke. |
+| **Existential boxing** | OUR BUG | Repro proved @_cdecl pathway works when container is correctly built. Our `ExistentialContainerFactory.GetOrCreate` has a layout or boxing bug. |
+| **Tuple+String return** | OUR BUG (FIXED) | See above. |
+
+---
+
+## Tier 1: Clear path, proven fix (19 tests remaining)
+
+### URL/URLRequest — ObjC Bridge Projection (16 tests)
 
 **Tests**: All 16 in `URLRequestTests.cs`
 
-**What we proved this session**: All 16 pass on iOS 26 simulator when:
-1. P/Invoke params use `SwiftString.Buffer` (blittable) instead of `SwiftString`
-2. P/Invoke returns use `SwiftString.Buffer` in registers (not `SwiftIndirectResult`) for String/Optional<String>
-3. Instance method P/Invokes use `SwiftSelf` + `DangerousGetHandle()` instead of passing `URL`/`SafeHandle` directly
-4. Entry points updated for swift-foundation ABI (borrowing `SSh`, back-reference `B0`, new `init(url:cachePolicy:timeoutInterval:)`)
+**Root cause**: The hand-written `Swift.URL` and `Swift.URLRequest` runtime types have two independent problems:
+1. Non-blittable types (`SwiftString`, `URL` SafeHandle) in `CallConvSwift` P/Invokes — Mono rejects these
+2. Four Foundation entry points changed on iOS 26 (swift-foundation rewrite) — symbols don't exist
 
-**Why we reverted**: Codex review identified three P1 issues:
-- Entry points hardcoded to iOS 26 swift-foundation — no fallback for older runtimes
-- String return ABI assumes arm64 (16B = 2 registers) — untested on x64 simulator/macOS
-- `Swift.Runtime.csproj` advertises iOS 15+ / macOS 12+ support
+**New approach**: Eliminate the hand-written runtime types entirely. The generated bindings already expose `Foundation.NSUrl` / `Foundation.NSUrlRequest` to consumers — `Swift.URL` is just an internal marshalling intermediary. Instead, have the @_cdecl wrappers accept ObjC class pointers (`AnyObject` = IntPtr, always blittable) and let Swift do the bridging (`nsUrl as URL`). No Foundation entry points needed, no iOS version sensitivity.
 
-**What the fix session needs**:
-1. Availability probing: check if new symbols exist at runtime, fall back to old symbols
-2. Architecture guard: verify String returns work the same on x64 (or use `SwiftIndirectResult` there)
-3. Test on both arm64 simulator and x64 macOS
-4. Entry point mapping:
-   - `URL.init?(string:)`: old `$s10Foundation3URLV6stringACSgSS_tcfC` → new `$s10Foundation3URLV6stringACSgSSh_tcfC`
-   - `URL.isFileURL`: old `$s10Foundation3URLV9isFileURLSbvg` → new `$s10Foundation3URLV06isFileB0Sbvg`
-   - `URL.init(filePath:)`: old `init(filePath:isDirectory:)` removed → new `init(filePath:directoryHint:relativeTo:)` with enum param
-   - `URLRequest.init(url:)`: old `init(url:)` removed → new `init(url:cachePolicy:timeoutInterval:)` with 2 extra params (0, 60.0 for defaults)
-   - All URLRequest method symbols unchanged
+**Design doc**: `src/docs/objc-bridge-projection-design.md` — full design, implementation plan, generator entry points to modify, and verification steps.
 
-### Parameter Test Stubs (10 tests)
+### KeywordTest ABI Fix (1 test)
 
-**Tests**: All 10 in `ParameterTests.cs` (4 inout, 3 default, 3 variadic)
+**Test**: `EdgeCaseTests.TestKeywordTestCreation`
 
-**What we proved this session**: The generator already emits working P/Invokes for all 10. When unskipped with empty bodies, the P/Invoke layer doesn't crash — these genuinely work at the calling convention level.
+**Root cause** (confirmed via repro): C# P/Invoke passes `SwiftString.Buffer` as 16-byte structs. With 4 strings + resultPtr = 9 GPR values, the 4th struct (needing 2 GPR but only x7 available) goes entirely on stack per AAPCS64. But Swift @_cdecl expects individual `Int` params: x7 gets first word, stack gets second word.
 
-**What the fix session needs**: Write real test bodies. The generated bindings are:
-- `TestLibFunctions.IncrementValue(ref int value)` — CallConvSwift with `ref int` (blittable)
-- `TestLibFunctions.SwapValues(ref int a, ref int b)` — two `ref` params
-- `TestLibFunctions.IncrementPoint(ref ValuePoint point)` — `ref` on struct (check if struct is blittable)
-- `TestLibFunctions.DoubleInPlace(ref int value)` — `ref` with return value
-- Default param tests: check if generator emits overloads or single method with all params
-- Variadic tests: check if generator emits `IEnumerable<T>` or suppresses
+**Fix**: Decompose `SwiftString.Buffer` P/Invoke params into individual `nint` pairs when emitting for @_cdecl wrappers that use the `_sW0_`/`_sW1_` pattern. This matches the C# ABI to the Swift @_cdecl signature exactly.
 
-### Crashes Needing Repro Investigation (4 tests)
+### Existential Container Fix (2 tests)
 
-These crash on Mono simulator but have @_cdecl wrappers — could be our marshalling bug, not upstream.
+**Tests**: `ConstructorParamTests.TestProtocolExistentialParam*`
 
-**KeywordTest SIGSEGV** (1 test: `EdgeCaseTests.TestKeywordTestCreation`)
-- Has cdecl wrapper `SBW_SwiftBindingsTestLib_KeywordTest_init_AF4C9CD0`
-- Takes 4 `SwiftString.Buffer` params — all blittable
-- SIGSEGV on call, not `EntryPointNotFoundException`
-- **Repro approach**: Create minimal KeywordTest in `/Users/wojo/Dev/swift-interop-repro/` with a Swift struct taking 4 String params via @_cdecl, call from C#. If it crashes, it's a Mono issue with 4+ string params. If it works, our wrapper has a bug.
+**Root cause** (confirmed via repro): The @_cdecl pathway (`repro_describeExistential`) works correctly when the existential container is manually constructed with correct object ptr + metadata + witness table. The crash is in our `ExistentialContainerFactory.GetOrCreate<IDescribable>()` — either the container layout doesn't match Swift's expectation, or the boxing code triggers a Mono JIT issue.
 
-**Existential Boxing Crash** (2 tests: `ConstructorParamTests.TestProtocolExistentialParam*`)
-- Has cdecl wrapper with `ExistentialContainerFactory.GetOrCreate<IDescribable>()`
-- Crashes with Mono JIT `!ji->async` assertion
-- **Repro approach**: Create minimal protocol + conforming class, pass as existential container to @_cdecl wrapper. Isolate whether it's the container boxing or the P/Invoke call itself.
-
-**Tuple+String Return Crash** (1 test: `ReturnPathTests.TestPairMakerTupleReturn`)
-- Has cdecl wrapper `SBW_SwiftBindingsTestLib_Free_makePair_4F67B55A` returning `(Int32, String)` tuple
-- Uses indirect result buffer, marshals elements
-- SIGSEGV when reading SwiftString element from tuple buffer
-- **Repro approach**: Create @_cdecl returning `(Int32, String)` tuple, unmarshal in C#. Check if the tuple buffer layout matches what the C# marshalling expects (especially the String offset within the tuple).
+**Fix**: Investigate `ExistentialContainerFactory` container layout. Swift existential = 3 words value buffer + type metadata + protocol witness table. Verify our C# container matches this layout.
 
 ---
 
 ## Tier 2: Generator features needed (21 tests)
-
-These require generator/emitter changes, not just test or runtime fixes.
 
 ### ~Copyable / UniqueResource (11 tests)
 
@@ -115,7 +104,7 @@ These require generator/emitter changes, not just test or runtime fixes.
 
 ---
 
-## Tier 3: Known limitations (27 tests)
+## Tier 3: Known limitations (30 tests)
 
 These are blocked by external factors or fundamental constraints. No near-term fix path.
 
@@ -130,6 +119,12 @@ These are blocked by external factors or fundamental constraints. No near-term f
 **Tests**: `HierarchyInspectionTests.TestConvertPointInvalidKeypath`, `TestConvertRectInvalidKeypath`
 
 **Status**: Mono returns `HasValue=true` for `.none` optional struct returns. The P/Invoke itself works (CallConvCdecl), but the Nullable<CGPoint>/Nullable<CGRect> unmarshalling is wrong on Mono. Needs investigation — could be our marshalling or Mono's.
+
+### Variadic Parameters (3 tests)
+
+**Tests**: 3 in `ParameterTests.cs` (sumAll, joinStrings, VariadicConsumer)
+
+**Status**: Generator does not emit variadic bindings. ABI JSON represents `T...` as `Array<T>`, but neither @_cdecl nor CallConvSwift can dispatch variadic calls correctly.
 
 ### Test Infrastructure Gaps (11 tests)
 
@@ -156,8 +151,8 @@ These have empty test bodies or disabled Swift source. Not blocked by bugs — j
 
 ## Priority Order for Future Sessions
 
-1. **Parameter test bodies** (10 tests, ~30 min) — Quick win, no risk, just write test implementations
-2. **Repro investigation** (4 tests, ~1-2 hrs) — KeywordTest SIGSEGV, existential crash, tuple crash in `/Users/wojo/Dev/swift-interop-repro/`
-3. **URL/URLRequest** (16 tests, ~2 hrs) — Proven fix, needs availability probes + x64 validation
+1. **URL/URLRequest** (16 tests, ~2 hrs) — Proven fix, needs availability probes + x64 validation
+2. **KeywordTest ABI fix** (1 test, ~1 hr) — Decompose Buffer into nint pairs in P/Invoke emitter
+3. **Existential container fix** (2 tests, ~1-2 hrs) — Debug ExistentialContainerFactory layout
 4. **Closure SB0001** (6 tests, ~2-3 hrs) — Generator work in ClosureEmitter
 5. **~Copyable wrappers** (11 tests, ~3-4 hrs) — Generator work for consuming/borrowing semantics

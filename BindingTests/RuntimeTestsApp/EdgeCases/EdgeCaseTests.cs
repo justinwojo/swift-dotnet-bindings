@@ -63,7 +63,7 @@ public class EdgeCaseTests : TestBase
 
     #region Keywords
 
-    [Skip("KeywordTest constructor SIGSEGV crash on Mono — 4 SwiftString params through @_cdecl wrapper")]
+    [Skip("ABI mismatch: 4 SwiftString.Buffer structs exceed 8 GPR slots — AAPCS64 puts 4th struct on stack but @_cdecl expects x7+stack split. Fix: decompose Buffer into nint pairs in P/Invoke")]
     public void TestKeywordTestCreation()
     {
         using var kt = new KeywordTest("evt", "del", "op", "cls");
