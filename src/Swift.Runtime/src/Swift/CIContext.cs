@@ -16,6 +16,7 @@ namespace Swift;
 /// </remarks>
 public sealed class CIContext : ISwiftObject, ISwiftStruct, IDisposable
 {
+    private const string ObjCClassName = "CIContext";
     private SwiftSafeHandle<CIContext> _payload = SwiftSafeHandle<CIContext>.Zero;
     private bool _disposed;
 
@@ -41,7 +42,7 @@ public sealed class CIContext : ISwiftObject, ISwiftStruct, IDisposable
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        return _cachedMetadata ??= PInvoke_GetMetadata();
+        return _cachedMetadata ??= ObjCInterop.GetTypeMetadata(ObjCClassName);
     }
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
@@ -51,7 +52,7 @@ public sealed class CIContext : ISwiftObject, ISwiftStruct, IDisposable
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= PInvoke_GetMetadata();
+        var metadata = _cachedMetadata ??= ObjCInterop.GetTypeMetadata(ObjCClassName);
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
             throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
@@ -93,10 +94,6 @@ public sealed class CIContext : ISwiftObject, ISwiftStruct, IDisposable
     #endregion
 
     #region P/Invoke Declarations
-
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.CoreImage, EntryPoint = "$sSo9CIContextCMa")]
-    private static extern TypeMetadata PInvoke_GetMetadata();
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.CoreImage, EntryPoint = "$sSo9CIContextCABycfC")]
