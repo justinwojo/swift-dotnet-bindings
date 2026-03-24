@@ -102,7 +102,24 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(_payloadSize);
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-        metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
+        var tagOffset = GetTagByteOffset();
+        if (tagOffset >= 0 && !metadata.ValueWitnessTable->IsNonPOD)
+        {
+            // POD tag-byte fast path: for trivially-copyable types with an appended tag byte
+            // (e.g., Optional<CGPoint>, Optional<CGRect>), use direct memcpy instead of VWT
+            // InitializeWithCopy. The VWT for some Clang-imported struct Optionals copies
+            // only the payload bytes without the tag byte, causing None to be read as Some.
+            // Gate: IsNonPOD=false ensures the payload has no retained references that need
+            // ref-counting on copy. Non-POD payloads with tag bytes (e.g., frozen structs
+            // containing class references) must still use InitializeWithCopy.
+            Buffer.MemoryCopy((void*)handle, (void*)bufferPtr, (long)_payloadSize, (long)_payloadSize);
+        }
+        else
+        {
+            // VWT path: handles extra-inhabitant types (classes, strings), non-POD payloads
+            // with retained references, and any case where memcpy isn't safe.
+            metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
+        }
         _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
     }
 

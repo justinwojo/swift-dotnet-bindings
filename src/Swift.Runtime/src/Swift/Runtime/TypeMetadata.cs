@@ -391,8 +391,76 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                       "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
         }
 
+        // Handle CoreGraphics struct types (CGPoint, CGRect, CGSize).
+        // These are Clang-imported types whose metadata descriptors are local symbols
+        // (not exported from any system library). SwiftBindingsRuntime provides @_cdecl
+        // wrappers that return the metadata via P/Invoke.
+        if (type == typeof(CGPoint) || type == typeof(CGRect) || type == typeof(CGSize))
+        {
+            if (TryGetCoreGraphicsMetadata(type, out var cgMetadata))
+            {
+                cache.GetOrAdd(type, _ => cgMetadata.Value);
+                result = cgMetadata;
+                return true;
+            }
+        }
+
         result = null;
         return false;
+    }
+
+    /// <summary>
+    /// Attempts to get type metadata for CoreGraphics struct types via SwiftBindingsRuntime.
+    /// </summary>
+    static bool TryGetCoreGraphicsMetadata(Type type, [NotNullWhen(true)] out TypeMetadata? result)
+    {
+        try
+        {
+            IntPtr metadataPtr;
+            if (type == typeof(CGPoint))
+                metadataPtr = CoreGraphicsNativeMethods.CGPoint_GetMetadata();
+            else if (type == typeof(CGRect))
+                metadataPtr = CoreGraphicsNativeMethods.CGRect_GetMetadata();
+            else if (type == typeof(CGSize))
+                metadataPtr = CoreGraphicsNativeMethods.CGSize_GetMetadata();
+            else
+            {
+                result = null;
+                return false;
+            }
+
+            if (metadataPtr != IntPtr.Zero)
+            {
+                result = FromHandle(metadataPtr);
+                return true;
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
+        result = null;
+        return false;
+    }
+
+    /// <summary>
+    /// P/Invoke declarations for CoreGraphics type metadata accessors
+    /// in SwiftBindingsRuntime.
+    /// </summary>
+    static class CoreGraphicsNativeMethods
+    {
+        private const string LibraryName = "SwiftBindingsRuntime";
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_CGPoint_GetMetadata")]
+        public static extern IntPtr CGPoint_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_CGRect_GetMetadata")]
+        public static extern IntPtr CGRect_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_CGSize_GetMetadata")]
+        public static extern IntPtr CGSize_GetMetadata();
     }
 
     /// <summary>

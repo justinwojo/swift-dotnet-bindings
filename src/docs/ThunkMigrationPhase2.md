@@ -196,32 +196,57 @@ This was the cause of the Session 1/2 "pre-existing crash" at test #168 (`BasicP
 
 ---
 
-## Session 4: Indirect Result Returns
-<!-- commit: pending -->
+## Session 4: Indirect Result Returns (COMPLETE — Research Only)
 
-**What**: Enable thunking for methods that return types requiring the indirect result pattern (SwiftIndirectResult). Also pick up struct constructor thunks (deferred from Session 3) and any multi-slot value parameter work deferred from Session 2 Part C.
+**Status**: Research complete, implementation blocked by Mono AOT limitation.
 
-**Why deferred**: The thunk assembly CAN bridge registers to x8 buffer (it already does this for 17-32B frozen struct returns). But the C# P/Invoke side can't express this cleanly:
-- `SwiftIndirectResult` maps to x8 only under `CallConvSwift`
-- Under `CallConvCdecl`, `SwiftIndirectResult` is a regular parameter (x0), not x8
-- The @_cdecl pattern uses `IntPtr resultPtr` as an explicit parameter — but the thunk reads x8 from the cdecl struct return convention, not x0
+### Research Findings
 
-**Modified files**:
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PInvokeEmitter.cs` — Return type handling for thunked indirect results
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/NativeThunkEmitter.cs` — Update eligibility gates for indirect result methods
-- `src/Swift.Bindings/src/Marshaler/Projection/MethodMarshalPlanBuilder.cs` — Marshal plan for thunked indirect results
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/PInvokeEmitterTests.cs` — P/Invoke signature tests
+**x8 indirect return under CallConvCdecl: CONFIRMED WORKING at ABI level.**
 
-**Implementation details**:
-1. **Research first**: Can the P/Invoke return a correctly-sized blittable struct so .NET uses AAPCS64 x8 for the return buffer? This is the key question.
-   - Create a test: P/Invoke with `CallConvCdecl` returning a `[StructLayout(Size=24)]` struct. Does .NET put the buffer address in x8? If yes, thunks work naturally.
-   - If no: Investigate whether `SwiftIndirectResult` under `CallConvCdecl` actually uses x8. AAPCS64 uses x8 for all indirect struct returns regardless of calling convention annotation — it might work.
-   - The experiments worktree (`/Users/wojo/Dev/swift-interop-repro/`) can be used for empirical testing.
-2. If blittable struct return works: Generate a `[StructLayout(LayoutKind.Sequential, Size=N)]` return type for the P/Invoke, matched to the Swift return size. The thunk stores registers to [x8], .NET reads from the buffer. No explicit resultPtr parameter needed.
-3. Types that would benefit: non-frozen struct returns, Optional<value-type> returns, string returns (in wrapper context), existential returns
-4. Update `ShouldEmitThunk()` to accept these return types once the P/Invoke side supports them
-5. If Session 2 Part C (multi-slot value params) was deferred, pick it up here — the register remapping patterns from Session 2 Parts A/B will inform the implementation.
+Empirical testing in `/Users/wojo/Dev/swift-interop-repro/` proved:
+1. .NET Mono on iOS simulator correctly implements AAPCS64 x8 indirect return for blittable struct P/Invoke returns >16B under `CallConvCdecl` (tested 24B and 32B).
+2. Assembly thunks that write to `[x8]` return correct values to C# callers.
+3. The thunk assembly (`ThunkAssemblyEmitter.EmitReturnStore`) already handles storing swiftcc register returns (x0-x3/d0-d3) to the cdecl x8 return buffer.
 
-**Note**: The x8 research findings here directly apply to struct constructors (deferred from Session 3). If blittable struct return works, enable struct constructors by removing the `env.ParentDecl is StructDecl` rejection in `NativeThunkEmitter.ShouldEmitThunk()`.
+**Blocker: Mono AOT + LibraryImport struct returns.**
 
-**Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
+When the P/Invoke uses `[LibraryImport]` (source-generated) with a struct return type, Mono's AOT compiler on iOS cannot pre-compile the generated managed-to-native wrapper:
+```
+ExecutionEngineException: Attempting to JIT compile method
+'(wrapper managed-to-native) FeatureFlags FeatureFlags:<PInvoke_init>g____PInvoke|34_0 (byte,byte,byte)'
+while running in aot-only mode.
+```
+
+This affects ALL struct returns from thunked P/Invokes (both ≤16B and >16B), not just the x8 indirect case. The existing @_cdecl approach avoids this by returning `void` with an explicit `resultPtr` parameter — no struct return in the P/Invoke signature.
+
+For struct returns >16B with parameters, x8 may also not be initialized correctly by the LibraryImport wrapper, causing SIGSEGV in the thunk.
+
+### What Was Attempted
+
+1. **Struct constructor thunks**: Removed the `StructDecl` rejection in `ShouldEmitThunk()`. Frozen struct constructors with ≤16B return → "Attempting to JIT" error. Frozen struct constructors with >16B return (e.g., LottieColorLike 32B) → SIGSEGV (x8 uninitialized by LibraryImport wrapper). Reverted.
+
+2. **Indirect result method returns (non-frozen structs)**: Assessed. Would need explicit `resultPtr → x8` bridge in thunk assembly (parameter shifting), plus changes to PInvokeEmitter and WrapperEmitter. Complexity exceeds value without the struct constructor pattern working first.
+
+3. **Multi-slot value parameters (Session 2 Part C)**: Not attempted — depends on struct return working for full-pipeline validation.
+
+### Path Forward
+
+Two approaches to unblock struct constructor thunks:
+
+**Option A: Use `[DllImport]` instead of `[LibraryImport]` for struct-returning thunked P/Invokes.** DllImport handles struct returns natively without a source-generated wrapper. Requires changes to the P/Invoke emitter to emit DllImport for specific cases. Risk: DllImport may have different marshalling behavior for some types.
+
+**Option B: Explicit resultPtr approach.** Instead of returning the struct from the P/Invoke, pass `IntPtr resultPtr` as the first cdecl parameter. The thunk reads resultPtr from x0, shifts remaining params, sets `mov x8, resultPtr`, and calls Swift. This mirrors the @_cdecl pattern but avoids the Swift compiler dependency. Requires `EmitParameterShift` in `ThunkAssemblyEmitter` and changes to PInvokeEmitter/WrapperEmitter.
+
+### Modified Files
+
+- `src/Swift.Bindings/src/Emitter/ThunkEmitter/NativeThunkEmitter.cs` — Updated struct constructor rejection comment with Session 4 findings
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/NativeThunkEmitterTests.cs` — Updated test comments with Mono AOT limitation
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| Unit tests | 8,822 pass, 0 fail |
+| Library validation | 90/90 pass |
+| Runtime (simulator) | 892 pass, 3 pre-existing failures, 0 crashes |

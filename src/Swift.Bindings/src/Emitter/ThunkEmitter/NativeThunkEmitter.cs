@@ -22,7 +22,7 @@ namespace BindingsGeneration;
 /// Thunks do NOT handle (deferred):
 ///   1. Typed throws (needs Swift-side error boxing)
 ///   2. Generic type constructors (needs Swift compiler for specialization)
-///   3. Struct constructors (x8 indirect return — deferred to Session 4)
+///   3. Struct constructors (Mono AOT can't JIT LibraryImport struct returns; see Session 4)
 ///   4. Failable constructors (return Optional<Self>, needs indirect result)
 ///  10. Closure parameters (needs Swift adapter code)
 /// </summary>
@@ -39,7 +39,7 @@ public static class NativeThunkEmitter
     /// - No closure parameters (needs Swift adapter code for delegate → closure bridge)
     /// - No variadic parameters (@_cdecl can't call variadic methods either)
     /// - No indirect result required (SwiftIndirectResult maps to x8 only under CallConvSwift)
-    /// - Not a struct constructor (x8 indirect return — deferred to Session 4)
+    /// - Not a struct constructor (Mono AOT can't JIT LibraryImport struct returns)
     /// - Not a failable constructor (returns Optional&lt;Self&gt;, needs indirect result)
     /// - Not a generic type constructor (needs specialized metatype dispatch)
     /// - In xcframework mode (thunk binary needs the wrapper library)
@@ -93,9 +93,12 @@ public static class NativeThunkEmitter
             methodDecl.IsActorIsolated, methodDecl.IsMainActorIsolated))
             return false;
 
-        // Struct constructors: the thunk handles x8 indirect return, but the C# P/Invoke
-        // under CallConvCdecl can't express this cleanly (SwiftIndirectResult maps to x8 only
-        // under CallConvSwift). Deferred to Session 4 (indirect result returns).
+        // Struct constructors: The thunk handles x8 indirect return correctly (Session 4 research
+        // proved AAPCS64 x8 works for struct returns >16B under CallConvCdecl). However, Mono's
+        // AOT compiler can't generate the managed-to-native wrapper when LibraryImport returns
+        // a struct type ("Attempting to JIT compile method" in aot-only mode). The @_cdecl wrapper
+        // approach (void return + IntPtr resultPtr) avoids this by never returning a struct.
+        // Future: could use DllImport instead of LibraryImport, or explicit resultPtr in thunk.
         if (methodDecl.IsConstructor && env.ParentDecl is StructDecl)
             return false;
 
@@ -155,6 +158,19 @@ public static class NativeThunkEmitter
         // to avoid any mismatch between indirect result expectations and the thunk assembly.
         if (returnSpec.IsDynamicSelf)
             return false;
+
+        // Optional<T> returns require indirect result (write to buffer via resultPtr).
+        // The thunk can't handle this — it returns directly in x0, which doesn't work
+        // for Optional<value-type> where the @_cdecl wrapper writes to a caller-provided
+        // buffer. Must check explicitly here because MethodRequiresIndirectResult relies
+        // on UsesCdeclPropertyWrapper/UsesCdeclMethodWrapper flags, which aren't set yet
+        // when ShouldEmitThunk is evaluated (flags are assigned later by PropertyHandler/
+        // MethodHandler after the thunk decision).
+        {
+            var returnSpec2 = methodDecl.CSSignature.First().SwiftTypeSpec;
+            if (MethodWrapperEmitter.IsOptionalType(returnSpec2))
+                return false;
+        }
 
         // Methods requiring indirect result can't be thunked yet (Session 4).
         // Under CallConvCdecl, SwiftIndirectResult becomes a regular parameter (x0),

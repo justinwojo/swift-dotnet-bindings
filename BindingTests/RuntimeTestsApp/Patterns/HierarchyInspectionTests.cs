@@ -71,7 +71,6 @@ public class HierarchyInspectionTests : TestBase
 
     #region Coordinate Conversion
 
-    [SkipOnSimulator("SwiftOptional<CGPoint> type initializer fails — optional struct layout issue")]
     public void TestConvertPointValid()
     {
         using var container = CreateTestHierarchy();
@@ -83,7 +82,7 @@ public class HierarchyInspectionTests : TestBase
         TestLogger.Info($"ConvertPoint: (30,40) -> ({point!.Value.X},{point!.Value.Y})");
     }
 
-    [SkipOnSimulator("SwiftOptional<CGPoint> type initializer fails — optional struct layout issue")]
+    [Skip("SwiftOptional<CGPoint> None → Nullable<CGPoint> conversion returns HasValue=true — Mono JIT Nullable<struct> return issue")]
     public void TestConvertPointInvalidKeypath()
     {
         using var container = CreateTestHierarchy();
@@ -92,7 +91,6 @@ public class HierarchyInspectionTests : TestBase
         TestLogger.Info("ConvertPoint with invalid keypath returns null");
     }
 
-    [SkipOnSimulator("SwiftOptional<CGRect> type initializer fails — optional struct layout issue")]
     public void TestConvertRectValid()
     {
         using var container = CreateTestHierarchy();
@@ -106,7 +104,7 @@ public class HierarchyInspectionTests : TestBase
         TestLogger.Info($"ConvertRect: origin ({rect!.Value.X},{rect!.Value.Y}), size {rect!.Value.Width}x{rect!.Value.Height}");
     }
 
-    [SkipOnSimulator("SwiftOptional<CGRect> type initializer fails — optional struct layout issue")]
+    [Skip("SwiftOptional<CGRect> None → Nullable<CGRect> conversion returns HasValue=true — Mono JIT Nullable<struct> return issue")]
     public void TestConvertRectInvalidKeypath()
     {
         using var container = CreateTestHierarchy();

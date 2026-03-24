@@ -305,6 +305,47 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ShouldEmitThunk_OptionalValueTypeReturn_ReturnsFalse()
+        {
+            // Optional<Int32> returns need indirect result (resultPtr buffer).
+            // Even though Int32 is a known type with ABI layout, thunks can't handle
+            // Optional returns — the @_cdecl wrapper writes to a caller-provided buffer.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                // Return type: Optional<Int32> — concrete value type
+                MakeArg(new NamedTypeSpec("Swift.Optional",
+                    new NamedTypeSpec("Swift.Int32")), ""),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_OptionalDoubleReturn_ReturnsFalse()
+        {
+            // Optional<Double> static property getter — same issue as Optional<Int32>.
+            // Verifies the fix for static property accessors (GlobalSettings.defaultTimeout).
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Swift.Optional",
+                    new NamedTypeSpec("Swift.Double")), ""),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
         public void ShouldEmitThunk_DispatchThunkGetterEnumReturn_ReturnsFalse()
         {
             // Non-final getter on non-final class → dispatch thunk (vgTj).
@@ -1461,9 +1502,14 @@ namespace BindingsGeneration.Tests
         #region Constructor Thunks
 
         [Fact]
-        public void ShouldEmitThunk_StructConstructor_ReturnsFalse()
+        public void ShouldEmitThunk_FrozenStructConstructor_ReturnsFalse()
         {
-            // Struct constructors deferred — x8 indirect return question (Session 4).
+            // Session 4 finding: Struct constructors can't use native thunks because
+            // Mono AOT can't JIT the LibraryImport-generated wrapper for struct returns
+            // ("Attempting to JIT compile method" in aot-only mode). The @_cdecl wrapper
+            // approach (void return + resultPtr) avoids this. The underlying x8 ABI
+            // mechanism works (verified empirically), but LibraryImport doesn't produce
+            // AOT-compatible wrappers for struct returns.
             var env = CreateMethodEnv(
                 methodType: MethodType.Instance,
                 isConstructor: true,
@@ -1482,6 +1528,7 @@ namespace BindingsGeneration.Tests
 
             Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
         }
+
 
         [Fact]
         public void ShouldEmitThunk_FailableClassConstructor_ReturnsFalse()

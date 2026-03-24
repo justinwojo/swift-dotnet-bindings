@@ -10,7 +10,7 @@ namespace RuntimeTestsApp.Marshalling;
 /// Exercises HTTP header management (SetValue/AddValue/Value),
 /// property access (HTTPMethod, TimeoutInterval), and construction paths.
 /// </summary>
-[SkipOnSimulator("URL.FromString uses CallConvSwift + SafeHandle — Mono non-blittable rejection (upstream Issue 2)")]
+[Skip("URL/URLRequest P/Invokes use SwiftString in CallConvSwift — non-blittable on both Mono (upstream Issue 2) and NativeAOT (MarshalDirectiveException)")]
 public class URLRequestTests : TestBase
 {
     public URLRequestTests(TestResults results) : base(results) { }

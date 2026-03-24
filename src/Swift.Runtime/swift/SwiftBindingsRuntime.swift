@@ -220,3 +220,28 @@ public func sbw_swiftStringFreeUtf8(_ ptr: UnsafeMutablePointer<UInt8>?) {
 public func sbw_swiftStringGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(String.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
+
+// MARK: - CoreGraphics Type Metadata
+//
+// CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors
+// are local symbols (not exported from any system library). These @_cdecl
+// wrappers make the metadata accessible from C# via P/Invoke, enabling
+// SwiftOptional<CGPoint> and similar generic type construction at runtime.
+
+/// Returns the type metadata pointer for CoreGraphics.CGPoint.
+@_cdecl("SBW_CGPoint_GetMetadata")
+public func sbw_cgPointGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(CGPoint.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for CoreGraphics.CGRect.
+@_cdecl("SBW_CGRect_GetMetadata")
+public func sbw_cgRectGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(CGRect.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for CoreGraphics.CGSize.
+@_cdecl("SBW_CGSize_GetMetadata")
+public func sbw_cgSizeGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(CGSize.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
