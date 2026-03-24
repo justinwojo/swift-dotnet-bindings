@@ -1,11 +1,12 @@
 # Roadmap
 
-**Updated**: March 23, 2026
+**Updated**: March 24, 2026
 
 Previous sessions archived in `Completed/`:
 - Sessions 0–14, architecture audit, post-audit fixes → `roadmap-march-2026-sessions.md`
 - Stability Sessions 1–2, Post-Stability Sessions A–F, error code audit, CONTRIBUTING.md → `post-stability-sessions-a-f.md`
 - Native thunk migration Sessions 1–6 → `ThunkMigration.md`
+- Finalizer-safe VWT Destroy (Sessions 1–2) → `finalizer-safe-vwt-destroy.md`
 
 ---
 
@@ -13,9 +14,9 @@ Previous sessions archived in `Completed/`:
 
 | Metric | Value |
 |--------|-------|
-| Runtime tests (sim) | 846 pass, 62 skip |
+| Runtime tests (sim) | 897 pass, 101 skip |
 | Runtime tests (device) | ~comparable |
-| Unit tests | 9,060 |
+| Unit tests | 9,334 |
 | Validation compile gate | 90/90 pass |
 | Swift wrapper compilation | 52/56 ok |
 | Member emission | 995/1109 (89.7%) |
@@ -47,23 +48,20 @@ Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validati
 
 ---
 
-## Session G: Generated Code Size Reduction
+## Session G: Generated Code Size Reduction ✅ (`526c6304`)
 
-Generated bindings are verbose — 738K total LOC across 90 libraries. Analysis shows 25-35% reduction is achievable by extracting shared helpers, reducing ~221K lines of generated code. Improves build times, binary size, and debuggability.
+27,336 LOC removed across 90 validation libraries (3.7% reduction). Extracted shared runtime helpers and eliminated empty try/finally blocks.
 
-**Extract runtime marshalling helpers:**
-- Try/finally indirect result pattern (3,907 instances) → `SwiftMarshal.WithIndirectResult<T>()`
-- Error handling block (50+ identical 16-line blocks) → `SwiftMarshal.HandleSwiftError()`
-- String return decoding (50+ identical 9-line blocks) → `SwiftMarshal.ReadUtf8String()`
-- Stackalloc + MarshalToSwift pattern (305 instances) → `SwiftMarshal.MarshalParameter<T>()`
+**Completed:**
+- `SwiftMarshal.ReadUtf8Slice` — replaces 9-line string decode pattern (292 instances)
+- `SwiftMarshal.ThrowSwiftError` + `ReadErrorDescription` — replaces 16-line error handling blocks
+- `Utf8Slice` struct moved to runtime (`Swift.Runtime.Utf8Slice`), generated code uses `using` alias
+- `NeedsTryFinallyForMethod()` predicate — skips empty try/finally for methods without cleanup
 
-**P/Invoke deduplication:**
-- 590 duplicate P/Invoke stubs in test library alone. Deduplicate identical signatures across methods.
-
-**Reduce metadata noise:**
-- Review auto-generated XML doc comments on internal utility methods — remove non-value-add summaries.
-
-**Validation**: `run-tests.sh` + `validate-libraries.sh` + `build-and-test.sh` (emitter changes affect all generated code).
+**Deferred (with rationale):**
+- P/Invoke deduplication: 631/1064 "duplicates" have same C# types but different Swift entry points (not true duplicates). Modest reward, high risk.
+- XML doc comments: All come from Swift symbol graph data (real documentation), not auto-generated boilerplate.
+- `stackalloc + MarshalToSwift`: `stackalloc` is caller-frame only, can't be moved into a helper method.
 
 ---
 
@@ -91,16 +89,16 @@ Small items that can be tackled opportunistically or folded into any session.
 
 ---
 
-## SwiftUI Bridge (4 remaining sessions)
+## SwiftUI Bridge (2 remaining sessions)
 
-Active roadmap: `swiftui-roadmap.md`. Sessions 1A–3 + 4A + 4C already cover the vast majority of real-world SwiftUI views. These remaining sessions are diminishing returns — schedule as needed, not as a block.
+Active roadmap: `swiftui-roadmap.md`. Sessions 1A–3 + 4A–4C + 1B cover the vast majority of real-world SwiftUI views. Remaining sessions are diminishing returns.
 
-| Session | Focus | Priority |
-|---------|-------|----------|
-| **1B** | Closure non-primitive returns (String, class) | Medium |
-| **4B** | Constrained generics (`<T: Identifiable>`, `<T: Hashable>`) | Medium |
-| **5** | Lifecycle (`onAppear`/`onDisappear`), presentation helpers | Medium-low |
-| **6** | Observable binding (C# → Swift reactivity), corpus tracking | Low |
+| Session | Focus | Priority | Status |
+|---------|-------|----------|--------|
+| **1B** | Closure non-primitive returns (String, class) | Medium | **Done** (`5573f16a`) |
+| **4B** | Constrained generics (`<T: Identifiable>`, `<T: Hashable>`) | Medium | **Done** (`55c01fc4`) |
+| **5** | Lifecycle (`onAppear`/`onDisappear`), presentation helpers | Medium-low | Planned |
+| **6** | Observable binding (C# → Swift reactivity), corpus tracking | Low | Planned |
 
 ---
 

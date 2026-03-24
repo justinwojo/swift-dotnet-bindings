@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
-**Date**: February 2026
-**Status**: Sessions 1-3 + 4A + 4C complete (closure/optional expansion + generic views + struct params + two-way state binding + view modifier chains), Sessions 4B-6 planned
+**Date**: March 2026
+**Status**: Sessions 1A-3 + 4A-4C + 1B complete (closure/optional expansion + generic views + struct params + two-way state binding + view modifier chains + closure non-primitive returns + constrained generics), Sessions 5-6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -64,12 +64,12 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | Session | Focus | Priority | Status | Key Unlock |
 |---------|-------|----------|--------|------------|
 | **1A** | Closure & Optional expansion | Highest | **Done** | Result callbacks, selection handlers, data-passing closures |
-| **1B** | Closure non-primitive returns | Medium | Planned | `(String) -> MyClass`, `(Int) -> String` return values |
+| **1B** | Closure non-primitive returns | Medium | **Done** | `(String) -> MyClass`, `(Int) -> String` return values |
 | **2** | Generic view support | High | **Done** | `AnimatedImage<T>`, `LottieView<T>`, @ViewBuilder params |
 | **3** | Struct params & type database | High | **Done** | Configuration-object patterns, reduced AnyType pollution |
 | **4A** | Two-way state binding | Medium | **Done** | Dynamic updates after creation (search, toggles, sliders) |
 | **4C** | View modifier chains | Medium | **Done** | Self-returning modifiers (`.playing()`, `.animationSpeed()`) callable from C# |
-| **4B** | Constrained generics | Medium | Planned | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
+| **4B** | Constrained generics | Medium | **Done** | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
 | **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
 
@@ -97,19 +97,21 @@ Extended closure and optional parameter bridging to handle String args, class ar
 
 ---
 
-### Session 1B: Closure Non-Primitive Returns
+### Session 1B: Closure Non-Primitive Returns ✅
 
-**Priority**: Medium — deferred from Session 1A due to complex memory ownership.
+**Status**: Complete (`5573f16a`) — String and class return types from typed closures now cross the FFI boundary with clear ownership semantics.
 
-Closures that return String or class types across the FFI boundary require careful ownership semantics (who allocates, who frees). Primitive returns already work.
+**Completed scope**:
 
-**Scope**:
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| String return from closure | **Done** | C# trampoline encodes result as UTF-8 via `NativeMemory.Alloc`, writes length to `retLenPtr` out-parameter. Swift decodes with `String(bytes:encoding:)` and deallocates via `defer { retPtr?.deallocate() }`. |
+| Class return from closure | **Done** | C# trampoline calls `DangerousGetHandle()` + `Arc.Retain(ptr)` to prevent GC race. Swift takes ownership via `Unmanaged<T>.fromOpaque(retPtr).takeRetainedValue()`. |
+| Ownership protocol | **Done** | String: C# allocates (`NativeMemory.Alloc`), Swift deallocates (`deallocate()`). Class: C# retains (`Arc.Retain`), Swift takes retained (`takeRetainedValue`). |
 
-| Sub-task | Description |
-|----------|-------------|
-| String return from closure | Swift trampoline decodes returned UTF-8 buffer from C# callback |
-| Class return from closure | `Unmanaged.passRetained` from C# → Swift unwrap with ownership transfer |
-| Ownership protocol | Clear contract for allocation/deallocation across the FFI boundary |
+**Test coverage**: 20 new unit tests (7 analyzer + 13 emission), 22 bridged views, both validation gates pass.
+
+**Key files modified**: `SwiftUIBridgeEmitter.cs` (Swift/C# emission for return ABI), `SwiftUIBridgeEmitter.InitAnalyzer.cs` (gate lifts for non-primitive returns), `SwiftUIBridgeEmitterTests.cs` (20 tests), `SimpleViews.swift` (test views).
 
 ---
 
@@ -254,19 +256,21 @@ session.Opacity(null);           // Reset modifier (nil = not applied)
 
 ---
 
-### Session 4B: Constrained Generics
+### Session 4B: Constrained Generics ✅
 
-**Priority**: Medium — extends generic view support beyond View-constrained placeholders.
+**Status**: Complete (`55c01fc4`) — non-View generic constraints resolved to concrete types where satisfiable, with template fallback for unknown constraints.
 
-Views with `<T: Identifiable>` or `<T: Hashable>` are currently template fallback. This session adds concrete type resolution when constraints are satisfiable.
+**Completed scope**:
 
-**Scope**:
+| Sub-task | Status | Description |
+|----------|--------|-------------|
+| Constraint analysis | **Done** | Mapping table of 20 well-known Swift protocols: String-satisfiable (Hashable, Equatable, Comparable, Sendable, Codable, CustomStringConvertible, etc.), Int-satisfiable (Numeric, BinaryInteger, SignedInteger, FixedWidthInteger), Double-satisfiable (FloatingPoint, BinaryFloatingPoint). |
+| Concrete type resolution | **Done** | When all constraints on a generic param are satisfiable by a known type, the view is specialized (e.g., `HashableView<String>`). Multi-constraint resolution verifies a single type satisfies all constraints via conformance table. Non-View resolved params bridged as normal parameters. |
+| Template fallback | **Done** | Unknown constraints (Identifiable, custom protocols) and irreconcilable multi-constraint combinations fall back to template generation. |
 
-| Sub-task | Description |
-|----------|-------------|
-| Constraint analysis | Analyze non-View generic constraints (Identifiable, Hashable, Equatable, etc.) |
-| Concrete type resolution | When constraint is satisfiable with a known type, bridge with that concrete type |
-| Template fallback | When constraint requires user type, fall back to template generation |
+**Test coverage**: 26 new unit tests, 22 bridged views, both validation gates pass.
+
+**Key files modified**: `SwiftUIBridgeEmitter.cs` (constraint tables, resolution logic, `GetOrderedTypeArgs()`), `SwiftUIBridgeEmitter.InitAnalyzer.cs` (`SubstituteGenericParam()`, `NonViewResolvedParams`), `SwiftUIBridgeEmitterTests.cs` (26 tests).
 
 ---
 
@@ -359,7 +363,7 @@ Add `BridgeSummary` to `binding-report.json`:
 ```
 Session 1A: Closures & Optionals    ✅ COMPLETE
     │
-Session 1B: Non-primitive returns   (standalone — extends Session 1A patterns)
+Session 1B: Non-primitive returns   ✅ COMPLETE (String + class return ABI)
     │
 Session 2: Generic Views            ✅ COMPLETE
     │
@@ -369,7 +373,7 @@ Session 4A: Two-Way State           ✅ COMPLETE
     │
 Session 4C: View Modifier Chains   ✅ COMPLETE (extends Session 4A's State/Wrapper pattern)
     │
-Session 4B: Constrained Generics   (standalone — extends Session 2's generic analysis)
+Session 4B: Constrained Generics   ✅ COMPLETE (20 protocol constraints → concrete types)
     │
 Session 5: Lifecycle & Modifiers    (runtime modifiers depend on Session 4A's ObservableObject)
     │
@@ -377,7 +381,7 @@ Session 6: Observable Binding       (depends on Session 4A's ObservableObject wr
            + Corpus Tracking        (standalone — measures everything above)
 ```
 
-**Stop points**: After Sessions 1-3 + 4A + 4C, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates and self-returning modifier chains. Sessions 4B-6 add extended generic support, lifecycle management, and advanced reactivity.
+**Stop points**: After Sessions 1A-3 + 4A-4C + 1B, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates, self-returning modifier chains, non-primitive closure returns, and constrained generic resolution. Sessions 5-6 add lifecycle management and advanced reactivity.
 
 ---
 

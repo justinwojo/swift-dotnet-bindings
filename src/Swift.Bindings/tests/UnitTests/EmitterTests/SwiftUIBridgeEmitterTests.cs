@@ -6022,6 +6022,28 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void GetSwiftHostedViewType_ManyGenericParams_SortsNumericallyNotLexicographically()
+    {
+        // Regression test: lexicographic sort would place τ_0_10 before τ_0_2
+        var analysis = new GenericViewAnalysis(true,
+            new Dictionary<string, string>
+            {
+                ["τ_0_0"] = "String", ["τ_0_1"] = "Int", ["τ_0_2"] = "Double",
+                ["τ_0_3"] = "Bool", ["τ_0_4"] = "String", ["τ_0_5"] = "Int",
+                ["τ_0_6"] = "Double", ["τ_0_7"] = "Bool", ["τ_0_8"] = "String",
+                ["τ_0_9"] = "Int", ["τ_0_10"] = "Double", ["τ_0_11"] = "Bool"
+            },
+            PlaceholderStrategy.Empty, 0);
+        var info = new ViewBridgeInfo("BigView", "TestModule",
+            ViewInitClassification.Simple, null, new List<MethodDecl>(),
+            GenericAnalysis: analysis);
+
+        var result = SwiftUIBridgeEmitter.GetSwiftHostedViewType(info);
+
+        Assert.Equal("BigView<String, Int, Double, Bool, String, Int, Double, Bool, String, Int, Double, Bool>", result);
+    }
+
+    [Fact]
     public void BuildMergedInitArgs_NoSynthesized_ReturnsOriginal()
     {
         var viewInitArgs = new List<string> { "title: titleString" };

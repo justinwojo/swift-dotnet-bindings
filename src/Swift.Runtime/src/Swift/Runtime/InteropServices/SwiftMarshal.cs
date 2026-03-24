@@ -878,6 +878,13 @@ public static class SwiftMarshal
         return (T)constructor.Invoke(values);
     }
 
+    // NOTE: These helpers free Swift-allocated buffers with NativeMemory.Free (C free()).
+    // Swift's UnsafeMutablePointer.allocate() uses swift_slowAlloc → malloc on Apple platforms,
+    // so free() is the correct deallocator. Generated per-library code historically used
+    // SBW_Free (which calls ptr.deallocate() → swift_slowDealloc → free()), but the shared
+    // runtime can't reference a per-library P/Invoke. Both paths resolve to free().
+    // This assumption holds for all supported targets (iOS/macOS ARM64).
+
     /// <summary>
     /// Reads a UTF-8 string from a Swift Utf8Slice stored at the given result pointer.
     /// The Utf8Slice's buffer is freed after reading. This replaces the inline 9-line

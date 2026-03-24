@@ -2369,13 +2369,26 @@ public static partial class SwiftUIBridgeEmitter
 
     /// <summary>
     /// Returns the concrete type args in declared generic parameter order.
-    /// Keys are τ_0_0, τ_0_1, etc. which sort lexicographically in declaration order.
+    /// Keys are τ_0_0, τ_0_1, etc. Sorted by numeric suffix to handle 10+ params
+    /// correctly (lexicographic sort would place τ_0_10 before τ_0_2).
     /// </summary>
     private static string GetOrderedTypeArgs(GenericViewAnalysis analysis)
     {
         return string.Join(", ", analysis.ConcreteTypeArgs
-            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .OrderBy(kv => ExtractGenericParamIndex(kv.Key))
             .Select(kv => kv.Value));
+    }
+
+    /// <summary>
+    /// Extracts the trailing numeric index from a generic parameter key like "τ_0_2".
+    /// Falls back to int.MaxValue if the key doesn't match the expected format.
+    /// </summary>
+    private static int ExtractGenericParamIndex(string key)
+    {
+        var lastUnderscore = key.LastIndexOf('_');
+        if (lastUnderscore >= 0 && int.TryParse(key.AsSpan(lastUnderscore + 1), out var index))
+            return index;
+        return int.MaxValue;
     }
 
     /// <summary>
