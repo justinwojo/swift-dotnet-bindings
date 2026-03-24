@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 namespace Swift.Runtime;
 
 /// <summary>
-/// Provides runtime environment detection for safe P/Invoke behavior from the GC finalizer thread.
+/// Provides runtime environment detection for runtime-specific behavior differences.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,9 +17,11 @@ namespace Swift.Runtime;
 /// is <c>RuntimeIdentifier</c>: "iossimulator-arm64" for Mono AOT vs "ios-arm64" for NativeAOT device.
 /// </para>
 /// <para>
-/// The finalizer crash occurs because Swift's @_cdecl destroy wrappers internally call VWT operations
-/// (deinitialize), which trigger Mono's <c>jit-info.c:918</c> assertion from the finalizer thread.
-/// On NativeAOT, all calls are statically compiled and safe from any thread.
+/// Used by <c>RuntimeLimitations</c> to determine which runtime-specific workarounds are needed
+/// (e.g., Mono JIT assertion with CallConvSwift, NativeAOT float struct parameter issues).
+/// Note: GC finalizer cleanup of Swift structs is safe on all runtimes — VWT Destroy is called
+/// via a Cdecl trampoline (<c>SBW_VWTDestroy</c>) whose DllImport stub is resolved by the
+/// runtime loader without JIT compilation.
 /// </para>
 /// <para>
 /// Three-way runtime taxonomy:
@@ -33,9 +35,9 @@ namespace Swift.Runtime;
 internal static class SwiftRuntimeInfo
 {
     /// <summary>
-    /// True when running on a non-NativeAOT runtime (Mono, CoreCLR) where calling Swift destroy
-    /// functions from the GC finalizer thread is unsafe. On these runtimes, only explicit Dispose()
-    /// on a user thread triggers the destroy action.
+    /// True when running on a non-NativeAOT runtime (Mono, CoreCLR).
+    /// Used by <see cref="RuntimeLimitations"/> to gate runtime-specific workarounds.
+    /// Note: VWT Destroy from the GC finalizer is safe on all runtimes via the Cdecl trampoline.
     /// </summary>
     internal static readonly bool IsMonoRuntime = DetectNonNativeAotRuntime();
 

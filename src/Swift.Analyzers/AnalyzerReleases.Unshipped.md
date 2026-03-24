@@ -2,4 +2,4 @@
 
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
-SB1001  | Usage    | Warning  | ISwiftObject should be disposed
+SB1001  | Usage    | Info     | ISwiftObject can benefit from deterministic disposal

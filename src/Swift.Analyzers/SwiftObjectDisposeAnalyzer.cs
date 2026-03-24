@@ -33,15 +33,16 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
     public const string DiagnosticId = "SB1001";
 
     private static readonly LocalizableString Title =
-        "ISwiftObject should be disposed";
+        "ISwiftObject can benefit from deterministic disposal";
 
     private static readonly LocalizableString MessageFormat =
-        "ISwiftObject '{0}' should be disposed. Use 'using' declaration, SwiftDisposeScope, or call Dispose() explicitly.";
+        "ISwiftObject '{0}' is not disposed. Consider using 'using' declaration, SwiftDisposeScope, or Dispose() for deterministic cleanup.";
 
     private static readonly LocalizableString Description =
-        "Swift objects hold native handles that must be released. " +
-        "Struct types require explicit disposal (Warning). " +
-        "Class types have finalizer-safe ARC cleanup but benefit from deterministic disposal (Info).";
+        "Swift objects hold native handles that benefit from deterministic disposal. " +
+        "The GC finalizer provides safe cleanup on all runtimes (Mono and NativeAOT) " +
+        "via the Cdecl VWT Destroy trampoline, so disposal is never required for correctness. " +
+        "Use 'using' for deterministic cleanup of scarce resources.";
 
     private const string Category = "Usage";
 
@@ -50,7 +51,7 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
         Title,
         MessageFormat,
         Category,
-        DiagnosticSeverity.Warning,
+        DiagnosticSeverity.Info,
         isEnabledByDefault: true,
         description: Description);
 
@@ -121,18 +122,9 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
             if (IsReturnedFromMethod(variableName, localDeclaration))
                 continue;
 
-            // Choose severity based on type: struct types (ISwiftStruct) get Warning
-            // (disposal important), class types get Info (finalizer handles ARC cleanup).
-            var effectiveSeverity = ImplementsISwiftStruct(type)
-                ? DiagnosticSeverity.Warning
-                : DiagnosticSeverity.Info;
-
             var diagnostic = Diagnostic.Create(
                 Rule,
                 variable.GetLocation(),
-                effectiveSeverity,
-                additionalLocations: null,
-                properties: null,
                 variableName);
 
             context.ReportDiagnostic(diagnostic);
@@ -145,15 +137,6 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
     private static bool ImplementsISwiftObject(ITypeSymbol type)
     {
         return CheckTypeForInterface(type, "ISwiftObject") || type.AllInterfaces.Any(i => CheckTypeForInterface(i, "ISwiftObject"));
-    }
-
-    /// <summary>
-    /// Checks whether a type implements Swift.Runtime.ISwiftStruct (struct type projected as class).
-    /// Used to determine diagnostic severity: Warning for structs, Info for classes.
-    /// </summary>
-    private static bool ImplementsISwiftStruct(ITypeSymbol type)
-    {
-        return CheckTypeForInterface(type, "ISwiftStruct") || type.AllInterfaces.Any(i => CheckTypeForInterface(i, "ISwiftStruct"));
     }
 
     private static bool CheckTypeForInterface(ITypeSymbol type, string interfaceName)
@@ -177,7 +160,7 @@ public sealed class SwiftObjectDisposeAnalyzer : DiagnosticAnalyzer
     /// Scans the enclosing block for an unconditional .Dispose() call on the given variable.
     /// Only top-level statements in the same block and finally blocks are considered
     /// unconditional. Dispose calls inside if/for/while/etc. are conditional and do not
-    /// suppress the warning.
+    /// suppress the diagnostic.
     /// </summary>
     private static bool IsDisposedInScope(string variableName, LocalDeclarationStatementSyntax declaration)
     {

@@ -86,7 +86,7 @@ public class TestClass
     }
 
     [Fact]
-    public async Task UndisposedStructLocal_ReportsWarning()
+    public async Task UndisposedStructLocal_ReportsInfo()
     {
         var testCode = MockTypes + @"
 public class TestClass
@@ -98,8 +98,8 @@ public class TestClass
 }
 ";
 
-        // StructProxy implements ISwiftStruct — Warning severity
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
+        // StructProxy implements ISwiftStruct — Info severity (finalizer-safe VWT Destroy via Cdecl trampoline)
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
             .WithSpan(43, 13, 43, 34)
             .WithArguments("x");
 

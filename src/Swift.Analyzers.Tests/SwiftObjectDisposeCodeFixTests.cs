@@ -60,8 +60,8 @@ public class TestClass
 }
 ";
 
-        // StructProxy implements ISwiftStruct — Warning severity
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
+        // StructProxy implements ISwiftStruct — Info severity (finalizer-safe via Cdecl trampoline)
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
             .WithSpan(29, 13, 29, 34)
             .WithArguments("x");
 
@@ -99,8 +99,8 @@ public class TestClass
 }
 ";
 
-        // StructProxy implements ISwiftStruct — Warning severity
-        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Warning)
+        // StructProxy implements ISwiftStruct — Info severity (finalizer-safe via Cdecl trampoline)
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
             .WithSpan(29, 13, 29, 34)
             .WithArguments("x");
 
