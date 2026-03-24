@@ -156,8 +156,6 @@ public static class ThunkAssemblyEmitter
             return true;
 
         // ≤ 16 bytes: both conventions return in x0+x1 / d0+d1 — no bridge needed
-        // UNLESS there are mixed int/float registers that need different store patterns
-        // For ≤ 16 bytes, cdecl and swiftcc agree on register usage, so no bridge
         return false;
     }
 
@@ -194,11 +192,22 @@ public static class ThunkAssemblyEmitter
         }
 
         // Prologue: save callee-saved registers x20, x19, plus frame pointer and link register.
-        // Note: x21 (swifterror) is caller-saved in AAPCS64 — the thunk's caller does not
-        // expect it preserved, so we don't save/restore it. We only use it for the Swift call.
-        sb.AppendLine("    stp     x20, x19, [sp, #-32]!");
-        sb.AppendLine("    stp     x29, x30, [sp, #16]");
-        sb.AppendLine("    add     x29, sp, #16");
+        // For throwing functions, also save x21 — it's callee-saved in AAPCS64 (x19-x28 range)
+        // and the thunk clobbers it for swifterror bridging. The P/Invoke wrapper expects x21
+        // preserved across the native call; corrupting it causes SIGSEGV in Mono's GC transition.
+        if (needsErrorBridge)
+        {
+            sb.AppendLine("    stp     x20, x19, [sp, #-48]!");
+            sb.AppendLine("    stp     x29, x30, [sp, #16]");
+            sb.AppendLine("    add     x29, sp, #16");
+            sb.AppendLine("    str     x21, [sp, #32]");
+        }
+        else
+        {
+            sb.AppendLine("    stp     x20, x19, [sp, #-32]!");
+            sb.AppendLine("    stp     x29, x30, [sp, #16]");
+            sb.AppendLine("    add     x29, sp, #16");
+        }
 
         // Save x8 (cdecl return buffer) to x19 if we need to bridge the return
         if (needsReturnBridge)
@@ -257,8 +266,17 @@ public static class ThunkAssemblyEmitter
         }
 
         // Epilogue: restore callee-saved registers
-        sb.AppendLine("    ldp     x29, x30, [sp, #16]");
-        sb.AppendLine("    ldp     x20, x19, [sp], #32");
+        if (needsErrorBridge)
+        {
+            sb.AppendLine("    ldr     x21, [sp, #32]");
+            sb.AppendLine("    ldp     x29, x30, [sp, #16]");
+            sb.AppendLine("    ldp     x20, x19, [sp], #48");
+        }
+        else
+        {
+            sb.AppendLine("    ldp     x29, x30, [sp, #16]");
+            sb.AppendLine("    ldp     x20, x19, [sp], #32");
+        }
         sb.AppendLine("    ret");
     }
 

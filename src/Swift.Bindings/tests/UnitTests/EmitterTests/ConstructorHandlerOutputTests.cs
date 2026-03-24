@@ -301,10 +301,11 @@ public class ConstructorHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_PrimaryClassConstructor_EmitsCdeclSwiftWrapper()
+    public void Emit_PrimaryClassConstructor_UsesNativeThunk()
     {
-        // Class constructors get @_cdecl wrappers when they have ABI-unsafe params.
-        // A no-param class constructor is CallConvSwift-safe (returns IntPtr).
+        // Class constructors are thunked (not @_cdecl) — allocating init returns pointer
+        // in x0 (no indirect result). Thunk puts metatype in x20 via metadata accessor.
+        // Non-frozen struct params are passed as pointers (single register) — thunk-safe.
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         RegisterNonFrozenStruct(typeDatabase, "TestModule.Config");
@@ -314,6 +315,35 @@ public class ConstructorHandlerOutputTests
             parameters: new List<ArgumentDecl>
             {
                 CreateArgument("config", new NamedTypeSpec("TestModule.Config"), moduleDecl)
+            });
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        // No @_cdecl wrapper emitted — thunk handles the ABI bridging in assembly
+        Assert.DoesNotContain("@_cdecl(\"", swiftOutput);
+        // C# P/Invoke uses CallConvCdecl (targets the thunk, not raw Swift symbol)
+        Assert.Contains("CallConvCdecl", csOutput);
+        // Thunk symbol in the P/Invoke entry point
+        Assert.Contains("thunk_", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ClassConstructorWithClosureParam_FallsBackToCdecl()
+    {
+        // Class constructors with closure params can't be thunked (closures need Swift
+        // adapter code). Falls back to @_cdecl wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var closureType = new ClosureTypeSpec(
+            arguments: new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            returnType: TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var constructor = CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("handler", closureType, moduleDecl)
             });
 
         var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);

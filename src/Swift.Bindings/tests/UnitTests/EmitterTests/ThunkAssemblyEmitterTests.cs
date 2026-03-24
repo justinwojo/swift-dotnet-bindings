@@ -604,6 +604,12 @@ namespace BindingsGeneration.Tests
             // Must capture swifterror after call
             Assert.Contains("str     x21, [x19]", asm);
             Assert.Contains("bl      _$s4Test6divideyS2i_SitKF", asm);
+            // x21 is callee-saved in AAPCS64 — must save/restore
+            Assert.Contains("str     x21, [sp, #32]", asm);
+            Assert.Contains("ldr     x21, [sp, #32]", asm);
+            // Throwing frame is 48 bytes (non-throwing is 32)
+            Assert.Contains("[sp, #-48]!", asm);
+            Assert.Contains("[sp], #48", asm);
         }
 
         [Fact]
@@ -638,6 +644,9 @@ namespace BindingsGeneration.Tests
             // Error out at x2 (baseIndex=1 + ParameterCount=1 = 2)
             Assert.Contains("mov     x19, x2", asm);
             Assert.Contains("str     x21, [x19]", asm);
+            // x21 save/restore
+            Assert.Contains("str     x21, [sp, #32]", asm);
+            Assert.Contains("ldr     x21, [sp, #32]", asm);
         }
 
         [Fact]
@@ -677,6 +686,9 @@ namespace BindingsGeneration.Tests
             // Error out pointer saved on stack (since x19 is used for return buffer)
             // After call, error stored via stack-restored pointer
             Assert.Contains("str     x21, [x9]", asm);
+            // x21 save/restore
+            Assert.Contains("str     x21, [sp, #32]", asm);
+            Assert.Contains("ldr     x21, [sp, #32]", asm);
         }
 
         #endregion

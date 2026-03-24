@@ -10,7 +10,8 @@ namespace BindingsGeneration;
 /// Determines whether a method can be thunked (vs. requiring @_cdecl wrapper),
 /// generates unique thunk symbols, and builds ThunkDescriptors for assembly codegen.
 ///
-/// Thunks handle conditions 5-9 and 11 from the RequiresCdeclForAbiSafety condition map:
+/// Thunks handle conditions 3, 5-9, and 11 from the RequiresCdeclForAbiSafety condition map:
+///   3. Class allocating constructors (metatype in x20, pointer return in x0)
 ///   5. Static class methods (hidden metatype)
 ///   6. Non-final instance methods (Tj dispatch)
 ///   7. Non-frozen struct instance members (SwiftSelf mismatch)
@@ -21,8 +22,8 @@ namespace BindingsGeneration;
 /// Thunks do NOT handle (deferred):
 ///   1. Typed throws (needs Swift-side error boxing)
 ///   2. Generic type constructors (needs Swift compiler for specialization)
-///   3. Class allocating constructors (C# codegen coupled with @_cdecl pattern)
-///   4. Struct constructors (C# codegen coupled with @_cdecl pattern)
+///   3. Struct constructors (x8 indirect return — deferred to Session 4)
+///   4. Failable constructors (return Optional<Self>, needs indirect result)
 ///  10. Closure parameters (needs Swift adapter code)
 /// </summary>
 public static class NativeThunkEmitter
@@ -37,6 +38,9 @@ public static class NativeThunkEmitter
     /// - No typed throws (needs Swift-side error boxing)
     /// - No closure parameters (needs Swift adapter code for delegate → closure bridge)
     /// - No variadic parameters (@_cdecl can't call variadic methods either)
+    /// - No indirect result required (SwiftIndirectResult maps to x8 only under CallConvSwift)
+    /// - Not a struct constructor (x8 indirect return — deferred to Session 4)
+    /// - Not a failable constructor (returns Optional&lt;Self&gt;, needs indirect result)
     /// - Not a generic type constructor (needs specialized metatype dispatch)
     /// - In xcframework mode (thunk binary needs the wrapper library)
     /// - ABI field layout available for return type (if thunk needs return bridging)
@@ -89,10 +93,24 @@ public static class NativeThunkEmitter
             methodDecl.IsActorIsolated, methodDecl.IsMainActorIsolated))
             return false;
 
-        // Constructors: C# ConstructorHandler codegen is coupled with @_cdecl pattern
-        // (UsesCdeclConstructorWrapper, explicit resultPtr, IntPtr vs SwiftIndirectResult).
-        // Constructor thunks need dedicated C# codegen — defer to a future session.
-        if (methodDecl.IsConstructor)
+        // Struct constructors: the thunk handles x8 indirect return, but the C# P/Invoke
+        // under CallConvCdecl can't express this cleanly (SwiftIndirectResult maps to x8 only
+        // under CallConvSwift). Deferred to Session 4 (indirect result returns).
+        if (methodDecl.IsConstructor && env.ParentDecl is StructDecl)
+            return false;
+
+        // Failable constructors (init?) return Optional<Self> which requires indirect result
+        // handling. The thunk can't bridge Optional return types.
+        if (methodDecl.IsConstructor && methodDecl.IsFailable)
+            return false;
+
+        // Constructor class reference parameters: Swift init parameters follow +1 owned
+        // convention for class references — the init body retains for storage then releases
+        // the caller's reference. Our thunk passes +0 (raw pointer from C#), so the release
+        // consumes a reference that doesn't exist → double-release when both the C# GC and
+        // the object's deinit release the same reference. Fall back to @_cdecl wrapper where
+        // Swift handles the retain/release automatically.
+        if (methodDecl.IsConstructor && HasClassReferenceParameters(env))
             return false;
 
         // Inout parameters — write-back semantics incompatible
@@ -104,10 +122,29 @@ public static class NativeThunkEmitter
             && WrapperValidation.IsInheritedGenericContext(td))
             return false;
 
+        // Getter dispatch thunks (vgTj) use x9 for vtable lookup, preserving x8 as the
+        // indirect return buffer. The getter writes value-type results to [x8], but our
+        // bridge thunk doesn't set x8, causing SIGSEGV. Class returns use x0 (no x8 needed).
+        // Direct-dispatch getters (final method, final class) use standard swiftcc return
+        // convention, which TypeLowering handles correctly — no x8 hazard.
+        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+        if (methodDecl.IsAccessor && !returnSpec.IsEmptyTuple)
+        {
+            // Only reject when the accessor actually uses a dispatch thunk (Tj suffix).
+            // SwiftCallTargetResolver is the single source of truth for Tj gating.
+            bool usesDispatchThunk = SwiftCallTargetResolver.Resolve(methodDecl, env.ParentDecl)
+                != methodDecl.MangledName;
+            if (usesDispatchThunk)
+            {
+                if (!env.TypeDatabase.TryGetTypeRecord(returnSpec, out var accessorReturnRecord)
+                    || accessorReturnRecord.Kind != TypeRecordKind.Class)
+                    return false;
+            }
+        }
+
         // Tuple and closure return types can't be lowered (TypeLowering only handles NamedTypeSpec).
         // Tuples >16B need return bridging that requires field layout knowledge the thunk lacks.
         // Closure returns have complex ABI (func pointer + context) incompatible with thunks.
-        var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
         if (!returnSpec.IsEmptyTuple && returnSpec is TupleTypeSpec or ClosureTypeSpec)
             return false;
 
@@ -118,6 +155,24 @@ public static class NativeThunkEmitter
         // to avoid any mismatch between indirect result expectations and the thunk assembly.
         if (returnSpec.IsDynamicSelf)
             return false;
+
+        // Methods requiring indirect result can't be thunked yet (Session 4).
+        // Under CallConvCdecl, SwiftIndirectResult becomes a regular parameter (x0),
+        // but the thunk reads x8 (AAPCS64 indirect return convention) → SIGSEGV.
+        // This catches non-frozen structs, complex enums, and other types where
+        // MarshallingHelpers would add SwiftIndirectResult to the P/Invoke.
+        // Guard with try-catch: MethodRequiresIndirectResult calls GetTypeRecordOrThrow
+        // which throws for types not in the database (e.g., ObjC-only Foundation types).
+        // ShouldEmitThunk runs before type validation, so unknown types are possible.
+        try
+        {
+            if (MarshallingHelpers.MethodRequiresIndirectResult(env))
+                return false;
+        }
+        catch
+        {
+            return false; // Unknown return type — can't thunk safely
+        }
 
         // All non-trivial parameters must be lowerable for correct register mapping.
         // Complex types (Optional<String>, non-frozen structs) that can't be lowered
@@ -246,7 +301,10 @@ public static class NativeThunkEmitter
             SelfLowering: selfLowering,
             ParameterCount: intParamCount,
             FloatParameterCount: floatParamCount,
-            IsInstanceMethod: methodDecl.MethodType == MethodType.Instance && !isConstructor,
+            // Free functions have MethodType.Instance (ABI parser defaults non-@static to Instance),
+            // but they have no self parameter. Guard on ParentDecl being a TypeDecl to exclude them.
+            IsInstanceMethod: methodDecl.MethodType == MethodType.Instance && !isConstructor
+                && env.ParentDecl is TypeDecl,
             IsStaticMethod: isStaticMethod,
             IsConstructor: isConstructor,
             Throws: methodDecl.Throws,
@@ -262,6 +320,34 @@ public static class NativeThunkEmitter
     private static bool HasClosureParameters(MethodEnvironment env)
     {
         return env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure);
+    }
+
+    /// <summary>
+    /// Checks if the method has any class reference parameters (including Optional&lt;Class&gt;).
+    /// Used to reject constructors with class params from thunking — Swift init parameters
+    /// follow +1 owned convention for class references, but thunks pass +0.
+    /// </summary>
+    private static bool HasClassReferenceParameters(MethodEnvironment env)
+    {
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            var spec = arg.SwiftTypeSpec;
+
+            // Unwrap Optional<T> to check the inner type
+            if (spec is NamedTypeSpec named && named.Name == "Swift.Optional"
+                && named.GenericParameters.Count == 1)
+            {
+                spec = named.GenericParameters[0];
+            }
+
+            if (env.TypeDatabase.TryGetTypeRecord(spec, out var record)
+                && record.Kind == TypeRecordKind.Class)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -301,8 +387,9 @@ public static class NativeThunkEmitter
 
     /// <summary>
     /// Checks if the return type can be lowered for thunk codegen.
-    /// For void returns and types that don't need return bridging (≤16B), lowering isn't required.
-    /// For types that DO need return bridging (>16B direct returns), lowering must succeed.
+    /// For void returns and single-register returns (≤8B), lowering isn't required.
+    /// For multi-register returns (>8B) without ABI field layout, the register assignment
+    /// is unknown — reject to @_cdecl wrapper for safety.
     /// </summary>
     private static bool IsReturnTypeLowerable(MethodEnvironment env)
     {
@@ -314,36 +401,52 @@ public static class NativeThunkEmitter
         if (lowering != null)
             return true; // Successfully lowered
 
-        // Can't lower — check if we actually need lowering for this return type
-        // If the return doesn't need bridging (≤16B or indirect via x8), thunk can still work
-        // via tail call. But if it DOES need bridging, we can't thunk it.
+        // Can't lower — check if we actually need lowering for this return type.
+        // Single-register returns (≤8B) and indirect returns are safe without lowering.
+        // Multi-register returns (>8B frozen structs) without layout are NOT safe —
+        // the thunk can't determine HFA vs non-HFA for correct return bridging.
         return !NeedsReturnBridging(returnSpec, env.TypeDatabase);
     }
 
     /// <summary>
-    /// Checks if a return type needs bridging (Swift returns in registers but cdecl returns via x8).
-    /// This happens for direct returns > 16 bytes.
+    /// Checks if a return type needs bridging that TypeLowering couldn't provide.
+    /// Called only when TypeLowering returned null — determines whether to reject
+    /// the function from thunking (fall back to @_cdecl wrapper).
+    ///
+    /// Conservative by default: only explicitly safe return types (single-register returns
+    /// like class pointers, simple enums, small frozen structs) are allowed through.
+    /// Everything else is rejected because without TypeLowering we can't determine the
+    /// register layout, and cdecl↔swiftcc return conventions may differ for multi-register
+    /// non-HFA structs (e.g., Swift.String returns x0+x1 under swiftcc but Mono JIT may
+    /// expect x8 indirect return under cdecl).
     /// </summary>
     private static bool NeedsReturnBridging(TypeSpec returnSpec, ITypeDatabase typeDb)
     {
-        // If we can't even look up the type, assume it doesn't need bridging
-        // (it would use indirect return, which both ABIs handle the same way)
+        // Type not in database: unknown layout. Reject from thunking.
+        // This catches Optional<T>, generic types, and unresolved framework types.
         if (!typeDb.TryGetTypeRecord(returnSpec, out var record))
-            return false;
+            return true;
 
-        // Classes return a pointer (8 bytes) — no bridging
+        // Classes return a single pointer (8 bytes) — safe for tail call
         if (record.Kind == TypeRecordKind.Class)
             return false;
 
-        // Non-frozen structs are always indirect — no bridging
+        // Non-frozen structs are always indirect — both ABIs agree, no bridge needed
         if (record.Kind == TypeRecordKind.Struct && !record.Flags.HasFlag(TypeRecordFlags.Frozen))
             return false;
 
-        // Frozen struct with inline size > 16 and ≤ 32 needs register→buffer bridging
-        if (record.InlineSize.HasValue && record.InlineSize.Value > 16 && record.InlineSize.Value <= 32)
-            return true;
+        // Simple enums return in a single register — safe for tail call
+        if (record.Kind == TypeRecordKind.Enum && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return false;
 
-        return false;
+        // Frozen struct ≤ 8 bytes: fits in a single register — safe for tail call
+        if (record.Kind == TypeRecordKind.Struct && record.Flags.HasFlag(TypeRecordFlags.Frozen)
+            && record.InlineSize.HasValue && record.InlineSize.Value <= 8)
+            return false;
+
+        // Everything else: multi-register or unknown layout — needs bridging
+        // that TypeLowering couldn't provide. Reject to @_cdecl wrapper.
+        return true;
     }
 
     /// <summary>

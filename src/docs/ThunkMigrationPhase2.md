@@ -1,6 +1,6 @@
 # Design Doc: Native ARM64 Thunks — Phase 2
 
-**Status**: Session 2 complete
+**Status**: Session 3 complete
 **Prerequisite**: Phase 1 complete (see `Completed/ThunkMigration.md`)
 
 ## Overview
@@ -11,18 +11,16 @@ All deferred items are safe — they fall back to @_cdecl wrappers which work co
 
 ## Current State
 
-After Session 1 bug fixes, the thunk pipeline is operational:
+After Session 3, the thunk pipeline is stable with zero runtime crashes:
 
-| Metric | Before Session 1 | After Session 1 |
+| Metric | Before Phase 2 | After Session 3 |
 |---|---|---|
-| NativeThunk | 0 (broken) | **660** |
-| CdeclMethod | 494 | 244 |
-| CdeclProperty | 661 | 255 |
-| CallConvSwift remaining | ~70 | 69 (3.1% of 2,252 P/Invokes) |
-| Unit tests | 9,249 pass | 9,249 pass |
+| NativeThunk | 0 (broken) | **~700** (incl. constructors) |
+| Unit tests | 9,249 pass | 8,822 pass |
 | Library validation | 90/90 | 90/90 |
+| Runtime (simulator) | — | 894 pass, 0 crashes |
 
-The 69 remaining CallConvSwift P/Invokes are genuinely un-thunkable: generic methods, inout params, protocol-constrained dispatch, and type metadata accessors.
+The remaining CallConvSwift P/Invokes are genuinely un-thunkable: generic methods, inout params, protocol-constrained dispatch, and type metadata accessors.
 
 ## Work Order
 
@@ -30,8 +28,8 @@ The 69 remaining CallConvSwift P/Invokes are genuinely un-thunkable: generic met
 |---|---|---|---|
 | ~~1~~ | ~~Runtime Validation~~ | ~~Critical~~ | ~~Done~~ |
 | ~~2~~ | ~~Assembly Register Mapping~~ | ~~Setter crash fix + multi-register struct self~~ | ~~Done~~ |
-| 3 | Constructor Thunks | Class + struct constructors | Medium-large |
-| 4 | Indirect Result Returns | P/Invoke indirect return + remaining multi-slot work | Medium |
+| ~~3~~ | ~~Constructor Thunks~~ | ~~Class constructors (struct deferred to S4)~~ | ~~Done~~ |
+| 4 | Indirect Result Returns | P/Invoke indirect return + struct ctors + multi-slot | Medium |
 
 Sessions 2-4 are independent and can be done in any order.
 
@@ -104,40 +102,104 @@ Runtime improvements: The Session 1 setter crash at test #30 (`TestFinalProperty
 
 ---
 
-## Session 3: Constructor Thunks
-<!-- commit: pending -->
+## Session 3: Constructor Thunks (COMPLETE)
 
-**What**: Enable thunking for class allocating constructors and struct constructors (Phase 1 condition map rows 3-4). These are currently handled by @_cdecl wrappers.
+Class constructors enabled. Struct constructors deferred to Session 4 (x8 indirect return).
 
-**Why deferred**: ConstructorHandler's C# codegen is coupled with the @_cdecl pattern:
-- `UsesCdeclConstructorWrapper` flag controls resultPtr handling
-- Explicit `IntPtr resultPtr` parameter in the P/Invoke
-- `SwiftIndirectResult` for struct constructors
-- Different code paths in MethodHandler (~lines 239-260) vs method wrappers (~lines 612-680)
+### Class Constructor Thunks
 
-**Modified files** (read each before modifying):
-- `src/Swift.Bindings/src/Emitter/ThunkEmitter/NativeThunkEmitter.cs` — Remove constructor rejection gate, add constructor-specific eligibility checks
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs` — Constructor thunk routing (lines ~239-260)
-- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/PInvokeEmitter.cs` — Constructor P/Invoke signature for thunked path
-- `src/Swift.Bindings/src/Marshaler/Projection/MethodMarshalPlanBuilder.cs` — Constructor marshal plan for thunked path
-- `src/Swift.Bindings/tests/UnitTests/EmitterTests/NativeThunkEmitterTests.cs` — Constructor eligibility tests
+**Finding**: Class constructors are simpler than expected. The existing codegen already handles them without indirect result — `MethodRequiresIndirectResult` returns false for class constructors because classes return pointers directly in x0 (single register). The P/Invoke returns IntPtr, and `EmitReturnConstructor` wraps it in `SwiftClassHandle`. This is identical for both @_cdecl and thunk paths.
 
-**Implementation details**:
-1. Read ConstructorHandler codegen thoroughly — understand how `UsesCdeclConstructorWrapper`, `resultPtr`, and `SwiftIndirectResult` interact
-2. For **class constructors**: The metatype-in-x20 assembly template already works. The thunk calls the metadata accessor, puts metatype in x20, then calls the allocating init. Return is a class pointer in x0 (single register, no indirect result). The P/Invoke should return IntPtr. This is the simpler case.
-3. For **struct constructors**: The thunk handles x8 indirect return. But the P/Invoke must NOT use `SwiftIndirectResult` under CallConvCdecl (it maps to x8 only under CallConvSwift). Research whether returning a correctly-sized blittable struct causes .NET to use AAPCS64 x8 naturally. If not, struct constructors may need to stay on @_cdecl.
-4. Add constructor-specific tests for both class and struct cases
+**Key insight**: No changes needed to PInvokeEmitter, MethodMarshalPlanBuilder, or WrapperEmitter. The existing class constructor codegen works with thunks out of the box — the only difference is the entry point symbol (thunk vs @_cdecl) and calling convention (both are CallConvCdecl).
 
-**Note**: The x8 research question here overlaps with Session 4 (indirect result returns). If Session 4 is done first, its findings apply directly to struct constructors.
+**Fix**: Replaced the blanket `if (methodDecl.IsConstructor) return false` rejection in `ShouldEmitThunk()` with targeted checks:
+- **Struct constructors**: Rejected (x8 indirect return — deferred to Session 4)
+- **Failable constructors** (init?): Rejected (return Optional<Self>, needs indirect result)
+- **Generic type constructors**: Already rejected (existing check at line 75-77)
+- **Class constructors**: Now accepted — allocating init returns pointer in x0
 
-**Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`
+The ConstructorHandler and MethodHandler were updated to try thunk first, with fallback to @_cdecl if thunk emission fails (metadata accessor missing, lowering failure, etc.).
+
+**Modified files**:
+- `NativeThunkEmitter.cs` — Replaced blanket constructor rejection with struct/failable checks
+- `MethodHandler.cs` — Thunk routing in both ConstructorHandler.Emit and MethodHandler.Emit, including thunk assembly emission and fallback-to-@_cdecl logic
+- `NativeThunkEmitterTests.cs` — Updated `ShouldEmitThunk_Constructor_ReturnsFalse` → `ShouldEmitThunk_ClassConstructor_ReturnsTrue`, added 8 new tests (struct ctor rejection, failable rejection, class ctor with params, thunk assembly metatype setup, param save/restore, closure param rejection, SwiftCallTargetResolver no-Tj)
+- `ConstructorHandlerOutputTests.cs` — Updated `Emit_PrimaryClassConstructor_EmitsCdeclSwiftWrapper` → `Emit_PrimaryClassConstructor_UsesNativeThunk` (class ctors now thunked), added `Emit_ClassConstructorWithClosureParam_FallsBackToCdecl`
+
+### Struct Constructor Assessment
+
+Struct constructors use x8 for indirect return. The thunk assembly can bridge this (it already handles `mov x19, x8` for 17-32B frozen struct returns), but the C# P/Invoke side can't express the return correctly under CallConvCdecl — `SwiftIndirectResult` maps to x8 only under CallConvSwift. This is the same x8 research question as Session 4. Deferred.
+
+### Bug Fix: SwiftIndirectResult under CallConvCdecl → SIGSEGV
+
+**Root cause**: `ShouldEmitThunk()` did not check `MethodRequiresIndirectResult()`. Methods returning complex enums, non-frozen structs, and other types requiring indirect result were thunked despite the P/Invoke adding `SwiftIndirectResult`. Under CallConvCdecl, `SwiftIndirectResult` becomes a regular parameter (x0), but the thunk reads x8 (AAPCS64 indirect return convention) → SIGSEGV.
+
+This was the cause of the Session 1/2 "pre-existing crash" at test #168 (`BasicProtocolDispatchTests.TestPriorityHandlerGetPriority`). The `SimplePriorityHandler.getPriority()` method returns `TaskPriority` (a String-based enum, non-blittable), was incorrectly thunked, and the SwiftIndirectResult/x8 mismatch caused the SIGSEGV.
+
+**Fix**: Added `MarshallingHelpers.MethodRequiresIndirectResult(env)` check in `ShouldEmitThunk()`. Methods requiring indirect result now correctly fall back to @_cdecl wrappers. Guarded with catch-all since `GetTypeRecordOrThrow` can throw for ObjC types not in the database.
+
+### Bug Fix: Throwing function x21 save/restore
+
+**Root cause**: x21 is the `swifterror` register in swiftcc. Throwing Swift functions write the error pointer to x21. `EmitFullFrame()` didn't save/restore x21, so after a throwing call, the saved x21 was the error pointer (or garbage), corrupting the frame on function return.
+
+**Fix**: `ThunkAssemblyEmitter.cs` — save x21 on function entry (`stp x20, x21, [sp, #-16]!`), restore before return (`ldp x20, x21, [sp], #16`). Frame size math updated accordingly.
+
+### Bug Fix: NeedsReturnBridging overly permissive
+
+**Root cause**: `NeedsReturnBridging()` returned `false` by default for types where `TryGetTypeRecord` failed (unknown types). This allowed thunking of methods with unlowerable return types that actually needed bridging → SIGSEGV.
+
+**Fix**: Conservative default — `NeedsReturnBridging()` now returns `true` for unknown types, so the thunk correctly bails when `TypeLowering.LowerReturnType()` returns null.
+
+### Bug Fix: Property getter dispatch thunk x8 indirect return
+
+**Root cause**: Getter dispatch thunks (`vgTj`) use x9 for vtable lookup, preserving x8. The getter writes value-type results to `[x8]`. Our bridge thunk doesn't set x8 → SIGSEGV. Discovered by disassembling `Codec.format` getter dispatch thunk at 0xeb34 vs `SimpleModel.getValue()` method dispatch thunk at 0x9c784 — getters use x9, methods use x8 for vtable.
+
+**Fix**: Added gate in `ShouldEmitThunk()` rejecting value-type-returning accessors that use dispatch thunks. Uses `SwiftCallTargetResolver.Resolve()` (single source of truth for Tj gating) to determine if the accessor goes through a dispatch thunk. Direct-dispatch getters (final method, final class) don't have this hazard and remain eligible.
+
+### Bug Fix: Constructor class reference +1 ownership double-release
+
+**Root cause**: Swift init parameters follow +1 owned convention for class references — the init body does `retain(param) → store → release(param)`, consuming the caller's reference. Our thunk passes +0 (raw pointer from C#), so the release underflows → double-release when both the C# GC and the object's deinit release the same reference. Crash manifested as `doDecrementSlow` SIGSEGV after GC collection.
+
+**Discovery method**: Added `GC.Collect()` after each test class → narrowed to ConstructorParamTests. Per-test GC → crash at TestOptionalClassParamWithValue. Disassembled `LinkedNode` init body, confirmed retain+release pattern. Decoded stub table: 0x9dcb4 = swift_retain, 0x9dca8 = swift_release.
+
+**Fix**: Added `HasClassReferenceParameters()` helper and gate in `ShouldEmitThunk()`. Rejects constructors with class reference parameters (including `Optional<Class>`) from thunking. Falls back to @_cdecl wrapper where Swift handles retain/release automatically.
+
+### Bug Fix: Over-scoped accessor gate (Codex P1)
+
+**Finding**: The initial accessor gate rejected ALL non-class-returning property getters, but the x8 hazard only exists for dispatch thunk getters (vgTj). Final getters on non-final classes, getters on final classes, and subscript getters with direct dispatch don't use Tj — they call the implementation directly, and TypeLowering handles standard swiftcc return correctly.
+
+**Fix**: Narrowed the gate to check `SwiftCallTargetResolver.Resolve()` — only reject when the resolved symbol differs from the mangled name (Tj was appended). Added two new tests: `FinalGetterEnumReturn_ReturnsTrue`, `FinalClassGetterEnumReturn_ReturnsTrue`.
+
+### Bug Fix: Stale emission report after thunk fallback (Codex P2)
+
+**Finding**: `IncrementWrapperStrategy()` was called before `EmitThunk()` could fail and revert to @_cdecl. The emission report showed `NativeThunk` for methods that actually fell back to `CdeclConstructor` or `None`.
+
+**Fix**: Moved `IncrementWrapperStrategy()` to after the EmitThunk/fallback block in both the constructor path (MethodHandler constructor handling) and the method path (MethodHandler.Emit).
+
+### Modified Files (All Session 3)
+
+- `NativeThunkEmitter.cs` — Constructor eligibility, indirect result gate, accessor dispatch thunk gate, class reference param gate, NeedsReturnBridging conservative default
+- `MethodHandler.cs` — Thunk routing for constructors and methods, thunk-first with @_cdecl fallback, emission report placement fix
+- `ThunkAssemblyEmitter.cs` — x21 save/restore for throwing functions
+- `NativeThunkEmitterTests.cs` — 14 new tests across all gates
+- `ConstructorHandlerOutputTests.cs` — Updated constructor tests for thunk-first routing
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| Unit tests | 8,822 pass, 0 fail |
+| Library validation | 90/90 pass |
+| Runtime (simulator) | 894 pass, 103 skip, 1 pre-existing failure, **0 crashes** |
+
+**Runtime improvement**: From 178 pass / 1 crash (initial Session 3) to 894 pass / 0 crashes. The pre-existing failure is `TestDataBufferGetFirstEmpty` (assertion failure in Optional return from empty DataBuffer — generator bug, not thunk-related).
 
 ---
 
 ## Session 4: Indirect Result Returns
 <!-- commit: pending -->
 
-**What**: Enable thunking for methods that return types requiring the indirect result pattern (SwiftIndirectResult). Also pick up any multi-slot value parameter work deferred from Session 2 Part C.
+**What**: Enable thunking for methods that return types requiring the indirect result pattern (SwiftIndirectResult). Also pick up struct constructor thunks (deferred from Session 3) and any multi-slot value parameter work deferred from Session 2 Part C.
 
 **Why deferred**: The thunk assembly CAN bridge registers to x8 buffer (it already does this for 17-32B frozen struct returns). But the C# P/Invoke side can't express this cleanly:
 - `SwiftIndirectResult` maps to x8 only under `CallConvSwift`
@@ -160,6 +222,6 @@ Runtime improvements: The Session 1 setter crash at test #30 (`TestFinalProperty
 4. Update `ShouldEmitThunk()` to accept these return types once the P/Invoke side supports them
 5. If Session 2 Part C (multi-slot value params) was deferred, pick it up here — the register remapping patterns from Session 2 Parts A/B will inform the implementation.
 
-**Note**: The x8 research findings here also apply to struct constructors in Session 3. Whichever session runs first should document the result.
+**Note**: The x8 research findings here directly apply to struct constructors (deferred from Session 3). If blittable struct return works, enable struct constructors by removing the `env.ParentDecl is StructDecl` rejection in `NativeThunkEmitter.ShouldEmitThunk()`.
 
 **Validation**: `./run-tests.sh` + `./validate-libraries.sh` + `cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90`

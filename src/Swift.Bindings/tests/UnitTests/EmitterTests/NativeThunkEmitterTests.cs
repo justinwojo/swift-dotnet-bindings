@@ -33,15 +33,16 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ShouldEmitThunk_Constructor_ReturnsFalse()
+        public void ShouldEmitThunk_ClassConstructor_ReturnsTrue()
         {
-            // Constructors are deferred — C# codegen coupled with @_cdecl pattern
+            // Class constructors: allocating init returns pointer in x0 (no indirect result).
+            // Thunk puts metatype in x20 via metadata accessor.
             var env = CreateMethodEnv(
                 methodType: MethodType.Instance,
                 isConstructor: true,
                 parentDecl: CreateClassDecl());
 
-            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         [Fact]
@@ -219,6 +220,289 @@ namespace BindingsGeneration.Tests
             };
 
             Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_StringReturn_NoAbiFieldLayout_ReturnsFalse()
+        {
+            // Swift.String is a 16-byte frozen struct without ABI field layout in SwiftDatabase.xml.
+            // TypeLowering can't determine register assignments, so we can't know if the return
+            // is HFA (d0+d1, safe for tail call) or non-HFA (x0+x1, may differ from cdecl).
+            // Must reject to @_cdecl wrapper which converts String to Utf8Slice.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Swift.String", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSSMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16, // 16 bytes, no AbiFieldLayout
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Swift.String"), ""), // return type
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructReturn_WithAbiFieldLayout_ReturnsTrue()
+        {
+            // A frozen struct WITH ABI field layout can be lowered by TypeLowering,
+            // so the thunk emitter knows the exact register assignments. This should
+            // be eligible for thunking (tail call or full-frame with return bridge).
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.FrozenPoint", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "FrozenPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.FrozenPoint"),
+                MetadataAccessor = "$s4Test11FrozenPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16,
+                AbiFieldLayout = "f,f", // two float fields — TypeLowering can resolve
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.FrozenPoint"), ""), // return type
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_OptionalStringReturn_ReturnsFalse()
+        {
+            // Optional<String> can't be lowered by TypeLowering (inner type String has no
+            // AbiFieldLayout). Without knowing the register layout, the thunk can't safely
+            // bridge the return. Must reject to @_cdecl wrapper.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                // Return type: Optional<String> — not in the type database
+                MakeArg(new NamedTypeSpec("Swift.Optional",
+                    new NamedTypeSpec("Swift.String")), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_DispatchThunkGetterEnumReturn_ReturnsFalse()
+        {
+            // Non-final getter on non-final class → dispatch thunk (vgTj).
+            // Dispatch thunk uses x9 for vtable (preserving x8) and the getter writes
+            // the result to [x8]. Our bridge thunk doesn't set x8, so this would crash.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FinalGetterEnumReturn_ReturnsTrue()
+        {
+            // Final getter on non-final class → direct dispatch (no Tj suffix).
+            // Direct-dispatch getters use standard swiftcc return convention,
+            // which TypeLowering handles correctly — no x8 hazard.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateClassDecl(); // non-final class
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.IsFinal = true; // final getter → no dispatch thunk
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FinalClassGetterEnumReturn_ReturnsTrue()
+        {
+            // Getter on final class → direct dispatch (no Tj suffix, regardless of method finality).
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = true; // final class → no dispatch thunk
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_DispatchThunkGetterClassReturn_ReturnsTrue()
+        {
+            // Dispatch thunk getter returning class type — returns in x0, no x8 issue.
+            // The dispatch thunk clobbers x8 for vtable lookup, but class return is in x0.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.ReturnClass", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "ReturnClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.ReturnClass"),
+                MetadataAccessor = "$s4Test11ReturnClassCMa",
+                Flags = TypeRecordFlags.None,
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.ReturnClass"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_PropertySetterEnumParam_ReturnsTrue()
+        {
+            // Property setters don't have return value issues — they return void.
+            // The IsAccessor check only rejects getters (non-void return).
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                // Setter: void return
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "value"),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ConstructorWithClassParam_ReturnsFalse()
+        {
+            // Constructors with class reference parameters follow +1 owned convention in Swift.
+            // The init body retains for storage, then releases the caller's reference.
+            // Our thunk passes +0 (raw pointer), causing double-release on finalization.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsConstructor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyClass"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+                MakeArg(new NamedTypeSpec("Test.MyClass"), "other"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ConstructorWithOptionalClassParam_ReturnsFalse()
+        {
+            // Optional<Class> params in constructors also follow +1 owned convention.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsConstructor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyClass"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+                MakeArg(new NamedTypeSpec("Swift.Optional",
+                    new NamedTypeSpec("Test.MyClass")), "previous"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ConstructorWithValueTypeParams_ReturnsTrue()
+        {
+            // Constructors with only value type params are fine — no +1 ownership issue.
+            // Use CreateMethodEnv which handles metadata accessor and type registration.
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateClassDecl());
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         #endregion
@@ -1170,6 +1454,279 @@ namespace BindingsGeneration.Tests
 
             // TestModule has ExportedSymbols = null (default)
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        #endregion
+
+        #region Constructor Thunks
+
+        [Fact]
+        public void ShouldEmitThunk_StructConstructor_ReturnsFalse()
+        {
+            // Struct constructors deferred — x8 indirect return question (Session 4).
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateStructDecl(isFrozen: true));
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenStructConstructor_ReturnsFalse()
+        {
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateStructDecl(isFrozen: false));
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FailableClassConstructor_ReturnsFalse()
+        {
+            // Failable constructors (init?) return Optional<Self> — needs indirect result.
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateClassDecl());
+            env.MethodDecl.IsFailable = true;
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ClassConstructorWithParams_ReturnsTrue()
+        {
+            // Class constructor with parameters — thunk saves/restores param registers
+            // around metadata accessor call.
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: CreateClassDecl());
+            env.MethodDecl.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "count"),
+                MakeArg(new NamedTypeSpec("Swift.Bool"), "flag")
+            };
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void EmitThunk_ClassConstructor_ProducesMetatypeSetup()
+        {
+            // Verify the thunk assembly calls the metadata accessor and puts metatype in x20.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyClass", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyClass"),
+                MetadataAccessor = "$s4Test7MyClassCMa",
+                Flags = TypeRecordFlags.None
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClassCACycfC";
+
+            var env = new MethodEnvironment(method, db);
+
+            var asmBuilder = new System.Text.StringBuilder();
+            var result = NativeThunkEmitter.EmitThunk(env, "Test", asmBuilder);
+
+            Assert.True(result);
+            var asm = asmBuilder.ToString();
+            // Must call metadata accessor
+            Assert.Contains("_$s4Test7MyClassCMa", asm);
+            // Must put metatype in x20
+            Assert.Contains("mov     x20, x0", asm);
+            // Must call the allocating init
+            Assert.Contains("_$s4Test7MyClassCACycfC", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_ClassConstructorWithParams_SavesRestoresRegisters()
+        {
+            // Constructor with params: metadata accessor clobbers x0-x7,
+            // so thunk must save/restore parameter registers around the call.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyClass", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyClass"),
+                MetadataAccessor = "$s4Test7MyClassCMa",
+                Flags = TypeRecordFlags.None
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClassC4nameACSS_tcfC";
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "name")
+            };
+
+            var env = new MethodEnvironment(method, db);
+
+            var asmBuilder = new System.Text.StringBuilder();
+            var result = NativeThunkEmitter.EmitThunk(env, "Test", asmBuilder);
+
+            Assert.True(result);
+            var asm = asmBuilder.ToString();
+            // Must save x0 (the param) before metadata accessor call
+            Assert.Contains("str     x0", asm);
+            // Must restore x0 after metadata accessor call
+            Assert.Contains("ldr     x0", asm);
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_ClassConstructorWithClosureParam_ReturnsFalse()
+        {
+            // Closure parameters need Swift adapter code — not thunkable.
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                hasClosureParam: true,
+                parentDecl: CreateClassDecl());
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void SwiftCallTargetResolver_Constructor_NoTjSuffix()
+        {
+            // Constructors use direct dispatch (allocating init is globally exported),
+            // NOT vtable dispatch — no Tj suffix.
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = false;
+            var method = CreateMethodDecl(
+                methodType: MethodType.Instance,
+                isConstructor: true,
+                parentDecl: parentDecl);
+            method.MangledName = "$s4Test7MyClassCACycfC";
+
+            var resolved = SwiftCallTargetResolver.Resolve(method, parentDecl);
+
+            Assert.Equal("$s4Test7MyClassCACycfC", resolved);
+            Assert.DoesNotContain("Tj", resolved);
+        }
+
+        #endregion
+
+        #region Bug Fix: Free function throwing thunks — error out register off-by-one
+
+        [Fact]
+        public void EmitThunk_ThrowingFreeFunction_ErrorOutAtCorrectRegister()
+        {
+            // Free functions have MethodType.Instance (ABI parser defaults non-@static to Instance)
+            // but have no self parameter. The thunk must NOT add a self bridge,
+            // so error_out is at x{ParameterCount} (not x{ParameterCount+1}).
+            // Bug: without the ParentDecl guard, the thunk emits:
+            //   mov x19, x3   (wrong — garbage register)
+            //   mov x20, x2   (wrong — treats error ptr as self)
+            // Fixed: thunk emits:
+            //   mov x19, x2   (correct — error out at x2)
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var method = new MethodDecl
+            {
+                Name = "divide",
+                MangledName = "$s4Test6divide1a1bs5Int32VAF_AFtKF",
+                MethodType = MethodType.Instance, // Parser sets this for free functions
+                IsConstructor = false,
+                IsAsync = false,
+                Throws = true,
+                Visibility = Visibility.Public,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    MakeArg(new NamedTypeSpec("Swift.Int32"), ""),  // return type
+                    MakeArg(new NamedTypeSpec("Swift.Int32"), "a"),
+                    MakeArg(new NamedTypeSpec("Swift.Int32"), "b")
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = TestModule, // Free function — parent is ModuleDecl, not TypeDecl
+                ModuleDecl = TestModule
+            };
+
+            var env = new MethodEnvironment(method, db);
+
+            var asmBuilder = new System.Text.StringBuilder();
+            var result = NativeThunkEmitter.EmitThunk(env, "Test", asmBuilder);
+
+            Assert.True(result);
+            var asm = asmBuilder.ToString();
+
+            // Error out pointer should be at x2 (after 2 int params at x0, x1)
+            Assert.Contains("mov     x19, x2", asm);
+            // Must NOT contain self bridge (no mov x20, x{N} for self)
+            Assert.DoesNotContain("mov     x20, x2", asm);
+            Assert.DoesNotContain("mov     x20, x0", asm);
+            // Must clear swifterror and store it after call
+            Assert.Contains("mov     x21, xzr", asm);
+            Assert.Contains("str     x21, [x19]", asm);
+            // x21 is callee-saved in AAPCS64 (x19-x28 range) — must save/restore
+            Assert.Contains("str     x21, [sp, #32]", asm);  // save in prologue
+            Assert.Contains("ldr     x21, [sp, #32]", asm);  // restore in epilogue
+            // Frame must be 48 bytes for throwing (vs 32 for non-throwing)
+            Assert.Contains("[sp, #-48]!", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_ThrowingInstanceMethod_SelfBridgeAndErrorOutCorrect()
+        {
+            // Instance method on a class: self IS at x{ParameterCount},
+            // error_out is at x{ParameterCount+1} (after self).
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+
+            var parentDecl = CreateClassDecl();
+            var method = new MethodDecl
+            {
+                Name = "doWork",
+                MangledName = "$s4Test7MyClass6doWorkyyKF",
+                MethodType = MethodType.Instance,
+                IsConstructor = false,
+                IsAsync = false,
+                Throws = true,
+                Visibility = Visibility.Public,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    MakeArg(TupleTypeSpec.Empty, ""),  // void return
+                    MakeArg(new NamedTypeSpec("Swift.Int32"), "value")
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = parentDecl,
+                ModuleDecl = TestModule
+            };
+
+            var env = new MethodEnvironment(method, db);
+
+            var asmBuilder = new System.Text.StringBuilder();
+            var result = NativeThunkEmitter.EmitThunk(env, "Test", asmBuilder);
+
+            Assert.True(result);
+            var asm = asmBuilder.ToString();
+
+            // Instance method with 1 param: self at x1, error_out at x2
+            // Self bridge: mov x20, x1
+            Assert.Contains("mov     x20, x1", asm);
+            // Error out: mov x19, x2
+            Assert.Contains("mov     x19, x2", asm);
+            // x21 save/restore for throwing
+            Assert.Contains("str     x21, [sp, #32]", asm);
+            Assert.Contains("ldr     x21, [sp, #32]", asm);
+            Assert.Contains("[sp, #-48]!", asm);
         }
 
         #endregion

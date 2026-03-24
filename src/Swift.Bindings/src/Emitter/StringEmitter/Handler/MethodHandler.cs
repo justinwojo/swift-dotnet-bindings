@@ -236,14 +236,24 @@ namespace BindingsGeneration
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
-            // Constructor thunks are deferred — C# ConstructorHandler codegen is coupled with
-            // @_cdecl pattern (UsesCdeclConstructorWrapper, explicit resultPtr, IntPtr vs SwiftIndirectResult).
-            // NativeThunkEmitter.ShouldEmitThunk returns false for all constructors.
+            // Try native ARM64 thunk for constructors (preferred over @_cdecl).
+            // Class constructors: allocating init returns pointer in x0 (no indirect result).
+            // Thunk puts metatype in x20 via metadata accessor. P/Invoke returns IntPtr.
+            string? originalMangledNameForCtorThunk = null;
+            if (NativeThunkEmitter.ShouldEmitThunk(methodEnv))
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                string moduleName = parentType_?.SwiftTypeName.Module ?? "";
+                var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(methodEnv.MethodDecl, moduleName);
+                originalMangledNameForCtorThunk = methodEnv.MethodDecl.MangledName;
+                methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.MangledName = thunkSymbol;
+            }
             // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
-            // All eligible constructors get @_cdecl wrappers — CallConvSwift is eliminated.
-            if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+            else if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -258,9 +268,6 @@ namespace BindingsGeneration
                 if (methodEnv.MethodDecl.CSSignature.Skip(1).Any(methodEnv.ClosureHandler.IsClosure))
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
-
-            // Track wrapper strategy for emission report (once per constructor, after flags are locked).
-            context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
             // Note: constructors with CallConvSwift + non-blittable parameters (SafeHandle) will
             // crash at runtime with InvalidProgramException. They are still emitted (suppression
@@ -328,6 +335,42 @@ namespace BindingsGeneration
                         swiftWriter, methodEnv, context.GetEmissionContext());
                 }
             }
+
+            // Emit native ARM64 thunk assembly for thunk-routed constructors.
+            // If EmitThunk fails (lowering/metadata issue), revert to @_cdecl or None.
+            if (methodEnv.MethodDecl.UsesNativeThunk && !methodEnv.MethodDecl.ThunkAssemblyEmitted)
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                string thunkModuleName = parentType_?.SwiftTypeName.Module ?? "";
+                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledNameForCtorThunk);
+                if (!emitted && originalMangledNameForCtorThunk != null)
+                {
+                    // Revert thunk state
+                    methodEnv.MethodDecl.MangledName = originalMangledNameForCtorThunk;
+                    methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
+                    methodEnv.MethodDecl.UsesWrapperLibrary = false;
+
+                    // Retry @_cdecl constructor wrapper path
+                    if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+                    {
+                        var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                            parentType_!.SwiftTypeName.Module,
+                            parentType_.Name,
+                            methodEnv.MethodDecl.MangledName);
+                        methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
+                        methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                        methodEnv.MethodDecl.MangledName = cdeclSymbol;
+
+                        ConstructorWrapperEmitter.EmitSwiftConstructorWrapper(
+                            swiftWriter, methodEnv, context.GetEmissionContext());
+                    }
+                }
+            }
+
+            // Track wrapper strategy for emission report AFTER thunk emission/fallback
+            // so the report reflects the final strategy (thunk success → NativeThunk,
+            // thunk failure → CdeclConstructor or None).
+            context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, emissionContext: context.GetEmissionContext());
 
@@ -612,14 +655,23 @@ namespace BindingsGeneration
                 DefaultParameterOverloadEmitter.EmitDebugParamWrapper(swiftWriter, methodEnv);
             }
 
-            // Constructor thunks are deferred — NativeThunkEmitter.ShouldEmitThunk returns false
-            // for all constructors (C# codegen coupled with @_cdecl pattern).
+            // Try native ARM64 thunk for constructors (preferred over @_cdecl).
+            // Class constructors: allocating init returns pointer in x0 (no indirect result).
+            string? originalMangledNameForCtor = null;
+            if (methodEnv.MethodDecl.IsConstructor && NativeThunkEmitter.ShouldEmitThunk(methodEnv))
+            {
+                var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                string moduleName = parentType_?.SwiftTypeName.Module ?? "";
+                var thunkSymbol = NativeThunkEmitter.GetThunkSymbol(methodEnv.MethodDecl, moduleName);
+                originalMangledNameForCtor = methodEnv.MethodDecl.MangledName;
+                methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.NativeThunk;
+                methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                methodEnv.MethodDecl.MangledName = thunkSymbol;
+            }
             // Fall back to @_cdecl constructor wrapper.
             // SignatureHandler reads UsesCdeclConstructorWrapper to decide SwiftIndirectResult vs IntPtr
             // and MangledName to compute the P/Invoke method name via GetPInvokeName().
-            // All eligible constructors get @_cdecl wrappers — CallConvSwift is eliminated.
-            string? originalMangledNameForCtor = null;
-            if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+            else if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
@@ -835,19 +887,6 @@ namespace BindingsGeneration
                 }
             }
 
-            // Track wrapper strategy and skip reasons for emission report.
-            // Runs once per method after all @_cdecl flags are locked.
-            if (!isAccessor)
-            {
-                context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
-                if (!methodEnv.MethodDecl.UsesCdeclWrapper && !methodEnv.MethodDecl.UsesNativeThunk && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
-                {
-                    var skipReason = WrapperValidation.GetRejectionReason(methodEnv);
-                    if (skipReason != null)
-                        context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
-                }
-            }
-
             // ══════════════════════════════════════════════════════════════
             // PHASE 2: PIPELINE — reads flags, emits code.
             // All @_cdecl flags are locked above this point.
@@ -919,24 +958,45 @@ namespace BindingsGeneration
                     useCdecl: optPtrCdecl, emissionContext: context.GetEmissionContext());
             }
 
-            // Emit native ARM64 thunk assembly for thunk-routed methods.
+            // Emit native ARM64 thunk assembly for thunk-routed methods and constructors.
             // Skip if already emitted by PropertyHandler or SubscriptHandler (ThunkAssemblyEmitted flag).
             // If EmitThunk fails (lowering/metadata issue), revert to None
             // so the P/Invoke doesn't target a non-existent thunk symbol.
             if (methodEnv.MethodDecl.UsesNativeThunk && !methodEnv.MethodDecl.ThunkAssemblyEmitted)
             {
+                // Use the correct original mangled name: constructor thunks store it in
+                // originalMangledNameForCtor, method thunks in originalMangledNameForThunk.
+                var originalMangledForThunkEmit = methodEnv.MethodDecl.IsConstructor
+                    ? originalMangledNameForCtor
+                    : originalMangledNameForThunk;
+
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var parentModule = methodEnv.ParentDecl as ModuleDecl;
                 string thunkModuleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
-                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledNameForThunk);
-                if (!emitted && originalMangledNameForThunk != null)
+                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledForThunkEmit);
+                if (!emitted && originalMangledForThunkEmit != null)
                 {
                     // Revert thunk state
-                    methodEnv.MethodDecl.MangledName = originalMangledNameForThunk;
+                    methodEnv.MethodDecl.MangledName = originalMangledForThunkEmit;
+                    methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
                     methodEnv.MethodDecl.UsesWrapperLibrary = false;
 
                     // Retry @_cdecl wrapper path instead of falling to WrapperStrategy.None
-                    if (WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+                    if (methodEnv.MethodDecl.IsConstructor)
+                    {
+                        // Constructor fallback: @_cdecl constructor wrapper
+                        if (WrapperValidation.DetermineConstructorWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
+                        {
+                            var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                                parentType_!.SwiftTypeName.Module,
+                                parentType_.Name,
+                                methodEnv.MethodDecl.MangledName);
+                            methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
+                            methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                            methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                        }
+                    }
+                    else if (WrapperValidation.DetermineMethodWrapperDecision(methodEnv) == WrapperDecision.WrapperRequired)
                     {
                         var fallbackParentType = methodEnv.ParentDecl as TypeDecl;
                         var fallbackParentModule = methodEnv.ParentDecl as ModuleDecl;
@@ -951,10 +1011,19 @@ namespace BindingsGeneration
                         methodEnv.MethodDecl.UsesWrapperLibrary = true;
                         methodEnv.MethodDecl.MangledName = cdeclSymbol;
                     }
-                    else
-                    {
-                        methodEnv.MethodDecl.WrapperStrategy = WrapperStrategy.None;
-                    }
+                }
+            }
+
+            // Track wrapper strategy and skip reasons for emission report AFTER thunk
+            // emission/fallback so the report reflects the final strategy.
+            if (!isAccessor)
+            {
+                context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
+                if (!methodEnv.MethodDecl.UsesCdeclWrapper && !methodEnv.MethodDecl.UsesNativeThunk && WrapperValidation.IsXCFrameworkMode(methodEnv.TypeDatabase))
+                {
+                    var skipReason = WrapperValidation.GetRejectionReason(methodEnv);
+                    if (skipReason != null)
+                        context.GetEmissionContext().IncrementWrapperSkipReason(skipReason);
                 }
             }
 
