@@ -5720,7 +5720,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
 
         Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
-        Assert.Contains("no View constraint", info.UnsupportedReason);
+        Assert.Contains("no resolvable constraint", info.UnsupportedReason);
     }
 
     [Fact]
@@ -5870,7 +5870,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
 
         Assert.Equal(ViewInitClassification.Unsupported, info.Classification);
-        Assert.Contains("no View constraint", info.UnsupportedReason);
+        Assert.Contains("no resolvable constraint", info.UnsupportedReason);
     }
 
     [Fact]
@@ -7162,6 +7162,586 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         view.Methods.Add(CreateSelfReturningMethod(view, "playing"));
 
         return view;
+    }
+
+    // --- Constrained Generics Helpers ---
+
+    /// <summary>
+    /// Creates a generic view with a single non-View protocol constraint on τ_0_0.
+    /// Has one constructor with a generic type param and a String param.
+    /// e.g., struct HashableView&lt;T: Hashable&gt;: View { init(value: T, title: String) }
+    /// </summary>
+    private static StructDecl CreateGenericViewWithConstraint(string name, string constraintProtocol, string sugaredName = "T")
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", sugaredName,
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName(constraintProtocol),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        // Constructor: init(value: T, title: String)
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", sugaredName,
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName(constraintProtocol),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "value", PrivateName = "value", IsInOut = false, IsGeneric = true,
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with multiple non-View protocol constraints on τ_0_0.
+    /// </summary>
+    private static StructDecl CreateGenericViewWithMultipleConstraints(string name, params string[] constraintProtocols)
+    {
+        var conformances = constraintProtocols.Select(p =>
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName(p),
+                ConformanceKind.Protocol)).ToList();
+
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", conformances,
+                    new List<GenericParameterConformance>())
+            },
+        };
+
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", conformances,
+                    new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "key", PrivateName = "key", IsInOut = false, IsGeneric = true,
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    /// <summary>
+    /// Creates a generic view with two type params: A: View, B with specified constraint.
+    /// Has init(title: String) — B doesn't appear as a direct param, only in the type.
+    /// </summary>
+    private static StructDecl CreateGenericViewMixedViewAndNonView(string name, string bConstraint)
+    {
+        var view = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new TypeConformance(
+                    SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+                    SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                    $"${name}_SwiftUI_View_conformance")
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "A",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+                new GenericArgumentDecl("τ_0_1", "B",
+                    new List<GenericParameterConformance>
+                    {
+                        new GenericParameterConformance(
+                            new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName(bConstraint),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+            },
+        };
+
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule{name.Length}{name}V_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = "title", PrivateName = "title", IsInOut = false, IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null, ModuleDecl = null,
+                },
+            },
+        });
+
+        return view;
+    }
+
+    // --- Constrained Generics Tests ---
+
+    [Theory]
+    [InlineData("Swift.Hashable", "String")]
+    [InlineData("Swift.Equatable", "String")]
+    [InlineData("Swift.Comparable", "String")]
+    [InlineData("Swift.Sendable", "String")]
+    [InlineData("Swift.Codable", "String")]
+    [InlineData("Swift.Numeric", "Int")]
+    [InlineData("Swift.BinaryInteger", "Int")]
+    [InlineData("Swift.SignedInteger", "Int")]
+    [InlineData("Swift.FloatingPoint", "Double")]
+    [InlineData("Swift.BinaryFloatingPoint", "Double")]
+    public void AnalyzeGenericView_NonViewConstraint_ResolvesToConcreteType(string protocol, string expectedType)
+    {
+        var view = CreateGenericViewWithConstraint("TestView", protocol);
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Equal(expectedType, analysis.ConcreteTypeArgs["τ_0_0"]);
+        Assert.NotNull(analysis.NonViewResolvedParams);
+        Assert.Contains("τ_0_0", analysis.NonViewResolvedParams);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_IdentifiableConstraint_TemplateFallback()
+    {
+        var view = CreateGenericViewWithConstraint("IdView", "Swift.Identifiable");
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.False(analysis.IsBridgeable);
+        Assert.Contains("no resolvable constraint", analysis.UnsupportedReason);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_CustomProtocolConstraint_TemplateFallback()
+    {
+        var view = CreateGenericViewWithConstraint("CustomView", "MyModule.MyProtocol");
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.False(analysis.IsBridgeable);
+        Assert.Contains("no resolvable constraint", analysis.UnsupportedReason);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_MultipleConstraints_AllSameType_Resolves()
+    {
+        var view = CreateGenericViewWithMultipleConstraints("MultiView", "Swift.Hashable", "Swift.Comparable");
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Equal("String", analysis.ConcreteTypeArgs["τ_0_0"]);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_MultipleConstraints_DifferentTypes_PicksSpecific()
+    {
+        // Hashable → String, Numeric → Int. Int satisfies both → resolves to Int
+        var view = CreateGenericViewWithMultipleConstraints("NumHashView", "Swift.Hashable", "Swift.Numeric");
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Equal("Int", analysis.ConcreteTypeArgs["τ_0_0"]);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_MultipleConstraints_OneUnknown_TemplateFallback()
+    {
+        // Hashable is known, Identifiable is not → template fallback
+        var view = CreateGenericViewWithMultipleConstraints("MixedUnknown", "Swift.Hashable", "Swift.Identifiable");
+        var ctor = view.Methods[0];
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.False(analysis.IsBridgeable);
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_ViewResolvedParams_NotInNonViewSet()
+    {
+        var view = CreateGenericViewWithViewConstraint("ViewParamView");
+        var ctor = view.Methods[0]; // ConcreteType constraint
+
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        Assert.True(analysis.IsBridgeable);
+        Assert.Null(analysis.NonViewResolvedParams); // View-resolved params not tracked
+    }
+
+    [Fact]
+    public void AnalyzeGenericView_MixedViewAndHashable_BothResolved()
+    {
+        var view = CreateGenericViewMixedViewAndNonView("MixedResolved", "Swift.Hashable");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        Assert.NotNull(info.GenericAnalysis);
+        Assert.True(info.GenericAnalysis.IsBridgeable);
+        Assert.Equal("EmptyView", info.GenericAnalysis.ConcreteTypeArgs["τ_0_0"]);
+        Assert.Equal("String", info.GenericAnalysis.ConcreteTypeArgs["τ_0_1"]);
+        Assert.Contains("τ_0_1", info.GenericAnalysis.NonViewResolvedParams!);
+        Assert.DoesNotContain("τ_0_0", info.GenericAnalysis.NonViewResolvedParams!);
+    }
+
+    [Fact]
+    public void AnalyzeView_HashableConstraint_ClassifiedAsSimple()
+    {
+        var view = CreateGenericViewWithConstraint("HashableView", "Swift.Hashable");
+
+        var info = SwiftUIBridgeEmitter.AnalyzeView(view, "TestModule");
+
+        Assert.Equal(ViewInitClassification.Simple, info.Classification);
+        Assert.Null(info.UnsupportedReason);
+        Assert.NotNull(info.GenericAnalysis);
+        Assert.True(info.GenericAnalysis.IsBridgeable);
+    }
+
+    [Fact]
+    public void InitAnalyzer_NonViewGenericParam_BridgedAsString()
+    {
+        var view = CreateGenericViewWithConstraint("HashView", "Swift.Hashable");
+        var ctor = view.Methods[0];
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        var bridgeParams = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, null, analysis, out var synthesized);
+
+        Assert.NotNull(bridgeParams);
+        // "value" param should be bridged as String (not synthesized)
+        Assert.Equal(2, bridgeParams.Count); // value + title
+        Assert.Equal("value", bridgeParams[0].Name);
+        Assert.Equal(BridgeParameterKind.String, bridgeParams[0].Kind);
+        Assert.Equal("title", bridgeParams[1].Name);
+        Assert.Equal(BridgeParameterKind.String, bridgeParams[1].Kind);
+        Assert.Null(synthesized); // No synthesized args
+    }
+
+    [Fact]
+    public void InitAnalyzer_NumericGenericParam_BridgedAsInt()
+    {
+        var view = CreateGenericViewWithConstraint("NumView", "Swift.Numeric");
+        var ctor = view.Methods[0];
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        var bridgeParams = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, null, analysis, out var synthesized);
+
+        Assert.NotNull(bridgeParams);
+        Assert.Equal(2, bridgeParams.Count);
+        Assert.Equal("value", bridgeParams[0].Name);
+        Assert.Equal(BridgeParameterKind.Primitive, bridgeParams[0].Kind);
+        Assert.Equal("nint", bridgeParams[0].CSharpPInvokeType); // Swift.Int → nint
+        Assert.Null(synthesized);
+    }
+
+    [Fact]
+    public void InitAnalyzer_FloatingPointGenericParam_BridgedAsDouble()
+    {
+        var view = CreateGenericViewWithConstraint("FloatView", "Swift.FloatingPoint");
+        var ctor = view.Methods[0];
+        var analysis = SwiftUIBridgeEmitter.AnalyzeGenericView(view, ctor, 0);
+
+        var bridgeParams = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, null, analysis, out var synthesized);
+
+        Assert.NotNull(bridgeParams);
+        Assert.Equal("value", bridgeParams[0].Name);
+        Assert.Equal(BridgeParameterKind.Primitive, bridgeParams[0].Kind);
+        Assert.Equal("double", bridgeParams[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void GenericView_HashableParam_SwiftOutput_HasStringTypeArg()
+    {
+        var view = CreateGenericViewWithConstraint("HashableView", "Swift.Hashable");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The view type should be specialized with <String>
+        Assert.Contains("HashableView<String>", swiftContent);
+        // The "value" param should be bridged as a String ptr+len, not synthesized
+        Assert.Contains("valuePtr", swiftContent);
+        Assert.Contains("valueLen", swiftContent);
+    }
+
+    [Fact]
+    public void GenericView_HashableParam_CSharpOutput_HasStringParam()
+    {
+        var view = CreateGenericViewWithConstraint("HashableView", "Swift.Hashable");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // C# should have both "value" and "title" as string? parameters
+        Assert.Contains("string? value", csContent);
+        Assert.Contains("string? title", csContent);
+    }
+
+    [Fact]
+    public void GenericView_NumericParam_SwiftOutput_HasIntTypeArg()
+    {
+        var view = CreateGenericViewWithConstraint("NumericView", "Swift.Numeric");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("NumericView<Int>", swiftContent);
+        // "value" bridged as Int (primitive), "title" as String
+        Assert.Contains("_ value:", swiftContent);
+    }
+
+    [Fact]
+    public void GenericView_MixedViewAndHashable_SwiftOutput()
+    {
+        var view = CreateGenericViewMixedViewAndNonView("MixedView2", "Swift.Hashable");
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Both type args should appear: EmptyView for View, String for Hashable
+        Assert.Contains("MixedView2<EmptyView, String>", swiftContent);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_SingleKnown_ReturnsType()
+    {
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                ConformanceKind.Protocol)
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Equal("String", result);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_UnknownProtocol_ReturnsNull()
+    {
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Swift.Identifiable"),
+                ConformanceKind.Protocol)
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_ConflictingTypes_FindsCommon()
+    {
+        // Hashable → String, Numeric → Int. Int conforms to both → Int
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"), ConformanceKind.Protocol),
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.Numeric"), ConformanceKind.Protocol),
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Equal("Int", result);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_FloatingPointAndHashable_ResolvesToDouble()
+    {
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"), ConformanceKind.Protocol),
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.FloatingPoint"), ConformanceKind.Protocol),
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Equal("Double", result);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_IgnoresViewConstraints()
+    {
+        // View constraints are filtered out; remaining Hashable resolves normally
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("SwiftUI.View"), ConformanceKind.Protocol),
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"), ConformanceKind.Protocol),
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Equal("String", result);
+    }
+
+    [Fact]
+    public void ResolveNonViewConstraint_StringAndFloatingPoint_Irreconcilable()
+    {
+        // ExpressibleByStringLiteral → String, FloatingPoint → Double.
+        // String doesn't conform to FloatingPoint → null
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.ExpressibleByStringLiteral"), ConformanceKind.Protocol),
+            new GenericParameterConformance(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Swift.FloatingPoint"), ConformanceKind.Protocol),
+        };
+
+        var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
+
+        Assert.Null(result);
     }
 
     #endregion

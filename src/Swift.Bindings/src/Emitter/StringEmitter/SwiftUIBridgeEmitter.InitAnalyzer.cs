@@ -43,6 +43,7 @@ public static partial class SwiftUIBridgeEmitter
             if (genericAnalysis != null)
             {
                 // ViewBuilder closure whose return type matches a ConcreteTypeArgs key
+                // (only for View-resolved params; non-View closures fall through to normal bridging)
                 if (IsViewBuilderClosureParam(param, genericAnalysis))
                 {
                     synthesizedArgs ??= new List<SynthesizedInitArg>();
@@ -55,8 +56,23 @@ public static partial class SwiftUIBridgeEmitter
                 // Direct generic type parameter matching a ConcreteTypeArgs key
                 if (IsGenericTypeParam(param, genericAnalysis))
                 {
-                    synthesizedArgs ??= new List<SynthesizedInitArg>();
                     var typeParamName = param.SwiftTypeSpec is NamedTypeSpec ns ? ns.Name : "";
+
+                    // Non-View resolved params: substitute the concrete type and bridge normally
+                    // (e.g., T: Hashable → String, the C# consumer provides the value)
+                    if (genericAnalysis.NonViewResolvedParams?.Contains(typeParamName) == true &&
+                        genericAnalysis.ConcreteTypeArgs.TryGetValue(typeParamName, out var resolvedTypeName))
+                    {
+                        var substitutedParam = SubstituteGenericParam(param, resolvedTypeName);
+                        var resolved = MapParameterType(substitutedParam, context);
+                        if (resolved == null)
+                            return null; // Substituted type not bridgeable → template fallback
+                        parameters.Add(resolved);
+                        continue;
+                    }
+
+                    // View-resolved: synthesize (e.g., EmptyView())
+                    synthesizedArgs ??= new List<SynthesizedInitArg>();
                     var concreteType = genericAnalysis.ConcreteTypeArgs.GetValueOrDefault(typeParamName, "EmptyView");
                     synthesizedArgs.Add(new SynthesizedInitArg(param.Name, $"{concreteType}()"));
                     continue; // Skip from bridgeParams
@@ -75,6 +91,8 @@ public static partial class SwiftUIBridgeEmitter
     /// <summary>
     /// Checks if a parameter is a ViewBuilder closure that returns a generic placeholder type.
     /// e.g., @ViewBuilder placeholder: () -> Placeholder where Placeholder is in ConcreteTypeArgs.
+    /// Only matches View-resolved params; non-View resolved params (e.g., T: Hashable → String)
+    /// are not synthesized as closures — they fall through to normal bridge parameter analysis.
     /// </summary>
     private static bool IsViewBuilderClosureParam(ArgumentDecl param, GenericViewAnalysis genericAnalysis)
     {
@@ -85,7 +103,13 @@ public static partial class SwiftUIBridgeEmitter
         var returnType = closureSpec.ReturnType;
         if (returnType is NamedTypeSpec namedReturn &&
             genericAnalysis.ConcreteTypeArgs.ContainsKey(namedReturn.Name))
+        {
+            // Non-View resolved params should not be synthesized as ViewBuilder closures —
+            // the closure return type is data, not a placeholder view
+            if (genericAnalysis.NonViewResolvedParams?.Contains(namedReturn.Name) == true)
+                return false;
             return true;
+        }
 
         return false;
     }
@@ -103,6 +127,27 @@ public static partial class SwiftUIBridgeEmitter
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Creates a substituted ArgumentDecl with the generic type replaced by a concrete type.
+    /// Used for non-View resolved generic params (e.g., T: Hashable → String) so they can
+    /// be bridged as normal parameters instead of being synthesized.
+    /// </summary>
+    private static ArgumentDecl SubstituteGenericParam(ArgumentDecl param, string concreteType)
+    {
+        var qualifiedName = SwiftUIBridgeEmitter.ConcreteTypeQualifiedNames
+            .GetValueOrDefault(concreteType, $"Swift.{concreteType}");
+        return new ArgumentDecl
+        {
+            Name = param.Name,
+            PrivateName = param.PrivateName,
+            IsInOut = param.IsInOut,
+            IsGeneric = false, // No longer generic after substitution
+            SwiftTypeSpec = new NamedTypeSpec(qualifiedName),
+            ParentDecl = param.ParentDecl,
+            ModuleDecl = param.ModuleDecl,
+        };
     }
 
     /// <summary>

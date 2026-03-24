@@ -419,6 +419,7 @@ public static partial class SwiftUIBridgeEmitter
     public static GenericViewAnalysis AnalyzeGenericView(TypeDecl viewType, MethodDecl selectedCtor, int ctorIndex)
     {
         var concreteTypeArgs = new Dictionary<string, string>();
+        HashSet<string>? nonViewResolved = null;
 
         foreach (var gp in viewType.GenericParameters)
         {
@@ -447,12 +448,138 @@ public static partial class SwiftUIBridgeEmitter
                 continue;
             }
 
-            // 3. No View constraint → not bridgeable
+            // 3. Check non-View protocol constraints for known concrete type resolution
+            var resolvedType = ResolveNonViewConstraint(gp.GenericConformances);
+            if (resolvedType != null)
+            {
+                concreteTypeArgs[gp.TypeName] = resolvedType;
+                nonViewResolved ??= new HashSet<string>();
+                nonViewResolved.Add(gp.TypeName);
+                continue;
+            }
+
+            // 4. No resolvable constraint → template fallback
             return new GenericViewAnalysis(false, concreteTypeArgs, PlaceholderStrategy.Empty, ctorIndex,
-                $"Generic parameter {gp.SugaredTypeName} has no View constraint");
+                $"Generic parameter {gp.SugaredTypeName} has no resolvable constraint");
         }
 
-        return new GenericViewAnalysis(true, concreteTypeArgs, PlaceholderStrategy.Empty, ctorIndex);
+        return new GenericViewAnalysis(true, concreteTypeArgs, PlaceholderStrategy.Empty, ctorIndex,
+            NonViewResolvedParams: nonViewResolved);
+    }
+
+    /// <summary>
+    /// Maps well-known Swift protocol constraints to concrete types that satisfy them.
+    /// Protocols not in this table (e.g., Identifiable, custom protocols) cause template fallback.
+    /// </summary>
+    private static readonly Dictionary<string, string> NonViewConstraintResolutions = new()
+    {
+        // String-satisfiable protocols
+        { "Swift.Hashable", "String" },
+        { "Swift.Equatable", "String" },
+        { "Swift.Comparable", "String" },
+        { "Swift.Sendable", "String" },
+        { "Swift.CustomStringConvertible", "String" },
+        { "Swift.LosslessStringConvertible", "String" },
+        { "Swift.Codable", "String" },
+        { "Swift.Encodable", "String" },
+        { "Swift.Decodable", "String" },
+        { "Swift.ExpressibleByStringLiteral", "String" },
+        // Int-satisfiable protocols (more specific than Hashable)
+        { "Swift.Numeric", "Int" },
+        { "Swift.BinaryInteger", "Int" },
+        { "Swift.SignedInteger", "Int" },
+        { "Swift.FixedWidthInteger", "Int" },
+        { "Swift.Strideable", "Int" },
+        { "Swift.AdditiveArithmetic", "Int" },
+        { "Swift.ExpressibleByIntegerLiteral", "Int" },
+        // Double-satisfiable protocols
+        { "Swift.FloatingPoint", "Double" },
+        { "Swift.BinaryFloatingPoint", "Double" },
+    };
+
+    /// <summary>
+    /// Protocol conformances for each concrete resolution type.
+    /// Used to verify a single type satisfies all constraints when multiple are present.
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> ConcreteTypeConformances = new()
+    {
+        { "String", new HashSet<string> {
+            "Swift.Hashable", "Swift.Equatable", "Swift.Comparable", "Swift.Sendable",
+            "Swift.CustomStringConvertible", "Swift.LosslessStringConvertible",
+            "Swift.Codable", "Swift.Encodable", "Swift.Decodable",
+            "Swift.ExpressibleByStringLiteral",
+        }},
+        { "Int", new HashSet<string> {
+            "Swift.Hashable", "Swift.Equatable", "Swift.Comparable", "Swift.Sendable",
+            "Swift.CustomStringConvertible", "Swift.LosslessStringConvertible",
+            "Swift.Codable", "Swift.Encodable", "Swift.Decodable",
+            "Swift.Numeric", "Swift.BinaryInteger", "Swift.SignedInteger",
+            "Swift.FixedWidthInteger", "Swift.Strideable", "Swift.AdditiveArithmetic",
+            "Swift.ExpressibleByIntegerLiteral",
+        }},
+        { "Double", new HashSet<string> {
+            "Swift.Hashable", "Swift.Equatable", "Swift.Comparable", "Swift.Sendable",
+            "Swift.CustomStringConvertible", "Swift.LosslessStringConvertible",
+            "Swift.Codable", "Swift.Encodable", "Swift.Decodable",
+            "Swift.Numeric", "Swift.FloatingPoint", "Swift.BinaryFloatingPoint",
+            "Swift.Strideable", "Swift.AdditiveArithmetic",
+            "Swift.ExpressibleByIntegerLiteral",
+        }},
+    };
+
+    /// <summary>
+    /// Maps concrete type short names to module-qualified names for type substitution.
+    /// </summary>
+    internal static readonly Dictionary<string, string> ConcreteTypeQualifiedNames = new()
+    {
+        { "String", "Swift.String" },
+        { "Int", "Swift.Int" },
+        { "Int32", "Swift.Int32" },
+        { "Int64", "Swift.Int64" },
+        { "Double", "Swift.Double" },
+        { "Float", "Swift.Float" },
+        { "Bool", "Swift.Bool" },
+    };
+
+    /// <summary>
+    /// Resolves non-View protocol constraints to a concrete type.
+    /// When multiple constraints exist, verifies a single type satisfies all of them.
+    /// Returns null if any constraint is unknown or no single type satisfies all.
+    /// </summary>
+    internal static string? ResolveNonViewConstraint(IList<GenericParameterConformance> conformances)
+    {
+        var constraints = conformances
+            .Where(c => c.Kind == ConformanceKind.Protocol)
+            .Select(c => c.ConformanceTarget.ModuleQualifiedName)
+            .Where(name => name != "SwiftUI.View" && name != "SwiftUICore.View")
+            .ToList();
+
+        if (constraints.Count == 0)
+            return null;
+
+        // Collect candidate types from each constraint
+        var candidates = new HashSet<string>();
+        foreach (var constraint in constraints)
+        {
+            if (NonViewConstraintResolutions.TryGetValue(constraint, out var type))
+                candidates.Add(type);
+            else
+                return null; // Unknown constraint → template fallback
+        }
+
+        // Single candidate: all constraints agree
+        if (candidates.Count == 1)
+            return candidates.First();
+
+        // Multiple candidates: find one that satisfies ALL constraints
+        foreach (var candidate in candidates)
+        {
+            if (ConcreteTypeConformances.TryGetValue(candidate, out var conforms) &&
+                constraints.All(c => conforms.Contains(c)))
+                return candidate;
+        }
+
+        return null; // No single type satisfies all constraints
     }
 
     /// <summary>
@@ -765,10 +892,11 @@ public static partial class SwiftUIBridgeEmitter
                 info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
                 bridgeParams, viewInitArgs, synthesizedArgs);
 
+            var viewTypeName = GetViewInitTypeName(info);
             if (mergedArgs.Count == 0)
-                sb.AppendLine($"        let view = {info.ViewName}()");
+                sb.AppendLine($"        let view = {viewTypeName}()");
             else
-                sb.AppendLine($"        let view = {info.ViewName}({string.Join(", ", mergedArgs)})");
+                sb.AppendLine($"        let view = {viewTypeName}({string.Join(", ", mergedArgs)})");
             sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
         }
 
@@ -997,9 +1125,10 @@ public static partial class SwiftUIBridgeEmitter
             info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
             bridgeParams, viewInitArgs, synthesizedArgs);
 
+        var viewTypeName = GetViewInitTypeName(info);
         var viewExpr = mergedArgs.Count == 0
-            ? $"{info.ViewName}()"
-            : $"{info.ViewName}({string.Join(", ", mergedArgs)})";
+            ? $"{viewTypeName}()"
+            : $"{viewTypeName}({string.Join(", ", mergedArgs)})";
 
         if (hasModifiers)
             sb.AppendLine($"        applyModifiers({viewExpr})");
@@ -2208,8 +2337,7 @@ public static partial class SwiftUIBridgeEmitter
         if (info.GenericAnalysis == null)
             return info.ViewName;
 
-        var typeArgs = string.Join(", ", info.GenericAnalysis.ConcreteTypeArgs.Values);
-        return $"{info.ViewName}<{typeArgs}>";
+        return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
     }
 
     /// <summary>
@@ -2221,8 +2349,33 @@ public static partial class SwiftUIBridgeEmitter
         if (info.GenericAnalysis == null)
             return info.ViewName;
 
-        var typeArgs = string.Join(", ", info.GenericAnalysis.ConcreteTypeArgs.Values);
-        return $"{info.ViewName}<{typeArgs}>";
+        return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
+    }
+
+    /// <summary>
+    /// Returns the view name for use in Swift init calls.
+    /// Uses explicit type args when non-View resolved generic params are present,
+    /// since Swift cannot infer type args from bridged primitive/string params.
+    /// For View-only generics, Swift infers from synthesized ViewBuilder closures.
+    /// </summary>
+    internal static string GetViewInitTypeName(ViewBridgeInfo info)
+    {
+        if (info.GenericAnalysis?.NonViewResolvedParams is { Count: > 0 })
+        {
+            return $"{info.ViewName}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
+        }
+        return info.ViewName;
+    }
+
+    /// <summary>
+    /// Returns the concrete type args in declared generic parameter order.
+    /// Keys are τ_0_0, τ_0_1, etc. which sort lexicographically in declaration order.
+    /// </summary>
+    private static string GetOrderedTypeArgs(GenericViewAnalysis analysis)
+    {
+        return string.Join(", ", analysis.ConcreteTypeArgs
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .Select(kv => kv.Value));
     }
 
     /// <summary>
@@ -2791,4 +2944,5 @@ public record GenericViewAnalysis(
     Dictionary<string, string> ConcreteTypeArgs,
     PlaceholderStrategy Strategy,
     int SelectedConstructorIndex,
-    string? UnsupportedReason = null);
+    string? UnsupportedReason = null,
+    HashSet<string>? NonViewResolvedParams = null);
