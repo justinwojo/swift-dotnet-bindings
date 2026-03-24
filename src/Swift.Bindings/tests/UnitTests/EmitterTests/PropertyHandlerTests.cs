@@ -423,8 +423,8 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        Assert.Contains("global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8", csOutput);
-        Assert.DoesNotContain("{ System.Runtime.InteropServices.Marshal", csOutput);
+        // @_cdecl string property getters now use SwiftMarshal.ReadUtf8Slice helper
+        Assert.Contains("SwiftMarshal.ReadUtf8Slice", csOutput);
     }
 
     [Fact]

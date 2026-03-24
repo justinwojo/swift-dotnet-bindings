@@ -44,7 +44,8 @@ public class TypedThrowsEmitterTests
             isAsync: false,
             hasTypedThrows: false);
 
-        Assert.Contains("SwiftException", csOutput);
+        // Untyped throws uses SwiftMarshal.ThrowSwiftError helper (consolidates description + release + throw)
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
@@ -60,7 +61,8 @@ public class TypedThrowsEmitterTests
             errorTypeName: "UnknownModule.UnknownError",
             registerErrorType: false);
 
-        Assert.Contains("SwiftException", csOutput);
+        // Falls back to untyped SwiftMarshal.ThrowSwiftError (no typed extraction)
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
     }
 
@@ -110,7 +112,8 @@ public class TypedThrowsEmitterTests
 
         Assert.DoesNotContain("SBW_ExtractTypedError", csOutput);
         Assert.DoesNotContain("SBW_ExtractTypedError", swiftOutput);
-        Assert.Contains("SwiftException", csOutput);
+        // Untyped failable constructor uses SwiftMarshal.ThrowSwiftError
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
     }
 
     #endregion

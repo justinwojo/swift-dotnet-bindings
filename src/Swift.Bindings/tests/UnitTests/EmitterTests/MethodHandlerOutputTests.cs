@@ -157,9 +157,10 @@ public class MethodHandlerOutputTests
 
         Assert.Contains("ref SwiftError swiftError", csOutput);
         Assert.Contains("if (swiftError.Value != null)", csOutput);
+        // Untyped throws uses SwiftMarshal.ThrowSwiftError (consolidates description read + release + throw)
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
         Assert.Contains("SBW_GetErrorDescription", csOutput);
         Assert.Contains("SBW_ReleaseError", csOutput);
-        Assert.Contains("throw new SwiftException(_errorMessage)", csOutput);
     }
 
     [Fact]

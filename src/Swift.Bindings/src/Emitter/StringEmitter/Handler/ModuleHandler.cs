@@ -96,23 +96,12 @@ namespace BindingsGeneration
             csWriter.WriteLine($"using Swift.Runtime.InteropServices;");
             csWriter.WriteLine($"using System.ComponentModel;");
             csWriter.WriteLine($"using {generatedNamespace}.SwiftInterop;");
+            // Alias the runtime Utf8Slice type so generated code can reference it unqualified
+            csWriter.WriteLine("using Utf8Slice = global::Swift.Runtime.Utf8Slice;");
             csWriter.WriteLine();
             csWriter.WriteLine($"namespace {generatedNamespace}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-
-            // Emit shared Utf8Slice struct once at module level for UTF-8 string marshalling.
-            // Previously duplicated as private struct inside every class that needed it.
-            csWriter.WriteLines("""
-                [StructLayout(LayoutKind.Sequential)]
-                [EditorBrowsable(EditorBrowsableState.Never)]
-                internal struct Utf8Slice
-                {
-                    public IntPtr Ptr;
-                    public nint Len;
-                }
-
-                """);
 
             // Scope composition interface collection across BOTH top-level methods and types.
             // Free functions can reference composition existentials (e.g., any Describable & TestIdentifiable),

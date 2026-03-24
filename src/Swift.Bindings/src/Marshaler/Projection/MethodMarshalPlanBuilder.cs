@@ -709,17 +709,7 @@ internal class MethodMarshalPlanBuilder
                         string _errorMessage;
                         try
                         {
-                            var _descPtr = {{hp}}SBW_GetErrorDescription(errorPtr);
-                            try
-                            {
-                                _errorMessage = _descPtr != IntPtr.Zero
-                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                    : "Unknown Swift error";
-                            }
-                            finally
-                            {
-                                if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
-                            }
+                            _errorMessage = SwiftMarshal.ReadErrorDescription({{hp}}SBW_GetErrorDescription(errorPtr));
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
                             {{typedErrorBlock}}
@@ -774,17 +764,7 @@ internal class MethodMarshalPlanBuilder
                         var _errorPtr = (IntPtr)swiftError.Value;
                         try
                         {
-                            var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
-                            try
-                            {
-                                _errorMessage = _descPtr != IntPtr.Zero
-                                    ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                    : "Unknown Swift error";
-                            }
-                            finally
-                            {
-                                if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
-                            }
+                            _errorMessage = SwiftMarshal.ReadErrorDescription({{hp}}SBW_GetErrorDescription(_errorPtr));
                             var _typedErrorPtr = {{hp}}SBW_ExtractTypedError_{{typedErrorSafeSuffix}}(_errorPtr);
                             if (_typedErrorPtr != IntPtr.Zero)
                             {{typedErrorBlock2}}
@@ -805,22 +785,7 @@ internal class MethodMarshalPlanBuilder
                 // Untyped throws via @_cdecl out-pointer
                 errorCheckCode = $$"""
                     if (errorPtr != IntPtr.Zero)
-                    {
-                        string _errorMessage;
-                        var _descPtr = {{hp}}SBW_GetErrorDescription(errorPtr);
-                        try
-                        {
-                            _errorMessage = _descPtr != IntPtr.Zero
-                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                : "Unknown Swift error";
-                        }
-                        finally
-                        {
-                            if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
-                            {{hp}}SBW_ReleaseError(errorPtr);
-                        }
-                        throw new SwiftException(_errorMessage);
-                    }
+                        SwiftMarshal.ThrowSwiftError(errorPtr, {{hp}}SBW_GetErrorDescription(errorPtr), {{hp}}SBW_ReleaseError);
                     """;
             }
             else
@@ -829,21 +794,8 @@ internal class MethodMarshalPlanBuilder
                 errorCheckCode = $$"""
                     if (swiftError.Value != null)
                     {
-                        string _errorMessage;
                         var _errorPtr = (IntPtr)swiftError.Value;
-                        var _descPtr = {{hp}}SBW_GetErrorDescription(_errorPtr);
-                        try
-                        {
-                            _errorMessage = _descPtr != IntPtr.Zero
-                                ? global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(_descPtr) ?? "Unknown Swift error"
-                                : "Unknown Swift error";
-                        }
-                        finally
-                        {
-                            if (_descPtr != IntPtr.Zero) {{hp}}SBW_Free(_descPtr);
-                            {{hp}}SBW_ReleaseError(_errorPtr);
-                        }
-                        throw new SwiftException(_errorMessage);
+                        SwiftMarshal.ThrowSwiftError(_errorPtr, {{hp}}SBW_GetErrorDescription(_errorPtr), {{hp}}SBW_ReleaseError);
                     }
                     """;
             }

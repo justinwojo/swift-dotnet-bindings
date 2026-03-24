@@ -118,10 +118,10 @@ public class MethodMarshalPlanBuilderTests
         Assert.NotNull(plan.SwiftError);
         Assert.False(plan.SwiftError!.IsTypedThrows);
         Assert.Contains("swiftError.Value != null", plan.SwiftError.ErrorCheckCode);
+        // Untyped throws now delegates to SwiftMarshal.ThrowSwiftError (consolidates description read + release + throw)
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_GetErrorDescription", plan.SwiftError.ErrorCheckCode);
         Assert.Contains("SBW_ReleaseError", plan.SwiftError.ErrorCheckCode);
-        Assert.Contains("SBW_Free", plan.SwiftError.ErrorCheckCode);
-        Assert.Contains("SwiftException", plan.SwiftError.ErrorCheckCode);
     }
 
     [Fact]

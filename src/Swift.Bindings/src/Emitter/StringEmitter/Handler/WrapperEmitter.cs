@@ -357,7 +357,9 @@ namespace BindingsGeneration
             EmitDeclarationsForAllocations(csWriter);
             EmitCdeclPayloadDeclaration(csWriter);
 
-            EmitTryBlockStart(csWriter);
+            bool needsTryFinally = NeedsTryFinallyForMethod();
+            if (needsTryFinally)
+                EmitTryBlockStart(csWriter);
             EmitFixedBlockStart(csWriter);
 
             EmitSwiftSelf(csWriter);
@@ -375,8 +377,11 @@ namespace BindingsGeneration
             EmitReturnMethod(csWriter);
 
             EmitFixedBlockEnd(csWriter);
-            EmitTryBlockEnd(csWriter);
-            EmitFinally(csWriter);
+            if (needsTryFinally)
+            {
+                EmitTryBlockEnd(csWriter);
+                EmitFinally(csWriter);
+            }
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
         }
@@ -496,6 +501,46 @@ namespace BindingsGeneration
             EmitSafeHandleRelease(csWriter);
             EmitCdeclIndirectResultCleanup(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Determines whether the method's finally block would contain any cleanup code.
+        /// When false, the try/finally wrapper is omitted to reduce generated code size.
+        /// Must stay in sync with <see cref="EmitSafeHandleRelease"/> and <see cref="EmitCdeclIndirectResultCleanup"/>.
+        /// </summary>
+        private bool NeedsTryFinallyForMethod()
+        {
+            // Async instance methods defer all cleanup to callback — no finally needed
+            if (_env.MethodDecl.IsAsync && _env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+                return false;
+
+            // Instance methods on managed types need SafeHandle release
+            if (_env.MethodDecl.MethodType != MethodType.Static && !_env.MethodDecl.IsConstructor)
+            {
+                if (_env.ParentDecl is StructDecl structDecl)
+                {
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
+                    if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
+                        return true;
+                }
+                else if (_env.ParentDecl is ClassDecl classParent && !classParent.IsObjCRooted)
+                    return true;
+                else if (_env.ParentDecl is EnumDecl)
+                    return true;
+            }
+
+            // Generic params need VWT Destroy cleanup; closures may need GCHandle.Free
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (arg.IsGeneric) return true;
+                if (_env.ClosureHandler.IsClosure(arg)) return true;
+            }
+
+            // Indirect result buffer cleanup (NativeMemory.Free)
+            if (!_env.MethodDecl.IsConstructor && _syncPlan?.IndirectResultMethod?.CleanupCode != null)
+                return true;
+
+            return false;
         }
 
         /// <summary>

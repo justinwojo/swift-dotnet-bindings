@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -875,5 +876,93 @@ public static class SwiftMarshal
             ?? throw new InvalidOperationException($"Could not find constructor for {tupleType.Name}");
 
         return (T)constructor.Invoke(values);
+    }
+
+    /// <summary>
+    /// Reads a UTF-8 string from a Swift Utf8Slice stored at the given result pointer.
+    /// The Utf8Slice's buffer is freed after reading. This replaces the inline 9-line
+    /// decode-and-free pattern in generated bindings.
+    /// </summary>
+    /// <param name="resultPtr">Pointer to a Utf8Slice struct in native memory.</param>
+    /// <returns>The decoded string, or <see cref="string.Empty"/> if the slice is empty.</returns>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static unsafe string ReadUtf8Slice(IntPtr resultPtr)
+    {
+        var slice = *(Utf8Slice*)resultPtr;
+        if (slice.Len == 0) return string.Empty;
+        try
+        {
+            return Marshal.PtrToStringUTF8(slice.Ptr, (int)slice.Len) ?? string.Empty;
+        }
+        finally
+        {
+            NativeMemory.Free((void*)slice.Ptr);
+        }
+    }
+
+    /// <summary>
+    /// Reads a UTF-8 string from a Utf8Slice struct value. The slice's buffer is freed after
+    /// reading. This overload is for property getters where the accessor returns a Utf8Slice
+    /// by value (not via result pointer).
+    /// </summary>
+    /// <param name="slice">The Utf8Slice containing a pointer to UTF-8 bytes and their length.</param>
+    /// <returns>The decoded string, or <see cref="string.Empty"/> if the slice is empty.</returns>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static unsafe string ReadUtf8Slice(Utf8Slice slice)
+    {
+        if (slice.Len == 0) return string.Empty;
+        try
+        {
+            return Marshal.PtrToStringUTF8(slice.Ptr, (int)slice.Len) ?? string.Empty;
+        }
+        finally
+        {
+            NativeMemory.Free((void*)slice.Ptr);
+        }
+    }
+
+    /// <summary>
+    /// Reads a Swift error description from a C string pointer and frees it.
+    /// Returns "Unknown Swift error" if the pointer is null or the string is null.
+    /// This replaces the inline error description extraction pattern in generated bindings.
+    /// </summary>
+    /// <param name="descPtr">Pointer to a null-terminated UTF-8 error description string,
+    /// allocated by Swift (via SBW_GetErrorDescription). Freed after reading.</param>
+    /// <returns>The error description string.</returns>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static unsafe string ReadErrorDescription(IntPtr descPtr)
+    {
+        if (descPtr == IntPtr.Zero)
+            return "Unknown Swift error";
+        try
+        {
+            return Marshal.PtrToStringUTF8(descPtr) ?? "Unknown Swift error";
+        }
+        finally
+        {
+            NativeMemory.Free((void*)descPtr);
+        }
+    }
+
+    /// <summary>
+    /// Handles an untyped Swift error by extracting the description message, releasing the error,
+    /// and throwing a <see cref="SwiftException"/>. Used by generated bindings to replace inline
+    /// error handling blocks.
+    /// </summary>
+    /// <param name="errorPtr">The Swift error pointer (from SwiftError.Value or @_cdecl out parameter).</param>
+    /// <param name="descPtr">The error description pointer (from SBW_GetErrorDescription).</param>
+    /// <param name="releaseError">Action to release the Swift error reference (SBW_ReleaseError).</param>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static void ThrowSwiftError(IntPtr errorPtr, IntPtr descPtr, Action<IntPtr> releaseError)
+    {
+        try
+        {
+            var message = ReadErrorDescription(descPtr);
+            throw new SwiftException(message);
+        }
+        finally
+        {
+            releaseError(errorPtr);
+        }
     }
 }

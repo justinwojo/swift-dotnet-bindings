@@ -700,10 +700,8 @@ public class SubscriptWrapperEmitterTests
             returnProjection: null, isStringReturn: true);
 
         var output = sw.ToString();
-        // The Len==0 check must NOT free — _sbw_emptyBuffer is a static Swift buffer
-        Assert.Contains("if (__slice.Len == 0) return string.Empty;", output);
-        // SBW_Free should only appear in the finally block (for non-empty strings)
-        Assert.DoesNotContain("SBW_Free(__slice.Ptr); return string.Empty", output);
+        // String return now delegates to SwiftMarshal.ReadUtf8Slice (handles empty-string + free internally)
+        Assert.Contains("SwiftMarshal.ReadUtf8Slice", output);
     }
 
     [Fact]

@@ -122,18 +122,7 @@ namespace BindingsGeneration
             if (_env.MethodDecl.UsesCdeclMethodWrapper &&
                 returnArg.SwiftTypeSpec is NamedTypeSpec cdeclMethStrNts && cdeclMethStrNts.Name == "Swift.String")
             {
-                var hp = _env.PInvokeHelperContext != null ? $"{_env.PInvokeHelperContext.HelperClassName}." : "";
-                csWriter.WriteLines(
-                    "unsafe {\n" +
-                    "    var __slice = *(Utf8Slice*)resultPtr;\n" +
-                    "    if (__slice.Len == 0) return string.Empty;\n" +
-                    "    try {\n" +
-                    "        return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(\n" +
-                    "            __slice.Ptr, (int)__slice.Len) ?? string.Empty;\n" +
-                    "    } finally {\n" +
-                    $"        {hp}SBW_Free(__slice.Ptr);\n" +
-                    "    }\n" +
-                    "}");
+                csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
                 return;
             }
 

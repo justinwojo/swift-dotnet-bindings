@@ -831,10 +831,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // @_cdecl property wrapper: String getters return SBW_Utf8Slice → decode to string
         if (getter.Method.UsesCdeclPropertyWrapper && WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec))
         {
-            csWriter.WriteLine($"get {{ var __slice = {methodName}(); " +
-                $"if (__slice.Len == 0) return string.Empty; " +
-                $"try {{ return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }} " +
-                $"finally {{ {helperPrefix}SBW_Free(__slice.Ptr); }} }}");
+            csWriter.WriteLine($"get => SwiftMarshal.ReadUtf8Slice({methodName}());");
             return;
         }
 

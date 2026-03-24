@@ -629,11 +629,7 @@ namespace BindingsGeneration
 
             if (isStringReturn)
             {
-                csWriter.WriteLine($"var __slice = {methodName}({args});");
-                // Empty string: _sbw_emptyBuffer is a static Swift buffer — do NOT free it.
-                csWriter.WriteLine("if (__slice.Len == 0) return string.Empty;");
-                csWriter.WriteLine("try { return global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(__slice.Ptr, (int)__slice.Len) ?? string.Empty; }");
-                csWriter.WriteLine($"finally {{ {helperPrefix}SBW_Free(__slice.Ptr); }}");
+                csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({methodName}({args}));");
             }
             else
             {
