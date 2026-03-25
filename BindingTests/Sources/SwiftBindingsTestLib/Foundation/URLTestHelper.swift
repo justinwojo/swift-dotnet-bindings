@@ -43,4 +43,16 @@ public class URLTestHelper {
     public var optionalURL: URL? {
         get { storedURL }
     }
+
+    // MARK: - Optional<URL> Stored Property (Session 2 ObjC-bridged optional setter regression test)
+
+    /// Mutable Optional<URL> stored property — exercises the @_cdecl setter wrapper
+    /// for Optional ObjC-bridged types. The setter reconstructs the optional ObjC pointer
+    /// inside the wrapper via `param.map { Unmanaged.fromOpaque($0).takeUnretainedValue() as! URL }`.
+    public var mutableOptionalURL: URL?
+
+    public init(url: URL, optionalURL: URL?) {
+        self.storedURL = url
+        self.mutableOptionalURL = optionalURL
+    }
 }

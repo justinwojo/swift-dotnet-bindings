@@ -70,6 +70,26 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         {
             { typeof(ISwiftCollection), "$sSayxGSlsMc" }
         };
+
+        // On NativeAOT, pre-register factory and cache metadata during type init.
+        // Reflection on explicit interface implementations of generic types (GetTypeMetadata,
+        // NewFromPayload) may fail on NativeAOT. Direct dispatch via SwiftObjectHelper<T>
+        // avoids reflection entirely.
+        // On Mono, skip this — calling Swift runtime during static construction can trigger
+        // JIT assertions with existential container element types.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
+        {
+            NativeAotInitialize();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotInitialize()
+    {
+        // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata():
+        // - Registers NewFromPayload factory in NewFromPayloadDispatcher
+        // - Caches metadata in TypeMetadata.Cache
+        var _ = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
     }
 
     IntPtr ISwiftObject.SwiftHandle

@@ -117,4 +117,70 @@ public class URLBridgeTests : TestBase
     }
 
     #endregion
+
+    #region Optional ObjC-Bridged Property Setter (Session 2 regression — 68926ecd)
+
+    public void TestMutableOptionalURLSetValue()
+    {
+        // Session 2 fix: Optional<ObjC-bridged class> setter emission.
+        // The @_cdecl setter accepts UnsafeMutableRawPointer? and reconstructs via
+        // param.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! URL }.
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        var optUrl = Foundation.NSUrl.FromString("https://optional.com")!;
+        using var helper = new SwiftBindingsTestLib.URLTestHelper(url, optUrl);
+        var result = helper.MutableOptionalURL;
+        AssertNotNull(result, "MutableOptionalURL has value");
+        AssertEqual("https://optional.com", result!.AbsoluteString, "MutableOptionalURL getter");
+        TestLogger.Info("MutableOptionalURL getter with value passed");
+    }
+
+    public void TestMutableOptionalURLSetterToValue()
+    {
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        using var helper = new SwiftBindingsTestLib.URLTestHelper(url, null);
+        var newUrl = Foundation.NSUrl.FromString("https://set.com")!;
+        helper.MutableOptionalURL = newUrl;
+        var result = helper.MutableOptionalURL;
+        AssertNotNull(result, "MutableOptionalURL non-null after set");
+        AssertEqual("https://set.com", result!.AbsoluteString, "MutableOptionalURL setter updates URL");
+        TestLogger.Info("MutableOptionalURL setter to value passed");
+    }
+
+    public void TestMutableOptionalURLSetterToNull()
+    {
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        var optUrl = Foundation.NSUrl.FromString("https://optional.com")!;
+        using var helper = new SwiftBindingsTestLib.URLTestHelper(url, optUrl);
+        helper.MutableOptionalURL = null;
+        var result = helper.MutableOptionalURL;
+        AssertNull(result, "MutableOptionalURL null after clear");
+        TestLogger.Info("MutableOptionalURL setter to null passed");
+    }
+
+    public void TestMutableOptionalURLRoundTrip()
+    {
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        using var helper = new SwiftBindingsTestLib.URLTestHelper(url, null);
+
+        // Initially null
+        AssertNull(helper.MutableOptionalURL, "Initially null");
+
+        // Set to a value
+        var url1 = Foundation.NSUrl.FromString("https://first.com")!;
+        helper.MutableOptionalURL = url1;
+        AssertEqual("https://first.com", helper.MutableOptionalURL!.AbsoluteString, "After first set");
+
+        // Change to a different value
+        var url2 = Foundation.NSUrl.FromString("https://second.com")!;
+        helper.MutableOptionalURL = url2;
+        AssertEqual("https://second.com", helper.MutableOptionalURL!.AbsoluteString, "After second set");
+
+        // Clear back to null
+        helper.MutableOptionalURL = null;
+        AssertNull(helper.MutableOptionalURL, "After clear");
+
+        TestLogger.Info("MutableOptionalURL round-trip passed");
+    }
+
+    #endregion
 }

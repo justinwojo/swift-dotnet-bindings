@@ -39,7 +39,7 @@ namespace Swift.Runtime
                 throw new ArgumentNullException(nameof(rhs));
 
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-            var equatablePwt = ProtocolWitnessTable.GetOrThrowDirect<T, IEquatable<T>>();
+            var equatablePwt = ProtocolWitnessTable.GetOrThrowAuto<T, IEquatable<T>>();
 
             Span<byte> lhsSpan = stackalloc byte[(int)metadata.Size];
             IntPtr lhsPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(lhsSpan));

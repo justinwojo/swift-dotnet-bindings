@@ -243,7 +243,12 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Simple enums: return the underlying integer type, cast back in the wrapper
+            // Simple enums: return the underlying integer type, cast back in the wrapper.
+            // Note: non-frozen simple enums technically use indirect return under resilient ABI
+            // when called via direct CallConvSwift (no wrapper/thunk). In practice, the thunk
+            // and @_cdecl wrapper gates ensure non-frozen enum accessors always get a wrapper,
+            // so this direct marshalling is safe. If a future SB0001 fallback path does hit
+            // a non-frozen enum, the thunk/wrapper gates should be extended to cover that case.
             if (returnTypeRecord.Kind == TypeRecordKind.Enum && returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 SetReturnType(EnumHandler.GetCSharpEnumUnderlyingType(returnTypeRecord.RawValueTypeName));
@@ -506,6 +511,9 @@ namespace BindingsGeneration
 
                 // Enum values: simple enums (C# value types) use their underlying int type,
                 // complex enums use SafeHandle payload pointer.
+                // Note: non-frozen simple enums technically use indirect passing under resilient ABI
+                // when called via direct CallConvSwift. The thunk and @_cdecl wrapper gates ensure
+                // non-frozen enum params always get a wrapper, so direct marshalling is safe here.
                 if (argumentTypeRecord.Kind == TypeRecordKind.Enum)
                 {
                     if (argumentTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))

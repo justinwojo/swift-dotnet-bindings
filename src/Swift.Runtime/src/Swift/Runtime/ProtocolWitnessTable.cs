@@ -139,6 +139,20 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     }
 
     /// <summary>
+    /// Runtime-safe dispatch: uses GetOrThrowDirect on NativeAOT (static virtual dispatch),
+    /// GetOrThrow on Mono (reflection-safe). Call this when you have an ISwiftObject constraint
+    /// and need to work on both runtimes.
+    /// </summary>
+    public static ProtocolWitnessTable GetOrThrowAuto<TType, TProtocol>()
+        where TType : ISwiftObject
+        where TProtocol : class
+    {
+        return SwiftRuntimeInfo.IsNativeAotRuntime
+            ? GetOrThrowDirect<TType, TProtocol>()
+            : GetOrThrow<TType, TProtocol>();
+    }
+
+    /// <summary>
     /// NativeAOT-safe overload that avoids MakeGenericType reflection.
     /// Uses <see cref="ProtocolConformanceDescriptor.TryGetDirect{TType, TProtocol}"/> which calls
     /// the static abstract method directly via the <see cref="ISwiftObject"/> constraint.

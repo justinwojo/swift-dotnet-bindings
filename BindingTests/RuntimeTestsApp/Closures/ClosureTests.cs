@@ -290,4 +290,88 @@ public class ClosureTests : TestBase
     }
 
     #endregion
+
+    #region P1: Optional Closure Property Setter (Session 2 regression — ClosureHolder)
+
+    public void TestClosureHolderSetCallback()
+    {
+        // Session 2 fix (68926ecd): Optional closure property setter emission.
+        // The @_cdecl setter accepts optional function pointer — nil clears, non-nil wraps.
+        var captured = -1;
+        using var holder = new ClosureHolder();
+        holder.OnValueChanged = v => { captured = v; };
+        holder.TriggerChange(42);
+        AssertEqual(42, captured, "Callback captured value from TriggerChange");
+        TestLogger.Info("ClosureHolder.OnValueChanged setter + trigger passed");
+    }
+
+    public void TestClosureHolderSetCallbackToNull()
+    {
+        using var holder = new ClosureHolder();
+        holder.OnValueChanged = v => { }; // set first
+        holder.OnValueChanged = null;      // clear
+        // TriggerChange should not crash when callback is nil
+        holder.TriggerChange(99);
+        TestLogger.Info("ClosureHolder.OnValueChanged set-to-null + trigger passed (no crash)");
+    }
+
+    public void TestClosureHolderGetCallbackNull()
+    {
+        using var holder = new ClosureHolder();
+        var cb = holder.OnValueChanged;
+        AssertNull(cb, "OnValueChanged initially null");
+        TestLogger.Info("ClosureHolder.OnValueChanged getter (null) passed");
+    }
+
+    public void TestClosureHolderRoundTrip()
+    {
+        // Set callback → trigger → verify → change callback → trigger → verify new value
+        var first = -1;
+        var second = -1;
+        using var holder = new ClosureHolder();
+        holder.OnValueChanged = v => { first = v; };
+        holder.TriggerChange(10);
+        AssertEqual(10, first, "First callback captured 10");
+
+        holder.OnValueChanged = v => { second = v; };
+        holder.TriggerChange(20);
+        AssertEqual(20, second, "Second callback captured 20");
+        AssertEqual(10, first, "First callback unchanged");
+        TestLogger.Info("ClosureHolder round-trip passed");
+    }
+
+    #endregion
+
+    #region P2: Static Optional Closure Property (LogRouter)
+
+    [SkipOnSimulator("Mono JIT !ji->async assertion on native-to-managed string callback (upstream Issue 1)")]
+    public void TestLogRouterSetHandler()
+    {
+        var captured = "";
+        LogRouter.LogHandler = msg => { captured = msg; };
+        LogRouter.Route("hello");
+        AssertEqual("hello", captured, "LogHandler captured message");
+        LogRouter.LogHandler = null; // cleanup
+        TestLogger.Info("LogRouter.LogHandler setter + route passed");
+    }
+
+    [SkipOnSimulator("Mono JIT !ji->async assertion on native-to-managed string callback (upstream Issue 1)")]
+    public void TestLogRouterClearHandler()
+    {
+        LogRouter.LogHandler = msg => { };
+        LogRouter.LogHandler = null;
+        // Route should not crash when handler is nil
+        LogRouter.Route("ignored");
+        TestLogger.Info("LogRouter.LogHandler clear + route passed (no crash)");
+    }
+
+    public void TestLogRouterGetHandlerNull()
+    {
+        LogRouter.LogHandler = null;
+        var handler = LogRouter.LogHandler;
+        AssertNull(handler, "LogHandler is null after clear");
+        TestLogger.Info("LogRouter.LogHandler getter (null) passed");
+    }
+
+    #endregion
 }

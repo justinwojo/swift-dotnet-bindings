@@ -63,12 +63,12 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(T), type =>
         {
-            // On NativeAOT (IsDynamicCodeSupported=false), use direct static virtual dispatch.
-            // On Mono JIT (IsDynamicCodeSupported=true), use reflection to avoid JIT assertion
+            // On NativeAOT, use direct static virtual dispatch.
+            // On Mono (JIT or AOT/simulator), use reflection to avoid JIT assertion
             // (jit-info.c:918, mini-generic-sharing.c:2759).
-            // The direct dispatch is in a separate method so Mono JIT never compiles it.
+            // The direct dispatch is in a separate method so Mono never compiles it.
             TypeMetadata metadata;
-            if (!RuntimeFeature.IsDynamicCodeSupported)
+            if (SwiftRuntimeInfo.IsNativeAotRuntime)
                 metadata = DirectDispatchGetTypeMetadata();
             else
                 metadata = SwiftObjectReflectionHelper.InvokeGetTypeMetadata(type);
@@ -107,9 +107,9 @@ public struct SwiftObjectHelper<T> where T : ISwiftObject
         Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static ISwiftObject NewFromPayload(IntPtr payload)
     {
-        // On NativeAOT (IsDynamicCodeSupported=false), use direct static virtual dispatch.
-        // On Mono JIT (IsDynamicCodeSupported=true), use reflection to avoid JIT assertion.
-        if (!RuntimeFeature.IsDynamicCodeSupported)
+        // On NativeAOT, use direct static virtual dispatch.
+        // On Mono (JIT or AOT/simulator), use reflection to avoid JIT assertion.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
             return DirectDispatchNewFromPayload(payload);
         return SwiftObjectReflectionHelper.InvokeNewFromPayload(typeof(T), payload);
     }
@@ -211,11 +211,11 @@ public struct ProtocolConformanceDescriptorHelper<TType, TProtocol>
         Justification = "typeof(TType) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static ProtocolConformanceDescriptor GetProtocolConformanceDescriptor()
     {
-        // On NativeAOT (IsDynamicCodeSupported=false), use direct static virtual dispatch.
-        // On Mono JIT (IsDynamicCodeSupported=true), use reflection to avoid JIT assertion
+        // On NativeAOT, use direct static virtual dispatch.
+        // On Mono (JIT or AOT/simulator), use reflection to avoid JIT assertion
         // (jit-info.c:918, mini-generic-sharing.c:2759).
-        // The direct dispatch is in a separate method so Mono JIT never compiles it.
-        if (!RuntimeFeature.IsDynamicCodeSupported)
+        // The direct dispatch is in a separate method so Mono never compiles it.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
             return DirectDispatch();
         return SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(typeof(TType), typeof(TProtocol));
     }

@@ -1,0 +1,34 @@
+<!-- Embedded linker descriptor for NativeAOT trimming.
+     Automatically applied when consumers reference SwiftBindings.Runtime.
+     Preserves methods needed for reflection-based factory lookup (NewFromPayload,
+     GetTypeMetadata) on core Swift.Runtime wrapper types.
+
+     NOTE: Types with CallConvSwift P/Invoke members (DispatchQueue, URL, UIImage, etc.)
+     are intentionally excluded — preserve="methods" on them crashes ILC.
+     Those types self-register their factories via SwiftFrameworkResolver.InitializeRuntime(). -->
+<linker>
+  <assembly fullname="Swift.Runtime">
+    <!-- Core collection/wrapper types -->
+    <type fullname="Swift.SwiftString" preserve="methods" />
+    <type fullname="Swift.SwiftArray`1" preserve="methods" />
+    <type fullname="Swift.SwiftOptional`1" preserve="methods" />
+    <type fullname="Swift.SwiftResult`2" preserve="methods" />
+    <type fullname="Swift.SwiftDictionary`2" preserve="methods" />
+    <type fullname="Swift.SwiftSet`1" preserve="methods" />
+    <type fullname="Swift.Data" preserve="methods" />
+    <type fullname="Swift.AnyHashable" preserve="methods" />
+    <!-- Existential containers -->
+    <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer2" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer3" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer4" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer5" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer6" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer7" preserve="methods" />
+    <type fullname="Swift.Runtime.ExistentialContainer8" preserve="methods" />
+    <!-- Infrastructure types used by reflection-based marshalling -->
+    <type fullname="Swift.Runtime.InteropServices.NewFromPayloadDispatcher" preserve="methods" />
+    <type fullname="Swift.Runtime.SwiftObjectReflectionHelper" preserve="methods" />
+  </assembly>
+</linker>

@@ -89,6 +89,8 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
         Justification = "MakeGenericType only used on Mono JIT where dynamic code is supported; NativeAOT uses reflection helper")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
         Justification = "typeof(TType) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059",
+        Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is an ISwiftObject whose static constructor is preserved")]
     public static bool TryGet<TType, TProtocol>([NotNullWhen(true)] out ProtocolConformanceDescriptor? result)
         where TProtocol : class
     {
@@ -97,7 +99,7 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
         if (typeof(ISwiftObject).IsAssignableFrom(type))
         {
             ProtocolConformanceDescriptor candidate;
-            if (!RuntimeFeature.IsDynamicCodeSupported)
+            if (SwiftRuntimeInfo.IsNativeAotRuntime)
             {
                 // NativeAOT: try factory cache first (populated by ProtocolConformanceDescriptorHelper)
                 var cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
@@ -107,8 +109,28 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
                 }
                 else
                 {
-                    // Fallback: reflection (works for types preserved via TrimmerRoots)
-                    candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
+                    // NativeAOT fallback: trigger type initialization to populate conformance cache.
+                    // Types like SwiftString register their conformances in ConformanceDispatcher
+                    // during static construction (NativeAotRegisterConformances).
+                    try
+                    {
+                        RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+                        cached = InteropServices.ConformanceDispatcher.TryGet(type, typeof(TProtocol));
+                        if (cached.HasValue)
+                        {
+                            candidate = cached.Value;
+                        }
+                        else
+                        {
+                            // Last resort: reflection with MakeGenericMethod
+                            candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
+                        }
+                    }
+                    catch
+                    {
+                        // RunClassConstructor or reflection failed; try reflection directly
+                        candidate = SwiftObjectReflectionHelper.InvokeGetProtocolConformanceDescriptor(type, typeof(TProtocol));
+                    }
                 }
             }
             else

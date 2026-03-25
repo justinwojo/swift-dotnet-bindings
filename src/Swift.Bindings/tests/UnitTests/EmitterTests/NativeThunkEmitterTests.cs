@@ -387,7 +387,7 @@ namespace BindingsGeneration.Tests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
                 MetadataAccessor = "$s4Test6MyEnumOMa",
-                Flags = TypeRecordFlags.SimpleEnum,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
             });
 
             var parentDecl = CreateClassDecl(); // non-final class
@@ -415,7 +415,7 @@ namespace BindingsGeneration.Tests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
                 MetadataAccessor = "$s4Test6MyEnumOMa",
-                Flags = TypeRecordFlags.SimpleEnum,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
             });
 
             var parentDecl = CreateClassDecl();
@@ -461,10 +461,11 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ShouldEmitThunk_PropertySetterEnumParam_ReturnsTrue()
+        public void ShouldEmitThunk_PropertySetterEnumParam_NonFinalClass_ReturnsFalse()
         {
-            // Property setters don't have return value issues — they return void.
-            // The IsAccessor check only rejects getters (non-void return).
+            // Setter dispatch thunks (Tj) pass the new value via indirect buffer.
+            // For non-class types (enums), the setter reads from [x0] (indirect), but the
+            // thunk passes the raw value in x0 → SIGSEGV. Non-final class = Tj dispatch.
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyEnum", new TypeRecord
             {
@@ -478,15 +479,186 @@ namespace BindingsGeneration.Tests
             var parentDecl = CreateClassDecl();
             var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
             method.IsAccessor = true;
+            method.Name = "backgroundBehavior_Set";
             method.CSSignature = new List<ArgumentDecl>
             {
                 // Setter: void return
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_PropertySetterClassParam_NonFinalClass_ReturnsTrue()
+        {
+            // Setter with class-typed value param on non-final class. The class value IS
+            // a pointer (ARC-retained), so indirect buffer dereferencing works correctly.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyClass", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyClass"),
+                MetadataAccessor = "$s4Test7MyClassCMa",
+                Flags = TypeRecordFlags.None,
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.Name = "delegate_Set";
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyClass"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_PropertySetterEnumParam_FinalClass_ReturnsTrue()
+        {
+            // Setter with frozen enum value param on FINAL class. No Tj dispatch — uses direct
+            // dispatch with standard calling convention. Thunk is safe.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateClassDecl();
+            parentDecl.IsFinal = true;
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.Name = "mode_Set";
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "value"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenStructGetterAccessor_ReturnsFalse()
+        {
+            // Non-frozen struct property getters use opaque accessor calling conventions:
+            // the getter writes its result to an indirect buffer via x8, even for small
+            // return types (e.g., 1-byte enum). Our thunk doesn't set x8 → SIGSEGV.
+            // Verified by disassembling Nuke's ImageRequest.priority getter (arm64):
+            //   ldr x9, [x20]; ...; strb w9, [x8]; ret
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateStructDecl(isFrozen: false);
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenStructSetterAccessor_ReturnsFalse()
+        {
+            // Non-frozen struct property setters read the new value from an indirect
+            // buffer at [x0], not from x0 directly. Our thunk passes the raw value
+            // in x0, which the setter dereferences as a pointer → SIGSEGV.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+            });
+
+            var parentDecl = CreateStructDecl(isFrozen: false);
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
                 MakeArg(new TupleTypeSpec(), ""),
                 MakeArg(new NamedTypeSpec("Test.MyEnum"), "value"),
                 MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
             };
 
             var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructGetterAccessor_ReturnsTrue()
+        {
+            // Frozen struct property getters use standard swiftcc return convention —
+            // thunks work correctly for these.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            });
+            db.AddType("Test.MyStruct", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
+                MetadataAccessor = "$s4Test8MyStructVMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16,
+            });
+
+            var parentDecl = CreateStructDecl(isFrozen: true);
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
+                MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenStructNonAccessorMethod_ReturnsTrue()
+        {
+            // Non-frozen struct regular methods (not property accessors) use standard
+            // swiftcc calling convention — self as pointer in x20, return in x0.
+            // Only property ACCESSORS use opaque indirect conventions.
+            var parentDecl = CreateStructDecl(isFrozen: false);
+            var env = CreateMethodEnv(
+                methodType: MethodType.Instance,
+                parentDecl: parentDecl);
+
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
@@ -1370,6 +1542,65 @@ namespace BindingsGeneration.Tests
                 MakeArg(TupleTypeSpec.Empty, ""),
                 MakeArg(new NamedTypeSpec("Swift.Int"), "value")
             };
+
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_NonFrozenEnumParam_ReturnsFalse()
+        {
+            // Non-frozen simple enums are passed indirectly in Swift ABI (resilient layout):
+            // the Swift function dereferences x0 as a pointer to the enum value, but the
+            // thunk passes the raw int value in x0 → SIGSEGV (null deref for case 0).
+            // KeychainAccess.Accessibility crash: 14 tests pass, test 15 (WithAccessibility)
+            // crashes on both simulator (Mono) and device (NativeAOT).
+            var classDecl = CreateClassDecl();
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Lib.Accessibility", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lib", "Accessibility"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lib.Accessibility"),
+                Flags = TypeRecordFlags.SimpleEnum, // SimpleEnum but NOT Frozen
+                InlineSize = 1,
+                MetadataAccessor = "$s3Lib13AccessibilityOMa"
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: classDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Lib.Accessibility"), ""), // return: class
+                MakeArg(new NamedTypeSpec("Lib.Accessibility"), "accessibility")
+            };
+            var env = new MethodEnvironment(method, db);
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenEnumParam_ReturnsTrue()
+        {
+            // Frozen simple enums are safe for thunks — the value is passed directly
+            // in a register (x0) and the Swift function reads it as a value, not a pointer.
+            var classDecl = CreateClassDecl();
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Lib.Color", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lib", "Color"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Lib.Color"),
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                InlineSize = 1,
+                MetadataAccessor = "$s3Lib5ColorOMa"
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: classDecl);
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(TupleTypeSpec.Empty, ""),
+                MakeArg(new NamedTypeSpec("Lib.Color"), "color")
+            };
+            var env = new MethodEnvironment(method, db);
 
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }

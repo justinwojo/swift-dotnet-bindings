@@ -317,6 +317,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple metadata path only; non-tuple paths are AOT-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
         Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059",
+        Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     static bool TryGetTypeMetadataUncached<T>([NotNullWhen(true)] out TypeMetadata? result)
     {
         var type = typeof(T);
@@ -334,6 +336,25 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             {
                 result = candidate;
                 return true;
+            }
+
+            // NativeAOT fallback: reflection may fail for explicit interface implementations
+            // on generic type instantiations (e.g., SwiftOptional<SwiftString>). Trigger
+            // type initialization, which runs static field initializers that call
+            // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata(),
+            // populating both the metadata cache and NewFromPayload factory.
+            if (SwiftRuntimeInfo.IsNativeAotRuntime)
+            {
+                try
+                {
+                    RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+                    if (cache.TryGet(type, out result))
+                        return true;
+                }
+                catch
+                {
+                    // Type initialization may fail; fall through to other lookups.
+                }
             }
         }
 

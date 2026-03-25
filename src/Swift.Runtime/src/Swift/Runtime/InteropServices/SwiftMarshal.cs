@@ -145,6 +145,11 @@ public static class SwiftMarshal
         where TType : ISwiftObject
         where TProtocol : class
     {
+        // GetOrThrowDirect uses static virtual dispatch (NativeAOT-only).
+        // On Mono (JIT or AOT/simulator), witness tables are resolved via reflection
+        // at call time — no pre-registration needed.
+        if (!SwiftRuntimeInfo.IsNativeAotRuntime)
+            return;
         var witnessTable = ProtocolWitnessTable.GetOrThrowDirect<TType, TProtocol>();
         WitnessTableDispatcher.Register(typeof(TType), typeof(TProtocol), witnessTable);
     }
@@ -323,7 +328,7 @@ public static class SwiftMarshal
         Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
     public static T MarshalFromSwiftObject<T>(IntPtr swiftSource) where T : ISwiftObject
     {
-        if (!RuntimeFeature.IsDynamicCodeSupported)
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
         {
             // Register factory so unconstrained callers (MarshalFromSwift<T>) can use it later.
             NewFromPayloadDispatcher.Register(typeof(T), handle => (object)T.NewFromPayload(handle));
@@ -354,6 +359,8 @@ public static class SwiftMarshal
     [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
     [UnconditionalSuppressMessage("Trimming", "IL2087",
         Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059",
+        Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     public static T MarshalFromSwift<T>(IntPtr swiftSource)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
@@ -364,6 +371,23 @@ public static class SwiftMarshal
             var cached = NewFromPayloadDispatcher.TryCreate(typeof(T), swiftSource);
             if (cached != null)
                 return (T)cached;
+
+            // NativeAOT fallback: trigger type initialization to populate factory cache.
+            // Reflection on explicit interface implementations of generic types may fail
+            // on NativeAOT. RunClassConstructor triggers static init which calls
+            // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata(),
+            // registering the NewFromPayload factory.
+            if (SwiftRuntimeInfo.IsNativeAotRuntime)
+            {
+                try
+                {
+                    RuntimeHelpers.RunClassConstructor(typeof(T).TypeHandle);
+                    cached = NewFromPayloadDispatcher.TryCreate(typeof(T), swiftSource);
+                    if (cached != null)
+                        return (T)cached;
+                }
+                catch { }
+            }
 
             // Fallback: reflection. Works on Mono JIT always; works on NativeAOT only
             // for types preserved via TrimmerRoots.xml (Swift.Runtime types).

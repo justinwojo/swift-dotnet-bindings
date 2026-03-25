@@ -75,6 +75,14 @@ namespace BindingsGeneration
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
                 EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
             }
+            else if (!enumDecl.IsFrozen && !string.IsNullOrEmpty(typeDatabase.AsyncLibraryName))
+            {
+                // Non-frozen blittable enum: emit @_cdecl wrapper for init(rawValue:) to avoid
+                // CallConvSwift + SwiftIndirectResult crash on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+                // The wrapper writes Optional<Self> to a caller-provided buffer using Cdecl ABI.
+                wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
+                EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, ctx);
+            }
 
             // Emit CaseByIndex Swift wrapper for raw-representable enums.
             // - String enums: always (case name != raw value is common, e.g., case ok = "OK")
@@ -231,9 +239,14 @@ namespace BindingsGeneration
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
                 }
+                else if (wrapperSymbol != null && pinvokeHelperContext == null)
+                {
+                    // Blittable raw type with @_cdecl wrapper: Cdecl ABI, IntPtr result buffer
+                    csWriter.WriteLine($"PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, rawValue);");
+                }
                 else
                 {
-                    // Blittable raw type: direct P/Invoke
+                    // Blittable raw type: direct P/Invoke (fallback for generic parents or no wrapper lib)
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
                     var rawInitIndirectCall = pinvokeHelperContext != null
                         ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
@@ -286,6 +299,19 @@ namespace BindingsGeneration
                     // String raw type: P/Invoke for the Swift wrapper
                     csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
+                    csWriter.WriteLine();
+                }
+                else if (wrapperSymbol != null && pinvokeHelperContext == null)
+                {
+                    // Blittable raw type with @_cdecl wrapper: Cdecl P/Invoke targeting wrapper
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = wrapperSymbol,
+                        MethodName = "PInvoke_InitWithRawValue_Wrapper",
+                        ReturnType = "void",
+                        ParametersString = $"IntPtr resultPtr, {csharpRawType} rawValue"
+                    });
                     csWriter.WriteLine();
                 }
                 else if (pinvokeHelperContext != null)
@@ -560,6 +586,31 @@ namespace BindingsGeneration
 
                     """);
             }
+        }
+
+        /// <summary>
+        /// Emits a @_cdecl Swift wrapper for non-frozen blittable enum init(rawValue:).
+        /// Writes Optional&lt;Self&gt; to a caller-provided buffer, avoiding CallConvSwift + SwiftIndirectResult
+        /// which crashes on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+        /// </summary>
+        private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
+        {
+            ctx ??= ModuleEmissionContext.Default;
+            if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
+                return;
+
+            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{wrapperSymbol}}")
+                public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ rawValue: {{rawTypeName}}) {
+                    let result: {{enumFullName}}? = {{enumFullName}}(rawValue: rawValue)
+                    withUnsafePointer(to: result) { _srcPtr in
+                        resultPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{{enumFullName}}?>.size)
+                    }
+                }
+
+                """);
         }
 
         /// <summary>

@@ -145,12 +145,17 @@ public static class TypeLowering
                     TotalByteSize: 8);
 
             case TypeRecordKind.Enum:
-                if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                // Non-frozen enums are passed indirectly in Swift ABI (resilient layout):
+                // the compiler can't assume the size across module boundaries, so the caller
+                // passes a pointer to the value. Thunks pass values directly in registers,
+                // so only @frozen simple enums can be safely lowered.
+                if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+                    && record.Flags.HasFlag(TypeRecordFlags.Frozen))
                     return new TypeLoweringResult(
                         new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
                         IsIndirect: false,
                         TotalByteSize: record.InlineSize ?? 8);
-                return null; // Complex enum — can't lower without deeper analysis
+                return null; // Non-frozen or complex enum — can't lower
 
             case TypeRecordKind.Struct:
                 return LowerStruct(record);

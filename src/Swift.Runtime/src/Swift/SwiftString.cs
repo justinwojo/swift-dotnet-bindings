@@ -45,6 +45,25 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
         {
             { typeof(ISwiftHashable), "$sSSSHsMc" }, // Swift.String : Swift.Hashable
         };
+
+        // On NativeAOT, pre-register protocol conformances in ConformanceDispatcher.
+        // MakeGenericMethod on GetProtocolConformanceDescriptor<TProtocol> may fail for
+        // generic instantiations not statically referenced at compile time.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
+        {
+            NativeAotRegisterConformances();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotRegisterConformances()
+    {
+        foreach (var (protocolType, symbol) in _protocolConformanceSymbols)
+        {
+            var symbolName = symbol;
+            ConformanceDispatcher.Register(typeof(SwiftString), protocolType,
+                () => ProtocolConformanceDescriptor.LoadFromSymbol("/usr/lib/swift/libswiftCore.dylib", symbolName));
+        }
     }
 
     public unsafe PayloadBuffer<SwiftString.Buffer> PayloadBuffer

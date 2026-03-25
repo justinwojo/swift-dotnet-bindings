@@ -739,6 +739,8 @@ public static class ForeignTypeExtensionEmitter
             }
         }
 
+        // Foreign type extension wrappers use @_silgen_name (swiftcc), not @_cdecl.
+        // CallConvSwift ensures SwiftIndirectResult maps to x8, not x0.
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
             LibraryPath = wrapperLibPath,
@@ -746,6 +748,7 @@ public static class ForeignTypeExtensionEmitter
             MethodName = member.SymbolName,
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
+            CallingConvention = PInvokeCallingConvention.Swift,
             Visibility = PInvokeVisibility.Internal
         });
         csWriter.WriteLine();

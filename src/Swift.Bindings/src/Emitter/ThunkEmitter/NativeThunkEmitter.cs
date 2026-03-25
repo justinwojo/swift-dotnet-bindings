@@ -130,6 +130,19 @@ public static class NativeThunkEmitter
             && WrapperValidation.IsInheritedGenericContext(td))
             return false;
 
+        // Non-frozen struct property accessors use opaque accessor calling conventions
+        // that are incompatible with thunks:
+        // - Getters: write result to indirect buffer via x8, even for small return types
+        //   (e.g., 1-byte enum). Our thunk doesn't set x8 → SIGSEGV.
+        // - Setters: read the new value from an indirect buffer at [x0], not from x0 directly.
+        //   Our thunk passes the raw value in x0 → SIGSEGV.
+        // This is a resilient ABI requirement: opaque accessors use indirect buffers so the
+        // accessor signature remains stable even if the property type changes size.
+        // Fall back to @_cdecl wrappers which handle the convention correctly.
+        if (methodDecl.IsAccessor && env.ParentDecl is StructDecl accessorParentStruct
+            && !accessorParentStruct.IsFrozen)
+            return false;
+
         // Getter dispatch thunks (vgTj) use x9 for vtable lookup, preserving x8 as the
         // indirect return buffer. The getter writes value-type results to [x8], but our
         // bridge thunk doesn't set x8, causing SIGSEGV. Class returns use x0 (no x8 needed).
@@ -147,6 +160,30 @@ public static class NativeThunkEmitter
                 if (!env.TypeDatabase.TryGetTypeRecord(returnSpec, out var accessorReturnRecord)
                     || accessorReturnRecord.Kind != TypeRecordKind.Class)
                     return false;
+            }
+        }
+
+        // Setter dispatch thunks (vsTj) pass the new value via indirect buffer for non-class
+        // types. The Swift accessor reads the value from [x0] (indirect), but our thunk passes
+        // the raw value in x0 → SIGSEGV for enums and value types. Class types are fine because
+        // the value IS a pointer (ARC-retained). Mirrors the getter gate above.
+        if (methodDecl.IsAccessor && returnSpec.IsEmptyTuple
+            && MarshallingHelpers.MethodIsSetter(methodDecl))
+        {
+            bool usesDispatchThunk = SwiftCallTargetResolver.Resolve(methodDecl, env.ParentDecl)
+                != methodDecl.MangledName;
+            if (usesDispatchThunk)
+            {
+                // The property type is the setter's value parameter.
+                // CSSignature: [0]=void return, [1]=value param (self is not in CSSignature).
+                var valueParam = methodDecl.CSSignature.ElementAtOrDefault(1);
+                if (valueParam != null)
+                {
+                    var setterTypeSpec = valueParam.SwiftTypeSpec;
+                    if (!env.TypeDatabase.TryGetTypeRecord(setterTypeSpec, out var setterTypeRecord)
+                        || setterTypeRecord.Kind != TypeRecordKind.Class)
+                        return false;
+                }
             }
         }
 
@@ -491,8 +528,11 @@ public static class NativeThunkEmitter
         if (record.Kind == TypeRecordKind.Struct && !record.Flags.HasFlag(TypeRecordFlags.Frozen))
             return false;
 
-        // Simple enums return in a single register — safe for tail call
-        if (record.Kind == TypeRecordKind.Enum && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+        // Frozen simple enums return in a single register — safe for tail call.
+        // Non-frozen simple enums are returned indirectly (resilient ABI), so they
+        // DO need bridging the thunk can't provide — fall through to return true.
+        if (record.Kind == TypeRecordKind.Enum && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+            && record.Flags.HasFlag(TypeRecordFlags.Frozen))
             return false;
 
         // Frozen struct ≤ 8 bytes: fits in a single register — safe for tail call

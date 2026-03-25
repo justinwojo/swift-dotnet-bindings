@@ -271,7 +271,11 @@ namespace BindingsGeneration
             if (typeRecord.Kind == TypeRecordKind.Class)
                 return false;
 
-            // Simple enums are C# value types returned directly in registers
+            // Simple enums are C# value types returned directly in registers.
+            // Note: non-frozen simple enums technically use indirect return under resilient ABI
+            // when called via direct CallConvSwift, but this is handled at the PInvokeEmitter
+            // level (which knows whether a wrapper is present). This general query returns false
+            // for all simple enums so that wrapper-protected paths aren't affected.
             if (typeRecord.Kind == TypeRecordKind.Enum &&
                 (typeRecord.Flags & TypeRecordFlags.SimpleEnum) != 0)
                 return false;

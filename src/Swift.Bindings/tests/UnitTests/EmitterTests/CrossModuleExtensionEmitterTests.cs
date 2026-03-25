@@ -212,6 +212,58 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Emit: calling convention — all cross-module P/Invokes use CallConvSwift
+
+    [Fact]
+    public void Emit_MethodPInvoke_UsesCallConvSwift()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        classDecl.Methods.Add(CreateMethodDecl("doAction", "TestModule", classDecl));
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        // Cross-module extension P/Invokes always use CallConvSwift because both direct
+        // symbols and @_silgen_name wrappers use swiftcc. SwiftSelf (x20) and
+        // SwiftIndirectResult (x8) only map to correct registers under swiftcc.
+        Assert.Contains("CallConvSwift", result);
+        Assert.DoesNotContain("CallConvCdecl", result);
+    }
+
+    [Fact]
+    public void Emit_PropertyGetterPInvoke_UsesCallConvSwift()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+
+        var ownerModuleDecl = CreateFullModuleDecl("TestModule");
+        var getterMethod = CreateMethodDecl("get_count", "TestModule", classDecl);
+        getterMethod.IsAccessor = true;
+        getterMethod.MangledName = "$s10TestModule5count_getter";
+        var getter = new GetAccessorDecl { Method = getterMethod };
+
+        var property = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { getter },
+            ParentDecl = classDecl,
+            ModuleDecl = ownerModuleDecl
+        };
+        classDecl.Properties.Add(property);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        // Property getter P/Invoke must use CallConvSwift (see method test comment)
+        Assert.Contains("CallConvSwift", result);
+        Assert.DoesNotContain("CallConvCdecl", result);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter, StringWriter csOutput,

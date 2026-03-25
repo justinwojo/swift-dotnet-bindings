@@ -38,7 +38,7 @@ namespace Swift.Runtime
                 throw new ArgumentNullException(nameof(value));
 
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-            var hashablePwt = ProtocolWitnessTable.GetOrThrowDirect<T, ISwiftHashable>();
+            var hashablePwt = ProtocolWitnessTable.GetOrThrowAuto<T, ISwiftHashable>();
 
             Span<byte> span = stackalloc byte[(int)metadata.Size];
             IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));

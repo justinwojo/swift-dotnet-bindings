@@ -492,6 +492,31 @@ namespace BindingsGeneration.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void LowerReturnType_NonFrozenSimpleEnum_ReturnsNull()
+        {
+            // Non-frozen simple enums are passed indirectly in Swift ABI (resilient layout).
+            // TypeLowering must NOT lower them as direct register values — the thunk would
+            // pass the value directly in x0 but the Swift function dereferences x0 as a
+            // pointer → SIGSEGV. (KeychainAccess.Accessibility crash.)
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Accessibility");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Accessibility"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib13AccessibilityO",
+                Flags = TypeRecordFlags.SimpleEnum, // SimpleEnum but NOT Frozen
+                Kind = TypeRecordKind.Enum,
+                InlineSize = 1,
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+            var typeSpec = new NamedTypeSpec("MyLib.Accessibility");
+
+            var result = TypeLowering.LowerReturnType(typeSpec, db);
+
+            Assert.Null(result);
+        }
+
         #endregion
 
         #region Optional Types

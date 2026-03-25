@@ -2500,6 +2500,62 @@ public class EnumHandlerOutputTests
         Assert.Contains("case 1: value = .milliseconds", swiftOutput);
     }
 
+    [Theory]
+    [InlineData("Double", "double")]
+    [InlineData("Float", "float")]
+    [InlineData("CGFloat", "double")]
+    public void Emit_NonFrozenBlittableRawValueEnum_EmitsCdeclWrapper(string swiftRawType, string expectedCSharpType)
+    {
+        // Non-frozen blittable enum init(rawValue:) must use @_cdecl wrapper to avoid
+        // CallConvSwift + SwiftIndirectResult crash on Mono JIT (e.g., ObjectMapper DateTransform.Unit).
+        // Integral raw types (Int, UInt, etc.) are not tested here — they emit as C# enum value types
+        // via EmitSimpleEnum which doesn't use the class-based RawRepresentable path.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Unit", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = swiftRawType;
+        enumDecl.Cases.Add(CreateCase("seconds"));
+        enumDecl.Cases.Add(CreateCase("milliseconds"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, $"Swift.{swiftRawType}"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Swift wrapper must emit @_cdecl function for init(rawValue:)
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Unit_InitWithRawValue\")", swiftOutput);
+        Assert.Contains($"_ rawValue: {swiftRawType}", swiftOutput);
+        Assert.Contains("TestModule.Unit(rawValue: rawValue)", swiftOutput);
+        Assert.Contains("MemoryLayout<TestModule.Unit?>.size", swiftOutput);
+
+        // C# P/Invoke must target the wrapper with Cdecl, not the raw mangled symbol
+        Assert.Contains("PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, rawValue)", csOutput);
+        Assert.Contains("TestModuleSwiftBindings", csOutput);
+        Assert.Contains("SBW_TestModule_Unit_InitWithRawValue", csOutput);
+        Assert.Contains($"IntPtr resultPtr, {expectedCSharpType} rawValue", csOutput);
+        // Must NOT contain SwiftIndirectResult (that's the direct P/Invoke pattern)
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenBlittableRawValueEnum_NoWrapperWithoutWrapperLib()
+    {
+        // Without wrapper library, non-frozen blittable enum falls back to direct P/Invoke
+        var typeDatabase = CreateTypeDatabase();
+        // AsyncLibraryName NOT set — no wrapper lib
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Unit", moduleDecl, isFrozen: false);
+        enumDecl.RawValueTypeName = "Double";
+        enumDecl.Cases.Add(CreateCase("seconds"));
+        enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, "Swift.Double"));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Without wrapper lib, no @_cdecl wrapper
+        Assert.DoesNotContain("SBW_TestModule_Unit_InitWithRawValue", swiftOutput);
+        // Falls back to direct SwiftIndirectResult P/Invoke
+        Assert.Contains("SwiftIndirectResult", csOutput);
+    }
+
     [Fact]
     public void Emit_NonStringRawValueEnum_FallsBackToOrdinalWithoutWrapperLib()
     {

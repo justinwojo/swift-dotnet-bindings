@@ -1,13 +1,48 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using Swift;
+using Swift.Runtime;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
 
 public class RuntimeLimitationsTests
 {
+    /// <summary>
+    /// Verifies the three-way runtime taxonomy on desktop CoreCLR.
+    /// On desktop: IsMonoRuntime=false, IsDynamicCodeSupported=true, IsNativeAotRuntime=false.
+    /// Critical: static constructors in SwiftArray/SwiftString use IsNativeAotRuntime (not
+    /// IsDynamicCodeSupported) to gate NativeAOT-only code, because Mono AOT on iOS simulator
+    /// also has IsDynamicCodeSupported=false but must NOT run NativeAOT init.
+    /// </summary>
+    [Fact]
+    public void DesktopCoreClr_IsNativeAotRuntime_IsFalse()
+    {
+        Assert.False(SwiftRuntimeInfo.IsNativeAotRuntime,
+            "Desktop CoreCLR should not be detected as NativeAOT");
+    }
+
+    [Fact]
+    public void DesktopCoreClr_IsDynamicCodeSupported_IsTrue()
+    {
+        Assert.True(RuntimeFeature.IsDynamicCodeSupported,
+            "Desktop CoreCLR supports dynamic code generation");
+    }
+
+    [Fact]
+    public void IsNativeAotRuntime_RequiresBothConditions()
+    {
+        // IsNativeAotRuntime = !IsMonoRuntime && !IsDynamicCodeSupported
+        // On desktop: IsMonoRuntime=false, IsDynamicCodeSupported=true → IsNativeAotRuntime=false
+        // This ensures NativeAOT-only code (SwiftArray init, SwiftString conformance registration)
+        // does NOT run on Mono AOT (where IsDynamicCodeSupported is also false).
+        Assert.False(SwiftRuntimeInfo.IsNativeAotRuntime);
+        Assert.False(SwiftRuntimeInfo.IsMonoRuntime);
+        Assert.True(RuntimeFeature.IsDynamicCodeSupported);
+    }
+
     [Fact]
     public void AllLimitationsHaveDescriptions()
     {

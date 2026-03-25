@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <!-- iOS device: TFM contains 'ios', RID is non-empty and starts with 'ios-' (not 'iossimulator-') -->
+  <!-- On iOS, @rpath resolves to .app/Frameworks/, so the dylib must be placed there. -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
                          AND $(TargetFramework.Contains('ios'))
                          AND '$(RuntimeIdentifier)' != ''
@@ -26,7 +27,7 @@
                          AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
 
@@ -38,7 +39,7 @@
                          AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
 
@@ -48,7 +49,7 @@
                          AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
 
@@ -60,7 +61,7 @@
                          AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
 
@@ -72,7 +73,7 @@
                          AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
 

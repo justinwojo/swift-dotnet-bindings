@@ -397,6 +397,12 @@ public static class CrossModuleExtensionEmitter
 
         var nativeMethodName = GetNativeMethodName(method);
 
+        // Cross-module extension P/Invokes always use CallConvSwift because both paths
+        // use swiftcc: direct Swift symbols inherently use swiftcc, and wrapper library
+        // functions use @_silgen_name (which preserves swiftcc, unlike @_cdecl).
+        // SwiftSelf and SwiftIndirectResult only map to correct registers under swiftcc.
+        var methodCallingConvention = PInvokeCallingConvention.Swift;
+
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
             LibraryPath = libPath,
@@ -404,6 +410,7 @@ public static class CrossModuleExtensionEmitter
             MethodName = nativeMethodName,
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
+            CallingConvention = methodCallingConvention,
             Visibility = PInvokeVisibility.Internal
         });
         csWriter.WriteLine();
@@ -447,6 +454,9 @@ public static class CrossModuleExtensionEmitter
 
             var nativeMethodName = GetNativeMethodName(method);
 
+            // Cross-module extension P/Invokes always use CallConvSwift — see method emission comment.
+            var callingConvention = PInvokeCallingConvention.Swift;
+
             PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
             {
                 LibraryPath = libPath,
@@ -454,6 +464,7 @@ public static class CrossModuleExtensionEmitter
                 MethodName = nativeMethodName,
                 ReturnType = pinvokeReturnType,
                 ParametersString = string.Join(", ", pinvokeParams),
+                CallingConvention = callingConvention,
                 Visibility = PInvokeVisibility.Internal
             });
             csWriter.WriteLine();
@@ -481,6 +492,9 @@ public static class CrossModuleExtensionEmitter
 
             var nativeMethodName = GetNativeMethodName(method);
 
+            // Cross-module extension P/Invokes always use CallConvSwift — see method emission comment.
+            var setterCallingConvention = PInvokeCallingConvention.Swift;
+
             PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
             {
                 LibraryPath = libPath,
@@ -488,6 +502,7 @@ public static class CrossModuleExtensionEmitter
                 MethodName = nativeMethodName,
                 ReturnType = "void",
                 ParametersString = string.Join(", ", pinvokeParams),
+                CallingConvention = setterCallingConvention,
                 Visibility = PInvokeVisibility.Internal
             });
             csWriter.WriteLine();

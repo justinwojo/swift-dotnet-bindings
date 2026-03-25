@@ -113,6 +113,14 @@
     </ItemGroup>
   </Target>
 
+  <!-- Embedded linker descriptor: preserves core types for NativeAOT trimming.
+       Automatically applied to consumer projects that reference this assembly. -->
+  <ItemGroup>
+    <EmbeddedResource Include="ILLink.Descriptors.xml">
+      <LogicalName>ILLink.Descriptors.xml</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- NuGet pack items: native dylibs, .targets, and README -->
   <ItemGroup>
     <None Include="../native/macos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/macos" />
