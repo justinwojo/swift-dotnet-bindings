@@ -82,6 +82,28 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
+        // ObjC bridge containers (Array/Dict/Set with ObjC-bridgeable elements) use nullable pointer ABI.
+        // The container is bridged to an ObjC collection (NSArray/NSDictionary/NSSet) on the Swift side.
+        if (_innerProjection.UsesObjCContainerBridge)
+        {
+            var innerPlan = _innerProjection.GetParameterPlan($"{paramName}Val");
+            var bridgeSetup = new List<MarshalStatement>();
+            var someBody = new List<MarshalStatement>();
+            someBody.AddRange(innerPlan.SetupStatements);
+            someBody.Add(new MarshalStatement.Line(
+                $"{paramName}Buffer = {innerPlan.PInvokeExpression};"));
+
+            bridgeSetup.Add(new MarshalStatement.Line($"IntPtr {paramName}Buffer = IntPtr.Zero;"));
+            bridgeSetup.Add(new MarshalStatement.Block(
+                $"if ({paramName} is {{ }} {paramName}Val)", someBody));
+
+            return new MarshalPlan
+            {
+                SetupStatements = bridgeSetup,
+                PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
         // Swift class types also use nullable pointer ABI (nil pointer = None, object pointer = Some).
         // Using SwiftOptional<IntPtr> would create Optional<Swift.Int> metadata (9 bytes) instead of
         // Optional<ClassName> (8 bytes), causing a PayloadBuffer assert on Mono.
@@ -196,6 +218,28 @@ public class OptionalProjection : ITypeProjection
                 ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
                 {
                     PInvokeExpression = $"(*(IntPtr*){resultName} == IntPtr.Zero ? null : {indirectBridgeCall})",
+                    RequiresUnsafe = true
+                },
+                _ => MarshalPlan.PassThrough(resultName)
+            };
+        }
+
+        // ObjC bridge containers: nullable pointer ABI. nil = IntPtr.Zero, Some = ObjC collection handle.
+        if (_innerProjection.UsesObjCContainerBridge)
+        {
+            var bridgeContainerConv = _innerProjection.GetReturnContainerConversion(resultName);
+            var innerPublicType = _innerProjection.PublicType;
+            var convExpr = bridgeContainerConv ?? $"({innerPublicType}){resultName}";
+            return strategy switch
+            {
+                ReturnStrategy.Direct => new MarshalPlan
+                {
+                    PInvokeExpression = $"({resultName} == IntPtr.Zero ? ({innerPublicType}?)null : {convExpr})"
+                },
+                ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
+                {
+                    PInvokeExpression = $"(*(IntPtr*){resultName} == IntPtr.Zero ? ({innerPublicType}?)null : " +
+                        $"{(_innerProjection.GetReturnContainerConversion($"*(IntPtr*){resultName}") ?? $"({innerPublicType})*(IntPtr*){resultName}")})",
                     RequiresUnsafe = true
                 },
                 _ => MarshalPlan.PassThrough(resultName)

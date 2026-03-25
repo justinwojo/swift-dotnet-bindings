@@ -387,12 +387,21 @@ public static class NativeThunkEmitter
             if (env.TypeDatabase.TryGetTypeRecord(spec, out var record)
                 && MarshallingHelpers.IsObjCBridgeable(record))
                 return true;
+            // ObjC-bridgeable containers ([URL], [String: URL], Set<URL>) also need @_cdecl wrappers
+            if (CdeclParamMapper.IsObjCBridgeableContainer(spec, env.TypeDatabase) ||
+                CdeclParamMapper.IsOptionalObjCBridgeableContainer(arg.SwiftTypeSpec, env.TypeDatabase))
+                return true;
         }
         // Check return type (unwrap Optional<T> to check inner type)
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
         var unwrappedReturn = MarshallingHelpers.UnwrapOptionalTypeSpec(returnSpec) ?? returnSpec;
         if (!unwrappedReturn.IsEmptyTuple && env.TypeDatabase.TryGetTypeRecord(unwrappedReturn, out var retRecord)
             && MarshallingHelpers.IsObjCBridgeable(retRecord))
+            return true;
+        // ObjC-bridgeable container returns also need @_cdecl wrappers
+        if (!returnSpec.IsEmptyTuple &&
+            (CdeclParamMapper.IsObjCBridgeableContainer(returnSpec, env.TypeDatabase) ||
+             CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnSpec, env.TypeDatabase)))
             return true;
         return false;
     }

@@ -499,6 +499,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            // ObjC-bridgeable container accessor (e.g., [URL], [String: URL], Set<URL>):
+            // The P/Invoke returns IntPtr (ObjC collection handle via ClassPointer ABI).
+            // The accessor helper returns raw IntPtr, PropertyHandler applies NSArray/NSDictionary/NSSet conversion.
+            if (_env.MethodDecl.IsAccessor &&
+                (CdeclParamMapper.IsObjCBridgeableContainer(argument.SwiftTypeSpec, _env.TypeDatabase) ||
+                 CdeclParamMapper.IsOptionalObjCBridgeableContainer(argument.SwiftTypeSpec, _env.TypeDatabase)))
+            {
+                SetReturnType("IntPtr");
+                return;
+            }
+
             // Fallback: bound generic return types that the factory couldn't project.
             // Covers two cases:
             //   1. Accessors: factory skipped by ShouldSkipProjectionForAccessor to preserve raw ABI types
@@ -634,6 +645,16 @@ namespace BindingsGeneration
                 // Optional<ObjC> accessor setter: use IntPtr (nullable pointer ABI).
                 // PropertyHandler passes `value.Handle` or `IntPtr.Zero`.
                 if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argument.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    AddParameter("IntPtr", csParamName);
+                    continue;
+                }
+
+                // ObjC-bridgeable container accessor setter (e.g., [URL], [String: URL], Set<URL>):
+                // PropertyHandler passes the ObjC collection handle as IntPtr.
+                if (_env.MethodDecl.IsAccessor &&
+                    (CdeclParamMapper.IsObjCBridgeableContainer(argument.SwiftTypeSpec, _env.TypeDatabase) ||
+                     CdeclParamMapper.IsOptionalObjCBridgeableContainer(argument.SwiftTypeSpec, _env.TypeDatabase)))
                 {
                     AddParameter("IntPtr", csParamName);
                     continue;

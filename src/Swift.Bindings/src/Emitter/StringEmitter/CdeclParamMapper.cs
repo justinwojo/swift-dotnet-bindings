@@ -191,6 +191,27 @@ public static class CdeclParamMapper
             }
         }
 
+        // Containers with ObjC-bridgeable elements: bridge entire container to ObjC collection.
+        // The @_cdecl wrapper receives an ObjC collection pointer (NSArray, NSDictionary, NSSet)
+        // and casts it back to the typed Swift collection via _ObjectiveCBridgeable.
+        if (IsObjCBridgeableContainer(swiftTypeSpec, env.TypeDatabase))
+        {
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+            return ($"_ {label}: UnsafeMutableRawPointer",
+                    $"let {label}Val: {swiftType} = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
+                    $"{argLabel}{label}Val");
+        }
+
+        // Optional<container with ObjC-bridgeable elements>: nullable ObjC collection pointer.
+        if (IsOptionalObjCBridgeableContainer(swiftTypeSpec, env.TypeDatabase))
+        {
+            var innerSpec = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
+            var swiftInnerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            return ($"_ {label}: UnsafeMutableRawPointer?",
+                    $"let {label}Val: {swiftInnerType}? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {swiftInnerType} }}",
+                    $"{argLabel}{label}Val");
+        }
+
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))
@@ -452,6 +473,48 @@ public static class CdeclParamMapper
             return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks whether a type spec is a container (Array, Dictionary, Set) whose leaf elements
+    /// include at least one ObjC-bridgeable type. These containers cross the @_cdecl boundary
+    /// as ObjC collection pointers (NSArray, NSDictionary, NSSet) via Swift's _ObjectiveCBridgeable.
+    /// </summary>
+    internal static bool IsObjCBridgeableContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec named || named.GenericParameters.Count == 0)
+            return false;
+
+        if (named.Name == "Swift.Array" && named.GenericParameters.Count == 1)
+            return HasObjCBridgeableLeafElement(named.GenericParameters[0], typeDatabase);
+        if (named.Name == "Swift.Dictionary" && named.GenericParameters.Count == 2)
+            return HasObjCBridgeableLeafElement(named.GenericParameters[0], typeDatabase) ||
+                   HasObjCBridgeableLeafElement(named.GenericParameters[1], typeDatabase);
+        if (named.Name == "Swift.Set" && named.GenericParameters.Count == 1)
+            return HasObjCBridgeableLeafElement(named.GenericParameters[0], typeDatabase);
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a type spec is Optional wrapping a container with ObjC-bridgeable elements.
+    /// E.g., Optional&lt;Array&lt;Foundation.URL&gt;&gt; → nullable ObjC collection pointer at @_cdecl boundary.
+    /// </summary>
+    internal static bool IsOptionalObjCBridgeableContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec optSpec || optSpec.Name != "Swift.Optional" || optSpec.GenericParameters.Count != 1)
+            return false;
+        return IsObjCBridgeableContainer(optSpec.GenericParameters[0], typeDatabase);
+    }
+
+    /// <summary>
+    /// Checks whether a type spec is an ObjC-bridgeable type or a container with ObjC-bridgeable elements (recursive).
+    /// </summary>
+    private static bool HasObjCBridgeableLeafElement(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is NamedTypeSpec named && typeDatabase.TryGetTypeRecord(named, out var record))
+            return MarshallingHelpers.IsObjCBridgeable(record);
+        // Recurse into nested containers
+        return IsObjCBridgeableContainer(typeSpec, typeDatabase);
     }
 
     /// <summary>

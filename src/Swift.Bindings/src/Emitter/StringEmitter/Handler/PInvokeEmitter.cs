@@ -41,10 +41,12 @@ namespace BindingsGeneration
                 }
                 else if (_env.MethodDecl.UsesCdeclWrapper &&
                     _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) &&
-                    MethodWrapperEmitter.IsSupportedCollectionType(returnType.SwiftTypeSpec))
+                    MethodWrapperEmitter.IsSupportedCollectionType(returnType.SwiftTypeSpec) &&
+                    !CdeclParamMapper.IsObjCBridgeableContainer(returnType.SwiftTypeSpec, _env.TypeDatabase))
                 {
-                    // @_cdecl collection returns (Array, Dict, Set): fall through to IndirectResult path.
+                    // @_cdecl non-ObjC collection returns (Array, Dict, Set): fall through to IndirectResult path.
                     // Swift wrapper writes to resultPtr via initializeMemory(as:).
+                    // ObjC-bridgeable containers use ClassPointer return (UnsafeMutableRawPointer) instead.
                 }
                 else
                 {

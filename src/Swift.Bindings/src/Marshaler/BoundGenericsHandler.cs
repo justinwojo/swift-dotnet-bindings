@@ -469,6 +469,14 @@ public class BoundGenericsHandler
         if (typeSpec is not NamedTypeSpec namedTypeSpec || !namedTypeSpec.ContainsGenericParameters)
             return false;
 
+        // ObjC-bridgeable containers (e.g., [URL], [String: URL], Set<URL>, [[URL]])
+        // bypass the ISwiftObject check entirely — the whole container bridges to its ObjC
+        // collection counterpart at the @_cdecl boundary, so SwiftArray<T>/SwiftDictionary<K,V>
+        // are never created and ISwiftObject conformance is irrelevant.
+        if (CdeclParamMapper.IsObjCBridgeableContainer(namedTypeSpec, _typeDatabase) ||
+            CdeclParamMapper.IsOptionalObjCBridgeableContainer(namedTypeSpec, _typeDatabase))
+            return false;
+
         // Swift.Optional (SwiftOptional<T>) has no ISwiftObject constraint on T,
         // so tuples are valid generic args. All other emitted generics have
         // 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
@@ -838,6 +846,14 @@ public class BoundGenericsHandler
         switch (typeSpec)
         {
             case NamedTypeSpec namedTypeSpec:
+                // ObjC-bridgeable containers (e.g., [URL], [String: URL], Set<URL>, [[URL]])
+                // bypass constraint validation entirely — the whole container bridges to its ObjC
+                // collection counterpart (NSArray/NSDictionary/NSSet) at the @_cdecl boundary,
+                // so we never create SwiftArray<T>/SwiftDictionary<K,V> and ISwiftObject is irrelevant.
+                if (CdeclParamMapper.IsObjCBridgeableContainer(namedTypeSpec, _typeDatabase) ||
+                    CdeclParamMapper.IsOptionalObjCBridgeableContainer(namedTypeSpec, _typeDatabase))
+                    return false;
+
                 if (namedTypeSpec.ContainsGenericParameters &&
                     TryValidateGenericTypeConstraints(namedTypeSpec, moduleDecl, parentTypeGenericParams, methodGenericParams, out details))
                 {

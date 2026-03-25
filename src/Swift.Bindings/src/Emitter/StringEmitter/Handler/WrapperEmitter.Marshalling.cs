@@ -176,6 +176,19 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // ObjC-bridgeable container accessor setter (e.g., [URL], [String: URL], Set<URL>):
+                // Parameter is already IntPtr (ObjC collection handle from PropertyHandler conversion).
+                // Just alias to the buffer name that the P/Invoke expects.
+                if (_env.MethodDecl.IsAccessor &&
+                    (CdeclParamMapper.IsObjCBridgeableContainer(argumentDecl.SwiftTypeSpec, _env.TypeDatabase) ||
+                     CdeclParamMapper.IsOptionalObjCBridgeableContainer(argumentDecl.SwiftTypeSpec, _env.TypeDatabase)))
+                {
+                    var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                    csWriter.WriteLine($"IntPtr {bufferName} = {csName};");
+                    continue;
+                }
+
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(argumentDecl))
                 {
                     var csName = NameProvider.GetCSharpParameterName(argumentDecl);
@@ -443,13 +456,25 @@ namespace BindingsGeneration
                 }
             }
 
+            // Accessor setter with ObjC bridge container: parameter is already IntPtr (ObjC handle).
+            // Just alias it to {name}Buffer for the P/Invoke call naming convention.
+            if (_env.MethodDecl.IsAccessor && projection.UsesObjCContainerBridge &&
+                (projection is ArrayProjection or DictionaryProjection or SetProjection or OptionalProjection))
+            {
+                csWriter.WriteLine($"IntPtr {csName}Buffer = {csName};");
+                return true;
+            }
+
             var plan = projection.GetParameterPlan(csName);
 
             // @_cdecl wrapper: collection params (Array, Dictionary, Set) pass a pointer to the
             // container value via UnsafeRawPointer. Swift does .load(as: T.self) from the pointer.
             // Use DangerousGetHandle (pointer TO value) instead of PayloadBuffer (dereferenced value).
+            // Exception: ObjC bridge containers already produce the correct handle expression
+            // (e.g., NSArray.Handle) — the SwiftArray override would generate invalid code.
             if (_env.MethodDecl.UsesCdeclWrapper &&
-                (projection is ArrayProjection or DictionaryProjection or SetProjection))
+                (projection is ArrayProjection or DictionaryProjection or SetProjection) &&
+                !projection.UsesObjCContainerBridge)
             {
                 CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, csName);
                 return true;

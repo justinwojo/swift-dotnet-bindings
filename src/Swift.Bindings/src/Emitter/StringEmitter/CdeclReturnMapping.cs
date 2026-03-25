@@ -54,6 +54,15 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (CdeclParamMapper.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
+        // Containers with ObjC-bridgeable elements: return as ObjC collection pointer.
+        // Swift's _ObjectiveCBridgeable bridges the entire container (e.g., [URL] → NSArray).
+        if (CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, typeDatabase))
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+
+        // Optional<container with ObjC-bridgeable elements>: nullable ObjC collection pointer.
+        if (CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, typeDatabase))
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+
         // Generic containers (Optional, Array, etc.): need result pointer
         if (CdeclParamMapper.IsGenericContainerType(typeSpec))
             return (new CdeclReturnMapping("Void", CdeclReturnKind.IndirectResult), true);

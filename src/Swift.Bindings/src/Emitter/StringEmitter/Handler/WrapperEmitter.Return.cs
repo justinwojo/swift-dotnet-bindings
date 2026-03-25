@@ -333,6 +333,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Accessor-only: ObjC-bridgeable container (e.g., [URL], [String: URL], Set<URL>) —
+            // P/Invoke returns IntPtr (ObjC collection handle via ClassPointer ABI).
+            // Just return the raw IntPtr; PropertyHandler applies NSArray/NSDictionary/NSSet conversion.
+            if (_env.MethodDecl.IsAccessor &&
+                (CdeclParamMapper.IsObjCBridgeableContainer(returnArg.SwiftTypeSpec, _env.TypeDatabase) ||
+                 CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
+            {
+                csWriter.WriteLine("return result;");
+                return;
+            }
+
             // Accessor-only: Optional-existential returns — P/Invoke returns IntPtr for Optional<existential>,
             // marshal to SwiftOptional<Container> first.
             if (_env.MethodDecl.IsAccessor && _env.ExistentialHandler.IsOptionalExistential(returnArg.SwiftTypeSpec))

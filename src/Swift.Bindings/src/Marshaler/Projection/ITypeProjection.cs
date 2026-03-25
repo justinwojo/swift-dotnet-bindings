@@ -116,6 +116,15 @@ public interface ITypeProjection
     string MarshalFromSwiftType => SwiftContainerGenericType;
 
     /// <summary>
+    /// When true, signals that this projection uses ObjC container bridge semantics.
+    /// For element projections (e.g., ObjCBridgeableProjection): tells container projections
+    /// to use whole-container ObjC bridge (NSArray/NSDictionary/NSSet) instead of SwiftArray&lt;T&gt; pipeline.
+    /// For container projections: tells OptionalProjection and parent containers to use nullable
+    /// pointer ABI instead of SwiftOptional wrapper.
+    /// </summary>
+    bool UsesObjCContainerBridge => false;
+
+    /// <summary>
     /// Accepts a projection visitor for compile-time exhaustive dispatch.
     /// Each concrete projection implements this with <c>visitor.Visit(this)</c>.
     /// </summary>

@@ -152,8 +152,10 @@ namespace BindingsGeneration
                 return true;
 
             // Optional<value-type>: @_cdecl can't return generics directly.
+            // Exception: Optional<ObjC-bridgeable container> (e.g., [URL]?) returns as nullable ObjC pointer.
             if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
-                !CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                !CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase) &&
+                !CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 
             // Closure returns: @_cdecl can't return closures directly — write to resultPtr buffer.
@@ -162,9 +164,11 @@ namespace BindingsGeneration
 
             // Bound generic collection returns (Array, Dictionary, Set): @_cdecl can't return
             // generics directly. Swift wrapper writes to resultPtr via initializeMemory(as:).
+            // Exception: ObjC-bridgeable containers (e.g., [URL]) return as retained ObjC pointer directly.
             if (env.BoundGenericsHandler.IsBoundGeneric(returnTypeForCdecl) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnTypeForCdecl) &&
-                MethodWrapperEmitter.IsSupportedCollectionType(returnTypeForCdecl.SwiftTypeSpec))
+                MethodWrapperEmitter.IsSupportedCollectionType(returnTypeForCdecl.SwiftTypeSpec) &&
+                !CdeclParamMapper.IsObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 
             // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.

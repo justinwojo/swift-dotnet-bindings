@@ -40,6 +40,12 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) ArrayGetterConversion(ArrayProjection arr, string resultExpr)
     {
+        // ObjC bridge: resultExpr is IntPtr (NSArray handle) — convert to typed list
+        if (arr.UsesObjCContainerBridge)
+        {
+            var conv = arr.GetReturnContainerConversion(resultExpr);
+            return (conv, false);
+        }
         var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
         if (elemConv != null)
             return ($"{resultExpr}.AsProjected(e => {elemConv})", false);
@@ -48,6 +54,13 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) DictGetterConversion(DictionaryProjection dict, string resultExpr)
     {
+        // ObjC bridge: resultExpr is IntPtr (NSDictionary handle) — convert to typed dictionary
+        if (dict.UsesObjCContainerBridge)
+        {
+            var conv = dict.GetReturnContainerConversion(resultExpr);
+            return (conv, false);
+        }
+
         var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
         var valConv = dict.ValueProjection.GetReturnElementConversion("v");
         if (keyConv == null && valConv == null)
@@ -69,6 +82,12 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) SetGetterConversion(SetProjection set, string resultExpr)
     {
+        // ObjC bridge: resultExpr is IntPtr (NSSet handle) — convert to typed HashSet
+        if (set.UsesObjCContainerBridge)
+        {
+            var conv = set.GetReturnContainerConversion(resultExpr);
+            return (conv, false);
+        }
         var elemConv = set.ElementProjection.GetReturnElementConversion("e");
         if (elemConv != null)
             return ($"{resultExpr}.Select(e => {elemConv}).ToHashSet()", true);
@@ -83,6 +102,14 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     internal static (string?, bool) OptionalContainerGetterConversion(
         ITypeProjection innerContainer, string resultExpr)
     {
+        // ObjC bridge containers use nullable pointer ABI — resultExpr is IntPtr (0 for nil).
+        if (innerContainer.UsesObjCContainerBridge)
+        {
+            var idiomaticType = innerContainer.PublicType;
+            var conv = innerContainer.GetReturnContainerConversion(resultExpr);
+            return ($"({resultExpr} == IntPtr.Zero ? ({idiomaticType}?)null : {conv})", false);
+        }
+
         var innerHasConversion = innerContainer switch
         {
             ArrayProjection arr => arr.ElementProjection.GetReturnElementConversion("e") != null,
@@ -91,11 +118,11 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
             SetProjection set => set.ElementProjection.GetReturnElementConversion("e") != null,
             _ => false
         };
-        var idiomaticType = innerContainer.PublicType;
+        var idiomaticTypeStd = innerContainer.PublicType;
         var someExpr = innerHasConversion
             ? innerContainer.GetReturnContainerConversion($"{resultExpr}.Some") ?? $"{resultExpr}.Some"
             : $"{resultExpr}.Some";
-        return ($"({resultExpr}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticType}?)null : {someExpr})", true);
+        return ($"({resultExpr}.Case == Swift.SwiftOptionalCases.None ? ({idiomaticTypeStd}?)null : {someExpr})", true);
     }
 }
 
@@ -194,6 +221,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) ArraySetterConversion(ArrayProjection arr, string valueExpr)
     {
+        // ObjC bridge: create NSArray from elements and use its Handle
+        if (arr.UsesObjCContainerBridge)
+            return ($"Foundation.NSArray.FromNSObjects({valueExpr}.ToArray()).Handle", false);
+
         var rawElem = arr.ElementProjection.MarshalFromSwiftType;
         var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
@@ -205,6 +236,16 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) DictSetterConversion(DictionaryProjection dict, string valueExpr)
     {
+        // ObjC bridge: create NSDictionary inline from key-value pairs and return Handle.
+        // Must be a single expression (no multi-statement plan) because accessor setters
+        // inline the conversion in the property body (e.g., set => Method_Set(conversion)).
+        if (dict.UsesObjCContainerBridge)
+        {
+            var keyToNS = DictionaryProjection.ToNSObject(dict.KeyProjection, "kvp.Key");
+            var valToNS = DictionaryProjection.ToNSObject(dict.ValueProjection, "kvp.Value");
+            return ($"Foundation.NSDictionary.FromObjectsAndKeys({valueExpr}.Select(kvp => {valToNS}).ToArray(), {valueExpr}.Select(kvp => {keyToNS}).ToArray()).Handle", false);
+        }
+
         var rawK = dict.KeyProjection.MarshalFromSwiftType;
         var rawV = dict.ValueProjection.MarshalFromSwiftType;
         var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
@@ -224,6 +265,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) SetSetterConversion(SetProjection set, string valueExpr)
     {
+        // ObjC bridge: create NSSet from elements and use its Handle
+        if (set.UsesObjCContainerBridge)
+            return ($"new Foundation.NSSet({valueExpr}.ToArray()).Handle", false);
+
         var rawElem = set.ElementProjection.MarshalFromSwiftType;
         var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
@@ -246,6 +291,26 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return (null, false);
 
         var optType = inner.MarshalFromSwiftType;
+
+        // ObjC bridge containers use nullable pointer ABI — no SwiftOptional wrapper needed.
+        if (inner.UsesObjCContainerBridge)
+        {
+            if (inner is ArrayProjection arrBridge)
+            {
+                var (arrConv, _) = ArraySetterConversion(arrBridge, $"{valueExpr}Val");
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {arrConv} : IntPtr.Zero)", false);
+            }
+            if (inner is DictionaryProjection dictBridge)
+            {
+                var (dictConv, _) = DictSetterConversion(dictBridge, $"{valueExpr}Val");
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {dictConv} : IntPtr.Zero)", false);
+            }
+            if (inner is SetProjection setBridge)
+            {
+                var (setConv, _) = SetSetterConversion(setBridge, $"{valueExpr}Val");
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {setConv} : IntPtr.Zero)", false);
+            }
+        }
 
         // Container inner (Array, Dictionary, Set) — wrap with full container creation
         if (inner is ArrayProjection arr)

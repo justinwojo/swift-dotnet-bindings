@@ -23,6 +23,12 @@ public class SetProjection : ITypeProjection
 
     public ITypeProjection ElementProjection => _elementProjection;
 
+    /// <summary>
+    /// True when element projection uses ObjC container bridge — the entire set
+    /// crosses the @_cdecl boundary as an NSSet pointer instead of SwiftSet&lt;T&gt;.
+    /// </summary>
+    public bool UsesObjCContainerBridge => _elementProjection.UsesObjCContainerBridge;
+
     public string PublicType => _isParameter
         ? $"IEnumerable<{_elementProjection.PublicType}>"
         : $"IReadOnlySet<{_elementProjection.PublicType}>";
@@ -86,6 +92,10 @@ public class SetProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // ObjC bridge path: create NSSet from elements and pass ObjC handle
+        if (UsesObjCContainerBridge)
+            return BuildObjCBridgeParameterPlan(paramName);
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
 
         // Wrap in Using for ownership + PayloadBuffer extraction
@@ -105,6 +115,9 @@ public class SetProjection : ITypeProjection
 
     public MarshalPlan? GetContainerCreationPlan(string paramName)
     {
+        if (UsesObjCContainerBridge)
+            return null;
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
         return new MarshalPlan
         {
@@ -115,6 +128,18 @@ public class SetProjection : ITypeProjection
 
     public string? GetReturnContainerConversion(string containerVar)
     {
+        // ObjC bridge: convert NSSet handle to typed HashSet (used by OptionalProjection)
+        if (UsesObjCContainerBridge)
+        {
+            var elemPublicType = _elementProjection.PublicType;
+            var elemConv = MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true);
+            return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
+                   $"var _nsSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({containerVar})!; " +
+                   $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
+                   $"foreach (var _nsObj in _nsSet) _set.Add({elemConv}); " +
+                   $"return _set; }}))()";
+        }
+
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         if (elemConversion != null)
             return $"{containerVar}.Select(e => {elemConversion}).ToHashSet()";
@@ -124,6 +149,10 @@ public class SetProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        // ObjC bridge path: IntPtr is an NSSet handle — extract typed elements
+        if (UsesObjCContainerBridge)
+            return BuildObjCBridgeReturnPlan(resultName);
+
         var rawElem = _elementProjection.MarshalFromSwiftType;
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
 
@@ -154,6 +183,9 @@ public class SetProjection : ITypeProjection
 
     public string? GetParameterElementConversion(string elementVar)
     {
+        if (UsesObjCContainerBridge)
+            return $"new Foundation.NSSet({elementVar}.ToArray())";
+
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
         if (elemConversion != null)
@@ -163,13 +195,62 @@ public class SetProjection : ITypeProjection
 
     public string? GetReturnElementConversion(string elementVar)
     {
+        if (UsesObjCContainerBridge)
+        {
+            var elemPublicType = _elementProjection.PublicType;
+            var elemConv = MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true);
+            return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
+                   $"var _nsSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({elementVar})!; " +
+                   $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
+                   $"foreach (var _nsObj in _nsSet) _set.Add({elemConv}); " +
+                   $"return _set; }}))()";
+        }
+
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         if (elemConversion != null)
             return $"{elementVar}.Select(e => {elemConversion}).ToHashSet()";
         return null;
     }
 
-    public bool ElementRequiresDisposal => true;
+    public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
+
+    // --- ObjC bridge helpers ---
+
+    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    {
+        var setup = new List<MarshalStatement>
+        {
+            new MarshalStatement.Line(
+                $"var {paramName}NSSet = new Foundation.NSSet({paramName}.ToArray());"),
+            new MarshalStatement.Line(
+                $"IntPtr {paramName}Buffer = {paramName}NSSet.Handle;")
+        };
+        return new MarshalPlan
+        {
+            SetupStatements = setup,
+            PInvokeExpression = $"{paramName}Buffer"
+        };
+    }
+
+    private MarshalPlan BuildObjCBridgeReturnPlan(string resultName)
+    {
+        var elemPublicType = _elementProjection.PublicType;
+        // NSSet received as ObjC pointer → HashSet<T>
+        // Use NSArray.ArrayFromHandle via intermediate (NSSet doesn't have typed extraction)
+        return new MarshalPlan
+        {
+            SetupStatements = new List<MarshalStatement>
+            {
+                new MarshalStatement.Line(
+                    $"var {resultName}NSSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({resultName})!;"),
+                new MarshalStatement.Line(
+                    $"var {resultName}Set = new System.Collections.Generic.HashSet<{elemPublicType}>();"),
+                new MarshalStatement.Line(
+                    $"foreach (var _nsObj in {resultName}NSSet) {resultName}Set.Add({MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true)});")
+            },
+            PInvokeExpression = $"{resultName}Set"
+        };
+    }
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;

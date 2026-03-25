@@ -24,6 +24,12 @@ public class ArrayProjection : ITypeProjection
     /// <summary>The inner element projection for composition.</summary>
     public ITypeProjection ElementProjection => _elementProjection;
 
+    /// <summary>
+    /// True when element projection uses ObjC container bridge — the entire array
+    /// crosses the @_cdecl boundary as an NSArray pointer instead of SwiftArray&lt;T&gt;.
+    /// </summary>
+    public bool UsesObjCContainerBridge => _elementProjection.UsesObjCContainerBridge;
+
     public string PublicType => _isParameter
         ? $"IEnumerable<{_elementProjection.PublicType}>"
         : $"IReadOnlyList<{_elementProjection.PublicType}>";
@@ -95,6 +101,12 @@ public class ArrayProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // ObjC bridge path: create NSArray from elements and pass ObjC handle
+        if (UsesObjCContainerBridge)
+        {
+            return BuildObjCBridgeParameterPlan(paramName);
+        }
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
 
         // Wrap in Using for ownership + PayloadBuffer extraction
@@ -114,6 +126,10 @@ public class ArrayProjection : ITypeProjection
 
     public MarshalPlan? GetContainerCreationPlan(string paramName)
     {
+        // ObjC bridge: not used (no SwiftArray creation needed)
+        if (UsesObjCContainerBridge)
+            return null;
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
         return new MarshalPlan
         {
@@ -124,6 +140,13 @@ public class ArrayProjection : ITypeProjection
 
     public string? GetReturnContainerConversion(string containerVar)
     {
+        // ObjC bridge: convert NSArray to typed list (used by OptionalProjection)
+        if (UsesObjCContainerBridge)
+        {
+            var objcElemType = GetObjCElementType();
+            return $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({containerVar})";
+        }
+
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         var selector = elemConversion != null
             ? $"e => {elemConversion}"
@@ -133,6 +156,12 @@ public class ArrayProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        // ObjC bridge path: IntPtr is an NSArray handle — extract typed elements
+        if (UsesObjCContainerBridge)
+        {
+            return BuildObjCBridgeReturnPlan(resultName, strategy);
+        }
+
         // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
         // (not IntPtr) for MarshalFromSwift to construct instances via ISwiftObject.NewFromPayload.
         var rawElem = _elementProjection.MarshalFromSwiftType;
@@ -164,6 +193,10 @@ public class ArrayProjection : ITypeProjection
 
     public string? GetParameterElementConversion(string elementVar)
     {
+        // ObjC bridge: convert IEnumerable<T> → NSArray (as NSObject for parent container)
+        if (UsesObjCContainerBridge)
+            return $"Foundation.NSArray.FromNSObjects({elementVar}.ToArray())";
+
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
         if (elemConversion != null)
@@ -173,15 +206,85 @@ public class ArrayProjection : ITypeProjection
 
     public string? GetReturnElementConversion(string elementVar)
     {
+        // ObjC bridge: convert NSArray (received as NSObject from parent) → IReadOnlyList<T>
+        if (UsesObjCContainerBridge)
+        {
+            var objcElemType = GetObjCElementType();
+            return $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({elementVar}.Handle)";
+        }
+
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         var selector = elemConversion != null ? $"e => {elemConversion}" : "e => e";
         return $"{elementVar}.AsProjected({selector})";
     }
 
-    public bool ElementRequiresDisposal => true;
+    public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
+
+    // --- ObjC bridge helpers ---
+
+    /// <summary>
+    /// Gets the ObjC/.NET type for elements when extracted from an NSArray.
+    /// For ObjCBridgeable elements (NSUrl): returns the element's public type.
+    /// For nested ObjC bridge containers: returns the ObjC collection type (NSArray, etc.).
+    /// </summary>
+    private string GetObjCElementType()
+    {
+        if (_elementProjection is ObjCBridgeableProjection)
+            return _elementProjection.PublicType;
+        if (_elementProjection is ArrayProjection { UsesObjCContainerBridge: true })
+            return "Foundation.NSArray";
+        if (_elementProjection is DictionaryProjection { UsesObjCContainerBridge: true })
+            return "Foundation.NSDictionary";
+        if (_elementProjection is SetProjection { UsesObjCContainerBridge: true })
+            return "Foundation.NSSet";
+        return _elementProjection.PublicType;
+    }
+
+    /// <summary>
+    /// ObjC bridge parameter plan: create NSArray from C# elements and pass the ObjC handle.
+    /// </summary>
+    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    {
+        var setup = new List<MarshalStatement>
+        {
+            new MarshalStatement.Line(
+                $"var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.ToArray());"),
+            new MarshalStatement.Line(
+                $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
+        };
+        return new MarshalPlan
+        {
+            SetupStatements = setup,
+            PInvokeExpression = $"{paramName}Buffer"
+        };
+    }
+
+    /// <summary>
+    /// ObjC bridge return plan: receive NSArray handle, extract typed elements.
+    /// </summary>
+    private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
+    {
+        var objcElemType = GetObjCElementType();
+        var arrayFromHandle = $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({resultName})";
+
+        // For nested containers, apply inner element conversion
+        if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && _elementProjection.UsesObjCContainerBridge)
+        {
+            var innerConv = _elementProjection.GetReturnElementConversion("e");
+            if (innerConv != null)
+                arrayFromHandle = $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({resultName}).Select(e => {innerConv}).ToList()";
+        }
+
+        // ObjC bridge returns as ClassPointer (direct IntPtr), not IndirectResult
+        return new MarshalPlan
+        {
+            PInvokeExpression = arrayFromHandle
+        };
+    }
 }

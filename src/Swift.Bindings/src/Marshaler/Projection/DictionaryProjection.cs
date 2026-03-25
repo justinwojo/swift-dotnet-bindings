@@ -29,6 +29,13 @@ public class DictionaryProjection : ITypeProjection
     /// <summary>The inner value projection.</summary>
     public ITypeProjection ValueProjection => _valueProjection;
 
+    /// <summary>
+    /// True when key or value projection uses ObjC container bridge — the entire dictionary
+    /// crosses the @_cdecl boundary as an NSDictionary pointer instead of SwiftDictionary&lt;K,V&gt;.
+    /// </summary>
+    public bool UsesObjCContainerBridge =>
+        _keyProjection.UsesObjCContainerBridge || _valueProjection.UsesObjCContainerBridge;
+
     public string PublicType => _isParameter
         ? $"IDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>"
         : $"IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>";
@@ -110,6 +117,10 @@ public class DictionaryProjection : ITypeProjection
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
+        // ObjC bridge path: create NSDictionary from elements and pass ObjC handle
+        if (UsesObjCContainerBridge)
+            return BuildObjCBridgeParameterPlan(paramName);
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
 
         setup.Add(new MarshalStatement.Using(
@@ -128,6 +139,9 @@ public class DictionaryProjection : ITypeProjection
 
     public MarshalPlan? GetContainerCreationPlan(string paramName)
     {
+        if (UsesObjCContainerBridge)
+            return null;
+
         var (setup, containerExpr) = BuildContainerSetup(paramName);
         return new MarshalPlan
         {
@@ -138,6 +152,10 @@ public class DictionaryProjection : ITypeProjection
 
     public string? GetReturnContainerConversion(string containerVar)
     {
+        // ObjC bridge: convert NSDictionary handle to typed dictionary (used by OptionalProjection)
+        if (UsesObjCContainerBridge)
+            return BuildObjCBridgeReturnExpression(containerVar);
+
         var keyConv = _keyProjection.GetReturnElementConversion("k");
         var valConv = _valueProjection.GetReturnElementConversion("v");
         return $"{containerVar}{BuildAsProjected(keyConv, valConv)}";
@@ -145,6 +163,10 @@ public class DictionaryProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        // ObjC bridge path: IntPtr is an NSDictionary handle — extract typed key-value pairs
+        if (UsesObjCContainerBridge)
+            return BuildObjCBridgeReturnPlan(resultName, strategy);
+
         // Use MarshalFromSwiftType for return — classes/non-frozen structs need the real type name
         var rawK = _keyProjection.MarshalFromSwiftType;
         var rawV = _valueProjection.MarshalFromSwiftType;
@@ -209,8 +231,103 @@ public class DictionaryProjection : ITypeProjection
         return $"{elementVar}.ToDictionary(kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
     }
 
+    public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
+
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
+
+    // --- ObjC bridge helpers ---
+
+    /// <summary>
+    /// Converts a C# element to an NSObject for NSDictionary construction.
+    /// </summary>
+    internal static string ToNSObject(ITypeProjection projection, string elementVar)
+    {
+        if (projection is ObjCBridgeableProjection)
+            return elementVar; // Already NSObject
+        if (projection is StringProjection)
+            return $"new Foundation.NSString({elementVar})";
+        if (projection is DataProjection)
+            return $"Foundation.NSData.FromArray({elementVar})";
+        return $"(Foundation.NSObject){elementVar}";
+    }
+
+    /// <summary>
+    /// Converts an NSObject from NSDictionary to the C# typed element.
+    /// </summary>
+    private static string FromNSObject(ITypeProjection projection, string nsObjectVar)
+    {
+        if (projection is ObjCBridgeableProjection bridgeable)
+            return MarshallingHelpers.FormatObjCBridgeCall(bridgeable.PublicType, $"{nsObjectVar}.Handle", nonNull: true);
+        if (projection is StringProjection)
+            return $"{nsObjectVar}.ToString()";
+        if (projection is DataProjection)
+            return $"((Foundation.NSData){nsObjectVar}).ToArray()";
+        return $"({projection.PublicType}){nsObjectVar}";
+    }
+
+    /// <summary>
+    /// ObjC bridge parameter plan: create NSDictionary from C# key-value pairs.
+    /// </summary>
+    private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
+    {
+        var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
+        var valToNS = ToNSObject(_valueProjection, "kvp.Value");
+        var setup = new List<MarshalStatement>
+        {
+            new MarshalStatement.Line(
+                $"var {paramName}Pairs = {paramName}.ToArray();"),
+            new MarshalStatement.Line(
+                $"var {paramName}Keys = {paramName}Pairs.Select(kvp => {keyToNS}).ToArray();"),
+            new MarshalStatement.Line(
+                $"var {paramName}Values = {paramName}Pairs.Select(kvp => {valToNS}).ToArray();"),
+            new MarshalStatement.Line(
+                $"var {paramName}NSDict = Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys);"),
+            new MarshalStatement.Line(
+                $"IntPtr {paramName}Buffer = {paramName}NSDict.Handle;")
+        };
+        return new MarshalPlan
+        {
+            SetupStatements = setup,
+            PInvokeExpression = $"{paramName}Buffer"
+        };
+    }
+
+    /// <summary>
+    /// ObjC bridge return plan: receive NSDictionary handle, extract typed key-value pairs.
+    /// </summary>
+    private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
+    {
+        return new MarshalPlan
+        {
+            SetupStatements = new List<MarshalStatement>
+            {
+                new MarshalStatement.Line(
+                    $"var {resultName}NSDict = ObjCRuntime.Runtime.GetNSObject<Foundation.NSDictionary>({resultName})!;"),
+                new MarshalStatement.Line(
+                    $"var {resultName}Dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int){resultName}NSDict.Count);"),
+                new MarshalStatement.Line(
+                    $"foreach (var _nsKey in {resultName}NSDict.Keys) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
+            },
+            PInvokeExpression = $"{resultName}Dict"
+        };
+    }
+
+    /// <summary>
+    /// Builds the ObjC bridge return expression for use by OptionalProjection.
+    /// The containerVar parameter is the IntPtr handle to the NSDictionary.
+    /// </summary>
+    private string BuildObjCBridgeReturnExpression(string containerVar)
+    {
+        var keyConv = FromNSObject(_keyProjection, "_nsKey");
+        var valConv = FromNSObject(_valueProjection, $"_nsDict.ObjectForKey(_nsKey)!");
+        // Inline dictionary construction using LINQ
+        return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
+               $"var _nsDict = ObjCRuntime.Runtime.GetNSObject<Foundation.NSDictionary>({containerVar})!; " +
+               $"var _dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int)_nsDict.Count); " +
+               $"foreach (var _nsKey in _nsDict.Keys) _dict[{keyConv}] = {valConv}; " +
+               $"return _dict; }}))()";
+    }
 }
