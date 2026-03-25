@@ -1855,9 +1855,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalObjCBridgedReadWriteProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalObjCBridgedStructReadWriteProperty_ReturnsFalse()
     {
-        // setter + ObjC → blocked due to IntPtr alias incompatibility
+        // ObjCBridged struct types (e.g., UIFont.Weight) — C# uses IntPtr alias, incompatible
+        // with UnsafeRawPointer.load(as:) reconstruction. Still blocked.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.UIImage", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -2111,6 +2112,157 @@ public class PropertyWrapperEmitterTests
         propertyDecl.IsSpiProtected = true;
 
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_OptionalObjCBridgedStructWithSetter_ReturnsRejection()
+    {
+        // ObjC-bridged struct Optional with setter IS rejected — CdeclParamMapper can't use
+        // nullable pointer ABI for struct types (Unmanaged<T> requires T: AnyObject).
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.UIFontWeight", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.UIFontWeight"));
+
+        var getterMethod = CreateAccessorMethod("getter:weight", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:weight", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "weight",
+            SwiftTypeSpec = optionalSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Equal("objc_bridged_struct_optional_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_OptionalObjCBridgedClassWithSetter_ReturnsNull()
+    {
+        // ObjC-bridged class Optional with setter is NOT rejected —
+        // CdeclParamMapper handles via nullable pointer ABI (UnsafeMutableRawPointer? + Unmanaged).
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.UIImage", TypeRecordFlags.ObjCBridged, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.UIImage"));
+
+        var getterMethod = CreateAccessorMethod("getter:image", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:image", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "image",
+            SwiftTypeSpec = optionalSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_OptionalObjCBridged_NullablePointerABI()
+    {
+        // ObjC-bridged class Optional setter uses UnsafeMutableRawPointer? with Unmanaged reconstruction
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
+            ("TestModule.UIImage", TypeRecordFlags.ObjCBridged, TypeRecordKind.Class));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.UIImage"));
+        var setterMethod = CreateAccessorMethod("setter:image", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "image",
+            SwiftTypeSpec = optionalSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Set_TestModule_MyType_image";
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ newValue: UnsafeMutableRawPointer?", output);
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! UIImage", output);
+        Assert.Contains("obj.image = newValueVal", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_OptionalClosure_FuncPtrAndContext()
+    {
+        // Optional<closure> setter uses funcPtr + context params with closure adapter
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var optionalClosureType = new NamedTypeSpec("Swift.Optional");
+        optionalClosureType.GenericParameters.Add(closureType);
+
+        var setterMethod = CreateAccessorMethod("setter:onAction", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "onAction",
+            SwiftTypeSpec = optionalClosureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Set_TestModule_MyType_onAction";
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        // Must have funcPtr + context params
+        Assert.Contains("_ newValueFuncPtr: UnsafeMutableRawPointer?", output);
+        Assert.Contains("_ newValueContext: UnsafeMutableRawPointer?", output);
+        // Must have optional closure adapter
+        Assert.Contains("_adapted_newValue", output);
+        Assert.Contains("@convention(c)", output);
+        // Must assign adapter to property
+        Assert.Contains("obj.onAction = _adapted_newValue", output);
     }
 
     #endregion

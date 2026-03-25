@@ -21,7 +21,7 @@ public static class PropertyWrapperEmitter
     /// Pure query: determines whether a property should use @_cdecl wrappers for its accessors.
     /// Guards: xcframework mode, generic parents (allowed for non-final classes with concrete types),
     /// no closures, no async, no non-copyable structs, no nested types,
-    /// no unsupported generic containers, no ObjC-bridged Optional setters.
+    /// no unsupported generic containers.
     /// </summary>
     public static bool ShouldEmitWrapper(PropertyDecl propertyDecl, MethodEnvironment accessorEnv)
     {
@@ -50,6 +50,16 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
             return false;
 
+        // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
+        //     (Layer 2 gate — same as method closures). Without this, the Swift adapter
+        //     passes non-primitive args directly to @convention(c) which expects raw pointers.
+        if (propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosure &&
+            optClosure.Name == "Swift.Optional" && optClosure.GenericParameters.Count == 1 &&
+            optClosure.GenericParameters[0] is ClosureTypeSpec closureInner &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any() &&
+            !ClosureEmitter.IsClosureCdeclCompatible(closureInner, accessorEnv.ClosureHandler))
+            return false;
+
         // 4. Skip async properties (own wrapper pattern)
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return false;
@@ -64,11 +74,13 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
 
-        // 9b. ObjC-bridged Optional accessor setter: C# aliases IntPtr directly, incompatible
-        //     with @_cdecl reconstruction. Getter is fine — PropertyHandler's ObjC conversion
-        //     is calling-convention agnostic.
+        // 9b. ObjC-bridged Optional setter — narrowed guard: only block types where
+        //     CdeclParamMapper can't use nullable pointer ABI (ObjCBridged struct types like
+        //     UIFont.Weight). ObjCBridgeable types (URL, etc.) and ObjCBridged classes pass
+        //     through — CdeclParamMapper handles them via UnsafeMutableRawPointer? + Unmanaged.
         if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
             MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
+            !WrapperValidation.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
 
@@ -110,6 +122,12 @@ public static class PropertyWrapperEmitter
             return "metatype_property";
         if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
             return "closure_property";
+        if (propertyDecl.SwiftTypeSpec is NamedTypeSpec rejOptClosure &&
+            rejOptClosure.Name == "Swift.Optional" && rejOptClosure.GenericParameters.Count == 1 &&
+            rejOptClosure.GenericParameters[0] is ClosureTypeSpec rejClosureInner &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any() &&
+            !ClosureEmitter.IsClosureCdeclCompatible(rejClosureInner, accessorEnv.ClosureHandler))
+            return "optional_closure_not_cdecl_compatible";
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return "async_property";
         if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
@@ -121,8 +139,9 @@ public static class PropertyWrapperEmitter
             return "unsupported_generic_container";
         if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
             MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
+            !WrapperValidation.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
-            return "objc_bridged_optional_setter";
+            return "objc_bridged_struct_optional_setter";
         if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
         {
             if (!(accessorEnv.ParentDecl is TypeDecl rejGenTd && rejGenTd.IsGeneric))
@@ -441,6 +460,20 @@ public static class PropertyWrapperEmitter
                         swiftParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
                         reconstructionLines.Add(OptionalMarshalClassifier.SwiftReconstructOptional(
                             OptionalMarshalClassifier.SwiftHasValueParam, "newValue", innerSwiftType, "newValueVal"));
+                    }
+                    else if (propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosureNts &&
+                             optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
+                             optClosureNts.GenericParameters[0] is ClosureTypeSpec closureSpec)
+                    {
+                        // Optional<closure> setter: accept funcPtr + context, adapt to Swift closure.
+                        // Same pattern as method closure parameters in MethodWrapperEmitter.
+                        swiftParams.Add("_ newValueFuncPtr: UnsafeMutableRawPointer?");
+                        swiftParams.Add("_ newValueContext: UnsafeMutableRawPointer?");
+
+                        var adapterLines = ClosureEmitter.GetSwiftClosureAdapterCode(
+                            "newValue", closureSpec, env.ClosureHandler, isOptional: true);
+                        reconstructionLines.AddRange(adapterLines);
+                        cdeclCallArgValueExpr = "_adapted_newValue";
                     }
                     else
                     {

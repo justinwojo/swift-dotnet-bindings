@@ -540,49 +540,46 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 {
                     bool isGetter = accessor is GetAccessorDecl;
 
-                    // Optional<closure> properties: only wrap the getter (IndirectResult buffer).
-                    // The setter uses callback thunks that require direct SwiftClosureData passing,
-                    // not the UnsafeRawPointer buffer transport used by @_cdecl param mapping.
+                    // Use nested type name (e.g., "OrderContainer.Status") not just leaf name ("Status")
+                    // to avoid @_cdecl collisions between nested types with the same name.
+                    var nestedTypeName = parentTypeDecl3.SwiftTypeName.ModuleQualifiedName
+                        .Substring(parentTypeDecl3.SwiftTypeName.Module.Length + 1);
+                    var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
+                        parentTypeDecl3.SwiftTypeName.Module,
+                        nestedTypeName,
+                        propertyDecl.Name,
+                        isGetter);
+
+                    accessor.Method.UsesCdeclPropertyWrapper = true;
+                    accessor.Method.UsesWrapperLibrary = true;
+                    accessor.Method.UsesFreeFunctionWrapper = true;
+                    accessor.Method.MangledName = symbol;
+
+                    // Optional<closure> setter: mark closure params for Cdecl marshalling
+                    // so PInvokeEmitter emits IntPtr funcPtr + IntPtr context params.
                     if (!isGetter && propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosureNts &&
                         optClosureNts.Name == "Swift.Optional" && optClosureNts.GenericParameters.Count == 1 &&
                         optClosureNts.GenericParameters[0] is ClosureTypeSpec)
                     {
-                        // Leave setter without @_cdecl wrapping — uses direct P/Invoke
+                        accessor.Method.HasClosureParams = true;
+                    }
+
+                    // Get the accessor env for emission
+                    var cdeclCheckEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+
+                    // Emit the Swift @_cdecl wrapper function
+                    if (isGetter)
+                    {
+                        PropertyWrapperEmitter.EmitSwiftGetterWrapper(
+                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
+
+                        // Emit invoke thunk for closure-returning property getters
+                        EmitPropertyClosureInvokeThunkIfNeeded(swiftWriter, propertyDecl, symbol, cdeclCheckEnv);
                     }
                     else
                     {
-                        // Use nested type name (e.g., "OrderContainer.Status") not just leaf name ("Status")
-                        // to avoid @_cdecl collisions between nested types with the same name.
-                        var nestedTypeName = parentTypeDecl3.SwiftTypeName.ModuleQualifiedName
-                            .Substring(parentTypeDecl3.SwiftTypeName.Module.Length + 1);
-                        var symbol = PropertyWrapperEmitter.GetAccessorSymbolName(
-                            parentTypeDecl3.SwiftTypeName.Module,
-                            nestedTypeName,
-                            propertyDecl.Name,
-                            isGetter);
-
-                        accessor.Method.UsesCdeclPropertyWrapper = true;
-                        accessor.Method.UsesWrapperLibrary = true;
-                        accessor.Method.UsesFreeFunctionWrapper = true;
-                        accessor.Method.MangledName = symbol;
-
-                        // Get the accessor env for emission
-                        var cdeclCheckEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-
-                        // Emit the Swift @_cdecl wrapper function
-                        if (isGetter)
-                        {
-                            PropertyWrapperEmitter.EmitSwiftGetterWrapper(
-                                swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
-
-                            // Emit invoke thunk for closure-returning property getters
-                            EmitPropertyClosureInvokeThunkIfNeeded(swiftWriter, propertyDecl, symbol, cdeclCheckEnv);
-                        }
-                        else
-                        {
-                            PropertyWrapperEmitter.EmitSwiftSetterWrapper(
-                                swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
-                        }
+                        PropertyWrapperEmitter.EmitSwiftSetterWrapper(
+                            swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
                     }
                 }
                 // ObjC override property wrapper: set flags BEFORE Marshal/Emit so that
