@@ -2938,6 +2938,26 @@ public class ProtocolProxyEmitterTests
         });
     }
 
+    /// <summary>
+    /// Registers an ObjC-bridgeable type (e.g., Foundation.URL → Foundation.NSUrl) in the TypeDatabase
+    /// so TypeProjectionFactory creates ObjCBridgeableProjection for it.
+    /// </summary>
+    private void RegisterObjCBridgeableType(string swiftName, string nativeName)
+    {
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName(swiftName), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(nativeName.Substring(0, nativeName.LastIndexOf('.')), nativeName.Substring(nativeName.LastIndexOf('.') + 1)),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName(nativeName.Substring(0, nativeName.LastIndexOf('.')), nativeName.Substring(nativeName.LastIndexOf('.') + 1)),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Struct
+            })
+        });
+    }
+
     #endregion
 
     #region Protocol AnyType Resolution in Receiver ABI Types
@@ -3407,6 +3427,79 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.CustomValue>>", output);
         // Conversion: cast to wrapper type + ToNSCustom
         Assert.Contains("ToNSCustom", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ObjCBridgeableReturn_UsesHandleConversion()
+    {
+        // P1 fix: Method returning ObjC-bridgeable type (e.g., Foundation.URL → NSUrl) must
+        // extract .Handle from the C# return value. Before this fix, the method return path
+        // only checked existential conversions and fell through to raw MarshalToSwiftBuffer(result),
+        // which would write a managed reference instead of the ObjC pointer.
+        RegisterObjCBridgeableType("Foundation.URL", "Foundation.NSUrl");
+        var protocol = CreateSimpleProtocol("URLReturner");
+        protocol.Methods.Add(new MethodDecl
+        {
+            Name = "getURL",
+            MangledName = "$sgetURL",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Foundation.URL"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_getURL_0", output);
+        // Must extract .Handle from the idiomatic NSUrl return value
+        Assert.Contains("result.Handle", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_MethodReceiver_ObjCBridgedReturn_UsesHandleConversion()
+    {
+        // Same fix for ObjCBridgedProjection returns — method returns must use .Handle extraction.
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocol = CreateSimpleProtocol("SessionReturner");
+        protocol.Methods.Add(new MethodDecl
+        {
+            Name = "getSession",
+            MangledName = "$sgetSession",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    Name = string.Empty, PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Foundation.NSURLSession"),
+                    IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null, ModuleDecl = null,
+            Throws = false, IsAsync = false,
+            Visibility = Visibility.Public
+        });
+        var output = EmitProxyClass(protocol);
+
+        Assert.Contains("Receive_getSession_0", output);
+        // Must extract .Handle from the idiomatic NSUrlSession return value
+        Assert.Contains("result.Handle", output);
+        Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
     }
 
     #endregion

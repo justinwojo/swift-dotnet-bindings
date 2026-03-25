@@ -183,8 +183,19 @@ public class SetProjection : ITypeProjection
 
     public string? GetParameterElementConversion(string elementVar)
     {
+        // ObjC bridge: convert IEnumerable<T> → NSSet. Recursively convert nested container elements.
+        // For leaf ObjCBridgeable (NSUrl), elements ARE NSObject — no inner conversion needed.
         if (UsesObjCContainerBridge)
+        {
+            if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+                && _elementProjection.UsesObjCContainerBridge)
+            {
+                var innerConv = _elementProjection.GetParameterElementConversion("e");
+                if (innerConv != null)
+                    return $"new Foundation.NSSet({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
+            }
             return $"new Foundation.NSSet({elementVar}.ToArray())";
+        }
 
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
@@ -218,10 +229,27 @@ public class SetProjection : ITypeProjection
 
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
     {
+        // For nested containers (e.g., Set<[URL]>), inner elements need recursive conversion
+        // to their ObjC collection counterparts before wrapping in the outer NSSet.
+        var isNestedContainer = _elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && _elementProjection.UsesObjCContainerBridge;
+        string arrayExpr;
+        if (isNestedContainer)
+        {
+            var innerConv = _elementProjection.GetParameterElementConversion("e");
+            arrayExpr = innerConv != null
+                ? $"{paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray()"
+                : $"{paramName}.ToArray()";
+        }
+        else
+        {
+            arrayExpr = $"{paramName}.ToArray()";
+        }
+
         var setup = new List<MarshalStatement>
         {
             new MarshalStatement.Line(
-                $"var {paramName}NSSet = new Foundation.NSSet({paramName}.ToArray());"),
+                $"using var {paramName}NSSet = new Foundation.NSSet({arrayExpr});"),
             new MarshalStatement.Line(
                 $"IntPtr {paramName}Buffer = {paramName}NSSet.Handle;")
         };

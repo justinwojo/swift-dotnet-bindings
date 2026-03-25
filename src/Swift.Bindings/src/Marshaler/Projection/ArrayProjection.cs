@@ -193,9 +193,28 @@ public class ArrayProjection : ITypeProjection
 
     public string? GetParameterElementConversion(string elementVar)
     {
-        // ObjC bridge: convert IEnumerable<T> → NSArray (as NSObject for parent container)
+        // ObjC bridge: convert IEnumerable<T> → NSArray (as NSObject for parent container).
+        // For nested containers (e.g., [[URL]] inside [[[URL]]]), recursively convert inner
+        // elements. For leaf ObjCBridgeable (NSUrl), elements ARE NSObject — no inner conversion.
+        //
+        // Disposal limitation: inner Foundation wrappers created inside Select() are single-
+        // expression and have no statement boundary for using/try-finally. They rely on
+        // GC/finalizer. The outer NSArray retains them via ObjC ARC, so they survive the
+        // P/Invoke call; they just aren't deterministically released. This is acceptable for
+        // the accessor/element-conversion context. The top-level parameter plan
+        // (BuildObjCBridgeParameterPlan) uses `using var` for the outermost collection.
         if (UsesObjCContainerBridge)
+        {
+            // Only recurse for container-typed inner elements, not leaf ObjCBridgeable
+            if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+                && _elementProjection.UsesObjCContainerBridge)
+            {
+                var innerConv = _elementProjection.GetParameterElementConversion("e");
+                if (innerConv != null)
+                    return $"Foundation.NSArray.FromNSObjects({elementVar}.Select(e => (Foundation.NSObject){innerConv}).ToArray())";
+            }
             return $"Foundation.NSArray.FromNSObjects({elementVar}.ToArray())";
+        }
 
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
@@ -247,19 +266,49 @@ public class ArrayProjection : ITypeProjection
 
     /// <summary>
     /// ObjC bridge parameter plan: create NSArray from C# elements and pass the ObjC handle.
+    /// For nested containers (e.g., [[URL]]), inner elements must be recursively converted
+    /// to their ObjC collection counterparts before wrapping in the outer NSArray.
     /// </summary>
     private MarshalPlan BuildObjCBridgeParameterPlan(string paramName)
     {
-        var setup = new List<MarshalStatement>
+        // For nested containers (e.g., [[URL]]), inner elements need recursive conversion
+        // to their ObjC collection counterparts before wrapping in the outer NSArray.
+        // Inner wrappers must be materialized for disposal after the P/Invoke call.
+        var isNestedContainer = _elementProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && _elementProjection.UsesObjCContainerBridge;
+
+        if (isNestedContainer)
+        {
+            var innerConv = _elementProjection.GetParameterElementConversion("e");
+            if (innerConv != null)
+            {
+                // Inner wrappers are retained by the outer NSArray — disposing the outer releases
+                // its retain on the inners. No separate inner disposal needed (ObjC ARC handles it).
+                var setup = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.Select(e => (Foundation.NSObject){innerConv}).ToArray());"),
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
+                };
+                return new MarshalPlan
+                {
+                    SetupStatements = setup,
+                    PInvokeExpression = $"{paramName}Buffer"
+                };
+            }
+        }
+
+        var setup2 = new List<MarshalStatement>
         {
             new MarshalStatement.Line(
-                $"var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.ToArray());"),
+                $"using var {paramName}NSArray = Foundation.NSArray.FromNSObjects({paramName}.ToArray());"),
             new MarshalStatement.Line(
                 $"IntPtr {paramName}Buffer = {paramName}NSArray.Handle;")
         };
         return new MarshalPlan
         {
-            SetupStatements = setup,
+            SetupStatements = setup2,
             PInvokeExpression = $"{paramName}Buffer"
         };
     }

@@ -663,7 +663,7 @@ public class ClassObjCRootedTests
     {
         var proj = new ObjCRootedClassProjection("MyLayer");
         var conv = proj.GetParameterElementConversion("item");
-        Assert.Equal("item.Handle", conv);
+        Assert.Equal("(IntPtr)item.Handle", conv);
     }
 
     #endregion

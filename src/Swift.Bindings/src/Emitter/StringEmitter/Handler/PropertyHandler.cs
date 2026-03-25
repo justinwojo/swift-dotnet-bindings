@@ -941,7 +941,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // so no explicit cast needed in the projection path.
                 if (requiresDisposal)
                 {
-                    csWriter.WriteLine($"set {{ using var __val = {conv}; {methodName}(__val); }}");
+                    // ObjC container bridge: method expects IntPtr (.Handle), not the collection object
+                    var valArg = projection is ArrayProjection { UsesObjCContainerBridge: true }
+                        or SetProjection { UsesObjCContainerBridge: true }
+                        or DictionaryProjection { UsesObjCContainerBridge: true }
+                        ? "__val.Handle" : "__val";
+                    csWriter.WriteLine($"set {{ using var __val = {conv}; {methodName}({valArg}); }}");
                 }
                 else
                 {

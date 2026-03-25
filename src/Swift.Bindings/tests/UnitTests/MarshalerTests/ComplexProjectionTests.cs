@@ -278,6 +278,63 @@ public class ComplexProjectionTests
         Assert.Same(elem, proj.ElementProjection);
     }
 
+    [Fact]
+    public void Array_ObjCBridgeable_ParamPlan_UsesFromNSObjects()
+    {
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new ArrayProjection(elem, isParameter: true);
+        var plan = proj.GetParameterPlan("urls");
+
+        Assert.Equal("urlsBuffer", plan.PInvokeExpression);
+        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("NSArray.FromNSObjects(urls.ToArray())", firstLine.Code);
+    }
+
+    [Fact]
+    public void Array_NestedObjCBridgeable_ParamPlan_RecursivelyConverts()
+    {
+        // [[URL]]: outer array's elements are [URL] (IEnumerable<NSUrl>), not NSObject.
+        // The parameter plan must recursively convert inner arrays to NSArray.
+        var innerElem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var innerArray = new ArrayProjection(innerElem, isParameter: true);
+        var outerArray = new ArrayProjection(innerArray, isParameter: true);
+        var plan = outerArray.GetParameterPlan("nested");
+
+        Assert.Equal("nestedBuffer", plan.PInvokeExpression);
+        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        // Must apply inner conversion: Select + FromNSObjects for inner arrays
+        Assert.Contains(".Select(e =>", firstLine.Code);
+        Assert.Contains("NSArray.FromNSObjects", firstLine.Code);
+    }
+
+    [Fact]
+    public void Set_NestedObjCBridgeable_ParamPlan_RecursivelyConverts()
+    {
+        // Set<[URL]>: inner elements are IEnumerable<NSUrl>, not NSObject.
+        var innerElem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var innerArray = new ArrayProjection(innerElem, isParameter: true);
+        var outerSet = new SetProjection(innerArray, isParameter: true);
+        var plan = outerSet.GetParameterPlan("items");
+
+        Assert.Equal("itemsBuffer", plan.PInvokeExpression);
+        var firstLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains(".Select(e =>", firstLine.Code);
+        Assert.Contains("NSArray.FromNSObjects", firstLine.Code);
+    }
+
+    [Fact]
+    public void Dictionary_NestedObjCBridgeable_ToNSObject_RecursivelyConverts()
+    {
+        // [String: [URL]]: inner value is IReadOnlyList<NSUrl>, not NSObject.
+        var innerElem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var innerArray = new ArrayProjection(innerElem, isParameter: true);
+        var result = DictionaryProjection.ToNSObject(innerArray, "val");
+
+        // Must apply inner conversion to produce NSArray
+        Assert.Contains("NSArray.FromNSObjects", result);
+        Assert.Contains("(Foundation.NSObject)", result);
+    }
+
     #endregion
 
     #region DictionaryProjection

@@ -44,6 +44,12 @@ public class URLContainerTestHelper {
         ]
     }
 
+    // MARK: - Nested Array Parameter
+
+    public func acceptNestedURLArray(urls: [[URL]]) -> Int {
+        return urls.reduce(0) { $0 + $1.count }
+    }
+
     // MARK: - Empty containers
 
     public func getEmptyURLArray() -> [URL] {

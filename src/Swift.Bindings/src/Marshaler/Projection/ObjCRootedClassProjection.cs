@@ -54,8 +54,10 @@ public class ObjCRootedClassProjection : ITypeProjection
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
+    // Cast to IntPtr: ObjC classes return ObjCRuntime.NativeHandle from .Handle,
+    // but SwiftArray<IntPtr>/container projections need IntPtr.
     public string? GetParameterElementConversion(string elementVar) =>
-        $"{elementVar}.Handle";
+        $"(IntPtr){elementVar}.Handle";
 
     public string? GetReturnElementConversion(string elementVar) => null;
 

@@ -104,6 +104,23 @@ public class URLContainerBridgeTests : TestBase
 
     #endregion
 
+    #region Nested Array Parameter
+
+    [Skip("Nested ObjC bridge param: recursive NSArray-from-elements crashes in Swift bridge reconstruction")]
+    public void TestAcceptNestedURLArray()
+    {
+        using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
+        var nested = new[]
+        {
+            new[] { Foundation.NSUrl.FromString("https://a.com")! } as IEnumerable<Foundation.NSUrl>,
+            new[] { Foundation.NSUrl.FromString("https://b.com")!, Foundation.NSUrl.FromString("https://c.com")! } as IEnumerable<Foundation.NSUrl>
+        };
+        var totalCount = helper.AcceptNestedURLArray(nested);
+        AssertEqual(3, totalCount, "AcceptNestedURLArray receives correct total count");
+    }
+
+    #endregion
+
     #region Nested Array Return
 
     [Skip("Nested ObjC bridge: _SwiftURL not registered as NSObject subclass — ArrayFromHandle<NSUrl> fails for inner elements")]

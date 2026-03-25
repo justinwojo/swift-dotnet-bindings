@@ -242,15 +242,25 @@ public class DictionaryProjection : ITypeProjection
 
     /// <summary>
     /// Converts a C# element to an NSObject for NSDictionary construction.
+    /// For nested containers (e.g., [String: [URL]]), recursively converts inner collections
+    /// to their ObjC counterparts before casting to NSObject.
     /// </summary>
     internal static string ToNSObject(ITypeProjection projection, string elementVar)
     {
         if (projection is ObjCBridgeableProjection)
-            return elementVar; // Already NSObject
+            return elementVar; // Already NSObject (NSUrl IS NSObject)
         if (projection is StringProjection)
             return $"new Foundation.NSString({elementVar})";
         if (projection is DataProjection)
             return $"Foundation.NSData.FromArray({elementVar})";
+        // Nested containers: convert inner collection to ObjC counterpart first
+        if ((projection is ArrayProjection or SetProjection or DictionaryProjection)
+            && projection.UsesObjCContainerBridge)
+        {
+            var innerConv = projection.GetParameterElementConversion(elementVar);
+            if (innerConv != null)
+                return $"(Foundation.NSObject){innerConv}";
+        }
         return $"(Foundation.NSObject){elementVar}";
     }
 
@@ -284,7 +294,7 @@ public class DictionaryProjection : ITypeProjection
             new MarshalStatement.Line(
                 $"var {paramName}Values = {paramName}Pairs.Select(kvp => {valToNS}).ToArray();"),
             new MarshalStatement.Line(
-                $"var {paramName}NSDict = Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys);"),
+                $"using var {paramName}NSDict = Foundation.NSDictionary.FromObjectsAndKeys({paramName}Values, {paramName}Keys);"),
             new MarshalStatement.Line(
                 $"IntPtr {paramName}Buffer = {paramName}NSDict.Handle;")
         };

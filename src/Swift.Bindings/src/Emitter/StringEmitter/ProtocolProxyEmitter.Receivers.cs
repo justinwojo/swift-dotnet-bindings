@@ -193,7 +193,8 @@ public partial class ProtocolProxyEmitter
 
                 var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
                 writer.WriteLine($"var result = proxy._csharpImpl![{indexArgs}];");
-                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec);
+                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
+                    ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
                 if (subscriptGetterConv != null)
                 {
                     writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
@@ -363,14 +364,20 @@ public partial class ProtocolProxyEmitter
             // Skip async methods — their C# return is Task<string>, not string.
             bool isStringMethodReturn = !method.IsAsync && IsStringTypeSpec(returnType!);
             var existentialReturnConv = GetReceiverExistentialGetterConversion("result", returnType!);
+            // Fall back to regular getter conversion for ObjC-bridgeable, Date, NativeRemapped, etc.
+            // Without this, method returns of e.g. Foundation.NSUrl write a managed reference via
+            // MarshalToSwiftBuffer instead of extracting .Handle (the ObjC pointer Swift expects).
+            // Skip async methods — their C# return is Task<T>, not T, so .Handle doesn't apply.
+            var returnConv = existentialReturnConv
+                ?? (method.IsAsync ? null : GetReceiverGetterConversion("result", returnType!));
             writer.WriteLine($"var result = proxy._csharpImpl!.{pascalMethodName}({argsString});");
             if (isStringMethodReturn)
             {
                 writer.WriteLine("return MarshalStringToUtf8Slice(result);");
             }
-            else if (existentialReturnConv != null)
+            else if (returnConv != null)
             {
-                writer.WriteLine($"var swiftResult = {existentialReturnConv};");
+                writer.WriteLine($"var swiftResult = {returnConv};");
                 writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
             }
             else

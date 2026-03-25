@@ -733,7 +733,7 @@ public class URLContainerTestHelper {
 
 ---
 
-### Session 4: URLRequest + cleanup + deletion
+### Session 4: URLRequest + cleanup + deletion — COMPLETE (d27c7e03, deletion deferred: BoundGenericsHandler dependency)
 
 **Objective:** Apply the proven `ObjCBridgeableProjection` to URLRequest, verify it works through all paths, then delete the hand-written `URL.cs` and `URLRequest.cs` runtime files and rewrite tests. This is the payoff session — ~1,100 lines of fragile hand-written code removed.
 
@@ -846,6 +846,110 @@ This session has the strictest validation — it's the final gate:
 - Do NOT delete URLResponse.cs or OperationQueue.cs — Session 1 fixed their metadata accessors, but their property P/Invokes are a separate concern for a future effort
 - Do NOT modify the `ObjCBridgeableProjection` class unless URLRequest reveals a bug — at this point the projection should be proven
 - If URLRequest bridging reveals edge cases (e.g., mutable headers not preserved through NSURLRequest round-trip), document them and discuss with the lead before working around them
+
+---
+
+### Session 5: Codex review fixes + delete URL.cs/URLRequest.cs + nested containers — COMPLETE
+
+**Objective:** Fix three issues found in Codex post-review of Sessions 1-4, delete the hand-written `URL.cs` and `URLRequest.cs` runtime files (~770 lines), and close out the ObjC bridge projection work.
+
+**Prerequisites:** Sessions 2, 3, and 4 must be complete.
+
+**Complexity:** Medium. Protocol proxy fix is a correctness bug. Recursive containers and cleanup are structural. Deletion is mechanical.
+
+#### Codex review findings (fix these first)
+
+**Finding 1 [P1]: Protocol proxy receivers corrupt ObjC-bridgeable values**
+
+In `ProtocolProxyEmitter.Receivers.cs` (~line 440), the `ObjCBridgeableProjection` branches convert values to `.Handle` / `GetNSObject<T>`, but the receiver still serializes them through `ProtocolProxyEmitter.SwiftObject.cs` (~line 113) via `MarshalToSwiftBuffer<T>` / `MarshalFromSwift<T>`, which only copy `Unsafe.SizeOf<T>()` bytes. For `IntPtr` that is 8 bytes, not the Swift layout of `Foundation.URL` or `Foundation.URLRequest`, so any C# protocol implementation using these types will hand Swift a corrupt value.
+
+**Fix:** The protocol proxy receiver path needs to handle ObjC-bridgeable types differently — instead of marshalling through the Swift buffer copy path, it should:
+- **Parameter direction (Swift → C# receiver):** Read the `IntPtr` from the Swift-side buffer as an ObjC pointer, wrap with `GetNSObject<T>()` to produce the .NET type
+- **Return direction (C# receiver → Swift):** Extract `.Handle` from the .NET type, write the ObjC pointer back through the witness-table return mechanism
+
+Read `ProtocolProxyEmitter.Receivers.cs` and `ProtocolProxyEmitter.SwiftObject.cs` carefully. Trace how other non-trivial types (e.g., `ObjCBridgedProjection` types like UIImage) flow through the receiver path — the ObjC-bridgeable path should mirror that, not the value-type buffer-copy path.
+
+**Test:** Add BindingTests with a Swift protocol that has a method taking/returning `URL`, implement it in C#, and verify the round-trip works. This path is currently **unexercised** in tests.
+
+**Finding 2 [P2]: Recursive container parameter/value bridging incomplete**
+
+`ArrayProjection.cs` (~line 251) `BuildObjCBridgeParameterPlan()` calls `FromNSObjects(...ToArray())` on the outer enumerable, which assumes each element is already an `NSObject`. For `[[URL]]`, the inner elements are `IEnumerable<NSUrl>`, not `NSObject`. Same issue in `SetProjection.cs` (~line 219) with `new NSSet(...ToArray())`, and `DictionaryProjection.cs` (~line 260) with direct casts for nested values.
+
+**Fix:** When the element projection is itself a container with `UsesObjCContainerBridge`, the parameter path must recursively convert inner collections to their ObjC counterparts before wrapping in the outer collection. Check `GetParameterElementConversion()` on each container projection — it may already return the right conversion expression but the `BuildObjCBridgeParameterPlan()` method may not be applying it.
+
+The return path (`BuildObjCBridgeReturnPlan`) already attempts recursive handling (lines 275-282 in ArrayProjection) but may also need fixes — the `_SwiftURL` error in the nested test suggests the Swift-side `result as NSArray` bridge doesn't fully bridge inner arrays. If so, the Swift @_cdecl wrapper needs explicit inner bridging: `result.map { $0 as NSArray } as NSArray`.
+
+**Test:** The existing skipped `TestGetNestedURLArray` test covers the return path. Add a parameter-direction test: a Swift function that accepts `[[URL]]` and returns the count of inner URLs.
+
+**Finding 3 [P2]: ObjC collection wrappers leak without deterministic cleanup**
+
+`ArrayProjection.cs` (~line 251), `DictionaryProjection.cs` (~line 274), `SetProjection.cs` (~line 219), and inline accessor conversions in `AccessorConversionVisitors.cs` (~line 222) create temporary Foundation collections (`NSArray`, `NSDictionary`, `NSSet`), pass `.Handle`, and never dispose them. The Swift side reconstructs with `takeUnretainedValue()`, so each call depends on GC/finalizers to release the native objects.
+
+**Fix:** Wrap the temporary collection in a `using` statement so it is disposed after the P/Invoke call completes. The `MarshalPlan` already supports `using` patterns — check how other projections handle disposable temporaries (e.g., `SwiftString` parameter marshalling wraps in `using`). The generated code should look like:
+```csharp
+using var urlsNSArray = NSArray.FromNSObjects(urls.ToArray());
+IntPtr urlsBuffer = urlsNSArray.Handle;
+PInvoke_method(urlsBuffer, ...);
+```
+
+For accessor conversions (inline expressions without setup statements), the pattern may need to be different. Check whether the accessor emission supports multi-statement blocks or if the conversion must be a single expression. If single-expression only, document the limitation.
+
+#### What to change (after Codex fixes)
+
+**4. Verify and delete URL.cs and URLRequest.cs**
+
+Post-session analysis found **no source code references** to `Swift.URL` or `Swift.URLRequest` outside the files being deleted. The only references are in auto-generated XML doc files (`bin/` and `tools/net10.0/any/Swift.Runtime.xml`) that regenerate on rebuild.
+
+Verify with:
+```bash
+grep -rn "Swift\.URL[^R]" --include="*.cs" src/Swift.Runtime/src/ src/Swift.Bindings/src/ BindingTests/
+grep -rn "Swift\.URLRequest" --include="*.cs" src/Swift.Runtime/src/ src/Swift.Bindings/src/ BindingTests/
+```
+
+Exclude `URL.cs`, `URLRequest.cs`, and `bin/` directories. If any source references remain, update them before deleting.
+
+- Delete `src/Swift.Runtime/src/Swift/URL.cs` (251 lines)
+- Delete `src/Swift.Runtime/src/Swift/URLRequest.cs` (519 lines)
+- Rebuild: `./build.sh` — verify compilation succeeds
+
+**5. Rebuild SDK tools XML**
+
+The pre-built `src/Swift.Bindings.Sdk/tools/net10.0/any/Swift.Runtime.xml` contains documentation for the deleted types. Rebuild it:
+```bash
+cd src/Swift.Bindings.Sdk && ./build-sdk.sh
+```
+The XML will regenerate without the deleted types. Commit the updated XML.
+
+**6. Unskip nested container tests**
+
+Remove `[Skip(...)]` attributes from any nested container tests that now pass after Finding 2 fixes.
+
+#### Validation gates
+
+This is the final gate for the entire ObjC bridge projection work:
+
+1. `./run-tests.sh 2>&1 | tee /tmp/run-tests-results.txt`
+2. `cd BindingTests && ./build-and-test.sh 2>&1 | tee /tmp/build-and-test-results.txt`
+3. `./validate-libraries.sh --tier all 2>&1 | tee /tmp/validate-results.txt`
+4. Full deletion gate verified:
+   - All verification matrix cases pass in BindingTests on simulator
+   - Container cases tested: `[URL]` param, `[URL]` return, `[String: URL]` return, `Set<URL>` param/return, `[[URL]]` return
+   - Optional cases tested: `URL?` param, `URL?` return
+   - Property accessor cases tested: `var url: URL { get set }`
+   - Protocol receiver cases tested: protocol method with `URL` param and `URL` return
+   - `validate-libraries.sh --tier all` shows no regressions
+   - `grep -r "Swift\.URL[^R]" --include="*.cs" src/` returns no results
+   - `grep -r "Swift\.URLRequest" --include="*.cs" src/` returns no results
+
+#### Scope boundaries
+
+- Do NOT delete Data.cs, URLResponse.cs, or OperationQueue.cs
+- Do NOT modify ObjCBridgeableProjection unless a bug is found
+- Keep changes to container projections minimal — verify non-bridgeable container paths still work after recursive bridging changes
+- If `[[URL]]` proves intractable at the .NET runtime level (e.g., `NSArray.ArrayFromHandle<T>` fundamentally can't handle nested NSArrays), document the limitation and leave the test skipped — don't block deletion on it
+- The protocol proxy fix must NOT change behavior for non-ObjC-bridgeable types — only fork on the `ObjCBridgeableProjection` check
+
+---
 
 ## Verification Matrix
 

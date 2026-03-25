@@ -28,16 +28,19 @@ public sealed class URLResponse : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public SwiftSafeHandle<URLResponse> Payload => _payload;
 
+#if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
     /// Gets the URL for this response.
     /// </summary>
-    public URL? URL
+    public Foundation.NSUrl? URL
     {
         get
         {
-            return PInvoke_GetURL(this);
+            var ptr = PInvoke_GetURL(this);
+            return ptr == IntPtr.Zero ? null : ObjCRuntime.Runtime.GetNSObject<Foundation.NSUrl>(ptr);
         }
     }
+#endif
 
     /// <summary>
     /// Gets the MIME type of the response.
@@ -146,7 +149,7 @@ public sealed class URLResponse : ISwiftObject, ISwiftStruct, IDisposable
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$sSo15NSURLResponseC3URLSo5NSURLCSgvg")]
-    private static extern URL? PInvoke_GetURL(URLResponse response);
+    private static extern IntPtr PInvoke_GetURL(URLResponse response);
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$sSo15NSURLResponseC8MIMETypeSSSgvg")]
@@ -185,5 +188,9 @@ public sealed class URLResponse : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Returns a string representation of the URLResponse.
     /// </summary>
+#if IOS || TVOS || MACCATALYST || MACOS
     public override string ToString() => URL?.AbsoluteString ?? "<no URL>";
+#else
+    public override string ToString() => "<URLResponse>";
+#endif
 }

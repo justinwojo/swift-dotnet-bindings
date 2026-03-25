@@ -221,9 +221,23 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) ArraySetterConversion(ArrayProjection arr, string valueExpr)
     {
-        // ObjC bridge: create NSArray from elements and use its Handle
+        // ObjC bridge: create NSArray and dispose after use. PropertyHandler extracts .Handle
+        // via the ObjC container bridge path when requiresDisposal=true.
+        // For nested containers (e.g., [[URL]]), recursively convert inner elements.
+        // Leaf ObjCBridgeable elements (NSUrl) are already NSObject — no inner conversion.
+        // Note: inner wrappers created in Select() rely on GC — single-expression accessor
+        // context has no statement boundary for using/try-finally.
         if (arr.UsesObjCContainerBridge)
-            return ($"Foundation.NSArray.FromNSObjects({valueExpr}.ToArray()).Handle", false);
+        {
+            if (arr.ElementProjection is ArrayProjection or DictionaryProjection or SetProjection
+                && arr.ElementProjection.UsesObjCContainerBridge)
+            {
+                var innerConv = arr.ElementProjection.GetParameterElementConversion("e");
+                if (innerConv != null)
+                    return ($"Foundation.NSArray.FromNSObjects({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
+            }
+            return ($"Foundation.NSArray.FromNSObjects({valueExpr}.ToArray())", true);
+        }
 
         var rawElem = arr.ElementProjection.MarshalFromSwiftType;
         var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
@@ -236,14 +250,12 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) DictSetterConversion(DictionaryProjection dict, string valueExpr)
     {
-        // ObjC bridge: create NSDictionary inline from key-value pairs and return Handle.
-        // Must be a single expression (no multi-statement plan) because accessor setters
-        // inline the conversion in the property body (e.g., set => Method_Set(conversion)).
+        // ObjC bridge: create NSDictionary and dispose after use. PropertyHandler extracts .Handle.
         if (dict.UsesObjCContainerBridge)
         {
             var keyToNS = DictionaryProjection.ToNSObject(dict.KeyProjection, "kvp.Key");
             var valToNS = DictionaryProjection.ToNSObject(dict.ValueProjection, "kvp.Value");
-            return ($"Foundation.NSDictionary.FromObjectsAndKeys({valueExpr}.Select(kvp => {valToNS}).ToArray(), {valueExpr}.Select(kvp => {keyToNS}).ToArray()).Handle", false);
+            return ($"Foundation.NSDictionary.FromObjectsAndKeys({valueExpr}.Select(kvp => {valToNS}).ToArray(), {valueExpr}.Select(kvp => {keyToNS}).ToArray())", true);
         }
 
         var rawK = dict.KeyProjection.MarshalFromSwiftType;
@@ -265,9 +277,19 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
     internal static (string?, bool) SetSetterConversion(SetProjection set, string valueExpr)
     {
-        // ObjC bridge: create NSSet from elements and use its Handle
+        // ObjC bridge: create NSSet and dispose after use. PropertyHandler extracts .Handle.
+        // For nested containers (e.g., Set<[URL]>), recursively convert inner elements.
         if (set.UsesObjCContainerBridge)
-            return ($"new Foundation.NSSet({valueExpr}.ToArray()).Handle", false);
+        {
+            if (set.ElementProjection is ArrayProjection or DictionaryProjection or SetProjection
+                && set.ElementProjection.UsesObjCContainerBridge)
+            {
+                var innerConv = set.ElementProjection.GetParameterElementConversion("e");
+                if (innerConv != null)
+                    return ($"new Foundation.NSSet({valueExpr}.Select(e => (Foundation.NSObject){innerConv}).ToArray())", true);
+            }
+            return ($"new Foundation.NSSet({valueExpr}.ToArray())", true);
+        }
 
         var rawElem = set.ElementProjection.MarshalFromSwiftType;
         var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
@@ -293,22 +315,26 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         var optType = inner.MarshalFromSwiftType;
 
         // ObjC bridge containers use nullable pointer ABI — no SwiftOptional wrapper needed.
+        // Setter conversions now return the collection object (requiresDisposal=true), so
+        // extract .Handle in the ternary for the IntPtr P/Invoke.
+        // Note: the optional path is inline single-expression (can't use 'using'), so these
+        // inner collections rely on GC/finalizer. This matches the pre-disposal behavior.
         if (inner.UsesObjCContainerBridge)
         {
             if (inner is ArrayProjection arrBridge)
             {
                 var (arrConv, _) = ArraySetterConversion(arrBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {arrConv} : IntPtr.Zero)", false);
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {arrConv}.Handle : IntPtr.Zero)", false);
             }
             if (inner is DictionaryProjection dictBridge)
             {
                 var (dictConv, _) = DictSetterConversion(dictBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {dictConv} : IntPtr.Zero)", false);
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {dictConv}.Handle : IntPtr.Zero)", false);
             }
             if (inner is SetProjection setBridge)
             {
                 var (setConv, _) = SetSetterConversion(setBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {setConv} : IntPtr.Zero)", false);
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {setConv}.Handle : IntPtr.Zero)", false);
             }
         }
 

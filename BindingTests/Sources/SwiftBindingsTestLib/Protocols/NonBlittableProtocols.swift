@@ -293,6 +293,24 @@ public func getAllPriorities(_ items: [any Prioritized]) -> [TaskPriority] {
     return items.map { $0.priority }
 }
 
+// MARK: - ObjC-Bridgeable Protocol Callback
+
+/// Protocol with methods taking and returning ObjC-bridgeable types (URL).
+/// Tests that protocol proxy receivers correctly marshal URL through .Handle/GetNSObject
+/// instead of the value-type buffer-copy path.
+public protocol URLProcessorDelegate: AnyObject {
+    func processURL(url: URL) -> URL
+}
+
+/// Fires the delegate callback with a URL value.
+/// Swift creates a URL, passes it to the C# proxy receiver, and verifies the
+/// returned URL matches the expected transformation.
+public func fireURLProcessorDelegate(_ delegate: any URLProcessorDelegate, urlString: String) -> String {
+    let url = URL(string: urlString)!
+    let result = delegate.processURL(url: url)
+    return result.absoluteString
+}
+
 // MARK: - Existential Parameter Callback (Session 6)
 
 /// Protocol with a method that takes an existential parameter.
