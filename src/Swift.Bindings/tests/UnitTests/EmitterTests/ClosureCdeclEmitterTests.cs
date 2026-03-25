@@ -1214,33 +1214,33 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void IsClosureCdeclCompatible_OptionalBool_ReturnsFalse()
+    public void IsClosureCdeclCompatible_OptionalBool_ReturnsTrue()
     {
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
         // Closure: (Optional<Bool>) -> Void — Optional<Bool> uses extra inhabitant encoding
-        // (value > 1 for None), not tag-byte layout. Runtime MarshalOptionalFromSwift can't handle it.
+        // (value > 1 for None). MarshalOptionalFromSwift handles this correctly.
         var optionalBool = new NamedTypeSpec("Swift.Optional",
             new NamedTypeSpec("Swift.Bool"));
         var closureType = new ClosureTypeSpec(optionalBool, TupleTypeSpec.Empty);
 
-        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
     }
 
     [Fact]
-    public void IsClosureCdeclCompatible_OptionalSimpleEnum_ReturnsFalse()
+    public void IsClosureCdeclCompatible_OptionalSimpleEnum_ReturnsTrue()
     {
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        // Closure: (Optional<ColorMode>) -> Void — Optional<SimpleEnum> uses extra inhabitant encoding,
-        // not tag-byte layout. Runtime MarshalOptionalFromSwift can't handle it.
+        // Closure: (Optional<ColorMode>) -> Void — Optional<SimpleEnum> uses extra inhabitant encoding.
+        // MarshalOptionalFromSwift handles this via SwiftOptional metadata path.
         var optionalEnum = new NamedTypeSpec("Swift.Optional",
             new NamedTypeSpec("TestModule.ColorMode"));
         var closureType = new ClosureTypeSpec(optionalEnum, TupleTypeSpec.Empty);
 
-        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
     }
 
     #endregion

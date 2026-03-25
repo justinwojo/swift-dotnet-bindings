@@ -499,12 +499,40 @@ public class MarshalPlanRegressionTests
     public void Optional_BlittableNonKeyword_ReturnPlan_IndirectResult_UsesOldPath()
     {
         // Non-keyword type names (e.g., "Int64") don't match GetBlittablePrimitiveSize
-        // and still use the old SwiftMarshal path.
+        // and still use the old SwiftMarshal path (known primitive, not frozen struct).
         var proj = new OptionalProjection(new BlittableProjection("Int64"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result).ToNullable()", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Optional_FrozenStruct_ReturnPlan_IndirectResult_UsesTypeMetadataSize()
+    {
+        // Frozen blittable structs (like CGPoint) use TypeMetadata.Size for direct tag byte read
+        // instead of SwiftOptional<T>.ToNullable() which has broken VWT on Mono.
+        var proj = new OptionalProjection(new BlittableProjection("CGPoint"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<CGPoint>().Size", plan.PInvokeExpression);
+        Assert.Contains("Unsafe.ReadUnaligned<CGPoint>", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
+        Assert.DoesNotContain("SwiftMarshal", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Optional_FrozenStruct_ReturnPlan_Direct_StillUsesOldPath()
+    {
+        // Direct return strategy for frozen structs still uses the old SwiftMarshal path
+        // (only IndirectResult/OutBuffer use the Unsafe.SizeOf fast path).
+        var proj = new OptionalProjection(new BlittableProjection("CGPoint"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.True(plan.RequiresUnsafe);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<CGPoint>>", plan.PInvokeExpression);
+        Assert.Contains("ToNullable()", plan.PInvokeExpression);
     }
 
     #endregion

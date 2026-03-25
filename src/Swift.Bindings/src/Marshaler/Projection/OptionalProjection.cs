@@ -293,6 +293,27 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
+        // Frozen blittable struct inner types (CGPoint, CGSize, CGRect, etc.): read the tag byte
+        // at TypeMetadata.Size offset instead of going through SwiftOptional<T>.ToNullable() which
+        // relies on VWT GetEnumTag — known to return incorrect values for frozen structs on Mono.
+        // Uses TypeMetadata.Size (the runtime's source of truth for Swift type size) rather than
+        // Unsafe.SizeOf<T>() which includes C# trailing padding and can disagree for padded structs.
+        // Excludes known primitives (which use the compile-time fast path above).
+        // Layout: [TypeMetadata.Size bytes payload][1 byte discriminator: 0=Some, 1=None]
+        if (_innerProjection is BlittableProjection && blittableSize == null &&
+            !IsKnownPrimitiveTypeName(_innerProjection.PublicType) &&
+            strategy is ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer)
+        {
+            var innerType = _innerProjection.PublicType;
+            var tagExpr = $"((byte*){resultName})[(int)TypeMetadata.GetTypeMetadataOrThrow<{innerType}>().Size]";
+            var valueExpr = $"Unsafe.ReadUnaligned<{innerType}>(ref *(byte*){resultName})";
+            return new MarshalPlan
+            {
+                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : null)",
+                RequiresUnsafe = true
+            };
+        }
+
         // Non-existential, non-container — ToNullable() path
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
@@ -380,6 +401,20 @@ public class OptionalProjection : ITypeProjection
             _ => null
         };
     }
+
+    /// <summary>
+    /// Returns true if the type name is a known C# primitive type (keyword or BCL name).
+    /// Used to exclude primitives from the frozen struct Unsafe.SizeOf fast path.
+    /// </summary>
+    public static bool IsKnownPrimitiveTypeNamePublic(string typeName) => IsKnownPrimitiveTypeName(typeName);
+
+    private static bool IsKnownPrimitiveTypeName(string typeName) => typeName is
+        "bool" or "byte" or "sbyte" or "short" or "ushort" or
+        "int" or "uint" or "float" or "long" or "ulong" or "double" or
+        "nint" or "nuint" or
+        "Boolean" or "Byte" or "SByte" or "Int16" or "UInt16" or
+        "Int32" or "UInt32" or "Single" or "Int64" or "UInt64" or "Double" or
+        "IntPtr" or "UIntPtr";
 
     /// <summary>
     /// Builds a return plan using discriminant check (Case == None ? null : conversion).

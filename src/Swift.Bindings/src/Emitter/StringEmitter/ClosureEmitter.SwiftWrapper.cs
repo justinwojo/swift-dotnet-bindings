@@ -147,6 +147,7 @@ public static partial class ClosureEmitter
         // Build closure parameter list and identify complex enum args needing heap allocation
         var closureParams = new List<string>();
         var heapAllocArgs = new List<(int index, string swiftType)>();
+        var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -168,13 +169,24 @@ public static partial class ClosureEmitter
                          !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
                          !closureHandler.IsSimpleEnum(frozenNamed))
                     heapAllocArgs.Add((argIndex, swiftType));
-                // Optional<NumericPrimitive>: heap-allocated pointer ABI (tag-byte layout)
-                // Excludes Bool and SimpleEnum — they use extra inhabitant encoding
+                // Optional<NumericPrimitive>: full Optional on heap (tag-byte layout)
+                // MarshalOptionalFromSwift handles tag-byte reading for primitives
                 else if (arg is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
                          optNamed.ContainsGenericParameters && optNamed.GenericParameters.Count == 1 &&
                          optNamed.GenericParameters[0] is NamedTypeSpec optInner &&
                          IsSwiftNumericPrimitive(optInner.Name))
                     heapAllocArgs.Add((argIndex, swiftType));
+                // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
+                // Swift unwraps the optional, passes inner value pointer (nil for .none).
+                // Avoids extra-inhabitant encoding which MarshalOptionalFromSwift can't handle for enums.
+                else if (arg is NamedTypeSpec optNamed2 && optNamed2.Name == "Swift.Optional" &&
+                         optNamed2.ContainsGenericParameters && optNamed2.GenericParameters.Count == 1 &&
+                         optNamed2.GenericParameters[0] is NamedTypeSpec optInner2 &&
+                         (optInner2.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner2)))
+                {
+                    var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(optInner2);
+                    nilForNoneArgs.Add((argIndex, innerType));
+                }
             }
 
             argIndex++;
@@ -193,9 +205,15 @@ public static partial class ClosureEmitter
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
+            var nilForNoneArg = nilForNoneArgs.FirstOrDefault(h => h.index == argIndex);
             if (heapArg != default)
             {
-                // Complex enum: use heap pointer (allocation emitted before cdecl call)
+                // Complex enum/frozen struct/Optional<Primitive>: use heap pointer
+                cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (nilForNoneArg != default)
+            {
+                // Optional<Bool/SimpleEnum>: nil-for-none nullable pointer
                 cdeclArgs.Add($"__heap_{argIndex}");
             }
             else
@@ -234,6 +252,16 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
+        }
+        // Nil-for-none allocation: unwrap Optional, pass inner value pointer or nil
+        foreach (var (idx, innerType) in nilForNoneArgs)
+        {
+            heapAllocLines.Add($"{indent}    var __heap_{idx}: UnsafeMutableRawPointer? = nil");
+            heapAllocLines.Add($"{indent}    if let __unwrapped_{idx} = p{idx} {{");
+            heapAllocLines.Add($"{indent}        __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{innerType}>.size, alignment: MemoryLayout<{innerType}>.alignment)");
+            heapAllocLines.Add($"{indent}        __heap_{idx}!.initializeMemory(as: {innerType}.self, repeating: __unwrapped_{idx}, count: 1)");
+            heapAllocLines.Add($"{indent}    }}");
+            heapAllocLines.Add($"{indent}    defer {{ if let ptr = __heap_{idx} {{ ptr.assumingMemoryBound(to: {innerType}.self).deinitialize(count: 1); ptr.deallocate() }} }}");
         }
 
         if (isIndirectReturn)
@@ -498,9 +526,9 @@ public static partial class ClosureEmitter
                 return true;
 
             // Optional<Class/ObjC> uses nil-pointer ABI (pointer-sized)
-            // Optional<NumericPrimitive> uses heap-allocated pointer ABI with tag-byte layout
-            // NOT accepted: Optional<Bool> (extra inhabitant encoding, value > 1 for None)
-            // NOT accepted: Optional<SimpleEnum> (extra inhabitant encoding, not tag-byte)
+            // Optional<NumericPrimitive/Bool/SimpleEnum> uses heap-allocated pointer ABI
+            // NumericPrimitive: full Optional on heap (tag-byte layout), C# reads tag byte
+            // Bool/SimpleEnum: full Optional on heap (extra-inhabitant encoding), C# MarshalOptionalFromSwift handles it
             if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
                 named.GenericParameters.Count == 1)
             {
@@ -508,11 +536,14 @@ public static partial class ClosureEmitter
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
                     return true;
-                // Optional<NumericPrimitive> — heap-allocated pointer ABI (tag-byte layout)
-                // Bool and SimpleEnum use extra inhabitant encoding which our runtime can't handle yet
+                // Optional<NumericPrimitive/Bool/SimpleEnum> — heap-allocated pointer ABI
                 if (inner is NamedTypeSpec innerNamed)
                 {
                     if (IsSwiftNumericPrimitive(innerNamed.Name))
+                        return true;
+                    if (innerNamed.Name == "Swift.Bool")
+                        return true;
+                    if (closureHandler.IsSimpleEnum(innerNamed))
                         return true;
                 }
                 return false;
@@ -538,6 +569,17 @@ public static partial class ClosureEmitter
         // Check return type (indirect return closures write to buffer — return type must be Cdecl-compatible for load)
         if (!closureTypeSpec.ReturnType.IsEmptyTuple && !IsCdeclCompatibleType(closureTypeSpec.ReturnType, closureHandler))
             return false;
+
+        // Throwing closures can't use indirect return (buffer), so Optional<non-reference> returns
+        // go through GetSwiftReturnConversion which only handles Optional<Class/ObjC>.
+        // Reject Optional<value-type> returns for throwing closures to prevent miscompilation.
+        if (closureTypeSpec.Throws && closureTypeSpec.ReturnType is NamedTypeSpec retNamed &&
+            retNamed.Name == "Swift.Optional" && retNamed.ContainsGenericParameters &&
+            retNamed.GenericParameters.Count == 1 &&
+            !closureHandler.IsReferenceType(retNamed.GenericParameters[0]))
+        {
+            return false;
+        }
 
         return true;
     }

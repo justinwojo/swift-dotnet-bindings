@@ -249,7 +249,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithNilInt(none) = {result}");
     }
 
-    [Skip("Optional<Bool> closure param: generator emits CallConvSwift fallback (SB0001) — no @_cdecl wrapper for Optional<T> closure params")]
     public void TestClosureWithOptionalBoolSome()
     {
         // Swift calls callback(true), C# receives bool? = true
@@ -258,7 +257,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalBool(some) = {result}");
     }
 
-    [Skip("Optional<Bool> None uses extra inhabitant encoding (value > 1), not tag byte")]
     public void TestClosureWithOptionalBoolNone()
     {
         // Swift calls callback(nil), C# receives bool? = null
@@ -267,7 +265,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithNilBool(none) = {result}");
     }
 
-    [Skip("Optional<Enum> closure param: generator emits CallConvSwift fallback (SB0001) — no @_cdecl wrapper for Optional<T> closure params")]
     public void TestClosureWithOptionalEnumSome()
     {
         // Swift calls callback(.blue), C# receives Color? = Color.Blue
@@ -276,7 +273,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalEnum(some) = {result}");
     }
 
-    [Skip("Optional<SimpleEnum> None uses extra inhabitant encoding, not tag byte")]
     public void TestClosureWithOptionalEnumNone()
     {
         // Swift calls callback(nil), C# receives Color? = null

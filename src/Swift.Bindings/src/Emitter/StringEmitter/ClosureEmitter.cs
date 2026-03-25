@@ -559,7 +559,20 @@ public static partial class ClosureEmitter
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
 
-            // Optional<Primitive/SimpleEnum>: void* → SwiftMarshal.MarshalOptionalFromSwift<T>
+            // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI (null = .none, non-null = pointer to inner value)
+            if (IsOptionalNilForNoneParam(namedType, closureHandler))
+            {
+                var inner = namedType.GenericParameters[0];
+                var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
+                if (MarshallingHelpers.IsBoolType(inner))
+                    return $"arg{argIndex} != null ? ({innerType}?)(*(byte*)arg{argIndex} != 0) : null";
+                // Simple enum: read underlying integer from pointer, cast to enum type
+                var enumInfo = closureHandler.GetSimpleEnumInfo(inner);
+                var csUnderlying = enumInfo?.csUnderlying ?? "int";
+                return $"arg{argIndex} != null ? ({innerType}?)({innerType})(*({csUnderlying}*)arg{argIndex}) : null";
+            }
+
+            // Optional<NumericPrimitive>: full Optional on heap → SwiftMarshal.MarshalOptionalFromSwift<T>
             if (IsOptionalValueParam(namedType, closureHandler))
             {
                 var inner = namedType.GenericParameters[0];
@@ -601,8 +614,22 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Checks if a type is Optional&lt;Primitive/SimpleEnum&gt; with heap-allocated pointer ABI.
-    /// These use tag-byte layout, not nil-pointer ABI.
+    /// Checks if a type is Optional&lt;Bool/SimpleEnum&gt; with nil-for-none pointer ABI.
+    /// Swift unwraps the optional, passes pointer to inner value (null for .none).
+    /// </summary>
+    private static bool IsOptionalNilForNoneParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
+    {
+        return namedType.ContainsGenericParameters &&
+               namedType.Name == "Swift.Optional" &&
+               namedType.GenericParameters.Count == 1 &&
+               namedType.GenericParameters[0] is NamedTypeSpec inner &&
+               (MarshallingHelpers.IsBoolType(inner) ||
+                closureHandler.IsSimpleEnum(inner));
+    }
+
+    /// <summary>
+    /// Checks if a type is Optional&lt;NumericPrimitive&gt; with full Optional on heap (tag-byte layout).
+    /// Excludes Bool and SimpleEnum which use nil-for-none pointer ABI instead.
     /// </summary>
     private static bool IsOptionalValueParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
     {
@@ -610,9 +637,7 @@ public static partial class ClosureEmitter
                namedType.Name == "Swift.Optional" &&
                namedType.GenericParameters.Count == 1 &&
                namedType.GenericParameters[0] is NamedTypeSpec inner &&
-               (CdeclParamMapper.IsBlittablePrimitiveSwiftType(inner.Name) ||
-                MarshallingHelpers.IsBoolType(inner) ||
-                closureHandler.IsSimpleEnum(inner));
+               CdeclParamMapper.IsBlittablePrimitiveSwiftType(inner.Name);
     }
 
     /// <summary>

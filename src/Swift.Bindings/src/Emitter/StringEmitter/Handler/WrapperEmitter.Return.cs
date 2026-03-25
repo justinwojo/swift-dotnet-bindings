@@ -249,6 +249,24 @@ namespace BindingsGeneration
                                 """);
                             return;
                         }
+                        // Frozen blittable struct fast path: use TypeMetadata.Size for tag offset.
+                        // Uses the runtime's source of truth (not Unsafe.SizeOf which includes C# padding).
+                        // Avoids VWT GetEnumTag which returns incorrect values for frozen structs on Mono.
+                        if (optProj.InnerProjection is BlittableProjection && blittableSize == null &&
+                            !OptionalProjection.IsKnownPrimitiveTypeNamePublic(optProj.InnerProjection.PublicType))
+                        {
+                            var innerType = optProj.InnerProjection.PublicType;
+                            var containerType = optProj.ContainerTypeName;
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    byte* _optPtr = (byte*){{resultExpr}};
+                                    if (_optPtr[(int)TypeMetadata.GetTypeMetadataOrThrow<{{innerType}}>().Size] != 0)
+                                        return null!; // None — return null reference to bypass VWT
+                                    return {{containerType}}.NewSome(Unsafe.ReadUnaligned<{{innerType}}>(ref *_optPtr));
+                                }
+                                """);
+                            return;
+                        }
                     }
 
                     // Return SwiftOptional<T> directly — the accessor method returns SwiftOptional<T>,

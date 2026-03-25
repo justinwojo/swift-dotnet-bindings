@@ -107,6 +107,16 @@ public static class SwiftBuilder
                 return "UnsafeMutableRawPointer?";
             }
 
+            // Optional<Bool/SimpleEnum> uses nil-for-none pointer ABI: UnsafeMutableRawPointer?
+            // Swift unwraps the optional, passes inner value pointer (nil for .none).
+            if (closureHandler != null && named.ContainsGenericParameters &&
+                named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
+                named.GenericParameters[0] is NamedTypeSpec optInner &&
+                (optInner.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner)))
+            {
+                return "UnsafeMutableRawPointer?";
+            }
+
             return GetSwiftCdeclParamType(named);
         }
 
