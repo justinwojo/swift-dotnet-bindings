@@ -179,20 +179,25 @@ public class TypedThrowsEmitterTests
     }
 
     [Fact]
-    public void AsyncFreeFunction_WithTypedThrows_FallsBackToUntyped()
+    public void AsyncFreeFunction_WithTypedThrows_EmitsTypedErrorCallback()
     {
-        // D5 guard: free-function async typed throws should fall back to untyped
+        // Free-function async typed throws now generates typed pattern (D5 guard removed)
         var (csOutput, swiftOutput) = GenerateThrowingMethod(
             isAsync: true,
             hasTypedThrows: true,
             errorTypeName: "TestModule.ParseError",
             isFreeFunction: true);
 
-        // Should fall back to untyped pattern (free-function async guard)
-        Assert.Contains("SwiftException(errorMessage)", csOutput);
-        Assert.DoesNotContain("SBW_Free", csOutput);
-        Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
+        // C# side: 5-param delegate with error ptr + size + message + isCancellation + task
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, void", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
+        Assert.Contains("SBW_Free(errorPtr)", csOutput);
+        Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
+
+        // Swift side: typed error callback with MemoryLayout + initializeMemory
+        Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
+        Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
+        Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64", swiftOutput);
     }
 
     #endregion

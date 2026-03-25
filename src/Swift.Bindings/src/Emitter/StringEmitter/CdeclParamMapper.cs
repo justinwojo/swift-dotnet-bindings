@@ -511,10 +511,14 @@ public static class CdeclParamMapper
     /// </summary>
     private static bool HasObjCBridgeableLeafElement(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
+        // Check nested containers first — Swift.Array/Dictionary/Set are registered in the TypeDB
+        // as frozen structs, so the TryGetTypeRecord check below would match them and return
+        // IsObjCBridgeable(struct) = false, preventing recursion into their generic parameters.
+        if (IsObjCBridgeableContainer(typeSpec, typeDatabase))
+            return true;
         if (typeSpec is NamedTypeSpec named && typeDatabase.TryGetTypeRecord(named, out var record))
             return MarshallingHelpers.IsObjCBridgeable(record);
-        // Recurse into nested containers
-        return IsObjCBridgeableContainer(typeSpec, typeDatabase);
+        return false;
     }
 
     /// <summary>

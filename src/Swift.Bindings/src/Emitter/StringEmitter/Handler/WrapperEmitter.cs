@@ -62,14 +62,11 @@ namespace BindingsGeneration
             _requiresSwiftError = !_requiresSwiftAsync && _env.MethodDecl.Throws;
 
             // Resolve typed throws for async error callback emission.
-            // Falls back to untyped when: (a) no typed throws, (b) error type unresolvable,
-            // (c) free-function async typed throws (known _payload/this bug — D5 guard).
+            // Falls back to untyped when: (a) no typed throws, (b) error type unresolvable.
             useTypedErrorCallback = false;
             if (_env.MethodDecl.HasTypedThrows && _requiresSwiftAsync)
             {
-                var parentTypeName_ = (_env.ParentDecl as TypeDecl)?.SwiftTypeName;
-                bool isFreeFunctionAsync = parentTypeName_ == null;
-                if (!isFreeFunctionAsync && _env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var errorTypeRecord))
+                if (_env.TypeDatabase.TryGetTypeRecord(_env.MethodDecl.ThrownErrorType!, out var errorTypeRecord))
                 {
                     typedThrowsSwiftErrorType = _env.MethodDecl.ThrownErrorType!.ToString();
                     typedThrowsCSharpErrorType = errorTypeRecord.CSharpTypeName.FullyQualifiedName;

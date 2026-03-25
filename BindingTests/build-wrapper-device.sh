@@ -102,6 +102,7 @@ PRESERVED_PROTOCOLS = {
     "Named", "Prioritized",
     "TaskDescriptor", "StringProcessor",
     "StatusHandler", "PriorityHandler",
+    "URLProcessorDelegate",
 }
 
 _preserved_pattern = re.compile(r'\b(' + '|'.join(re.escape(p) for p in PRESERVED_PROTOCOLS) + r')\b')

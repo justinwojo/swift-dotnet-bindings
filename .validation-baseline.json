@@ -1,11 +1,11 @@
 {
-  "git_sha": "d27c7e03",
+  "git_sha": "18a2290b",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 44564,
+        "lines": 44568,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 20777,
+        "lines": 20793,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 76227,
+        "lines": 76229,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52567,
+        "lines": 52577,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 29560,
+        "lines": 29568,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -82,28 +82,28 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8824,
+        "lines": 8826,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21022,
+        "lines": 21026,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21022,
+        "lines": 21026,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21022,
+        "lines": 21026,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -124,21 +124,21 @@
       "SmartCardIO": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5079,
+        "lines": 5082,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SnapKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10970,
+        "lines": 10971,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16000,
+        "lines": 16006,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,21 +306,21 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4820,
+        "lines": 4821,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13784,
+        "lines": 13785,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15760,
+        "lines": 15761,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,14 +334,14 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7974,
+        "lines": 7978,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3767,
+        "lines": 3768,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

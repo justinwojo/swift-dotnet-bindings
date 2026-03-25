@@ -621,6 +621,19 @@ public static class ExistentialContainerFactory
     public const int MaxInlinePayloadSize = 3 * 8; // 3 machine words on 64-bit
 
     /// <summary>
+    /// Return type for swift_allocBox: a heap object pointer and a buffer pointer.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BoxPair
+    {
+        public IntPtr HeapObject;
+        public IntPtr Buffer;
+    }
+
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_allocBox")]
+    private static extern BoxPair swift_allocBox(TypeMetadata type);
+
+    /// <summary>
     /// Creates an existential container for 'any' type (no protocol constraints).
     /// Use this when a Swift method expects 'Any' or 'any Any'.
     /// </summary>
@@ -763,16 +776,18 @@ public static class ExistentialContainerFactory
         }
         else
         {
-            // Allocate on heap using Swift's allocator semantics
-            var alignment = (nuint)vwt->Alignment;
-            var heapPtr = NativeMemory.AlignedAlloc((nuint)size, alignment);
+            // Non-inline values must be stored in a Swift box (heap object with refcount header).
+            // Swift's existential initializeWithCopy calls swift_retain on payload[0], so a raw
+            // NativeMemory pointer would SIGSEGV. Use swift_allocBox which returns a properly
+            // formatted heap object that Swift's ARC can manage.
+            var boxPair = swift_allocBox(metadata);
 
-            // Marshal the value into the heap buffer
-            var heapSpan = new Span<byte>(heapPtr, size);
+            // Marshal the value into the box's buffer area
+            var heapSpan = new Span<byte>((void*)boxPair.Buffer, size);
             value.MarshalToSwift(ref heapSpan);
 
-            // Store pointer in first payload slot
-            container.Payload0 = (IntPtr)heapPtr;
+            // Store the heap object pointer (with refcount header) in first payload slot
+            container.Payload0 = boxPair.HeapObject;
             container.Payload1 = IntPtr.Zero;
             container.Payload2 = IntPtr.Zero;
         }

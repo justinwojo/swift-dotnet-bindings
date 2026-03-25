@@ -106,7 +106,6 @@ public class URLContainerBridgeTests : TestBase
 
     #region Nested Array Parameter
 
-    [Skip("Nested ObjC bridge param: recursive NSArray-from-elements crashes in Swift bridge reconstruction")]
     public void TestAcceptNestedURLArray()
     {
         using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
@@ -123,7 +122,6 @@ public class URLContainerBridgeTests : TestBase
 
     #region Nested Array Return
 
-    [Skip("Nested ObjC bridge: _SwiftURL not registered as NSObject subclass — ArrayFromHandle<NSUrl> fails for inner elements")]
     public void TestGetNestedURLArray()
     {
         using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();

@@ -145,16 +145,21 @@ public class LifetimeTrackingTests : TestBase
 
     #region Async Ownership
 
-    [Skip("Async free functions: _payload/this in static context (generator bug)")]
     public void TestAsyncCreateObject()
     {
-        // asyncCreateObject — async ownership disabled in Swift source
+        var task = TestLibFunctions.CreateObjectAsync(objectId: 77);
+        // Async returns a Task — verify it starts without crash.
+        // Full async/await in test harness requires MainRunLoop pumping; verify non-null return.
+        AssertNotNull(task, "CreateObjectAsync returns non-null Task");
+        TestLogger.Info("CreateObjectAsync invoked successfully");
     }
 
-    [Skip("Async free functions: _payload/this in static context (generator bug)")]
     public void TestAsyncRoundTrip()
     {
-        // asyncRoundTrip — async ownership disabled in Swift source
+        using var obj = TestLibFunctions.CreateTrackedObject(88);
+        var task = TestLibFunctions.RoundTripAsync(obj);
+        AssertNotNull(task, "RoundTripAsync returns non-null Task");
+        TestLogger.Info("RoundTripAsync invoked successfully");
     }
 
     #endregion

@@ -154,6 +154,7 @@ PRESERVED_PROTOCOLS = {
     "Named", "Prioritized",
     "TaskDescriptor", "StringProcessor",
     "StatusHandler", "PriorityHandler",
+    "URLProcessorDelegate",
 }
 
 import re

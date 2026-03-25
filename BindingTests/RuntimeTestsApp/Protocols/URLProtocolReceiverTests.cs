@@ -20,7 +20,7 @@ public class URLProtocolReceiverTests : TestBase
     /// Tests round-trip: Swift passes URL to C# protocol impl, C# returns a URL back to Swift.
     /// Both parameter and return directions must correctly marshal through ObjC pointers.
     /// </summary>
-    [Skip("Protocol proxy witness table for URLProcessorDelegate stripped from SwiftBindings wrapper — needs @_cdecl bridge for ObjC-bridgeable protocol members")]
+    [Skip("Protocol proxy ObjC bridge: URL struct → NSURL pointer marshalling mismatch in EveryProtocol vtable callback")]
     public void TestURLProtocolRoundTrip()
     {
         var impl = new TestURLProcessor();

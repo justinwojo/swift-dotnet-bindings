@@ -20,7 +20,9 @@ namespace BindingsGeneration
             bool isEmptyTuple = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
             // Async constructors are emitted as static CreateAsync() factories — no self retention needed
             bool isAsyncConstructor = _env.MethodDecl.IsConstructor;
-            bool isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static && !isAsyncConstructor;
+            // Free functions (ParentDecl is ModuleDecl, not TypeDecl) have no self — never treat as instance.
+            // Global functions may have MethodType != Static in ABI metadata, but they're not instance methods.
+            bool isInstanceMethod = _env.MethodDecl.MethodType != MethodType.Static && !isAsyncConstructor && _env.ParentDecl is TypeDecl;
             bool isSwiftClass = _env.ParentDecl is ClassDecl;
 
             // Detect String return type - requires UTF-8 marshalling via SBW_Utf8Slice
