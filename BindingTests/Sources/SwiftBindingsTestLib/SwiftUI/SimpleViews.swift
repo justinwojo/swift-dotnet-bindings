@@ -273,6 +273,22 @@ public struct StringReturnClosureView: View {
     }
 }
 
+// MARK: - Lifecycle & Presentation (Session 5)
+
+/// Tests lifecycle callbacks (onAppear/onDisappear) and universal modifiers.
+/// Bridge always emits lifecycle params on Create factory.
+public struct LifecycleTestView: View {
+    public let title: String
+
+    public init(title: String) {
+        self.title = title
+    }
+
+    public var body: some View {
+        Text(title)
+    }
+}
+
 /// Tests TypedClosure with class return: (Int32) -> SimpleModel.
 /// C# callback retains via Arc.Retain; Swift takes ownership via Unmanaged.takeRetainedValue.
 public struct ClassReturnClosureView: View {

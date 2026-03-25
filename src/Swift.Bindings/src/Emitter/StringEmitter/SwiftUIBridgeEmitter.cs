@@ -693,21 +693,17 @@ public static partial class SwiftUIBridgeEmitter
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
         var hasModifiers = modifiers != null && modifiers.Count > 0;
 
-        // Emit State class and Wrapper view before Session when there are updatable params or modifiers
-        if (hasUpdatableParams || hasModifiers)
-        {
-            EmitSwiftStateClass(sb, prefix, info, bridgeParams, modifiers);
-            EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs, modifiers);
-        }
+        // Always emit State + Wrapper for lifecycle callbacks and universal modifiers (Session 5)
+        EmitSwiftStateClass(sb, prefix, info, bridgeParams, modifiers);
+        EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs, modifiers);
 
-        // Session class
-        var hostedViewType = GetSwiftHostedViewType(info, bridgeParams, modifiers);
+        // Session class — always uses Wrapper pattern (Session 5)
+        var hostedViewType = $"{prefix}_Wrapper";
         sb.AppendLine($"final class {sessionClass} {{");
-        if (hasUpdatableParams || hasModifiers)
-            sb.AppendLine($"    let state: {prefix}_State");
+        sb.AppendLine($"    let state: {prefix}_State");
         sb.AppendLine($"    let hostingController: UIHostingController<{hostedViewType}>");
 
-        // Store callback fields (+ class/struct fields only when no state pattern)
+        // Store callback fields
         foreach (var param in bridgeParams)
         {
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
@@ -715,12 +711,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
                 sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
             }
-            else if (!hasUpdatableParams && param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
-            {
-                sb.AppendLine($"    let {param.Name}: {param.BridgeTypeName}");
-            }
         }
-
         sb.AppendLine();
 
         // Init
@@ -764,17 +755,13 @@ public static partial class SwiftUIBridgeEmitter
         sb.Append(string.Join(",\n         ", initParams));
         sb.AppendLine(") {");
 
-        // Store callbacks and retain class references
+        // Store callbacks
         foreach (var param in bridgeParams)
         {
             if (param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure)
             {
                 sb.AppendLine($"        self.{param.Name}Callback = {param.Name}Callback");
                 sb.AppendLine($"        self.{param.Name}UserData = {param.Name}UserData");
-            }
-            else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundType)
-            {
-                sb.AppendLine($"        self.{param.Name} = Unmanaged<{param.BridgeTypeName}>.fromOpaque({param.Name}Ptr).takeUnretainedValue()");
             }
             else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundStruct)
             {
@@ -791,114 +778,27 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        if (hasUpdatableParams || hasModifiers)
+        // Always use Wrapper pattern (Session 5: lifecycle + universal modifiers)
+        // Convert ABI params to Swift-native values for state
+        EmitSwiftStateConversions(sb, bridgeParams);
+
+        // Create state object
+        var stateArgs = bridgeParams.Where(p => p.IsUpdatable)
+            .Select(p => $"{p.Name}: {GetSwiftConvertedVarName(p)}")
+            .ToList();
+        sb.AppendLine($"        self.state = {prefix}_State({string.Join(", ", stateArgs)})");
+
+        // Build closure Swift init args for the Wrapper
+        var wrapperArgs = new List<string> { "state: state" };
+        foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
         {
-            // Convert ABI params to Swift-native values for state
-            EmitSwiftStateConversions(sb, bridgeParams);
-
-            // Create state object
-            var stateArgs = bridgeParams.Where(p => p.IsUpdatable)
-                .Select(p => $"{p.Name}: {GetSwiftConvertedVarName(p)}")
-                .ToList();
-            sb.AppendLine($"        self.state = {prefix}_State({string.Join(", ", stateArgs)})");
-
-            // Build closure Swift init args for the Wrapper
-            var wrapperArgs = new List<string> { "state: state" };
-            foreach (var param in bridgeParams.Where(p => !p.IsUpdatable))
-            {
-                if (param.Kind == BridgeParameterKind.VoidClosure)
-                    wrapperArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
-                else if (param.Kind == BridgeParameterKind.TypedClosure)
-                    wrapperArgs.Add(BuildTypedClosureViewInitArg(param));
-            }
-            sb.AppendLine($"        let wrapper = {prefix}_Wrapper({string.Join(", ", wrapperArgs)})");
-            sb.AppendLine($"        self.hostingController = UIHostingController(rootView: wrapper)");
+            if (param.Kind == BridgeParameterKind.VoidClosure)
+                wrapperArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
+            else if (param.Kind == BridgeParameterKind.TypedClosure)
+                wrapperArgs.Add(BuildTypedClosureViewInitArg(param));
         }
-        else
-        {
-            // Original direct view creation path
-            var viewInitArgs = new List<string>();
-            foreach (var param in bridgeParams)
-            {
-                if (param.Kind == BridgeParameterKind.VoidClosure)
-                {
-                    viewInitArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
-                }
-                else if (param.Kind == BridgeParameterKind.TypedClosure)
-                {
-                    viewInitArgs.Add(BuildTypedClosureViewInitArg(param));
-                }
-                else if (param.Kind == BridgeParameterKind.String)
-                {
-                    sb.AppendLine($"        let {param.Name}String: String");
-                    sb.AppendLine($"        if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-                    sb.AppendLine($"            {param.Name}String = String(bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len), encoding: .utf8) ?? \"\"");
-                    sb.AppendLine($"        }} else {{");
-                    sb.AppendLine($"            {param.Name}String = \"\"");
-                    sb.AppendLine($"        }}");
-                    viewInitArgs.Add($"{param.Name}: {param.Name}String");
-                }
-                else if (param.Kind == BridgeParameterKind.BoundEnum)
-                {
-                    viewInitArgs.Add($"{param.Name}: {param.BridgeTypeName}(rawValue: {param.Name})!");
-                }
-                else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
-                {
-                    viewInitArgs.Add($"{param.Name}: self.{param.Name}");
-                }
-                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String)
-                {
-                    sb.AppendLine($"        let {param.Name}String: String?");
-                    sb.AppendLine($"        if {param.Name}Ptr == nil {{ {param.Name}String = nil }}");
-                    sb.AppendLine($"        else if {param.Name}Len > 0 {{ {param.Name}String = String(bytes: UnsafeBufferPointer(start: {param.Name}Ptr!, count: {param.Name}Len), encoding: .utf8) ?? \"\" }}");
-                    sb.AppendLine($"        else {{ {param.Name}String = \"\" }}");
-                    viewInitArgs.Add($"{param.Name}: {param.Name}String");
-                }
-                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundType)
-                {
-                    var inner = param.InnerParameter!;
-                    sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ Unmanaged<{inner.BridgeTypeName}>.fromOpaque($0).takeUnretainedValue() }}");
-                    viewInitArgs.Add($"{param.Name}: {param.Name}Val");
-                }
-                else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.BoundStruct)
-                {
-                    var inner = param.InnerParameter!;
-                    sb.AppendLine($"        let {param.Name}Val: {inner.BridgeTypeName}? = {param.Name}Ptr.map {{ $0.assumingMemoryBound(to: {inner.BridgeTypeName}.self).pointee }}");
-                    viewInitArgs.Add($"{param.Name}: {param.Name}Val");
-                }
-                else if (param.Kind == BridgeParameterKind.OptionalWrapped)
-                {
-                    var inner = param.InnerParameter!;
-                    string valueExpr;
-                    if (inner.Kind == BridgeParameterKind.BoundEnum)
-                        valueExpr = $"{inner.BridgeTypeName}(rawValue: {param.Name}Value)!";
-                    else if (inner.SwiftConversion != null)
-                        valueExpr = $"{param.Name}Value {inner.SwiftConversion}";
-                    else
-                        valueExpr = $"{param.Name}Value";
-                    viewInitArgs.Add($"{param.Name}: {param.Name}HasValue != 0 ? {valueExpr} : nil");
-                }
-                else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion != null)
-                {
-                    viewInitArgs.Add($"{param.Name}: {param.Name} {param.SwiftConversion}");
-                }
-                else
-                {
-                    viewInitArgs.Add($"{param.Name}: {param.Name}");
-                }
-            }
-
-            var mergedArgs = BuildMergedInitArgs(
-                info.Constructors.Count > 0 ? info.Constructors[info.GenericAnalysis?.SelectedConstructorIndex ?? 0] : null,
-                bridgeParams, viewInitArgs, synthesizedArgs);
-
-            var viewTypeName = GetViewInitTypeName(info);
-            if (mergedArgs.Count == 0)
-                sb.AppendLine($"        let view = {viewTypeName}()");
-            else
-                sb.AppendLine($"        let view = {viewTypeName}({string.Join(", ", mergedArgs)})");
-            sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
-        }
+        sb.AppendLine($"        let wrapper = {prefix}_Wrapper({string.Join(", ", wrapperArgs)})");
+        sb.AppendLine($"        self.hostingController = UIHostingController(rootView: wrapper)");
 
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -1035,6 +935,16 @@ public static partial class SwiftUIBridgeEmitter
         {
             EmitSwiftModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifiers!);
         }
+
+        // Lifecycle Set function (Session 5)
+        EmitSwiftLifecycleSetFunction(sb, prefix, sessionClass, handlesVar);
+
+        // Universal modifier Set functions (Session 5) — skip any that collide with view-specific modifiers
+        var modifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
+        EmitSwiftUniversalModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifierSetNames);
+
+        // Presentation helpers (Session 5)
+        EmitSwiftPresentationFunctions(sb, prefix, sessionClass, handlesVar);
     }
 
     #region State/Wrapper/Update Emission
@@ -1069,6 +979,12 @@ public static partial class SwiftUIBridgeEmitter
                 }
             }
         }
+
+        // Lifecycle callback state vars (Session 5 — not @Published, just stored on state)
+        EmitSwiftLifecycleStateVars(sb);
+
+        // Universal modifier state vars (Session 5)
+        EmitSwiftUniversalModifierStateVars(sb);
 
         // Init
         var initParams = bridgeParams.Where(p => p.IsUpdatable)
@@ -1131,13 +1047,16 @@ public static partial class SwiftUIBridgeEmitter
             : $"{viewTypeName}({string.Join(", ", mergedArgs)})";
 
         if (hasModifiers)
-            sb.AppendLine($"        applyModifiers({viewExpr})");
+            sb.AppendLine($"        applyUniversalModifiers(applyModifiers({viewExpr}))");
         else
-            sb.AppendLine($"        {viewExpr}");
+            sb.AppendLine($"        applyUniversalModifiers({viewExpr})");
+
+        // Lifecycle modifiers (always present)
+        EmitSwiftWrapperLifecycleModifiers(sb);
 
         sb.AppendLine("    }");
 
-        // applyModifiers helper
+        // applyModifiers helper (view-specific modifiers from Swift source)
         if (hasModifiers)
         {
             var concreteType = GetConcreteViewType(info);
@@ -1161,6 +1080,9 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"        return result");
             sb.AppendLine("    }");
         }
+
+        // Universal modifier helper (Session 5 — always present, uses AnyView type erasure)
+        EmitSwiftUniversalModifierHelper(sb);
 
         sb.AppendLine("}");
         sb.AppendLine();
@@ -1972,6 +1894,16 @@ public static partial class SwiftUIBridgeEmitter
         if (hasModifiers)
             EmitCSharpModifierPInvokeDeclarations(sb, prefix, bridgeLib, modifiers!);
 
+        // Lifecycle P/Invoke declaration (Session 5)
+        EmitCSharpLifecyclePInvoke(sb, prefix, bridgeLib);
+
+        // Universal modifier P/Invoke declarations (Session 5) — skip collisions with view-specific modifiers
+        var csharpModifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
+        EmitCSharpUniversalModifierPInvokes(sb, prefix, bridgeLib, csharpModifierSetNames);
+
+        // Presentation P/Invoke declarations (Session 5)
+        EmitCSharpPresentationPInvokes(sb, prefix, bridgeLib);
+
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -1984,6 +1916,8 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine("        private GCHandle[] _closureHandles = Array.Empty<GCHandle>();");
         }
+        // Lifecycle handles (Session 5 — always present)
+        sb.AppendLine("        private GCHandle[] _lifecycleHandles = Array.Empty<GCHandle>();");
         sb.AppendLine();
         sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
         sb.AppendLine();
@@ -2018,6 +1952,9 @@ public static partial class SwiftUIBridgeEmitter
             EmitTypedClosureTrampoline(sb, param);
         }
 
+        // Lifecycle trampolines (Session 5)
+        EmitCSharpLifecycleTrampolines(sb);
+
         // Create factory method
         EmitSimpleCreateFactory(sb, info, bridgeParams, needsUnsafe, hasClosures, hasStrings);
 
@@ -2027,6 +1964,15 @@ public static partial class SwiftUIBridgeEmitter
         // Modifier methods
         if (hasModifiers)
             EmitCSharpModifierMethods(sb, info, modifiers!);
+
+        // Lifecycle method (Session 5)
+        EmitCSharpLifecycleMethod(sb, info);
+
+        // Universal modifier methods (Session 5) — skip collisions with view-specific modifiers
+        EmitCSharpUniversalModifierMethods(sb, info, csharpModifierSetNames);
+
+        // Presentation methods (Session 5)
+        EmitCSharpPresentationMethods(sb, info);
 
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
@@ -2040,6 +1986,10 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                    if (h.IsAllocated) h.Free();");
             sb.AppendLine("                _closureHandles = Array.Empty<GCHandle>();");
         }
+        // Free lifecycle handles (Session 5)
+        sb.AppendLine("                foreach (var h in _lifecycleHandles)");
+        sb.AppendLine("                    if (h.IsAllocated) h.Free();");
+        sb.AppendLine("                _lifecycleHandles = Array.Empty<GCHandle>();");
         sb.AppendLine("                _handle = IntPtr.Zero;");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
@@ -2068,6 +2018,9 @@ public static partial class SwiftUIBridgeEmitter
                 requiredParams.Add($"{type} {param.Name}");
         }
         requiredParams.AddRange(optionalParams);
+        // Lifecycle callback params (Session 5 — always present, always optional)
+        requiredParams.Add("Action? onAppear = null");
+        requiredParams.Add("Action? onDisappear = null");
 
         var unsafeKeyword = needsUnsafe ? "unsafe " : "";
         sb.AppendLine($"        public static {unsafeKeyword}{info.ViewName}Session Create({string.Join(", ", requiredParams)})");
@@ -2141,7 +2094,9 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"            var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine("            if (handle == IntPtr.Zero)");
             sb.AppendLine($"                throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
-            sb.AppendLine($"            return new {info.ViewName}Session(handle);");
+            sb.AppendLine($"            var session = new {info.ViewName}Session(handle);");
+            sb.AppendLine($"            session.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"            return session;");
         }
 
         sb.AppendLine("        }");
@@ -2165,17 +2120,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"{innerIndent}var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine($"{innerIndent}if (handle == IntPtr.Zero)");
             sb.AppendLine($"{innerIndent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
+            sb.AppendLine($"{innerIndent}var session = new {info.ViewName}Session(handle);");
             if (hasClosures)
             {
-                sb.AppendLine($"{innerIndent}var session = new {info.ViewName}Session(handle);");
                 sb.AppendLine($"{innerIndent}session._closureHandles = closureHandles.ToArray();");
                 sb.AppendLine($"{innerIndent}closureHandles.Clear();");
-                sb.AppendLine($"{innerIndent}return session;");
             }
-            else
-            {
-                sb.AppendLine($"{innerIndent}return new {info.ViewName}Session(handle);");
-            }
+            sb.AppendLine($"{innerIndent}session.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"{innerIndent}return session;");
             sb.AppendLine($"{indent}}}");
         }
         else
@@ -2183,17 +2135,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"{indent}var handle = {info.ViewName}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
             sb.AppendLine($"{indent}if (handle == IntPtr.Zero)");
             sb.AppendLine($"{indent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
+            sb.AppendLine($"{indent}var session = new {info.ViewName}Session(handle);");
             if (hasClosures)
             {
-                sb.AppendLine($"{indent}var session = new {info.ViewName}Session(handle);");
                 sb.AppendLine($"{indent}session._closureHandles = closureHandles.ToArray();");
                 sb.AppendLine($"{indent}closureHandles.Clear();");
-                sb.AppendLine($"{indent}return session;");
             }
-            else
-            {
-                sb.AppendLine($"{indent}return new {info.ViewName}Session(handle);");
-            }
+            sb.AppendLine($"{indent}session.SetLifecycleCallbacks(onAppear, onDisappear);");
+            sb.AppendLine($"{indent}return session;");
         }
     }
 

@@ -182,7 +182,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
         Assert.Contains("final class SBW_TestModule_TestView_Session", swiftContent);
-        Assert.Contains("UIHostingController<TestView>", swiftContent);
+        Assert.Contains("UIHostingController<SBW_TestModule_TestView_Wrapper>", swiftContent);
     }
 
     [Fact]
@@ -682,17 +682,16 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void EmitSimpleViewBridge_CSharp_NoParamsFactory_NotUnsafe()
+    public void EmitSimpleViewBridge_CSharp_NoParamsFactory_HasLifecycleParams()
     {
-        // View with no init params → factory doesn't need unsafe
+        // View with no init params → factory has only lifecycle optional params
         var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        Assert.Contains("public static PlainViewSession Create()", csContent);
-        Assert.DoesNotContain("unsafe PlainViewSession", csContent);
+        Assert.Contains("PlainViewSession Create(Action? onAppear = null, Action? onDisappear = null)", csContent);
     }
 
     [Fact]
@@ -6372,31 +6371,32 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void StateBinding_NoWrapper_ForClosureOnlyView()
+    public void StateBinding_AlwaysWrapper_ForClosureOnlyView()
     {
-        // View with only closures → no updatable params → no state/wrapper
+        // Session 5: All views always use State+Wrapper (for lifecycle + universal modifiers)
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ClosureOnlyView", "action") };
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_State", swiftContent);
-        Assert.DoesNotContain("SBW_TestModule_ClosureOnlyView_Wrapper", swiftContent);
-        Assert.Contains("UIHostingController<ClosureOnlyView>", swiftContent);
+        Assert.Contains("SBW_TestModule_ClosureOnlyView_State", swiftContent);
+        Assert.Contains("SBW_TestModule_ClosureOnlyView_Wrapper", swiftContent);
+        Assert.Contains("UIHostingController<SBW_TestModule_ClosureOnlyView_Wrapper>", swiftContent);
     }
 
     [Fact]
-    public void StateBinding_NoWrapper_ForParameterlessView()
+    public void StateBinding_AlwaysWrapper_ForParameterlessView()
     {
+        // Session 5: Even parameterless views use State+Wrapper
         var views = new List<TypeDecl> { CreateSimpleViewStruct("EmptyView") };
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
             NullLogger.Instance);
 
         var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
-        Assert.DoesNotContain("_State", swiftContent);
-        Assert.DoesNotContain("_Wrapper", swiftContent);
+        Assert.Contains("SBW_TestModule_EmptyView_State", swiftContent);
+        Assert.Contains("SBW_TestModule_EmptyView_Wrapper", swiftContent);
     }
 
     [Fact]
@@ -7764,6 +7764,408 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var result = SwiftUIBridgeEmitter.ResolveNonViewConstraint(conformances);
 
         Assert.Null(result);
+    }
+
+    #endregion
+
+    #region Session 5 — Lifecycle Callbacks
+
+    [Fact]
+    public void Lifecycle_Swift_StateHasLifecycleVars()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("var lifecycleOnAppear: (() -> Void)? = nil", swiftContent);
+        Assert.Contains("var lifecycleOnDisappear: (() -> Void)? = nil", swiftContent);
+    }
+
+    [Fact]
+    public void Lifecycle_Swift_HasSetLifecycleFunction()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_LifeView_SetLifecycle\")", swiftContent);
+        Assert.Contains("_ onAppearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?", swiftContent);
+        Assert.Contains("_ onDisappearCb: (@convention(c) (UnsafeMutableRawPointer?) -> Void)?", swiftContent);
+    }
+
+    [Fact]
+    public void Lifecycle_Swift_WrapperHasLifecycleModifiers()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains(".onAppear { [state] in state.lifecycleOnAppear?() }", swiftContent);
+        Assert.Contains(".onDisappear { [state] in state.lifecycleOnDisappear?() }", swiftContent);
+    }
+
+    [Fact]
+    public void Lifecycle_Swift_CreateSignatureUnchanged()
+    {
+        // Lifecycle uses SetLifecycle, not Create params — verify Create doesn't have lifecycle params
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("SBW_TestModule_LifeView_Create(onAppearCb", swiftContent);
+    }
+
+    [Fact]
+    public void Lifecycle_CSharp_HasTrampolines()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("OnAppearTrampoline", csContent);
+        Assert.Contains("OnDisappearTrampoline", csContent);
+        Assert.Contains("[UnmanagedCallersOnly(", csContent);
+    }
+
+    [Fact]
+    public void Lifecycle_CSharp_CreateHasOptionalActionParams()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action? onAppear = null", csContent);
+        Assert.Contains("Action? onDisappear = null", csContent);
+    }
+
+    [Fact]
+    public void Lifecycle_CSharp_HasSetLifecyclePInvoke()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SBW_TestModule_LifeView_SetLifecycle", csContent);
+        Assert.Contains("SetLifecycleCallbacks", csContent);
+    }
+
+    [Fact]
+    public void Lifecycle_CSharp_SessionHasLifecycleHandlesField()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("LifeView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("_lifecycleHandles", csContent);
+    }
+
+    #endregion
+
+    #region Session 5 — Universal Modifiers
+
+    [Fact]
+    public void UniversalModifiers_Swift_StateHasModifierVars()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@Published var u_frameWidth: CGFloat? = nil", swiftContent);
+        Assert.Contains("@Published var u_frameHeight: CGFloat? = nil", swiftContent);
+        Assert.Contains("@Published var u_padding: CGFloat? = nil", swiftContent);
+        Assert.Contains("@Published var u_backgroundColor: SwiftUI.Color? = nil", swiftContent);
+        Assert.Contains("@Published var u_foregroundColor: SwiftUI.Color? = nil", swiftContent);
+        Assert.Contains("@Published var u_cornerRadius: CGFloat? = nil", swiftContent);
+        Assert.Contains("@Published var u_opacity: Double? = nil", swiftContent);
+        Assert.Contains("@Published var u_font: SwiftUI.Font? = nil", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_Swift_HasApplyHelper()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("func applyUniversalModifiers<V: View>(_ view: V) -> AnyView", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_Swift_EmitsSetFunctions()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetFrame\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetPadding\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetBackground\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetForegroundColor\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetCornerRadius\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetOpacity\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_ModView_SetFont\")", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_Swift_SetBackground_UsesRGBA()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SwiftUI.Color(red: r, green: g, blue: b, opacity: a)", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_Swift_SetFont_UsesSystemSize()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SwiftUI.Font.system(size: CGFloat(size))", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_CSharp_HasPInvokes()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SBW_TestModule_ModView_SetFrame", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetPadding", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetBackground", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetForegroundColor", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetCornerRadius", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetOpacity", csContent);
+        Assert.Contains("SBW_TestModule_ModView_SetFont", csContent);
+    }
+
+    [Fact]
+    public void UniversalModifiers_CSharp_HasPublicMethods()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("ModView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void SetFrame(double? width = null, double? height = null)", csContent);
+        Assert.Contains("public void SetPadding(double? value)", csContent);
+        Assert.Contains("public void SetBackground(double r, double g, double b, double a = 1.0)", csContent);
+        Assert.Contains("public void ClearBackground()", csContent);
+        Assert.Contains("public void SetForegroundColor(double r, double g, double b, double a = 1.0)", csContent);
+        Assert.Contains("public void ClearForegroundColor()", csContent);
+        Assert.Contains("public void SetCornerRadius(double? value)", csContent);
+        Assert.Contains("public void SetOpacity(double? value)", csContent);
+        Assert.Contains("public void SetFontSize(double? size)", csContent);
+    }
+
+    #endregion
+
+    #region Session 5 — Presentation Helpers
+
+    [Fact]
+    public void Presentation_Swift_EmitsPresentDismissFunctions()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl(\"SBW_TestModule_PresView_PresentAsSheet\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_PresView_PushOnNav\")", swiftContent);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_PresView_Dismiss\")", swiftContent);
+    }
+
+    [Fact]
+    public void Presentation_Swift_PresentAsSheet_UsesUIViewController()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("Unmanaged<UIViewController>.fromOpaque(fromVC).takeUnretainedValue()", swiftContent);
+        Assert.Contains("parent.present(session.hostingController, animated: true)", swiftContent);
+    }
+
+    [Fact]
+    public void Presentation_Swift_PushOnNav_UsesUINavigationController()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("Unmanaged<UINavigationController>.fromOpaque(navVC).takeUnretainedValue()", swiftContent);
+        Assert.Contains("nav.pushViewController(session.hostingController, animated: true)", swiftContent);
+    }
+
+    [Fact]
+    public void Presentation_Swift_Dismiss_DismissesHostingController()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("session.hostingController.dismiss(animated: true)", swiftContent);
+    }
+
+    [Fact]
+    public void Presentation_CSharp_HasPInvokes()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SBW_TestModule_PresView_PresentAsSheet", csContent);
+        Assert.Contains("SBW_TestModule_PresView_PushOnNav", csContent);
+        Assert.Contains("SBW_TestModule_PresView_Dismiss", csContent);
+    }
+
+    [Fact]
+    public void Presentation_CSharp_HasPublicMethods()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PresView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void PresentAsSheet(IntPtr fromViewController)", csContent);
+        Assert.Contains("public void PushOnNavigationStack(IntPtr navigationController)", csContent);
+        Assert.Contains("public void Dismiss()", csContent);
+    }
+
+    #endregion
+
+    #region Session 5 — Always-Wrapper & Closure Handle Integration
+
+    [Fact]
+    public void AlwaysWrapper_CSharp_SessionAlwaysHasLifecycleHandles()
+    {
+        // All views get _lifecycleHandles (for lifecycle GCHandles)
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("_lifecycleHandles", csContent);
+        Assert.Contains("GCHandle[]", csContent);
+    }
+
+    [Fact]
+    public void AlwaysWrapper_CSharp_CreateCallsSetLifecycle()
+    {
+        // Create factory calls SetLifecycleCallbacks on the session
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("session.SetLifecycleCallbacks(onAppear, onDisappear)", csContent);
+    }
+
+    [Fact]
+    public void AlwaysWrapper_Swift_WrapperBodyUsesUniversalModifiers()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("PlainView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("applyUniversalModifiers(PlainView())", swiftContent);
+    }
+
+    [Fact]
+    public void UniversalModifier_Dedup_SkipsSetOpacityWhenViewHasOpacityModifier()
+    {
+        // View with an "opacity" modifier method (returns Self) — same name as universal SetOpacity
+        var view = CreateViewWithModifierMethods("OpacityView");
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "opacity",
+            MangledName = "$s_opacity",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsAccessor = false,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("TestModule.OpacityView"), ParentDecl = null, ModuleDecl = null },
+                new ArgumentDecl { Name = "level", PrivateName = "level", IsInOut = false, IsGeneric = false, SwiftTypeSpec = new NamedTypeSpec("Swift.Double"), ParentDecl = null, ModuleDecl = null },
+            },
+        });
+
+        var views = new List<TypeDecl> { view };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        // View-specific SetOpacity should exist (from the modifier chain)
+        Assert.Contains("mod_opacity", swiftContent); // view-specific state var
+
+        // Universal SetOpacity should NOT be duplicated — only one @_cdecl SetOpacity
+        var setOpacityCount = System.Text.RegularExpressions.Regex.Matches(
+            swiftContent, @"@_cdecl\(""SBW_TestModule_OpacityView_SetOpacity""\)").Count;
+        Assert.Equal(1, setOpacityCount);
+
+        // Other universal modifiers should still be present
+        Assert.Contains("SBW_TestModule_OpacityView_SetFrame", swiftContent);
+        Assert.Contains("SBW_TestModule_OpacityView_SetPadding", swiftContent);
+        Assert.Contains("SBW_TestModule_OpacityView_SetFont", swiftContent);
+
+        // C# side: only one SetOpacity P/Invoke
+        var csSetOpacityPInvokes = System.Text.RegularExpressions.Regex.Matches(
+            csContent, @"internal static partial void SetOpacity").Count;
+        Assert.Equal(1, csSetOpacityPInvokes);
     }
 
     #endregion

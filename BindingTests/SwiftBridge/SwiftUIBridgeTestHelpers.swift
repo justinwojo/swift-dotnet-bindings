@@ -12,33 +12,33 @@ import SwiftBindingsTestLib
 // MARK: - Session extensions (coupled to generated field names)
 // If the emitter renames internal fields, only this section needs updating.
 //
-// Views with updatable params use the State/Wrapper pattern:
-//   hostingController.rootView → Wrapper type, state values via session.state.{prop}
-// Views with closure-only params use direct hosting:
-//   hostingController.rootView → concrete View type
+// All views use the State/Wrapper pattern (Session 5: always-wrapper):
+//   hostingController.rootView → Wrapper type
+//   Closures are stored as properties on the Wrapper
+//   Updatable/optional params are stored on state via session.state.{prop}
 
 extension SBW_SwiftBindingsTestLib_TypedClosureView_Session {
-    var rootView: TypedClosureView { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_TypedClosureView_Wrapper { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_MultiArgClosureView_Session {
-    var rootView: MultiArgClosureView { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_MultiArgClosureView_Wrapper { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_StringClosureView_Session {
-    var rootView: StringClosureView { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_StringClosureView_Wrapper { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_ClassClosureView_Session {
-    var rootView: ClassClosureView { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_ClassClosureView_Wrapper { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_OptionalClosureView_Session {
-    var rootView: OptionalClosureView { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_OptionalClosureView_Wrapper { hostingController.rootView }
 }
 
 extension SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Session {
-    var rootView: PlaceholderOnlyView<EmptyView> { hostingController.rootView }
+    var rootView: SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Wrapper { hostingController.rootView }
 }
 
 // MARK: - SimpleModel helpers
@@ -96,7 +96,7 @@ public func SBW_TEST_ClassParamView_GetModelValue(_ handle: UnsafeMutableRawPoin
     }
 }
 
-// MARK: - TypedClosureView helpers (direct hosting)
+// MARK: - TypedClosureView helpers (always-wrapper, closure on Wrapper)
 
 /// Invoke the View's onValue closure via rootView.
 @_cdecl("SBW_TEST_TypedClosureView_InvokeClosure")
@@ -111,7 +111,7 @@ public func SBW_TEST_TypedClosureView_InvokeClosure(_ handle: UnsafeMutableRawPo
     }
 }
 
-// MARK: - MultiArgClosureView helpers (direct hosting)
+// MARK: - MultiArgClosureView helpers (always-wrapper, closure on Wrapper)
 
 /// Invoke the View's onEvent closure via rootView.
 @_cdecl("SBW_TEST_MultiArgClosureView_InvokeClosure")
@@ -217,7 +217,7 @@ public func SBW_TEST_OptionalClassView_GetModelValue(_ handle: UnsafeMutableRawP
     }
 }
 
-// MARK: - StringClosureView helpers (direct hosting)
+// MARK: - StringClosureView helpers (always-wrapper, closure on Wrapper)
 
 /// Invoke the View's onResult closure with a test string.
 @_cdecl("SBW_TEST_StringClosureView_InvokeClosure")
@@ -238,7 +238,7 @@ public func SBW_TEST_StringClosureView_InvokeClosure(_ handle: UnsafeMutableRawP
     }
 }
 
-// MARK: - ClassClosureView helpers (direct hosting)
+// MARK: - ClassClosureView helpers (always-wrapper, closure on Wrapper)
 
 /// Invoke the View's onModel closure with a SimpleModel pointer.
 @_cdecl("SBW_TEST_ClassClosureView_InvokeClosure")
@@ -282,9 +282,9 @@ public func SBW_TEST_OptionalStringView_GetTitleLength(_ handle: UnsafeMutableRa
     }
 }
 
-// MARK: - OptionalClosureView helpers (direct hosting)
+// MARK: - OptionalClosureView helpers (always-wrapper, closure on Wrapper)
 
-/// Invoke the View's optional callback closure. Returns 1 if callback exists, 0 if nil.
+/// Invoke the View's callback closure via Wrapper (always-wrapper: closure is non-optional on Wrapper).
 @_cdecl("SBW_TEST_OptionalClosureView_InvokeClosure")
 public func SBW_TEST_OptionalClosureView_InvokeClosure(_ handle: UnsafeMutableRawPointer?, _ value: Int32) -> Int32 {
     return SBW_onMainThread {
@@ -292,8 +292,7 @@ public func SBW_TEST_OptionalClosureView_InvokeClosure(_ handle: UnsafeMutableRa
               SBW_SwiftBindingsTestLib_OptionalClosureView_liveHandles.contains(handle) else { return -1 }
         let session = Unmanaged<SBW_SwiftBindingsTestLib_OptionalClosureView_Session>
             .fromOpaque(handle).takeUnretainedValue()
-        guard let callback = session.rootView.callback else { return 0 }
-        callback(value)
+        session.rootView.callback(value)
         return 1
     }
 }
@@ -345,7 +344,7 @@ public func SBW_TEST_GenericPlaceholderView_GetTitleLength(_ handle: UnsafeMutab
     }
 }
 
-// MARK: - PlaceholderOnlyView helpers (direct hosting, no params)
+// MARK: - PlaceholderOnlyView helpers (always-wrapper, no user params)
 
 /// Verify PlaceholderOnlyView session was created (returns 1 on success).
 @_cdecl("SBW_TEST_PlaceholderOnlyView_IsAlive")
