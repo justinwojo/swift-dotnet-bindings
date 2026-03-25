@@ -717,6 +717,14 @@ namespace BindingsGeneration
                     return projection.PublicType;
             }
 
+            // ObjC-bridgeable and native-remapped types: use the public native type (e.g., NSUrl, NSUrlRequest)
+            if (typeSpec is NamedTypeSpec namedForNative)
+            {
+                var nativeRecord = typeDatabase.GetTypeRecordOrAnyType(namedForNative);
+                if (nativeRecord.NativeTypeName != null)
+                    return nativeRecord.NativeTypeName.FullyQualifiedName;
+            }
+
             // Everything else: delegate to the internal type
             return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
         }
@@ -772,9 +780,10 @@ namespace BindingsGeneration
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
 
-            // ObjC bridged/rooted types use .Handle to get the native pointer
+            // ObjC bridged/rooted/bridgeable types use .Handle to get the native pointer
             if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
-                MarshallingHelpers.IsObjCRooted(typeRecord))
+                MarshallingHelpers.IsObjCRooted(typeRecord) ||
+                MarshallingHelpers.IsObjCBridgeable(typeRecord))
             {
                 return $"{paramName}.Handle";
             }

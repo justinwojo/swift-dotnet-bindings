@@ -1108,9 +1108,9 @@ public class ClosureHandler
                 return "byte[]";
 
             var typeRecord = _typeDatabase.GetTypeRecordOrAnyType(namedType);
-            // Native remapped types (e.g., Foundation.URL → Foundation.NSUrl)
+            // Native remapped types (e.g., Foundation.Data → Foundation.NSData)
             // must use NativeTypeName to match GetIdiomaticCSharpType's output for property types.
-            // Without this, closures use Swift.URL while properties use Foundation.NSUrl → CS0029.
+            // Without this, closures use the Swift wrapper type while properties use the native .NET type → CS0029.
             if (typeRecord.NativeTypeName != null)
                 return typeRecord.NativeTypeName.FullyQualifiedName;
             return typeRecord.CSharpTypeName.FullyQualifiedName;

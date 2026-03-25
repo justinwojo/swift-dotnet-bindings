@@ -275,6 +275,18 @@ namespace BindingsGeneration
                 }
             }
 
+            // ObjC-bridgeable types: payload stores an ObjC object pointer.
+            if (typeSpec is NamedTypeSpec objcBridgeOffsetSpec)
+            {
+                var objcOffsetRecord = typeDatabase.GetTypeRecordOrAnyType(objcBridgeOffsetSpec);
+                if (MarshallingHelpers.IsObjCBridgeable(objcOffsetRecord) && objcOffsetRecord.NativeTypeName != null)
+                {
+                    var nativeType = objcOffsetRecord.NativeTypeName.FullyQualifiedName;
+                    csWriter.WriteLine($"{varName} = {MarshallingHelpers.FormatObjCBridgeCall(nativeType, $"*(IntPtr*)({sourcePtr} + (int){offsetVar})", nonNull: true)};");
+                    return;
+                }
+            }
+
             // Simple enum associated values: read discriminator with correct width.
             if (typeDatabase.TryGetTypeRecord(typeSpec, out var offsetEnumRecord) &&
                 offsetEnumRecord.Kind == TypeRecordKind.Enum &&
@@ -363,6 +375,19 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<double>(new IntPtr({sourcePtr}));");
                 csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{varName}_raw);");
                 return;
+            }
+
+            // ObjC-bridgeable types: payload stores an ObjC object pointer (e.g., NSURL).
+            // Read the pointer and wrap using GetNSObject<T>() — same pattern as ObjCBridgeableProjection.
+            if (typeSpec is NamedTypeSpec objcBridgeSpec)
+            {
+                var objcRecord = typeDatabase.GetTypeRecordOrAnyType(objcBridgeSpec);
+                if (MarshallingHelpers.IsObjCBridgeable(objcRecord) && objcRecord.NativeTypeName != null)
+                {
+                    var nativeType = objcRecord.NativeTypeName.FullyQualifiedName;
+                    csWriter.WriteLine($"{varName} = {MarshallingHelpers.FormatObjCBridgeCall(nativeType, $"*(IntPtr*){sourcePtr}", nonNull: true)};");
+                    return;
+                }
             }
 
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
@@ -472,6 +497,18 @@ namespace BindingsGeneration
                 var readExpr = GetSimpleEnumReadExpression(simpleEnumRecord, sourcePtr);
                 csWriter.WriteLine($"var {varName} = ({csharpType}){readExpr};");
                 return;
+            }
+
+            // ObjC-bridgeable types: payload stores an ObjC object pointer.
+            if (typeSpec is NamedTypeSpec objcBridgeDeclSpec)
+            {
+                var objcDeclRecord = typeDatabase.GetTypeRecordOrAnyType(objcBridgeDeclSpec);
+                if (MarshallingHelpers.IsObjCBridgeable(objcDeclRecord) && objcDeclRecord.NativeTypeName != null)
+                {
+                    var nativeType = objcDeclRecord.NativeTypeName.FullyQualifiedName;
+                    csWriter.WriteLine($"var {varName} = {MarshallingHelpers.FormatObjCBridgeCall(nativeType, $"*(IntPtr*){sourcePtr}", nonNull: true)};");
+                    return;
+                }
             }
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);

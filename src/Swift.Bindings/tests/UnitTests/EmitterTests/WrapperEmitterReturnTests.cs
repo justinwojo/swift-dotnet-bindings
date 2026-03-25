@@ -13,7 +13,7 @@ namespace BindingsGeneration.Tests;
 public class WrapperEmitterReturnTests
 {
     [Fact]
-    public void DirectReturn_FoundationURL_UsesMarshalFromSwift()
+    public void DirectReturn_FoundationURL_UsesObjCBridge()
     {
         var typeDatabase = CreateTypeDatabaseWithURL();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -30,14 +30,13 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // WU2: URL return must use MarshalFromSwift (URL constructor is private)
-        Assert.Contains("MarshalFromSwift", csOutput);
-        Assert.DoesNotContain("new Swift.URL(result)", csOutput);
-        Assert.Contains("ToNSUrl()", csOutput);
+        // ObjCBridgeable: URL return uses GetNSObject (IntPtr → NSUrl)
+        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        Assert.Contains("Foundation.NSUrl", csOutput);
     }
 
     [Fact]
-    public void IndirectReturn_FoundationURL_UsesMarshalFromSwift()
+    public void IndirectReturn_FoundationURL_UsesObjCBridge()
     {
         var typeDatabase = CreateTypeDatabaseWithURL();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -55,10 +54,9 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // WU2: Indirect URL return must also use MarshalFromSwift
-        Assert.Contains("MarshalFromSwift", csOutput);
-        Assert.DoesNotContain("new Swift.URL(new IntPtr", csOutput);
-        Assert.Contains("ToNSUrl()", csOutput);
+        // ObjCBridgeable: indirect URL return also uses GetNSObject
+        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        Assert.Contains("Foundation.NSUrl", csOutput);
     }
 
     [Fact]
@@ -652,7 +650,7 @@ public class WrapperEmitterReturnTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "URL"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
                 MetadataAccessor = "$s10Foundation3URLVMa",
-                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
                 Kind = TypeRecordKind.Struct,
                 NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
             });

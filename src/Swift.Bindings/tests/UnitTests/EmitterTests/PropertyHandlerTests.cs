@@ -509,7 +509,7 @@ public class PropertyHandlerTests
     }
 
     [Fact]
-    public void Emit_URLProperty_EmitsNSUrlWithDisposal()
+    public void Emit_URLProperty_EmitsNSUrlViaObjCBridge()
     {
         var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
         var moduleDecl = CreateModuleDeclForEmission("TestModule");
@@ -519,12 +519,12 @@ public class PropertyHandlerTests
 
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
-        // Property type should be Foundation.NSUrl (native remapped)
+        // Property type should be Foundation.NSUrl (ObjC bridgeable)
         Assert.Contains("Foundation.NSUrl", csOutput);
-        // Getter: URL is IDisposable — needs using
-        Assert.Contains("get { using var __ret = BaseUrl_Get(); return __ret.ToNSUrl(); }", csOutput);
-        // Setter: URL.FromNSUrl creates IDisposable — needs using
-        Assert.Contains("set { using var __val = Swift.URL.FromNSUrl(value); BaseUrl_Set(__val); }", csOutput);
+        // ObjCBridgeableProjection: getter returns IntPtr, wrapped via GetNSObject
+        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        // ObjCBridgeableProjection: setter extracts .Handle (IntPtr) from NSUrl
+        Assert.Contains(".Handle", csOutput);
     }
 
     [Fact]
@@ -843,7 +843,7 @@ public class PropertyHandlerTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "URL"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
                 MetadataAccessor = "$s10Foundation3URLVMa",
-                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
                 Kind = TypeRecordKind.Struct,
                 NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl")
             });

@@ -1199,7 +1199,7 @@ public class OptionalPointerWrapperTests
     [Theory]
     [InlineData("Optional<String>")]
     [InlineData("Optional<DeviceKit.Device>")]
-    [InlineData("Optional<Swift.URL>")]
+    [InlineData("Optional<Swift.Data>")]
     public void GetReturnBufferCode_IncludesCorrectType(string returnType)
     {
         var lines = OptionalPointerWrapperEmitter.GetReturnBufferCode("expr()", returnType);

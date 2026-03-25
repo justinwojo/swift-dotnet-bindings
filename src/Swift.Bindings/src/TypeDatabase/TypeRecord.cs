@@ -134,7 +134,7 @@ public record TypeRecord
     /// <summary>
     /// Optional native type name to use in public method signatures.
     /// When set, the public API exposes this type (e.g., Foundation.NSUrl) instead of the
-    /// internal Swift wrapper type (e.g., Swift.URL). Conversion happens at the marshalling layer.
+    /// internal Swift wrapper type (e.g., Swift.Data). Conversion happens at the marshalling layer.
     /// </summary>
     public CSharpTypeName? NativeTypeName { get; init; }
 

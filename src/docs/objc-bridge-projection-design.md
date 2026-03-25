@@ -611,7 +611,7 @@ public class URLTestHelper {
 
 ---
 
-### Session 3: Whole-container ObjC bridge for `objcBridgeable` elements
+### Session 3: Whole-container ObjC bridge for `objcBridgeable` elements — COMPLETE (3c09c856)
 
 **Objective:** When a container (`Array`, `Dictionary`, `Set`) holds `objcBridgeable` elements, bridge the entire container to its ObjC collection counterpart on the Swift side, bypassing the `SwiftArray<T>` / `SwiftDictionary<K,V>` pipeline. After this session, methods taking or returning `[URL]`, `[String: URL]`, `Set<URL>`, and `[[URL]]` generate working bindings.
 

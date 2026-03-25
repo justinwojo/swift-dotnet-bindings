@@ -389,13 +389,16 @@ public static partial class SwiftUIBridgeEmitter
 
             var dotIndex = namedSpec.Name.IndexOf('.');
             var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
-            var csharpName = record.CSharpTypeName.FullyQualifiedName;
+            // ObjC-bridgeable structs (e.g., URL → NSUrl): use the native type name
+            var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record);
+            var csharpName = record.NativeTypeName?.FullyQualifiedName ?? record.CSharpTypeName.FullyQualifiedName;
 
             return new BridgeParameter(
                 paramName, BridgeParameterKind.BoundStruct,
                 SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
                 BridgeTypeName: swiftSimpleName, CSharpTypeName: csharpName,
-                StructProjection: projection);
+                StructProjection: projection,
+                IsObjCBridgeable: isObjCBridgeable);
         }
 
         // Other TypeDatabase types not yet supported
@@ -659,7 +662,8 @@ public record BridgeParameter(
     List<BridgeParameter>? ClosureArguments = null,
     BridgeParameter? ClosureReturn = null,
     bool IsSimpleEnum = false,
-    StructProjectionKind? StructProjection = null)
+    StructProjectionKind? StructProjection = null,
+    bool IsObjCBridgeable = false)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

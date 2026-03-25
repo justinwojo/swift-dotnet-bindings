@@ -3320,17 +3320,17 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MethodReceiver_NativeRemappedParam_UsesSwiftWrapperType()
     {
-        // NativeRemapped types (URL → NSUrl) must use the Swift wrapper type (Swift.URL)
-        // for MarshalFromSwift, not SafeHandle (which was the wrong default before override).
-        // Swift.URL implements ISwiftObject so MarshalFromSwift<Swift.URL> works correctly.
-        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
-        var protocol = CreateSimpleProtocol("UrlHandler");
+        // NativeRemapped types must use the Swift wrapper type for MarshalFromSwift,
+        // not SafeHandle (which was the wrong default before override).
+        // This tests a generic non-frozen NativeRemapped type (URL is now ObjCBridgeable).
+        RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
+        var protocol = CreateSimpleProtocol("CustomHandler");
         var method = CreateMethodDecl("open");
         method.CSSignature.Add(new ArgumentDecl
         {
-            Name = "url",
-            PrivateName = "url",
-            SwiftTypeSpec = new NamedTypeSpec("Foundation.URL"),
+            Name = "value",
+            PrivateName = "value",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.CustomValue"),
             IsGeneric = false, IsInOut = false,
             ParentDecl = null, ModuleDecl = null
         });
@@ -3338,24 +3338,25 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_open_0", output);
-        // Must use Swift.URL (the Swift wrapper type) for MarshalFromSwift
-        Assert.Contains("MarshalFromSwift<Swift.URL>", output);
-        // Must apply ToNSUrl conversion
-        Assert.Contains("ToNSUrl", output);
+        // Must use Swift wrapper type for MarshalFromSwift
+        Assert.Contains("MarshalFromSwift<Swift.CustomValue>", output);
+        // Must apply conversion method
+        Assert.Contains("ToNSCustom", output);
     }
 
     [Fact]
     public void EmitProxyClass_PropertyGetter_NativeRemappedType_UsesFromFactoryConversion()
     {
-        // NativeRemapped property getter: convert from NSUrl to Swift.URL via factory method
-        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
-        var protocolDecl = CreateProtocolWithProperty("UrlProto", "endpoint",
-            hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.URL"));
+        // NativeRemapped property getter: convert from native .NET type to Swift wrapper via factory method.
+        // This tests a generic non-frozen NativeRemapped type (URL is now ObjCBridgeable).
+        RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
+        var protocolDecl = CreateProtocolWithProperty("CustomProto", "endpoint",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.CustomValue"));
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_endpoint_get", output);
-        // Getter must convert NSUrl to Swift.URL for marshalling back to Swift
-        Assert.Contains("Swift.URL", output);
+        // Getter must convert native type to Swift wrapper for marshalling back to Swift
+        Assert.Contains("Swift.CustomValue", output);
     }
 
     [Fact]
@@ -3391,20 +3392,21 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_PropertySetter_OptionalNativeRemapped_UsesSwiftWrapperType()
     {
-        // Optional<URL> property setter: MarshalFromSwift<SwiftOptional<Swift.URL>> + ToNSUrl conversion.
+        // Optional<NativeRemapped> property setter: MarshalFromSwift<SwiftOptional<SwiftWrapper>> + ToNative conversion.
         // Uses the NativeRemappedProjection branch in GetReceiverOptionalSetterConversion.
-        RegisterNativeRemappedType("Foundation.URL", "Swift.URL", "Foundation.NSUrl");
-        var optUrl = new NamedTypeSpec("Swift.Optional");
-        optUrl.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
-        var protocolDecl = CreateProtocolWithProperty("OptUrlProto", "redirect",
-            hasGetter: false, hasSetter: true, optUrl);
+        // This tests a generic non-frozen NativeRemapped type (URL is now ObjCBridgeable).
+        RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
+        var optVal = new NamedTypeSpec("Swift.Optional");
+        optVal.GenericParameters.Add(new NamedTypeSpec("TestModule.CustomValue"));
+        var protocolDecl = CreateProtocolWithProperty("OptCustomProto", "redirect",
+            hasGetter: false, hasSetter: true, optVal);
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_redirect_set", output);
-        // ABI type: SwiftOptional<Swift.URL> (URL implements ISwiftObject, valid for MarshalFromSwift)
-        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.URL>>", output);
-        // Conversion: cast to wrapper type + ToNSUrl
-        Assert.Contains("ToNSUrl", output);
+        // ABI type: SwiftOptional<Swift.CustomValue> (wrapper implements ISwiftObject, valid for MarshalFromSwift)
+        Assert.Contains("MarshalFromSwift<SwiftOptional<Swift.CustomValue>>", output);
+        // Conversion: cast to wrapper type + ToNSCustom
+        Assert.Contains("ToNSCustom", output);
     }
 
     #endregion

@@ -77,7 +77,7 @@ namespace BindingsGeneration
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
 
-                    // For native-remapped types (e.g., Foundation.NSUrl -> Swift.URL), we need to
+                    // For native-remapped types (e.g., byte[] -> Swift.Data), we need to
                     // convert to the Swift type first before copying. The wrapper signature uses the
                     // native type but the underlying Swift type is what we need to copy.
                     if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec))
@@ -1316,8 +1316,13 @@ namespace BindingsGeneration
                 marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};";
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType))
-                marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion))
+            {
+                if (objcBridgeConversion != null)
+                    marshalResultCode = $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n                                var result = _rawResult.Case == SwiftOptionalCases.Some ? {objcBridgeConversion} : null;";
+                else
+                    marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
+            }
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
@@ -1413,9 +1418,12 @@ namespace BindingsGeneration
         /// type for MarshalFromSwift. Uses TypeProjectionFactory to get the projection-resolved
         /// container type (e.g., SwiftOptional&lt;SwiftString&gt; not SwiftOptional&lt;string&gt;).
         /// </summary>
-        private bool TryGetOptionalMarshalType([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType)
+        private bool TryGetOptionalMarshalType(
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType,
+            out string? objcBridgeConversion)
         {
             marshalType = null;
+            objcBridgeConversion = null;
             var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
                 return false;
@@ -1430,6 +1438,14 @@ namespace BindingsGeneration
                     return false;
                 if (MarshallingHelpers.IsObjCBridged(innerRecord))
                     return false;
+                // ObjC-bridgeable types (e.g., URLRequest) marshal as SwiftOptional<IntPtr>.
+                // ToNullable() returns nint (not nint?) due to unconstrained T? semantics,
+                // so we work with SwiftOptional<IntPtr> directly: check .Case, then wrap .Some.
+                if (MarshallingHelpers.IsObjCBridgeable(innerRecord) && innerRecord.NativeTypeName != null)
+                {
+                    objcBridgeConversion = MarshallingHelpers.FormatObjCBridgeCall(
+                        innerRecord.NativeTypeName.FullyQualifiedName, "_rawResult.Some", nonNull: true);
+                }
             }
 
             var ctx = new ProjectionContext

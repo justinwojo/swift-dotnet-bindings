@@ -17,7 +17,7 @@
             <typedeclaration kind="class" name="OperationQueue" module="Foundation" mangledName="$sSo16NSOperationQueueC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="Swift" managedTypeName="URLRequest">
-            <typedeclaration kind="struct" name="URLRequest" module="Foundation" mangledName="$s10Foundation10URLRequestV" frozen="false" requiresMemoryManagement="true" />
+            <typedeclaration kind="struct" name="URLRequest" module="Foundation" mangledName="$s10Foundation10URLRequestV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrlRequest" objcBridgeable="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlResponse">
             <typedeclaration kind="class" name="URLResponse" module="Foundation" mangledName="$sSo15NSURLResponseC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />

@@ -6,169 +6,114 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// Tests Foundation URLRequest runtime type marshalling.
-/// Exercises HTTP header management (SetValue/AddValue/Value),
-/// property access (HTTPMethod, TimeoutInterval), and construction paths.
+/// Tests Foundation.URLRequest ObjC bridge projection — verifies URLRequest values cross the
+/// @_cdecl boundary as ObjC object pointers (IntPtr via NSURLRequest) instead of Swift struct bytes.
+/// Exercises scalar params/returns, optional params/returns, property accessors, and containers.
 /// </summary>
-[Skip("URL/URLRequest P/Invokes use non-blittable types (SwiftString, SafeHandle) in CallConvSwift. Fix plan in src/docs/skip-reduction-plan.md § URL/URLRequest")]
 public class URLRequestTests : TestBase
 {
     public URLRequestTests(TestResults results) : base(results) { }
 
-    #region Construction
+    #region Scalar Param + Return
 
-    public void TestFromURL()
+    public void TestCreateRequest()
     {
-        using var url = Swift.URL.FromString("https://example.com")!;
-        using var request = Swift.URLRequest.FromURL(url);
-        AssertNotNull(request, "URLRequest.FromURL returns non-null");
-        TestLogger.Info("URLRequest.FromURL construction passed");
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.CreateRequest(url);
+        AssertNotNull(request, "CreateRequest returns non-null");
     }
 
-    public void TestFromString()
+    public void TestGetRequestURL()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com");
-        AssertNotNull(request, "URLRequest.FromString returns non-null");
-        TestLogger.Info("URLRequest.FromString construction passed");
+        var url = Foundation.NSUrl.FromString("https://example.com/path")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.CreateRequest(url);
+        var resultUrl = helper.GetRequestURL(request);
+        AssertNotNull(resultUrl, "GetRequestURL returns non-null");
+        AssertEqual("https://example.com/path", resultUrl!.AbsoluteString, "URL preserved through URLRequest round-trip");
     }
 
-    public void TestFromStringInvalid()
+    public void TestGetTimeout()
     {
-        var request = Swift.URLRequest.FromString("not a valid url %%%");
-        AssertNull(request, "URLRequest.FromString returns null for invalid URL");
-        TestLogger.Info("URLRequest.FromString invalid URL returns null");
-    }
-
-    public void TestURLProperty()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com/path")!;
-        var url = request.URL;
-        AssertNotNull(url, "URLRequest.URL is non-null");
-        AssertEqual("https://example.com/path", url!.AbsoluteString, "URL matches construction URL");
-        TestLogger.Info($"URLRequest.URL = {url.AbsoluteString}");
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.CreateRequest(url);
+        var timeout = helper.GetTimeout(request);
+        AssertTrue(timeout > 0, "Timeout is positive (default URLRequest timeout)");
     }
 
     #endregion
 
-    #region HTTPMethod Property
+    #region Optional Param + Return
 
-    public void TestDefaultHTTPMethod()
+    public void TestAcceptOptionalRequestWithValue()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        var method = request.HTTPMethod;
-        AssertEqual("GET", method, "Default HTTP method is GET");
-        TestLogger.Info($"Default HTTPMethod = {method}");
+        var url = Foundation.NSUrl.FromString("https://example.com")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.CreateRequest(url);
+        var result = helper.AcceptOptionalRequest(request);
+        AssertTrue(result, "AcceptOptionalRequest returns true for non-null request");
     }
 
-    public void TestSetHTTPMethod()
+    public void TestAcceptOptionalRequestWithNull()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.HTTPMethod = "POST";
-        AssertEqual("POST", request.HTTPMethod, "HTTPMethod set to POST");
-        TestLogger.Info($"HTTPMethod after set = {request.HTTPMethod}");
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var result = helper.AcceptOptionalRequest(null);
+        AssertFalse(result, "AcceptOptionalRequest returns false for null");
     }
 
-    #endregion
-
-    #region TimeoutInterval Property
-
-    public void TestDefaultTimeoutInterval()
+    public void TestGetOptionalRequest()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        var timeout = request.TimeoutInterval;
-        AssertTrue(timeout > 0, "Default timeout is positive");
-        TestLogger.Info($"Default TimeoutInterval = {timeout}");
-    }
-
-    public void TestSetTimeoutInterval()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.TimeoutInterval = 30.0;
-        AssertApproxEqual(30.0, request.TimeoutInterval, 0.001, "TimeoutInterval set to 30");
-        TestLogger.Info($"TimeoutInterval after set = {request.TimeoutInterval}");
+        var url = Foundation.NSUrl.FromString("https://example.com/optional")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.GetOptionalRequest(url);
+        AssertNotNull(request, "GetOptionalRequest returns non-null");
     }
 
     #endregion
 
-    #region HTTP Header Management
+    #region Property Accessor
 
-    public void TestSetValueForHTTPHeaderField()
+    public void TestStoredRequestPropertyGetter()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.SetValue("Bearer token123", "Authorization");
-        var value = request.Value("Authorization");
-        AssertEqual("Bearer token123", value, "Authorization header set correctly");
-        TestLogger.Info($"Authorization = {value}");
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.StoredRequest;
+        AssertNotNull(request, "StoredRequest property getter returns non-null");
     }
 
-    public void TestSetValueMultipleHeaders()
+    public void TestStoredRequestPropertySetter()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.SetValue("application/json", "Content-Type");
-        request.SetValue("Bearer abc", "Authorization");
-        AssertEqual("application/json", request.Value("Content-Type"), "Content-Type header");
-        AssertEqual("Bearer abc", request.Value("Authorization"), "Authorization header");
-        TestLogger.Info("Multiple headers set correctly");
-    }
-
-    public void TestSetValueReplacesExisting()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.SetValue("text/plain", "Content-Type");
-        request.SetValue("application/json", "Content-Type");
-        AssertEqual("application/json", request.Value("Content-Type"), "Content-Type replaced");
-        TestLogger.Info("SetValue replaces existing header");
-    }
-
-    public void TestSetValueNullRemovesHeader()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.SetValue("Bearer token", "Authorization");
-        AssertNotNull(request.Value("Authorization"), "Header exists before removal");
-        request.SetValue(null, "Authorization");
-        AssertNull(request.Value("Authorization"), "Header removed after SetValue(null)");
-        TestLogger.Info("SetValue(null) removes header");
-    }
-
-    public void TestValueForNonExistentHeader()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        var value = request.Value("X-NonExistent");
-        AssertNull(value, "Non-existent header returns null");
-        TestLogger.Info("Non-existent header returns null");
-    }
-
-    public void TestAddValueAppendsToExisting()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.SetValue("gzip", "Accept-Encoding");
-        request.AddValue("deflate", "Accept-Encoding");
-        var value = request.Value("Accept-Encoding");
-        AssertNotNull(value, "Accept-Encoding has value after AddValue");
-        // AddValue appends comma-separated
-        AssertTrue(value!.Contains("gzip"), "Contains original value");
-        AssertTrue(value!.Contains("deflate"), "Contains appended value");
-        TestLogger.Info($"Accept-Encoding after AddValue = {value}");
-    }
-
-    public void TestAddValueNewHeader()
-    {
-        using var request = Swift.URLRequest.FromString("https://example.com")!;
-        request.AddValue("custom-value", "X-Custom");
-        AssertEqual("custom-value", request.Value("X-Custom"), "AddValue creates new header");
-        TestLogger.Info("AddValue creates new header when none exists");
+        var url = Foundation.NSUrl.FromString("https://setter-test.com")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var request = helper.CreateRequest(url);
+        helper.StoredRequest = request;
+        var result = helper.StoredRequest;
+        AssertNotNull(result, "StoredRequest round-trips through property setter/getter");
     }
 
     #endregion
 
-    #region ToString
+    #region Container
 
-    public void TestToString()
+    public void TestGetRequestArray()
     {
-        using var request = Swift.URLRequest.FromString("https://example.com/test")!;
-        var str = request.ToString();
-        AssertEqual("https://example.com/test", str, "ToString returns URL string");
-        TestLogger.Info($"URLRequest.ToString() = {str}");
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var requests = helper.GetRequestArray();
+        AssertNotNull(requests, "GetRequestArray returns non-null");
+        AssertEqual(2, requests!.Count, "GetRequestArray returns 2 elements");
+    }
+
+    public void TestAcceptRequestArray()
+    {
+        var url1 = Foundation.NSUrl.FromString("https://one.com")!;
+        var url2 = Foundation.NSUrl.FromString("https://two.com")!;
+        using var helper = new SwiftBindingsTestLib.URLRequestTestHelper();
+        var req1 = helper.CreateRequest(url1);
+        var req2 = helper.CreateRequest(url2);
+        var requests = new[] { req1, req2 };
+        var count = helper.AcceptRequestArray(requests);
+        AssertEqual(2, count, "AcceptRequestArray receives correct count");
     }
 
     #endregion

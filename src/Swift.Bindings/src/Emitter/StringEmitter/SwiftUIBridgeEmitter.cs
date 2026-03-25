@@ -1501,14 +1501,17 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
+                var handleExpr = param.IsObjCBridgeable ? "newValue.Handle" : "newValue.Payload.DangerousGetHandle()";
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue.Payload.DangerousGetHandle());");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
                 sb.AppendLine();
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
+                var innerBridgeable = param.InnerParameter?.IsObjCBridgeable == true;
+                var handleExpr = innerBridgeable ? "newValue?.Handle ?? IntPtr.Zero" : "newValue?.Payload.DangerousGetHandle() ?? IntPtr.Zero";
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, newValue?.Payload.DangerousGetHandle() ?? IntPtr.Zero);");
+                sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
                 sb.AppendLine();
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
@@ -2229,11 +2232,12 @@ public static partial class SwiftUIBridgeEmitter
             }
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
-                args.Add($"{param.Name}.Payload.DangerousGetHandle()");
+                args.Add(param.IsObjCBridgeable ? $"{param.Name}.Handle" : $"{param.Name}.Payload.DangerousGetHandle()");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
-                args.Add($"{param.Name}?.Payload.DangerousGetHandle() ?? IntPtr.Zero");
+                var innerBridgeable = param.InnerParameter?.IsObjCBridgeable == true;
+                args.Add(innerBridgeable ? $"{param.Name}?.Handle ?? IntPtr.Zero" : $"{param.Name}?.Payload.DangerousGetHandle() ?? IntPtr.Zero");
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {

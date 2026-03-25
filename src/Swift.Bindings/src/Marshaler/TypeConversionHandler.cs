@@ -18,7 +18,6 @@ public class TypeConversionHandler
     private static readonly SwiftTypeName SwiftDictionaryTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary");
     private static readonly SwiftTypeName SwiftSetTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Set");
     private static readonly SwiftTypeName SwiftOptionalTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional");
-    private static readonly SwiftTypeName FoundationURLTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
     private static readonly SwiftTypeName FoundationDataTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data");
 
     public TypeConversionHandler(ITypeDatabase typeDatabase)
@@ -144,13 +143,10 @@ public class TypeConversionHandler
         if (IsSwiftOptional(namedTypeSpec))
             return true;
 
-        // URL: .ToNSUrl() copies, original URL is IDisposable
-        if (IsFoundationURL(namedTypeSpec))
-            return true;
-
         // SwiftArray: returned IReadOnlyList IS the array — do NOT dispose
         // SwiftDictionary: returned IReadOnlyDictionary IS the dict — do NOT dispose
         // Data: struct, not IDisposable
+        // URL: now ObjCBridgeable — no disposal needed (IntPtr → NSUrl, no wrapper)
         return false;
     }
 
@@ -184,32 +180,14 @@ public class TypeConversionHandler
         if (IsSwiftOptional(namedTypeSpec))
             return true;
 
-        // URL: conversion creates disposable URL
-        if (IsFoundationURL(namedTypeSpec))
-            return true;
-
         // Data: struct, not IDisposable
+        // URL: now ObjCBridgeable — no wrapper construction needed
         return false;
     }
 
     #endregion
 
-    #region Native Type Remapping (URL → NSUrl, Data → NSData)
-
-    /// <summary>
-    /// Determines whether the specified type spec represents Foundation.URL.
-    /// </summary>
-    public bool IsFoundationURL(TypeSpec? typeSpec)
-    {
-        if (typeSpec is not NamedTypeSpec namedTypeSpec)
-            return false;
-
-        if (!namedTypeSpec.HasModule())
-            return false;
-
-        var typeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
-        return typeName.Equals(FoundationURLTypeName);
-    }
+    #region Native Type Remapping (Data → NSData)
 
     /// <summary>
     /// Determines whether the specified type spec represents Foundation.Data.
@@ -229,7 +207,7 @@ public class TypeConversionHandler
     /// <summary>
     /// Determines whether the specified type has a native type remapping configured.
     /// When true, public method signatures should use the native .NET type (e.g., Foundation.NSUrl)
-    /// instead of the Swift wrapper type (e.g., Swift.URL).
+    /// instead of the Swift wrapper type (e.g., Swift.Data).
     /// </summary>
     public bool HasNativeTypeRemapping(TypeSpec? typeSpec)
     {
@@ -250,19 +228,14 @@ public class TypeConversionHandler
 
     /// <summary>
     /// Gets the conversion expression for converting a native .NET parameter to a Swift type.
-    /// For example: Foundation.NSUrl nsUrl → Swift.URL.FromNSUrl(nsUrl)
+    /// For example: byte[] data → Swift.Data.FromByteArray(data)
+    /// Note: URL no longer needs this — ObjCBridgeableProjection handles it via IntPtr.
     /// </summary>
     /// <param name="paramName">The parameter name.</param>
     /// <param name="typeSpec">The Swift type specification.</param>
     /// <returns>The conversion expression, or null if no conversion is needed.</returns>
     public string? GetNativeParameterConversion(string paramName, TypeSpec? typeSpec)
     {
-        if (IsFoundationURL(typeSpec))
-        {
-            // Foundation.NSUrl -> Swift.URL
-            return $"Swift.URL.FromNSUrl({paramName})";
-        }
-
         if (IsFoundationData(typeSpec))
         {
             // byte[] -> Swift.Data
@@ -274,19 +247,14 @@ public class TypeConversionHandler
 
     /// <summary>
     /// Gets the conversion expression for converting a Swift return value to a native .NET type.
-    /// For example: Swift.URL url → url.ToNSUrl()
+    /// For example: Swift.Data data → data.ToByteArray()
+    /// Note: URL no longer needs this — ObjCBridgeableProjection handles it via IntPtr.
     /// </summary>
     /// <param name="resultVar">The variable containing the Swift result.</param>
     /// <param name="typeSpec">The Swift type specification.</param>
     /// <returns>The conversion expression, or null if no conversion is needed.</returns>
     public string? GetNativeReturnConversion(string resultVar, TypeSpec? typeSpec)
     {
-        if (IsFoundationURL(typeSpec))
-        {
-            // Swift.URL -> Foundation.NSUrl
-            return $"{resultVar}.ToNSUrl()";
-        }
-
         if (IsFoundationData(typeSpec))
         {
             // Swift.Data -> byte[]
@@ -299,14 +267,10 @@ public class TypeConversionHandler
     /// <summary>
     /// Gets the internal Swift wrapper type name for native-remapped types.
     /// This is used in P/Invoke declarations where the Swift ABI type is needed.
+    /// Note: URL no longer uses this — ObjCBridgeableProjection handles it via IntPtr.
     /// </summary>
     public string? GetSwiftWrapperTypeForNative(TypeSpec? typeSpec)
     {
-        if (IsFoundationURL(typeSpec))
-        {
-            return "Swift.URL";
-        }
-
         if (IsFoundationData(typeSpec))
         {
             return "Swift.Data";
