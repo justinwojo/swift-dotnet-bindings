@@ -114,7 +114,7 @@ public static class MethodWrapperEmitter
     /// <summary>
     /// Returns true if the method has any unsupported type signature for @_cdecl wrapping.
     /// Covers: unsupported generic containers (Result, Optional&lt;existential&gt;), metatype
-    /// params/return, opaque return types, and DynamicSelf on non-class parents.
+    /// params/return, and DynamicSelf on non-class parents.
     /// </summary>
     internal static bool HasUnsupportedTypeSignature(MethodEnvironment env)
     {
@@ -133,9 +133,10 @@ public static class MethodWrapperEmitter
         if (IsMetatypeType(returnSpec))
             return true;
 
-        // 15. No opaque return types (some Protocol)
-        if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return true;
+        // 15. Opaque return types (some Protocol): ALLOWED — routed through IndirectResult.
+        // The @_cdecl wrapper boxes `some Protocol` into `any Protocol` via
+        // initializeMemory(as: (any Protocol).self). ExistentialBypassEmitter renders
+        // ProtocolListTypeSpec{IsOpaque:true} as "any Protocol" automatically.
 
         // 15b. Closure returns: allowed — routed through IndirectResult (resultPtr buffer).
         // @_cdecl wrapper writes closure to resultPtr via initializeMemory; C# reads SwiftClosureData.

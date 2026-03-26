@@ -281,6 +281,7 @@ namespace BindingsGeneration
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
                 ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor");
                 return;
             }
 
@@ -906,6 +907,7 @@ namespace BindingsGeneration
                 if (!isAccessor)
                 {
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
+                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type");
                 }
                 return;
             }

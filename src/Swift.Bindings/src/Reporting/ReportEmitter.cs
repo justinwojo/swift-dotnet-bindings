@@ -29,20 +29,35 @@ public static class ReportEmitter
         var typeCoverage = GetCoverage(report.EmittedTypes, report.TotalTypes);
         var memberCoverage = GetCoverage(report.EmittedMembers, report.TotalMembers);
 
-        logger.LogInformation("=== Binding Generation Report ===");
+        logger.LogInformation("=== Binding Generation Summary ===");
         logger.LogInformation("Module: {Module}", report.ModuleName);
-        logger.LogInformation("Types: {Emitted} emitted, {Skipped} skipped ({Coverage:P1} coverage)", report.EmittedTypes, report.SkippedTypes, typeCoverage);
-        logger.LogInformation("Members: {Emitted} emitted, {Skipped} skipped, {Synthesized} synthesized ({Coverage:P1} coverage)",
+        logger.LogInformation("Types:      {Emitted} bound, {Skipped} skipped ({Coverage:P1} coverage)", report.EmittedTypes, report.SkippedTypes, typeCoverage);
+        logger.LogInformation("Members:    {Emitted} bound, {Skipped} skipped, {Synthesized} synthesized ({Coverage:P1} coverage)",
             report.EmittedMembers, report.SkippedMembers, report.SynthesizedMembers, memberCoverage);
+
+        // Per-kind member breakdown
+        if (report.EmittedMembersByKind.Count > 0 || report.SkippedMembersByKind.Count > 0)
+        {
+            foreach (var kind in new[] { BindingItemKind.Method, BindingItemKind.Property, BindingItemKind.Operator, BindingItemKind.Subscript })
+            {
+                var emitted = report.EmittedMembersByKind.GetValueOrDefault(kind);
+                var skipped = report.SkippedMembersByKind.GetValueOrDefault(kind);
+                if (emitted > 0 || skipped > 0)
+                {
+                    var kindLabel = kind.ToString().PadRight(11);
+                    logger.LogInformation("  {Kind} {Emitted} bound, {Skipped} skipped", kindLabel, emitted, skipped);
+                }
+            }
+        }
 
         if (report.WrappedItems.Count > 0)
         {
-            logger.LogInformation("Wrapped items: {Count} (Swift wrappers auto-generated)", report.WrappedItems.Count);
+            logger.LogInformation("Wrapped:    {Count} (Swift wrappers auto-generated)", report.WrappedItems.Count);
         }
 
         if (report.BridgedViews.Count > 0)
         {
-            logger.LogInformation("SwiftUI Views: {Count} detected for bridge generation", report.BridgedViews.Count);
+            logger.LogInformation("SwiftUI:    {Count} views detected for bridge generation", report.BridgedViews.Count);
         }
 
         if (report.SkippedItems.Count > 0)
@@ -60,7 +75,7 @@ public static class ReportEmitter
             logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 
-        logger.LogInformation("Full details in: {ReportPath}", reportPath);
+        logger.LogInformation("Report: {ReportPath}", reportPath);
     }
 
     private static double GetCoverage(int emitted, int total) =>

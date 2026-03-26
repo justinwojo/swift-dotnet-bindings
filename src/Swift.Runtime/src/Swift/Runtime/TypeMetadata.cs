@@ -149,7 +149,6 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
     static TypeMetadata()
     {
-        // TODO - add metadata for common built-in types like scalars and strings
         cache = new TypeMetadataCache(KnownMetadata());
     }
 
@@ -740,8 +739,9 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         yield return (typeof(ulong), MetadataFromNativeLibrary(libraryHandle, "$ss6UInt64VN"));
         yield return (typeof(void), MetadataFromNativeLibrary(libraryHandle, "$sytN"));
 
-        // to add more primitives from different libraries, reassign libraryHandle and yield return
-        // the symbols starting from here.
+        // SwiftString metadata — $sSSN is Swift.String's metadata pointer in libswiftCore.
+        // Pre-populating avoids the runtime fallback path in SwiftString.GetTypeMetadata().
+        yield return (typeof(Swift.SwiftString), MetadataFromNativeLibrary(libraryHandle, "$sSSN"));
     }
 
     /// <summary>

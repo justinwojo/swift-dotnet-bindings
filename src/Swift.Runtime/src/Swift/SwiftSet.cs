@@ -78,11 +78,9 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        // NOTE: Uses reflection-based GetOrThrow (not GetOrThrowDirect) because Element
-        // lacks ISwiftObject constraint — SwiftSet<IntPtr> is used in generated code.
-        // On NativeAOT, this MakeGenericType call may fail if the specialization isn't compiled.
-        // TODO: Add global conformance registry to eliminate MakeGenericType for all callers.
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        // Uses HashableConformanceRegistry for NativeAOT safety — avoids MakeGenericType
+        // reflection for unconstrained Element types (e.g., SwiftSet<IntPtr>).
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftSet<Element>), _ => SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, ElementTypeMetadata, witnessTable));
     }
 
@@ -154,7 +152,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// </summary>
     public unsafe SwiftSet()
     {
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
         var result = SwiftSetPInvokes.Init(ElementTypeMetadata, witnessTable);
 
         IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(IntPtr));
@@ -181,7 +179,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         {
             ThrowIfDisposed();
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-            var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+            var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
             int result = (int)SwiftSetPInvokes.Count(disposable.Buffer, ElementTypeMetadata, witnessTable);
             return result;
         }
@@ -196,7 +194,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     {
         ThrowIfDisposed();
         using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
 
         Span<byte> span = stackalloc byte[(int)ElementSize];
         SwiftMarshal.MarshalToSwift(element, ref span);
@@ -346,7 +344,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     private unsafe List<Element> CollectElements()
     {
         var result = new List<Element>();
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<Element, ISwiftHashable>();
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
 
         // Get the metadata for Set.Iterator<Element>
         var iteratorMetadata = SwiftSetPInvokes.PInvoke_getIteratorMetadata(

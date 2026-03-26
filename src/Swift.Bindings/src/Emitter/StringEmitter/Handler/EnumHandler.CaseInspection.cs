@@ -240,44 +240,11 @@ namespace BindingsGeneration
             }
             else
             {
-                // For tuples, we need to marshal each element
-                // Swift stores tuple elements sequentially in memory
-                // We'll create individual values and then construct the tuple
-                csWriter.WriteLine("// For multi-value associated types, values are stored sequentially");
-
-                var valueNames = new List<string>();
-                for (int i = 0; i < parameters.Count; i++)
-                {
-                    var (_, _, _, typeSpec) = parameters[i];
-                    var valueName = $"_val{i}";
-                    valueNames.Add(valueName);
-
-                    if (typeConversionHandler.IsSwiftString(typeSpec))
-                    {
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase, marshalGenericParams);
-                        csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToString();");
-                    }
-                    else if (typeSpec is NamedTypeSpec dataMultiSpec && dataMultiSpec.Name == "Foundation.Data")
-                    {
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, $"{valueName}_raw", "enumCopy", typeDatabase, marshalGenericParams);
-                        csWriter.WriteLine($"var {valueName} = {valueName}_raw.ToByteArray();");
-                    }
-                    else if (i == 0)
-                    {
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase, marshalGenericParams);
-                    }
-                    else
-                    {
-                        // For subsequent elements, we need to calculate offset based on type sizes
-                        // This is a simplification - in practice, we'd need alignment handling
-                        csWriter.WriteLine($"// TODO: Proper offset calculation for element {i}");
-                        EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, valueName, "enumCopy", typeDatabase, marshalGenericParams);
-                    }
-                }
-
-                // Construct the tuple
-                var tupleConstruction = string.Join(", ", valueNames);
-                csWriter.WriteLine($"value = ({tupleConstruction});");
+                // Unreachable: multi-element tuples are handled by EmitTryGetMethodForTuple,
+                // and multi-value associated types (>1 AssociatedValues) return early above.
+                throw new InvalidOperationException(
+                    $"Unexpected multi-parameter enum case '{enumDecl.Name}.{caseName}' with {parameters.Count} parameters. " +
+                    "Multi-element tuples should be handled by EmitTryGetMethodForTuple.");
             }
 
             csWriter.WriteLine("return true;");

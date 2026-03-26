@@ -422,16 +422,32 @@ public class ProtocolExtensionDefaultsIndex
         {
             var qualifiedName = protocol.SwiftTypeName?.ModuleQualifiedName
                               ?? $"{protocol.ModuleDecl?.Name ?? "Unknown"}.{protocol.Name}";
-            // NOTE: Inheritance graph construction from InheritedProtocols is intentionally disabled.
-            // InheritedProtocols was recently populated (was always empty before), but
-            // enabling the inheritance graph changes default-implementation resolution and
-            // causes regressions. TODO: Enable once the full protocol inheritance pipeline
-            // is ready.
             var parents = new HashSet<string>();
-            // foreach (var inherited in protocol.InheritedProtocols)
-            // {
-            //     parents.Add(inherited.Name);
-            // }
+            var protoModule = protocol.ModuleDecl?.Name;
+            foreach (var inherited in protocol.InheritedProtocols)
+            {
+                // Must match ProtocolHandler.GetInheritedInterfaceList filters:
+
+                // Skip AnyObject — class-bound constraint, not a real interface
+                if (inherited.Name is "Swift.AnyObject" or "AnyObject")
+                    continue;
+
+                // Skip marker protocols that have no C# representation
+                if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                    continue;
+
+                // Skip cross-module protocols
+                var inheritedModule = inherited.Module;
+                if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(protoModule) &&
+                    inheritedModule != protoModule)
+                    continue;
+
+                // Use module-qualified name when available for consistent graph lookups
+                var inheritedQualifiedName = inherited.HasModule()
+                    ? inherited.Name
+                    : $"{protocol.ModuleDecl?.Name ?? "Unknown"}.{inherited.Name}";
+                parents.Add(inheritedQualifiedName);
+            }
             if (parents.Count > 0)
                 directParents[qualifiedName] = parents;
         }

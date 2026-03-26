@@ -1042,17 +1042,10 @@ namespace BindingsGeneration
             var hasOwnInstanceMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
                                          protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
                                          protocolDecl.Subscripts.Any(s => !s.IsStatic);
-            if (!hasOwnInstanceMembers)
-            {
-                // NOTE: InheritedRequirementsOnly flag is intentionally disabled.
-                // InheritedProtocols was recently populated (was always empty before), so
-                // this flag was never set. Enabling it blocks proxy emission and existential
-                // returns for protocols that previously worked.
-                // TODO: Enable once proxy generation handles inherited protocol requirements.
-                var hasInheritedRequirements = false;
-                if (hasInheritedRequirements)
-                    flags |= TypeRecordFlags.InheritedRequirementsOnly;
-            }
+            // InheritedRequirementsOnly is no longer set: the proxy emitter and C# interface
+            // emitter now handle inherited protocol requirements (inherited method emission
+            // + C# interface inheritance). Protocols with only inherited members get valid
+            // proxies that implement the inherited interface members.
 
             if (protocolDecl.IsClassBound)
                 flags |= TypeRecordFlags.ClassBound;

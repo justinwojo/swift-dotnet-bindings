@@ -253,9 +253,6 @@ internal static class ProtocolSignatureHelper
 
         // Bound generic fallback: produce full type name with generic args
         // (e.g., BatchedCollection<Swift.AnyType> for unknown inner types).
-        // TODO: The original ProjectTypeToCSharp and proxy GetCSharpTypeName used GenericContext.Empty
-        // here, while GetInterfaceCompatiblePropertyTypeName used the explicit generic context.
-        // Using effectiveGenericContext is more correct (consistent with factory path).
         if (typeSpec is NamedTypeSpec boundGeneric && boundGeneric.ContainsGenericParameters)
         {
             var bgh = new BoundGenericsHandler(typeDatabase);

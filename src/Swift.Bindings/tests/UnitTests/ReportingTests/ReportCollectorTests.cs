@@ -299,6 +299,94 @@ public class ReportCollectorTests
         }
     }
 
+    [Fact]
+    public void Complete_PopulatesPerKindMemberCounts()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Method, "Fetch", classDecl);
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Method, "Load", classDecl);
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, "Name", classDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, "State", classDecl, SkipReason.AnyTypeFallback, "test");
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "BadMethod", classDecl, SkipReason.UnsupportedSignature, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        // Emitted per-kind
+        Assert.Equal(2, report.EmittedMembersByKind[BindingItemKind.Method]);
+        Assert.Equal(1, report.EmittedMembersByKind[BindingItemKind.Property]);
+        Assert.False(report.EmittedMembersByKind.ContainsKey(BindingItemKind.Operator));
+
+        // Skipped per-kind
+        Assert.Equal(1, report.SkippedMembersByKind[BindingItemKind.Property]);
+        Assert.Equal(1, report.SkippedMembersByKind[BindingItemKind.Method]);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void ReportEmitter_EmitsPerKindBreakdown()
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Method, "Fetch", classDecl);
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, "Name", classDecl);
+        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, "BadMethod", classDecl, SkipReason.UnsupportedSignature, "test");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var logger = new CapturingLogger();
+            ReportEmitter.Emit(report, outputDir, logger);
+            var allMessages = string.Join("\n", logger.Messages);
+            // Should include per-kind breakdown
+            Assert.Contains("Method", allMessages);
+            Assert.Contains("Property", allMessages);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void ReportEmitter_SummaryHeader_IsBindingGenerationSummary()
+    {
+        var moduleDecl = CreateModuleDecl();
+
+        ReportCollector.Start(moduleDecl);
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+
+        var outputDir = Path.Combine(Path.GetTempPath(), $"swift-bindings-report-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var logger = new CapturingLogger();
+            ReportEmitter.Emit(report, outputDir, logger);
+            var allMessages = string.Join("\n", logger.Messages);
+            Assert.Contains("Binding Generation Summary", allMessages);
+            Assert.Contains("bound", allMessages);
+        }
+        finally
+        {
+            Directory.Delete(outputDir, true);
+            ReportCollector.Reset();
+        }
+    }
+
     private static ModuleDecl CreateModuleDecl()
     {
         var moduleDecl = new ModuleDecl

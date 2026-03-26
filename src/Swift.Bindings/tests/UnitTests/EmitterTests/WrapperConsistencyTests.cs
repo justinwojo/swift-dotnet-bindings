@@ -1685,8 +1685,9 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void HasUnsupportedTypeSignature_OpaqueReturn_ReturnsTrue()
+    public void HasUnsupportedTypeSignature_OpaqueReturn_ReturnsFalse()
     {
+        // Opaque returns (some Protocol) are now supported — @_cdecl wrapper boxes into existential.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
         var parentDecl = CreateStructDecl("MyType", moduleDecl);
@@ -1722,7 +1723,7 @@ public class WrapperConsistencyTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.True(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
+        Assert.False(MethodWrapperEmitter.HasUnsupportedTypeSignature(env));
     }
 
     [Fact]

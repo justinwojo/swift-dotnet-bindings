@@ -146,7 +146,9 @@ public class TypeHandlersOutputTests
 
         var (csOutput, _) = EmitType(classDecl, typeDatabase, new ClassHandler(new NullLogger<ClassHandler>()));
 
-        Assert.Equal(string.Empty, csOutput.Trim());
+        // No binding code emitted — only unsupported comment
+        Assert.DoesNotContain("public", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
     }
 
     [Fact]

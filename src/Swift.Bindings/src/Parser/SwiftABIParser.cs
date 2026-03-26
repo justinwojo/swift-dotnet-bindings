@@ -1388,6 +1388,10 @@ namespace BindingsGeneration
                     methodDecl.IsActorIsolated = true;
                 if (_mainActorIsolatedMembers != null && _mainActorIsolatedMembers.Contains(node.PrintedName))
                     methodDecl.IsMainActorIsolated = true;
+                // Free function availability: keyed by bare printedName in swiftinterface
+                if (_availabilityAnnotations != null &&
+                    _availabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                    methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
             }
 
             PopulateDocumentation(methodDecl, node);

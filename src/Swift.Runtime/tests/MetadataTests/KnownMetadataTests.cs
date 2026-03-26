@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Reflection;
+using Swift;
 using Swift.Runtime;
 using Xunit;
 
@@ -43,5 +45,21 @@ public class KnownMetadataTests : IClassFixture<KnownMetadataTests.TestFixture>
         Assert.True(TypeMetadata.TryGetTypeMetadata<nuint>(out var md10));
         Assert.True(TypeMetadata.TryGetTypeMetadata<float>(out var md11));
         Assert.True(TypeMetadata.TryGetTypeMetadata<double>(out var md12));
+    }
+
+    [Fact]
+    public static void HasSwiftString()
+    {
+        Assert.True(TypeMetadata.Cache.TryGet(typeof(SwiftString), out var metadata));
+        Assert.True(metadata!.Value.IsValid);
+    }
+
+    [Fact]
+    public static void SwiftStringMetadataMatchesDirectLookup()
+    {
+        // Verify the cached metadata matches what SwiftString.GetTypeMetadata() would return
+        Assert.True(TypeMetadata.Cache.TryGet(typeof(SwiftString), out var cachedMetadata));
+        Assert.True(TypeMetadata.TryGetTypeMetadata<SwiftString>(out var lookupMetadata));
+        Assert.Equal(cachedMetadata!.Value.Handle, lookupMetadata!.Value.Handle);
     }
 }

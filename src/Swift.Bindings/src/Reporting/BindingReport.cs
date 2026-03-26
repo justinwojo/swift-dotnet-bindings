@@ -20,6 +20,16 @@ public sealed class BindingReport
     public int SkippedMembers { get; set; }
     public int SynthesizedMembers { get; set; }
 
+    /// <summary>
+    /// Per-kind breakdown of emitted members (methods, properties, operators, subscripts).
+    /// </summary>
+    public Dictionary<BindingItemKind, int> EmittedMembersByKind { get; } = new();
+
+    /// <summary>
+    /// Per-kind breakdown of skipped members.
+    /// </summary>
+    public Dictionary<BindingItemKind, int> SkippedMembersByKind { get; } = new();
+
     public List<SkippedItem> SkippedItems { get; } = new();
     public List<WrappedItem> WrappedItems { get; } = new();
     public List<BridgedViewItem> BridgedViews { get; } = new();

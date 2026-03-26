@@ -566,8 +566,11 @@ public static partial class ClosureEmitter
                 return false;
         }
 
-        // Check return type (indirect return closures write to buffer — return type must be Cdecl-compatible for load)
-        if (!closureTypeSpec.ReturnType.IsEmptyTuple && !IsCdeclCompatibleType(closureTypeSpec.ReturnType, closureHandler))
+        // Check return type — skip for closures using indirect return marshalling (non-throwing),
+        // because the @convention(c) return type is Void (result written to buffer via first param).
+        // The Swift adapter allocates a buffer, passes it to the C# callback, then loads the result.
+        var usesIndirectReturn = closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws;
+        if (!closureTypeSpec.ReturnType.IsEmptyTuple && !usesIndirectReturn && !IsCdeclCompatibleType(closureTypeSpec.ReturnType, closureHandler))
             return false;
 
         // Throwing closures can't use indirect return (buffer), so Optional<non-reference> returns

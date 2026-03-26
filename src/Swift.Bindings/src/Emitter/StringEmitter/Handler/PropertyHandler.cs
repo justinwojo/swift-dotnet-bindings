@@ -761,8 +761,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Must use a ProtocolConformanceValidator to match the same gates used in the type handler
         // (ShouldEmitConformance + CanFullyImplementProtocol). Without this, we'd emit CS0540
         // for protocols the type conforms to in Swift but that were filtered out during C# emission.
-        var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
-        var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
+        var validatorEmissionCtx = context.GetEmissionContext();
+        var extensionDefaultsIndex = validatorEmissionCtx?.ExtensionDefaultsIndex;
+        var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex, validatorEmissionCtx);
         var implementedInterfaces = new HashSet<string>(
             ProtocolConformanceHelper.GetImplementedInterfaces(parentTypeDecl, parentTypeDecl.Name, moduleDecl.Name, typeDatabase, conformanceValidator));
 

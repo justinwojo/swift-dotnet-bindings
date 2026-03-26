@@ -61,11 +61,11 @@ public class ProtocolExtensionDefaultsIndexTests
     }
 
     [Fact]
-    public void HasMethodDefault_SubProtocol_DoesNotSatisfyParent_WhenInheritanceGraphDisabled()
+    public void HasMethodDefault_SubProtocol_SatisfiesParent_ViaInheritanceGraph()
     {
         // Interpolatable inherits AnyInterpolatable. Extension on Interpolatable provides _interpolate.
-        // With the inheritance graph disabled (InheritedProtocols graph building is disabled),
-        // sub-protocol defaults do NOT satisfy parent protocol requirements.
+        // With the inheritance graph enabled, sub-protocol defaults DO satisfy parent
+        // protocol requirements (Interpolatable inherits from AnyInterpolatable).
         var protocols = new List<ProtocolDecl>
         {
             CreateProtocolDecl("AnyInterpolatable", "Lottie"),
@@ -81,17 +81,17 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
-        // With inheritance graph disabled, sub-protocol default is NOT found for parent
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        // Sub-protocol default is found for parent via inheritance graph
+        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)"));
     }
 
     [Fact]
-    public void HasMethodDefault_SubProtocol_WithConcreteConformances_InheritanceGraphDisabled()
+    public void HasMethodDefault_SubProtocol_WithConcreteConformances_InheritanceGraphEnabled()
     {
-        // Same setup: Interpolatable inherits AnyInterpolatable.
-        // With the inheritance graph disabled, sub-protocol defaults are NOT found
-        // for parent protocol queries regardless of conformance set.
+        // Interpolatable inherits AnyInterpolatable.
+        // With the inheritance graph enabled, sub-protocol defaults are found
+        // for parent protocol queries when the concrete type conforms to both.
         var protocols = new List<ProtocolDecl>
         {
             CreateProtocolDecl("AnyInterpolatable", "Lottie"),
@@ -107,11 +107,12 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
-        // With inheritance graph disabled, sub-protocol default is not found for parent
+        // Sub-protocol default IS found for parent via inheritance graph
         var conformances = new HashSet<string> { "Lottie.AnyInterpolatable", "Lottie.Interpolatable" };
-        Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
+        Assert.True(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", conformances));
 
+        // Without conformance to the sub-protocol, its default doesn't apply
         var onlyParent = new HashSet<string> { "Lottie.AnyInterpolatable" };
         Assert.False(index.HasMethodDefault("Lottie.AnyInterpolatable",
             "_interpolate(to:amount:spatialOutTangent:spatialInTangent:)", onlyParent));
@@ -185,12 +186,12 @@ public class ProtocolExtensionDefaultsIndexTests
         };
         var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
 
-        // Direct check on parent → false (default is on sub-protocol)
+        // Direct check on parent → false (default is on sub-protocol, not parent directly)
         Assert.False(index.HasDirectMethodDefault("TestModule.AnyWorker", "process()"));
         // Direct check on sub-protocol → true
         Assert.True(index.HasDirectMethodDefault("TestModule.Worker", "process()"));
-        // Full traversal on parent → false (inheritance graph is disabled, sub-protocol lookup doesn't work)
-        Assert.False(index.HasMethodDefault("TestModule.AnyWorker", "process()"));
+        // Full traversal on parent → true (inheritance graph finds sub-protocol default)
+        Assert.True(index.HasMethodDefault("TestModule.AnyWorker", "process()"));
     }
 
     [Fact]
@@ -455,11 +456,26 @@ public class ProtocolExtensionDefaultsIndexTests
         };
     }
 
-    private static ProtocolDecl CreateProtocolDecl(string name, string moduleName, string? inheritedFrom = null)
+    private static ProtocolDecl CreateProtocolDecl(string name, string moduleName,
+        string? inheritedFrom = null, string? inheritedFrom2 = null)
     {
         var inherited = new List<NamedTypeSpec>();
         if (inheritedFrom != null)
             inherited.Add(new NamedTypeSpec(inheritedFrom));
+        if (inheritedFrom2 != null)
+            inherited.Add(new NamedTypeSpec(inheritedFrom2));
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = moduleName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
 
         return new ProtocolDecl
         {
@@ -476,8 +492,8 @@ public class ProtocolExtensionDefaultsIndexTests
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Subscripts = new List<SubscriptDecl>(),
-            ParentDecl = null,
-            ModuleDecl = null
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
         };
     }
 
@@ -627,4 +643,85 @@ public class ProtocolExtensionDefaultsIndexTests
     }
 
     #endregion
+
+    #region Inheritance Graph Tests
+
+    [Fact]
+    public void InheritanceGraph_ThreeLevelChain_TransitiveDefault()
+    {
+        // C inherits B inherits A. Extension default on C satisfies A's requirement.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("A", "TestModule"),
+            CreateProtocolDecl("B", "TestModule", inheritedFrom: "TestModule.A"),
+            CreateProtocolDecl("C", "TestModule", inheritedFrom: "TestModule.B")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.C"] = new()
+            {
+                CreateExtensionMethod("doWork", "doWork()")
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        // C's default should satisfy A's requirement via B (transitive)
+        Assert.True(index.HasMethodDefault("TestModule.A", "doWork()"));
+        Assert.True(index.HasMethodDefault("TestModule.B", "doWork()"));
+        Assert.True(index.HasMethodDefault("TestModule.C", "doWork()"));
+    }
+
+    [Fact]
+    public void InheritanceGraph_DiamondInheritance_DefaultResolvesCorrectly()
+    {
+        // D inherits both B and C, which both inherit A (diamond)
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("A", "TestModule"),
+            CreateProtocolDecl("B", "TestModule", inheritedFrom: "TestModule.A"),
+            CreateProtocolDecl("C", "TestModule", inheritedFrom: "TestModule.A"),
+            CreateProtocolDecl("D", "TestModule", inheritedFrom: "TestModule.B", inheritedFrom2: "TestModule.C")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.D"] = new()
+            {
+                CreateExtensionMethod("handle", "handle()")
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        // D's default should satisfy A's requirement via both paths
+        Assert.True(index.HasMethodDefault("TestModule.A", "handle()"));
+        Assert.True(index.HasMethodDefault("TestModule.B", "handle()"));
+        Assert.True(index.HasMethodDefault("TestModule.C", "handle()"));
+    }
+
+    [Fact]
+    public void InheritanceGraph_NoInheritance_SubProtocolDefaultDoesNotSatisfyUnrelatedProtocol()
+    {
+        // X and Y are unrelated protocols. Y's default should not satisfy X's requirement.
+        var protocols = new List<ProtocolDecl>
+        {
+            CreateProtocolDecl("X", "TestModule"),
+            CreateProtocolDecl("Y", "TestModule")
+        };
+
+        var extensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["TestModule.Y"] = new()
+            {
+                CreateExtensionMethod("doWork", "doWork()")
+            }
+        };
+        var index = new ProtocolExtensionDefaultsIndex(extensionMethods, protocols);
+
+        Assert.False(index.HasMethodDefault("TestModule.X", "doWork()"));
+        Assert.True(index.HasMethodDefault("TestModule.Y", "doWork()"));
+    }
+
+    #endregion
+
 }

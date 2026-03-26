@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -34,6 +35,32 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
 
     private SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> _payload;
     private bool _disposed;
+
+    private static readonly Dictionary<Type, string> _protocolConformanceSymbols;
+
+    static SwiftResult()
+    {
+        _protocolConformanceSymbols = new Dictionary<Type, string>
+        {
+            { typeof(ISwiftHashable), "$ss6ResultOyxq_GSHsSHRzSHR_rlMc" },
+        };
+
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
+        {
+            NativeAotRegisterConformances();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotRegisterConformances()
+    {
+        foreach (var (protocolType, symbol) in _protocolConformanceSymbols)
+        {
+            var symbolName = symbol;
+            ConformanceDispatcher.Register(typeof(SwiftResult<TSuccess, TFailure>), protocolType,
+                () => ProtocolConformanceDescriptor.LoadFromSymbol("/usr/lib/swift/libswiftCore.dylib", symbolName));
+        }
+    }
 
     /// <summary>
     /// Gets the safe handle to the underlying Swift payload
@@ -139,8 +166,12 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     static ProtocolConformanceDescriptor ISwiftObject.GetProtocolConformanceDescriptor<TProtocol>()
         where TProtocol : class
     {
-        // TODO: Implement protocol conformance for Result
-        throw new NotImplementedException();
+        if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+        {
+            throw new SwiftRuntimeException(
+                $"Attempted to retrieve protocol conformance descriptor for type SwiftResult and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+        }
+        return ProtocolConformanceDescriptor.LoadFromSymbol("/usr/lib/swift/libswiftCore.dylib", symbolName);
     }
 
     /// <summary>

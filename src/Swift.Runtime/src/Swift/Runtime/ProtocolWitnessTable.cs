@@ -180,7 +180,7 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     /// <param name="conformanceDescriptor">The protocol conformance descriptor.</param>
     /// <param name="typeMetadata">The type metadata.</param>
     /// <returns>The protocol witness table.</returns>
-    private static ProtocolWitnessTable GetProtocolWitnessTable(ProtocolConformanceDescriptor conformanceDescriptor, TypeMetadata typeMetadata)
+    internal static ProtocolWitnessTable GetProtocolWitnessTable(ProtocolConformanceDescriptor conformanceDescriptor, TypeMetadata typeMetadata)
         => swift_getWitnessTable(conformanceDescriptor, typeMetadata, IntPtr.Zero);
 
     /// <summary>

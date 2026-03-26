@@ -3024,10 +3024,12 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_MethodWithSubProtocolDefault_DoesNotEmitDIM()
+    public void Emit_MethodWithSubProtocolDefault_EmitsAsDIM()
     {
-        // Parent protocol's method has a default only on a sub-protocol →
-        // parent interface should NOT get a DIM (only direct defaults become DIMs).
+        // Parent protocol's method has a default from a sub-protocol →
+        // parent interface MUST get a DIM when interface inheritance is enabled.
+        // Without this, conforming types get CS0535 for inherited requirements
+        // that are satisfied by the sub-protocol's extension default in Swift.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
@@ -3102,13 +3104,13 @@ public class ProtocolHandlerOutputTests
         emissionContext.ExtensionDefaultsIndex = index;
         var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
 
-        // Emit the PARENT protocol (AnyWorker) — it should NOT get a DIM
+        // Emit the PARENT protocol (AnyWorker) — sub-protocol default should produce DIM
         var (csOutput, _) = EmitProtocol(parentProtocol, typeDatabase, context);
 
-        // Parent's process() should remain abstract (semicolon), not a DIM
-        Assert.Contains("void Process();", csOutput);
-        // The interface method should NOT have the extension default throw pattern
-        Assert.DoesNotContain("This method uses a Swift protocol extension default", csOutput);
+        // Parent's process() should be emitted as a DIM (throw body) because the sub-protocol
+        // Worker provides an extension default. This prevents CS0535 for types that conform
+        // to AnyWorker via ISQLSpecificExpressible-style transitive interface inheritance.
+        Assert.Contains("This method uses a Swift protocol extension default", csOutput);
     }
 
     [Fact]
@@ -3906,6 +3908,190 @@ public class ProtocolHandlerOutputTests
                 Kind = TypeRecordKind.Struct
             })
         });
+    }
+
+    #endregion
+
+    #region Protocol Inheritance
+
+    [Fact]
+    public void Emit_ProtocolWithInheritedProtocol_EmitsInterfaceInheritance()
+    {
+        // Drawable inherits Describable → IDrawable : IDescribable
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Describable", "IDescribable"),
+            ("TestModule.Drawable", "IDrawable"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentProtocol = new ProtocolDecl
+        {
+            Name = "Describable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+            MangledName = "$s10TestModule11DescribableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMethodDecl("describe", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var childProtocol = new ProtocolDecl
+        {
+            Name = "Drawable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Drawable"),
+            MangledName = "$s10TestModule8DrawableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new("TestModule.Describable") },
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMethodDecl("draw", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        moduleDecl.Protocols.Add(parentProtocol);
+        moduleDecl.Protocols.Add(childProtocol);
+
+        var (csOutput, _) = EmitProtocol(childProtocol, typeDatabase);
+
+        Assert.Contains("public interface IDrawable : IDescribable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolWithMultipleInheritedProtocols_EmitsAllParents()
+    {
+        // Animatable inherits both Describable and Drawable
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Describable", "IDescribable"),
+            ("TestModule.Drawable", "IDrawable"),
+            ("TestModule.Animatable", "IAnimatable"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var animatable = new ProtocolDecl
+        {
+            Name = "Animatable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Animatable"),
+            MangledName = "$s10TestModule10AnimatableP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>
+            {
+                new("TestModule.Describable"),
+                new("TestModule.Drawable")
+            },
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMethodDecl("animate", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        moduleDecl.Protocols.Add(animatable);
+
+        var (csOutput, _) = EmitProtocol(animatable, typeDatabase);
+
+        Assert.Contains("public interface IAnimatable : IDescribable, IDrawable", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolInheritingPATProtocol_SkipsInheritance()
+    {
+        // Protocols with associated types can't be inherited in C# (generic interface, unknown type args)
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.PatProto"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IPatProto"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PatProto"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Child"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IChild"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Child"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var child = new ProtocolDecl
+        {
+            Name = "Child",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Child"),
+            MangledName = "$s10TestModule5ChildP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new("TestModule.PatProto") },
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMethodDecl("doSomething", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        moduleDecl.Protocols.Add(child);
+
+        var (csOutput, _) = EmitProtocol(child, typeDatabase);
+
+        // PAT parent should be skipped — interface should NOT inherit from IPatProto
+        Assert.DoesNotContain("IPatProto", csOutput);
+        Assert.Contains("public interface IChild", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ProtocolInheritingUnknownProtocol_SkipsInheritance()
+    {
+        // If parent protocol is not in type database, skip it
+        var typeDatabase = CreateTypeDatabaseWithProtocolRecords(
+            ("TestModule.Child", "IChild"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var child = new ProtocolDecl
+        {
+            Name = "Child",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Child"),
+            MangledName = "$s10TestModule5ChildP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec> { new("SomeOtherModule.Unknown") },
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { CreateMethodDecl("doSomething", moduleDecl) },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        moduleDecl.Protocols.Add(child);
+
+        var (csOutput, _) = EmitProtocol(child, typeDatabase);
+
+        // Unknown parent should be skipped — no inheritance
+        Assert.Contains("public interface IChild\n", csOutput);
+        Assert.DoesNotContain("IChild :", csOutput);
     }
 
     #endregion

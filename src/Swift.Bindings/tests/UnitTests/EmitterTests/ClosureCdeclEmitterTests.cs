@@ -268,10 +268,10 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void Emit_IndirectReturnClosureNonAsync_NonPrimitiveReturn_FallsBackToSwift()
+    public void Emit_IndirectReturnClosureNonAsync_NonPrimitiveReturn_UsesCdeclViaIndirectReturn()
     {
         var typeDatabase = CreateTypeDatabase();
-        // Register a non-frozen struct for genuinely non-Cdecl-compatible closure return
+        // Register a non-frozen struct — now handled via indirect return marshalling
         var extraModule = new ModuleTypeDatabase("TestExtra", "/tmp/TestExtra.dylib");
         extraModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeData"),
@@ -287,7 +287,9 @@ public class ClosureCdeclEmitterTests
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // Closure returning non-frozen struct → NOT Cdecl-compatible → legacy Swift path
+        // Closure returning non-frozen struct → now Cdecl-compatible via indirect return.
+        // The struct is NOT frozen, but the closure writes to a buffer pointer (indirect return)
+        // so the @convention(c) return type is Void — no Cdecl-compatibility issue.
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
             new NamedTypeSpec("TestExtra.RuntimeData"));
@@ -300,9 +302,9 @@ public class ClosureCdeclEmitterTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // Non-primitive closure return → falls back to legacy CallConvSwift path
-        Assert.Contains("delegate* unmanaged[Swift]<", csOutput);
-        Assert.DoesNotContain("CdeclClosureFuncPtr", csOutput);
+        // Non-primitive closure return uses Cdecl via indirect return marshalling
+        Assert.Contains("delegate* unmanaged[Cdecl]<", csOutput);
+        Assert.Contains("void* indirectResult", csOutput);
     }
 
     [Fact]
@@ -1243,6 +1245,40 @@ public class ClosureCdeclEmitterTests
         Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
     }
 
+    [Fact]
+    public void IsClosureCdeclCompatible_OptionalStringReturn_ReturnsTrueViaIndirectReturn()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int32) -> Optional<String> — uses indirect return marshalling
+        var optionalString = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.String"));
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            optionalString);
+
+        Assert.True(closureHandler.RequiresIndirectReturnMarshalling(closureType));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_StringArrayReturn_ReturnsTrueViaIndirectReturn()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Int32) -> [String] — uses indirect return marshalling
+        var stringArray = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.String"));
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            stringArray);
+
+        Assert.True(closureHandler.RequiresIndirectReturnMarshalling(closureType));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
     #endregion
 
     #region Test Helpers
@@ -1299,6 +1335,26 @@ public class ClosureCdeclEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
                 MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct
             });

@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using Swift;
@@ -106,5 +107,65 @@ public class ProtocolConformanceDescriptorTests : IClassFixture<ProtocolConforma
         ProtocolConformanceDescriptor.TryGetDirect<SwiftIntMock, ISwiftHashable>(out var directResult);
 
         Assert.Equal(reflectionResult, directResult);
+    }
+
+    [Fact]
+    public static void SwiftResult_HashableConformance_LoadsValidDescriptor()
+    {
+        // Result<Success, Failure> : Hashable (conditional) — verify the symbol loads
+        var descriptor = ProtocolConformanceDescriptor.LoadFromSymbol(
+            "/usr/lib/swift/libswiftCore.dylib", "$ss6ResultOyxq_GSHsSHRzSHR_rlMc");
+        Assert.True(descriptor.IsValid);
+    }
+
+    [Fact]
+    public static void HashableConformanceRegistry_ResolvesScalarTypes()
+    {
+        // Registry should resolve known scalar types without MakeGenericType reflection
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<nint>();
+        Assert.True(witnessTable.IsValid);
+    }
+
+    [Theory]
+    [InlineData(typeof(bool))]
+    [InlineData(typeof(int))]
+    [InlineData(typeof(long))]
+    [InlineData(typeof(float))]
+    [InlineData(typeof(double))]
+    public static void HashableConformanceRegistry_KnownTypeSymbolsAreValid(Type type)
+    {
+        // Verify the known hashable conformance symbols resolve to valid descriptors
+        var symbols = new Dictionary<Type, string>
+        {
+            { typeof(bool), "$sSbSHsMc" },
+            { typeof(int), "$ss5Int32VSHsMc" },
+            { typeof(long), "$ss5Int64VSHsMc" },
+            { typeof(float), "$sSfSHsMc" },
+            { typeof(double), "$sSdSHsMc" },
+        };
+
+        if (symbols.TryGetValue(type, out var symbol))
+        {
+            var descriptor = ProtocolConformanceDescriptor.LoadFromSymbol(
+                "/usr/lib/swift/libswiftCore.dylib", symbol);
+            Assert.True(descriptor.IsValid);
+        }
+    }
+
+    [Fact]
+    public static void HashableConformanceRegistry_CachesResults()
+    {
+        // Calling twice should return the same witness table (cached)
+        var first = HashableConformanceRegistry.GetHashableWitnessTable<nint>();
+        var second = HashableConformanceRegistry.GetHashableWitnessTable<nint>();
+        Assert.Equal(first.Handle, second.Handle);
+    }
+
+    [Fact]
+    public static void HashableConformanceRegistry_ISwiftObjectFallback()
+    {
+        // SwiftIntMock implements ISwiftObject — registry should resolve via the standard path
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<SwiftIntMock>();
+        Assert.True(witnessTable.IsValid);
     }
 }

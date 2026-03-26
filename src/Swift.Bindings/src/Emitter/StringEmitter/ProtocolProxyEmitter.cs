@@ -74,27 +74,9 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
-        // Check for inherited protocols that have requirements the proxy can't implement.
-        // The proxy only iterates protocolDecl's own Properties/Methods/Subscripts, not inherited ones.
-        // If this protocol has no own instance members but inherits from a protocol that does,
-        // the proxy would be missing inherited interface members (CS0535).
-        var hasOwnInstanceMembers = protocolDecl.Properties.Any(p => !p.IsStatic) ||
-                                     protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType != MethodType.Static) ||
-                                     protocolDecl.Subscripts.Any(s => !s.IsStatic);
-        if (!hasOwnInstanceMembers)
-        {
-            // NOTE: Inherited requirements check is intentionally disabled.
-            // InheritedProtocols was recently populated (was always empty before), but
-            // enabling this check would skip proxy emission for protocols that previously
-            // worked. TODO: Enable once C# interface inheritance and proxy generation
-            // are updated to handle inherited protocol requirements.
-            var hasInheritedRequirements = false;
-            if (hasInheritedRequirements)
-            {
-                _logger.LogDebug($"Skipping proxy class for {protocolDecl.Name}: no own instance members but inherits from protocols with potential requirements");
-                return;
-            }
-        }
+        // Inherited protocol requirements are now handled: the proxy emits implementations
+        // for inherited interface members (see EmitInheritedInterfaceImplementations).
+        // No skip needed for protocols with only inherited requirements.
 
         var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");
         var proxyClassName = GetProxyClassName(protocolDecl);

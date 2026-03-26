@@ -78,6 +78,7 @@ namespace BindingsGeneration
                         ? SkipReason.CombineFramework
                         : SkipReason.UnsupportedType;
                 ReportCollector.RecordTypeSkipped(structDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, reason, $"generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
                 _logger.LogWarning(
                     "Skipping type '{TypeName}' - generic constraint references unsupported protocol '{Protocol}' from module '{Module}'.",
                     structDecl.Name,
@@ -107,8 +108,9 @@ namespace BindingsGeneration
             };
 
             {
-                var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
-                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase, extensionDefaultsIndex);
+                var validatorEmissionCtx = context.GetEmissionContext();
+                var extensionDefaultsIndex = validatorEmissionCtx?.ExtensionDefaultsIndex;
+                var conformanceValidator = new ProtocolConformanceValidator(moduleDecl, env.TypeDatabase, extensionDefaultsIndex, validatorEmissionCtx);
                 var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
                     structDecl,
                     typeNameWithGenerics,

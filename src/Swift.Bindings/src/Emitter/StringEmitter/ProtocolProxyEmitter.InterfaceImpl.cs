@@ -104,6 +104,11 @@ public partial class ProtocolProxyEmitter
         // co-gating proxy emission with EveryProtocol conformance (roadmap Session 5).
         EmitStaticAbstractStubs(writer, protocolDecl);
 
+        // Emit implementations for inherited protocol interface members.
+        // When the C# interface uses inheritance (IDrawable : IDescribable), the proxy must
+        // also implement the parent interface members to avoid CS0535.
+        EmitInheritedInterfaceImplementations(writer, protocolDecl, dispatchEmitter, emittedMembers, emittedCSharpKeys, emittedCSharpPropertyNames);
+
         writer.WriteLine("#endregion");
         writer.WriteLine();
     }
@@ -214,6 +219,199 @@ public partial class ProtocolProxyEmitter
 
             writer.WriteLine($"public static {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Static protocol members cannot be dispatched through protocol proxy types.\");");
         }
+    }
+
+    /// <summary>
+    /// Emits NotSupportedException stub implementations for inherited protocol interface members.
+    /// When C# interface uses inheritance (IDrawable : IDescribable), the proxy must implement
+    /// parent interface members to satisfy the C# compiler (CS0535).
+    /// Uses stubs because the parent protocol's witness dispatch P/Invoke symbols are declared
+    /// in the parent proxy's NativeMethods, not the child proxy's. Full dispatch support would
+    /// require duplicating P/Invoke declarations across proxy classes.
+    /// </summary>
+    private void EmitInheritedInterfaceImplementations(
+        CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter,
+        HashSet<string> emittedMembers, HashSet<string> emittedCSharpKeys,
+        HashSet<string> emittedCSharpPropertyNames)
+    {
+        if (protocolDecl.InheritedProtocols.Count == 0)
+            return;
+
+        var moduleDecl = protocolDecl.ModuleDecl;
+        if (moduleDecl == null)
+            return;
+
+        // Collect all inherited protocols that would be emitted as C# interface parents.
+        // Must match the filtering logic in ProtocolHandler.GetInheritedInterfaceList.
+        var inheritedProtocolDecls = new List<ProtocolDecl>();
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            if (inherited.Name is "Swift.AnyObject" or "AnyObject")
+                continue;
+            if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                continue;
+
+            // Skip cross-module protocols — must match ProtocolHandler.GetInheritedInterfaceList
+            var inheritedModule = inherited.Module;
+            var currentModule = protocolDecl.ModuleDecl?.Name;
+            if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
+                inheritedModule != currentModule)
+                continue;
+
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(inherited);
+            if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
+                continue;
+            if (inheritedRecord.Kind != TypeRecordKind.Protocol)
+                continue;
+            if (inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                continue;
+
+            // Skip underscore-suppressed protocols — their interfaces aren't emitted
+            if (swiftTypeName != null && _emissionContext.IsUnderscoreSuppressed(swiftTypeName.ToString()))
+                continue;
+
+            // Look up the ProtocolDecl in the same module
+            var parentProtoDecl = moduleDecl.Protocols.FirstOrDefault(
+                p => p.Name == inherited.NameWithoutModule);
+            if (parentProtoDecl != null)
+                inheritedProtocolDecls.Add(parentProtoDecl);
+        }
+
+        if (inheritedProtocolDecls.Count == 0)
+            return;
+
+        writer.WriteLine();
+        writer.WriteLine("// Inherited protocol interface implementations (stubs — dispatch via parent proxy)");
+
+        // Recursively collect inherited protocols (walk the chain)
+        var allInherited = new List<ProtocolDecl>();
+        var visited = new HashSet<string>();
+        var queue = new Queue<ProtocolDecl>(inheritedProtocolDecls);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currentKey = current.SwiftTypeName?.ModuleQualifiedName ?? current.Name;
+            if (!visited.Add(currentKey))
+                continue;
+            allInherited.Add(current);
+
+            // Walk further up the chain (same filtering as GetInheritedInterfaceList)
+            foreach (var grandparent in current.InheritedProtocols)
+            {
+                if (grandparent.Name is "Swift.AnyObject" or "AnyObject")
+                    continue;
+                if (grandparent.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                    continue;
+
+                // Skip cross-module protocols — must match ProtocolHandler.GetInheritedInterfaceList
+                var gpModule = grandparent.Module;
+                var gpCurrentModule = current.ModuleDecl?.Name ?? protocolDecl.ModuleDecl?.Name;
+                if (!string.IsNullOrEmpty(gpModule) && !string.IsNullOrEmpty(gpCurrentModule) &&
+                    gpModule != gpCurrentModule)
+                    continue;
+
+                // Skip PAT/Self protocols — their interfaces aren't inherited
+                var gpSwiftName = SwiftTypeName.FromTypeSpec(grandparent);
+                if (_typeDatabase.TryGetTypeRecord(gpSwiftName, out var gpRecord))
+                {
+                    if (gpRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                        gpRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                        continue;
+                }
+
+                // Skip underscore-suppressed protocols
+                if (gpSwiftName != null && _emissionContext.IsUnderscoreSuppressed(gpSwiftName.ToString()))
+                    continue;
+
+                var gpDecl = moduleDecl.Protocols.FirstOrDefault(
+                    p => p.Name == grandparent.NameWithoutModule);
+                if (gpDecl != null)
+                    queue.Enqueue(gpDecl);
+            }
+        }
+
+        foreach (var inheritedProto in allInherited)
+        {
+            // Emit inherited property stubs
+            foreach (var property in inheritedProto.Properties)
+            {
+                if (property.IsStatic)
+                    continue;
+                if (!emittedMembers.Add($"property:{property.Name}"))
+                    continue;
+                EmitInheritedPropertyStub(writer, property);
+            }
+
+            // Emit inherited method stubs
+            foreach (var method in inheritedProto.Methods)
+            {
+                if (method.IsConstructor || method.MethodType == MethodType.Static)
+                    continue;
+
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, inheritedProto);
+                if (!emittedCSharpKeys.Add(projectedKey))
+                    continue;
+                EmitInheritedMethodStub(writer, method, emittedCSharpPropertyNames);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits a NotSupportedException stub for an inherited protocol property.
+    /// </summary>
+    private void EmitInheritedPropertyStub(CSharpWriter writer, PropertyDecl property)
+    {
+        var csharpTypeName = GetInterfaceCompatiblePropertyTypeName(property);
+        var propertyName = NameProvider.GetPropertyName(property.Name);
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+
+        writer.WriteLine($"public {csharpTypeName} {propertyName}");
+        writer.WriteLine("{");
+        writer.Indent++;
+        if (hasGetter)
+            writer.WriteLine("get => throw new NotSupportedException(\"Inherited protocol member — dispatch via parent protocol proxy.\");");
+        if (hasSetter)
+            writer.WriteLine("set => throw new NotSupportedException(\"Inherited protocol member — dispatch via parent protocol proxy.\");");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a NotSupportedException stub for an inherited protocol method.
+    /// </summary>
+    private void EmitInheritedMethodStub(CSharpWriter writer, MethodDecl method,
+        IReadOnlySet<string>? propertyNames = null)
+    {
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!, isParameter: false) : "void";
+
+        if (method.IsAsync)
+            returnTypeName = returnTypeName == "void" ? "Task" : $"Task<{returnTypeName}>";
+
+        var parameters = new List<string>();
+        foreach (var param in method.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(param))
+                continue;
+            if (param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
+            var paramName = NameProvider.GetCSharpParameterName(param);
+            parameters.Add($"{paramTypeName} {paramName}");
+        }
+        if (method.IsAsync)
+            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+
+        var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
+        var methodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+            propertyNames: propertyNames,
+            isSelfReturning: isSelfReturning,
+            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+        writer.WriteLine($"public {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Inherited protocol member — dispatch via parent protocol proxy.\");");
     }
 
     private void EmitPropertyImplementation(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)

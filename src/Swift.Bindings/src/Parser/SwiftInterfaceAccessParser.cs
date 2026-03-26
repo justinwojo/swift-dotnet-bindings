@@ -2801,6 +2801,23 @@ public static class SwiftInterfaceAccessParser
                     break;
                 }
 
+                case SwiftInterfaceContextTracker.LineKind.FreeFunctionLine:
+                {
+                    // Free functions at module level — collect annotations with bare printedName key
+                    var freeFuncText = tracker.CompletedMultiLine ?? trimmed;
+                    var freeFuncName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(freeFuncText);
+                    if (freeFuncName != null)
+                    {
+                        var annotations = CollectAvailabilityAnnotations(freeFuncText, tracker);
+                        if (annotations.Count > 0)
+                        {
+                            AddAnnotations(result, freeFuncName, annotations);
+                        }
+                    }
+                    tracker.ConsumePendingAnnotations();
+                    break;
+                }
+
                 case SwiftInterfaceContextTracker.LineKind.AnnotationOnly:
                     // Accumulation handled by tracker
                     break;

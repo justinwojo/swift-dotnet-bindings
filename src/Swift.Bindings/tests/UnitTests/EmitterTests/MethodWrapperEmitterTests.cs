@@ -382,8 +382,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OpaqueReturn_ReturnsFalse()
+    public void ShouldEmitWrapper_OpaqueReturn_ReturnsTrue()
     {
+        // Opaque returns (some Protocol) are now supported — @_cdecl wrapper boxes into existential.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -395,7 +396,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithReturn("doWork", opaqueReturn, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

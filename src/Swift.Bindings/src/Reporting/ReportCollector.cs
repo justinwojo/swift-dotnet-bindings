@@ -54,6 +54,9 @@ public static class ReportCollector
             _report.SkippedMembers = SkippedMemberKeys.Count;
             _report.SynthesizedMembers = SynthesizedMemberKeys.Count;
 
+            // Compute per-kind breakdown from the keyed sets ("Kind:ContainingType:Name")
+            ComputePerKindCounts(_report);
+
             return _report;
         }
     }
@@ -294,6 +297,31 @@ public static class ReportCollector
 
     private static string GetMemberKey(BindingItemKind kind, string name, BaseDecl? containingDecl) =>
         $"{kind}:{GetContainingTypeName(containingDecl)}:{name}";
+
+    private static void ComputePerKindCounts(BindingReport report)
+    {
+        foreach (var key in EmittedMemberKeys)
+        {
+            var kind = ParseKindFromKey(key);
+            if (kind.HasValue)
+                report.EmittedMembersByKind[kind.Value] = report.EmittedMembersByKind.GetValueOrDefault(kind.Value) + 1;
+        }
+        foreach (var key in SkippedMemberKeys)
+        {
+            var kind = ParseKindFromKey(key);
+            if (kind.HasValue)
+                report.SkippedMembersByKind[kind.Value] = report.SkippedMembersByKind.GetValueOrDefault(kind.Value) + 1;
+        }
+    }
+
+    private static BindingItemKind? ParseKindFromKey(string key)
+    {
+        var colonIdx = key.IndexOf(':');
+        if (colonIdx <= 0)
+            return null;
+        var kindStr = key.Substring(0, colonIdx);
+        return Enum.TryParse<BindingItemKind>(kindStr, out var kind) ? kind : null;
+    }
 
     private static string? GetContainingTypeName(BaseDecl? containingDecl) =>
         containingDecl switch

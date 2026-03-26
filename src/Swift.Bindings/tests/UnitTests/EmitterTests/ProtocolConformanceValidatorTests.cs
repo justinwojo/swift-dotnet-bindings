@@ -2211,10 +2211,9 @@ public class ProtocolConformanceValidatorTests
         var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase, extensionDefaultsIndex);
         var result = validator.CanFullyImplementProtocol(concreteType, parentProtocol);
 
-        // With inheritance graph disabled, sub-protocol extension default is NOT found
-        // for parent protocol. Concrete type doesn't have _interpolate, no direct default
-        // on AnyInterpolatable → returns false.
-        Assert.False(result);
+        // With inheritance graph enabled, sub-protocol extension default IS found
+        // for parent protocol via inheritance chain traversal.
+        Assert.True(result);
     }
 
     [Fact]
@@ -2513,6 +2512,82 @@ public class ProtocolConformanceValidatorTests
                 Kind = TypeRecordKind.Struct
             })
         });
+    }
+
+    #endregion
+
+    #region Inherited Protocol Conformance Validation
+
+    [Fact]
+    public void CanFullyImplementProtocol_InheritedProtocolRequirementMet_ReturnsTrue()
+    {
+        // Drawable inherits Describable. Concrete type has both describe() and draw().
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var describable = CreateProtocolWithVoidMethod("Describable", "describe", moduleDecl);
+        var drawable = CreateProtocolWithVoidMethod("Drawable", "draw", moduleDecl);
+        drawable.InheritedProtocols.Add(new NamedTypeSpec("TestModule.Describable"));
+
+        moduleDecl.Protocols.Add(describable);
+        moduleDecl.Protocols.Add(drawable);
+
+        var concreteType = CreateStructDecl("Shape", moduleDecl);
+        var describeMethod = CreateVoidMethod("describe", moduleDecl);
+        describeMethod.ParentDecl = concreteType;
+        var drawMethod = CreateVoidMethod("draw", moduleDecl);
+        drawMethod.ParentDecl = concreteType;
+        concreteType.Methods = new List<MethodDecl> { describeMethod, drawMethod };
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, drawable));
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_InheritedProtocolRequirementMissing_ReturnsFalse()
+    {
+        // Drawable inherits Describable. Concrete type has draw() but NOT describe().
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var describable = CreateProtocolWithVoidMethod("Describable", "describe", moduleDecl);
+        var drawable = CreateProtocolWithVoidMethod("Drawable", "draw", moduleDecl);
+        drawable.InheritedProtocols.Add(new NamedTypeSpec("TestModule.Describable"));
+
+        moduleDecl.Protocols.Add(describable);
+        moduleDecl.Protocols.Add(drawable);
+
+        var concreteType = CreateStructDecl("Shape", moduleDecl);
+        var drawMethod = CreateVoidMethod("draw", moduleDecl);
+        drawMethod.ParentDecl = concreteType;
+        concreteType.Methods = new List<MethodDecl> { drawMethod };
+        // Missing: describe()
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        Assert.False(validator.CanFullyImplementProtocol(concreteType, drawable));
+    }
+
+    [Fact]
+    public void CanFullyImplementProtocol_CrossModuleInheritedProtocol_SkippedGracefully()
+    {
+        // If inherited protocol is from a different module (not in ModuleDecl.Protocols),
+        // validation should still pass — cross-module requirements can't be validated.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var drawable = CreateProtocolWithVoidMethod("Drawable", "draw", moduleDecl);
+        drawable.InheritedProtocols.Add(new NamedTypeSpec("OtherModule.Describable"));
+
+        moduleDecl.Protocols.Add(drawable);
+
+        var concreteType = CreateStructDecl("Shape", moduleDecl);
+        var drawMethod = CreateVoidMethod("draw", moduleDecl);
+        drawMethod.ParentDecl = concreteType;
+        concreteType.Methods = new List<MethodDecl> { drawMethod };
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        // Should pass — cross-module inherited protocol is skipped
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, drawable));
     }
 
     #endregion

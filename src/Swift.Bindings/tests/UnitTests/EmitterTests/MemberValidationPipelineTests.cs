@@ -819,7 +819,11 @@ public class MemberValidationPipelineTests
 
         var (csOutput, _) = EmitModuleWithMethod(method, typeDatabase);
 
-        Assert.DoesNotContain("decode", csOutput);
+        // No binding method declaration emitted — only unsupported comment for the skipped method
+        Assert.DoesNotContain("Decode(", csOutput);
+        Assert.DoesNotContain("Decode<", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("decode", csOutput); // method name in comment
     }
 
     [Fact]
@@ -874,8 +878,10 @@ public class MemberValidationPipelineTests
 
         var (csOutput, _) = EmitModuleWithMethod(method, typeDatabase);
 
-        Assert.DoesNotContain("init", csOutput);
+        // No constructor binding emitted — only unsupported comment
         Assert.DoesNotContain("Point(", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("init", csOutput); // method name in comment
     }
 
     [Fact]

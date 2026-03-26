@@ -74,11 +74,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
-        // NOTE: Uses reflection-based GetOrThrow (not GetOrThrowDirect) because TKey
-        // lacks ISwiftObject constraint — SwiftDictionary<IntPtr, EC0> is used in generated code.
-        // On NativeAOT, this MakeGenericType call may fail if the specialization isn't compiled.
-        // TODO: Add global conformance registry to eliminate MakeGenericType for all callers.
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
+        // Uses HashableConformanceRegistry for NativeAOT safety — avoids MakeGenericType
+        // reflection for unconstrained TKey types (e.g., SwiftDictionary<IntPtr, EC0>).
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftDictionary<TKey, TValue>), _ =>
             SwiftDictionaryPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, KeyTypeMetadata, ValueTypeMetadata, witnessTable));
     }
@@ -187,7 +185,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         {
             ThrowIfDisposed();
             using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-            var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
+            var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
             int result = (int)SwiftDictionaryPInvokes.Count(disposable.Buffer, KeyTypeMetadata, ValueTypeMetadata, witnessTable);
             return result;
         }
@@ -263,7 +261,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     {
         ThrowIfDisposed();
         using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
 
         // Marshal the key to Swift
         Span<byte> keySpan = stackalloc byte[(int)KeySize];
@@ -366,7 +364,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     private unsafe List<KeyValuePair<TKey, TValue>> CollectEntries()
     {
         var result = new List<KeyValuePair<TKey, TValue>>();
-        var witnessTable = ProtocolWitnessTable.GetOrThrow<TKey, ISwiftHashable>();
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
 
         // Get the metadata for Dictionary.Iterator<TKey, TValue>
         var iteratorMetadata = SwiftDictionaryPInvokes.PInvoke_getIteratorMetadata(

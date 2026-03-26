@@ -12,13 +12,16 @@ public class ProtocolConformanceValidator
     private readonly ModuleDecl _moduleDecl;
     private readonly ITypeDatabase _typeDatabase;
     private readonly ProtocolExtensionDefaultsIndex? _extensionDefaultsIndex;
+    private readonly ModuleEmissionContext? _emissionContext;
 
     public ProtocolConformanceValidator(ModuleDecl moduleDecl, ITypeDatabase typeDatabase,
-        ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null)
+        ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         _moduleDecl = moduleDecl;
         _typeDatabase = typeDatabase;
         _extensionDefaultsIndex = extensionDefaultsIndex;
+        _emissionContext = emissionContext;
     }
 
     /// <summary>
@@ -444,15 +447,47 @@ public class ProtocolConformanceValidator
                 return false;
         }
 
-        // NOTE: Inherited protocol recursive check is intentionally disabled.
-        // InheritedProtocols was recently populated (was always empty before), but
-        // enabling this recursive check rejects conformances that previously compiled.
-        // TODO: Enable once C# interface inheritance and proxy generation
-        // are updated to handle inherited protocol requirements.
-        // foreach (var inheritedProto in protocolDecl.InheritedProtocols)
-        // {
-        //     ...
-        // }
+        // Recursively validate inherited protocol requirements.
+        // When C# interface uses inheritance (IDrawable : IDescribable), the concrete type
+        // must satisfy all inherited interface members too.
+        foreach (var inheritedProtoSpec in protocolDecl.InheritedProtocols)
+        {
+            if (inheritedProtoSpec.Name is "Swift.AnyObject" or "AnyObject")
+                continue;
+            if (inheritedProtoSpec.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                continue;
+
+            // Skip cross-module protocols — must match ProtocolHandler.GetInheritedInterfaceList
+            var inheritedModule = inheritedProtoSpec.Module;
+            var currentModule = protocolDecl.ModuleDecl?.Name;
+            if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
+                inheritedModule != currentModule)
+                continue;
+
+            // Only validate same-module protocols (cross-module ones are resolved at link time)
+            var inheritedDecl = FindProtocol(inheritedProtoSpec.NameWithoutModule)
+                             ?? FindProtocol(inheritedProtoSpec.Name);
+            if (inheritedDecl == null)
+                continue;
+
+            // Skip protocols with PAT/Self — their interfaces are generic and aren't
+            // included in the C# interface inheritance list
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(inheritedProtoSpec);
+            if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
+            {
+                if (inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                    inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                    continue;
+            }
+
+            // Skip underscore-suppressed protocols — their interfaces aren't emitted
+            if (_emissionContext != null && swiftTypeName != null &&
+                _emissionContext.IsUnderscoreSuppressed(swiftTypeName.ToString()))
+                continue;
+
+            if (!CanFullyImplementProtocol(concreteType, inheritedDecl, visited))
+                return false;
+        }
 
         return true;
     }

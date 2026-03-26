@@ -16,12 +16,8 @@ Observable binding (C# → Swift reactivity) + corpus tracking. Low priority —
 |------|-------|
 | Async frozen struct params | `stackalloc` not safe after `await`. Needs heap allocation path. |
 | `[String: Any]` dictionary projection | Alamofire, Mixpanel JSON-like config. Requires runtime boxing. |
-| Static protocol constructors (`init`) | Factory method synthesis on conforming types. |
-| Bulk retain/release helpers | Perf win for large collections. Low-medium effort. |
-| Cross-framework `using` directives | Auto-emit `using` for dependency namespaces (e.g., NukeUI referencing Nuke types). Currently hardcoded. |
-| `pack-all.sh` orchestration | Multi-package build+pack in dependency order. Topological sort + manifest already exist. |
-| Binding report as MSBuild warnings | Surface skip counts from `binding-report.json` as build warnings. Report infrastructure exists. |
-| BindingTests bridge via `--compile-bridge-only` | Replace `build-bridge.sh` shell script with `--compile-bridge-only` CLI path. Requires: (1) handle test helpers (`SwiftUIBridgeTestHelpers.swift`) — either bundle into generated bridge or compile separately, (2) update `run-runtime-tests.sh` NativeReference from `.framework` to `.xcframework`, (3) update runtime test app `DllImport` library name. |
+
+Remaining items from the hardening sessions (MSBuild warnings, bulk retain/release, pack-all.sh, static protocol constructors, bridge CLI, bug fixes) are tracked in `remaining-hardening-work.md`.
 
 ---
 

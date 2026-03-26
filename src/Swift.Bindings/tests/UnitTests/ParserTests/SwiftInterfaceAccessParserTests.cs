@@ -1046,6 +1046,33 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetAvailabilityAnnotations_FreeFunctionDoesNotBleedToNextType()
+    {
+        var swiftInterface = """
+            @available(*, deprecated, message: "Use modernFunction instead")
+            public func legacyFunction() -> Swift.String
+            @available(iOS 16.0, *)
+            public func modernFunction() -> Swift.String
+            public class TrackedObject {
+              public var objectId: Swift.Int { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            // Free functions should get their own annotations
+            Assert.True(result.ContainsKey("legacyFunction()"), "legacyFunction should have annotations");
+            Assert.Contains(result["legacyFunction()"], a => a.IsUnconditionallyDeprecated);
+            Assert.True(result.ContainsKey("modernFunction()"), "modernFunction should have annotations");
+            Assert.Contains(result["modernFunction()"], a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+            // TrackedObject must NOT inherit free function annotations
+            Assert.False(result.ContainsKey("TrackedObject"), "TrackedObject should NOT have annotations from free functions");
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 
     // ===== GetDefaultParameterValues Tests =====

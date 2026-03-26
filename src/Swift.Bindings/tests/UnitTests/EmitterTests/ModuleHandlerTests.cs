@@ -704,6 +704,21 @@ public class ModuleHandlerTests
         };
     }
 
+    [Fact]
+    public void Emit_DoesNotEmitDependencyNamespaceUsingDirectives()
+    {
+        // Dependency using directives are not emitted — the generator uses fully-qualified
+        // names for cross-module type references. Adding bare using directives would cause
+        // compilation failures when dependency assemblies aren't referenced.
+        var (csOutput, _) = EmitModuleWithDependencies("NukeUI", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "Nuke" };
+            });
+
+        Assert.DoesNotContain("using Nuke;", csOutput);
+    }
+
     #endregion
 
     #region Framework Resolver Emission Tests

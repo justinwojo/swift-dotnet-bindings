@@ -211,6 +211,7 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnderscorePrefixInternal,
                             "Underscore-prefixed type suppressed from public API.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnderscorePrefixInternal);
                         continue;
                     }
 
@@ -224,6 +225,7 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.ModuleInternal,
                             "@_spi type suppressed from bindings (not part of public API).");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.ModuleInternal, "@_spi type");
                         continue;
                     }
                 }
@@ -234,6 +236,7 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.SwiftUIView);
                         SwiftUIBridgeCollector.Collect(structDecl);
                         continue;
                     }
@@ -247,6 +250,7 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {structDecl.Name}");
                         ReportCollector.RecordTypeSkipped(structDecl, SkipReason.MissingHandler, "No type handler found for struct.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, SkipReason.MissingHandler);
                     }
                 }
                 else if (baseDecl is ClassDecl classDecl)
@@ -255,6 +259,7 @@ namespace BindingsGeneration
                     {
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.SwiftUIView,
                             "Type conforms to SwiftUI.View. Bridge generation available.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.SwiftUIView);
                         SwiftUIBridgeCollector.Collect(classDecl);
                         continue;
                     }
@@ -268,6 +273,7 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {classDecl.Name}");
                         ReportCollector.RecordTypeSkipped(classDecl, SkipReason.MissingHandler, "No type handler found for class.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, classDecl.Name, SkipReason.MissingHandler);
                     }
                 }
                 else if (baseDecl is ProtocolDecl protocolDecl)
@@ -281,6 +287,7 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for method {protocolDecl.Name}");
                         ReportCollector.RecordTypeSkipped(protocolDecl, SkipReason.MissingHandler, "No type handler found for protocol.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, protocolDecl.Name, SkipReason.MissingHandler);
                     }
                 }
                 else if (baseDecl is EnumDecl enumDecl)
@@ -294,6 +301,7 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"No handler found for enum {enumDecl.Name}");
                         ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.MissingHandler, "No type handler found for enum.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.MissingHandler);
                     }
                 }
                 else if (baseDecl is MethodDecl methodDecl)
@@ -311,7 +319,10 @@ namespace BindingsGeneration
                             if (validationResult.IsSynthesized)
                                 ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl);
                             else
+                            {
                                 ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details);
+                            }
                         }
                         continue;
                     }
@@ -324,6 +335,7 @@ namespace BindingsGeneration
                         if (!methodDecl.IsAccessor)
                         {
                             ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, signatureKey);
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                         }
                         continue;
                     }
@@ -337,6 +349,7 @@ namespace BindingsGeneration
                         _logger.LogDebug($"Skipping constructor '{methodDecl.Name}': becomes parameterless after empty tuple removal, collides with existing constructor.");
                         ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl,
                             SkipReason.UnsupportedSignature, "Constructor has only empty tuple () parameters; would duplicate existing parameterless constructor.");
+                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "empty tuple constructor collision");
                         continue;
                     }
 
@@ -348,6 +361,7 @@ namespace BindingsGeneration
                         if (!methodDecl.IsAccessor)
                         {
                             ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                         }
                         continue;
                     }
@@ -367,6 +381,7 @@ namespace BindingsGeneration
                         if (!methodDecl.IsAccessor)
                         {
                             ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.MissingHandler, "No method handler found.");
+                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler);
                         }
                     }
                 }

@@ -96,6 +96,8 @@ public sealed class NSImage : ISwiftObject, ISwiftStruct, IDisposable
 
     #region P/Invoke Declarations
 
+    // CallConvSwift audit: CGSize return (two doubles) may hit upstream NativeAOT ARM64
+    // FPR mismatch bug. Safe on Mono JIT. Monitor if NativeAOT device testing is enabled.
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.AppKit, EntryPoint = "$sSo7NSImageC4sizeSo6CGSizeVvg")]
     private static extern CGSize PInvoke_GetSize(NSImage image);

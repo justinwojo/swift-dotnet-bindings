@@ -310,7 +310,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
+        // No binding code emitted — only unsupported comment
+        Assert.DoesNotContain("public", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
         Assert.Equal(string.Empty, swiftOutput);
     }
 
@@ -544,9 +546,9 @@ public class MethodHandlerOutputTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("private static unsafe void tint_callback_", csOutput);
-        // Closure returns non-frozen struct → falls back to legacy Swift path (not Cdecl-compatible)
-        Assert.Contains("(void* indirectResult, double arg0, SwiftSelf context)", csOutput);
-        Assert.Contains("delegate* unmanaged[Swift]<void*, double, SwiftSelf, void>", csOutput);
+        // Closure returns non-frozen struct → now Cdecl-compatible via indirect return marshalling
+        Assert.Contains("(void* indirectResult, double arg0, IntPtr contextPtr)", csOutput);
+        Assert.Contains("delegate* unmanaged[Cdecl]<void*, double, IntPtr, void>", csOutput);
         Assert.DoesNotContain("private static unsafe void* tint_callback_", csOutput);
     }
 
@@ -601,7 +603,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
+        // No binding code emitted — only unsupported comment
+        Assert.DoesNotContain("public", csOutput);
         Assert.Equal(string.Empty, swiftOutput);
     }
 
@@ -631,7 +634,8 @@ public class MethodHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
+        // No binding code emitted — only unsupported comment
+        Assert.DoesNotContain("public", csOutput);
         Assert.Equal(string.Empty, swiftOutput);
     }
 

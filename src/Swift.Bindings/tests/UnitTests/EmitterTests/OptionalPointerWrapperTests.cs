@@ -1068,20 +1068,17 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
-    public void Emit_NonCdeclClosure_WithLargeOptionalReturn_UsesOptbufSilgenName()
+    public void Emit_IndirectReturnClosure_WithLargeOptionalReturn_UsesClosureWrapperOverOptbuf()
     {
-        // When a closure has a non-Cdecl-compatible return type (e.g., Optional<String>),
-        // the closure Cdecl wrapper path is skipped (NeedsClosureCdeclWrapper→false).
-        // The optbuf wrapper must then use @_silgen_name (not @_cdecl) because CanConvertToCdecl
-        // rejects closure params — closures need funcPtr+context decomposition that @_cdecl
-        // GetCdeclParamMapping doesn't support.
+        // Closures with Optional<String> return are now Cdecl-compatible via indirect return.
+        // The closure wrapper takes priority over the optbuf wrapper (UsesWrapperLibrary blocks optbuf).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
         var optStringReturn = new NamedTypeSpec("Swift.Optional");
         optStringReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
 
-        // Closure with non-Cdecl-compatible return: (Int32) -> Optional<String>
+        // Closure with indirect-return return: (Int32) -> Optional<String>
         var closureReturnType = new NamedTypeSpec("Swift.Optional");
         closureReturnType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), closureReturnType);
@@ -1109,35 +1106,28 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // optbuf wrapper must use @_silgen_name (not @_cdecl) because closure params present
-        Assert.True(method.HasOptionalPointerWrapper, "Method should get optbuf wrapper");
-        Assert.False(method.UsesCdeclMethodWrapper, "Should NOT use @_cdecl (closure params)");
+        // Closure wrapper takes priority over optbuf (closure is now Cdecl-compatible via indirect return)
+        Assert.True(method.HasClosureCdeclWrapper, "Method should get closure Cdecl wrapper");
+        Assert.False(method.HasOptionalPointerWrapper, "Optbuf wrapper skipped (closure wrapper owns the method)");
 
-        // Swift wrapper must declare closure as native type, not UnsafeRawPointer
+        // Swift wrapper uses @_silgen_name (no AsyncLibraryName → CanConvertToCdecl = false)
         Assert.Contains("@_silgen_name", swiftOutput);
-        Assert.DoesNotContain("@_cdecl", swiftOutput);
         // Must NOT contain broken .load(as: @escaping pattern
         Assert.DoesNotContain(".load(as: @escaping", swiftOutput);
     }
 
     [Fact]
-    public void Emit_OptionalClosure_WithLargeOptionalReturn_UsesOptbufSilgenName()
+    public void Emit_OptionalClosure_WithIndirectReturn_UsesClosureWrapperOverOptbuf()
     {
-        // Regression: Optional<Closure> params must also reject @_cdecl in the optbuf path.
-        // Without this, GetCdeclParamMapping treats Optional<Closure> as a generic container
-        // and emits .load(as: Optional<...>.self) which doesn't match the C# SwiftClosureData ABI.
-        //
-        // The closure must be non-Cdecl-compatible (e.g., returns Optional<String>) so that
-        // NeedsClosureCdeclWrapper returns false, causing the method to fall through to the
-        // optbuf wrapper path where CanConvertToCdecl must also reject Optional<Closure>.
+        // Optional<Closure> where the closure returns Optional<String> — now Cdecl-compatible
+        // via indirect return. The closure wrapper takes priority over optbuf.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
 
         var optStringReturn = new NamedTypeSpec("Swift.Optional");
         optStringReturn.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
 
-        // Optional<Closure> where the closure is non-Cdecl-compatible:
-        // Optional<(Int32) -> Optional<String>> — Optional<String> return is not Cdecl-compatible
+        // Optional<(Int32) -> Optional<String>> — closure return now Cdecl-compatible via indirect return
         var closureReturnType = new NamedTypeSpec("Swift.Optional");
         closureReturnType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         var closureType = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int32"), closureReturnType);
@@ -1166,14 +1156,12 @@ public class OptionalPointerWrapperTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Optional<Closure> with non-Cdecl-compatible inner → closure wrapper skipped,
-        // optbuf wrapper should use @_silgen_name (not @_cdecl)
-        Assert.True(method.HasOptionalPointerWrapper, "Method should get optbuf wrapper");
-        Assert.False(method.UsesCdeclMethodWrapper, "Should NOT use @_cdecl (optional closure params)");
+        // Closure wrapper takes priority over optbuf
+        Assert.True(method.HasClosureCdeclWrapper, "Method should get closure Cdecl wrapper");
+        Assert.False(method.HasOptionalPointerWrapper, "Optbuf wrapper skipped (closure wrapper owns the method)");
         Assert.Contains("@_silgen_name", swiftOutput);
-        Assert.DoesNotContain("@_cdecl", swiftOutput);
-        // Must NOT contain .load(as: ... for closure types
-        Assert.DoesNotContain(".load(as:", swiftOutput);
+        // Must NOT contain broken .load(as: @escaping pattern
+        Assert.DoesNotContain(".load(as: @escaping", swiftOutput);
     }
 
     [Fact]

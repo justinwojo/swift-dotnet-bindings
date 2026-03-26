@@ -586,8 +586,7 @@ public static class WrapperValidation
             return false;
         // Guards 15-15d: Return type checks
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
-            return false;
+        // Opaque returns (some Protocol): ALLOWED — @_cdecl wrapper boxes into existential.
         // Closure returns: blocked here because wrapper-owned trampoline paths (ClosureEmitter,
         // OptionalPointerWrapper, ArraySliceNormalization) use this predicate to check function shape.
         // MethodWrapperEmitter.ShouldEmitWrapper allows closure returns since Session 5, but the
@@ -846,8 +845,7 @@ public static class WrapperValidation
             if (IsMetatypeType(returnSpec))
                 return "metatype_return";
 
-            if (returnSpec is ProtocolListTypeSpec { IsOpaque: true })
-                return "opaque_return";
+            // Opaque returns (some Protocol): now supported — @_cdecl wrapper boxes into existential.
 
             // 15d. DynamicSelf returns: only allowed for class parents
             if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)

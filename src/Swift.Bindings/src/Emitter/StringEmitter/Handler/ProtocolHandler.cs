@@ -80,7 +80,8 @@ namespace BindingsGeneration
             ReportCollector.RecordTypeEmitted(protocolDecl);
 
             var interfaceName = GetInterfaceNameWithGenerics(protocolDecl);
-            var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl);
+            var emissionCtx = context.GetEmissionContext();
+            var inheritedInterfaces = GetInheritedInterfaceList(protocolDecl, env.TypeDatabase, emissionCtx);
 
             // Count total declared members that are candidates for interface emission.
             // Includes static properties and static methods (emitted as static abstract).
@@ -174,13 +175,16 @@ namespace BindingsGeneration
                     // Fall through to emit in interface — concrete types can implement it
                 }
 
-                // Check if this property has a direct extension default on this protocol
+                // Check if this property has an extension default (direct or from sub-protocol).
+                // When interface inheritance is enabled, sub-protocol defaults must also produce DIMs
+                // on parent interfaces — otherwise conforming types get CS0535 for inherited requirements
+                // that are satisfied by a sub-protocol default in Swift.
                 // Setter-aware: a getter-only default does NOT DIM-relax a { get set } requirement
                 bool isPropertyExtDefault = false;
                 if (extensionDefaultsIndex != null)
                 {
                     var protoHasSetter = propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
-                    isPropertyExtDefault = extensionDefaultsIndex.HasDirectPropertyDefault(
+                    isPropertyExtDefault = extensionDefaultsIndex.HasPropertyDefault(
                         protoQualifiedName, propertyDecl.Name, requiresSetter: protoHasSetter);
                 }
 
@@ -350,14 +354,15 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Check if this method has a direct extension default on this protocol.
-                // Only direct defaults become DIMs — sub-protocol defaults are emitted on the
-                // sub-protocol interface, not propagated upward to parent protocols.
+                // Check if this method has an extension default (direct or from sub-protocol).
+                // When interface inheritance is enabled, sub-protocol defaults must also produce DIMs
+                // on parent interfaces — otherwise conforming types get CS0535 for inherited requirements
+                // that are satisfied by a sub-protocol default in Swift.
                 bool isExtensionDefault = false;
                 if (extensionDefaultsIndex != null)
                 {
                     var extMethodKey = ProtocolExtensionEmitter.BuildMethodKey(methodDecl);
-                    isExtensionDefault = extensionDefaultsIndex.HasDirectMethodDefault(
+                    isExtensionDefault = extensionDefaultsIndex.HasMethodDefault(
                         protoQualifiedName, extMethodKey);
                 }
 
@@ -509,15 +514,62 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Gets the list of inherited interfaces for the protocol.
-        /// NOTE: C# interface inheritance from Swift protocol hierarchy is not yet supported.
-        /// InheritedProtocols is populated for EveryProtocol conformance filtering only.
-        /// Emitting C# interface inheritance requires handling generic protocols, missing types,
-        /// and proxy interface member resolution — deferred to a future session.
+        /// Gets the list of inherited C# interfaces for the protocol.
+        /// Resolves each inherited Swift protocol to its C# interface name via the type database.
+        /// Skips protocols that aren't in the type database (e.g., stdlib protocols without
+        /// runtime stubs, or cross-module protocols not yet processed).
         /// </summary>
-        private static List<string> GetInheritedInterfaceList(ProtocolDecl protocolDecl)
+        private List<string> GetInheritedInterfaceList(ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
+            ModuleEmissionContext? emissionCtx = null)
         {
-            return new List<string>();
+            var currentModule = protocolDecl.ModuleDecl?.Name;
+            var result = new List<string>();
+            var seen = new HashSet<string>();
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+            {
+                // Skip AnyObject — it's a class-bound constraint, not a real interface
+                if (inherited.Name is "Swift.AnyObject" or "AnyObject")
+                    continue;
+
+                // Skip marker protocols that have no C# representation
+                if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                    continue;
+
+                // Skip cross-module protocols — they may require namespace qualification and
+                // dependency DLL references that aren't always available. Same-module only.
+                var inheritedModule = inherited.Module;
+                if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
+                    inheritedModule != currentModule)
+                    continue;
+
+                // Look up the inherited protocol in the type database
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(inherited);
+                if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
+                    continue;
+
+                // Only include protocols (not classes/structs that happen to share a name)
+                if (inheritedRecord.Kind != TypeRecordKind.Protocol)
+                    continue;
+
+                // Skip protocols with associated types or Self requirements — their interfaces
+                // are generic (e.g., ICollection<TElement>) and we can't know the type args here
+                if (inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                    inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                    continue;
+
+                // Skip underscore-suppressed protocols — their interfaces are not emitted,
+                // so referencing them as a parent interface would cause CS0246
+                if (emissionCtx != null && swiftTypeName != null &&
+                    emissionCtx.IsUnderscoreSuppressed(swiftTypeName.ToString()))
+                    continue;
+
+                var interfaceName = NameProvider.GetInterfaceName(
+                    inherited.NameWithoutModule,
+                    moduleName: inherited.Module);
+                if (seen.Add(interfaceName))
+                    result.Add(interfaceName);
+            }
+            return result;
         }
 
         /// <summary>

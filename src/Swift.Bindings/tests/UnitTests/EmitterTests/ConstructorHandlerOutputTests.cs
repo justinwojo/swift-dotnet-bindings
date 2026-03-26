@@ -105,7 +105,9 @@ public class ConstructorHandlerOutputTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
+        // No binding code emitted — only unsupported comment
+        Assert.DoesNotContain("public", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
         Assert.Equal(string.Empty, swiftOutput);
     }
 

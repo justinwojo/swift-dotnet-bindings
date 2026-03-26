@@ -3,9 +3,12 @@
 // Licensed under the MIT License.
 
 using System.CommandLine;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using BindingsGeneration.ObjC;
+
+[assembly: InternalsVisibleTo("Swift.Bindings.Unit.Tests")]
 
 namespace BindingsGeneration
 {
@@ -212,40 +215,100 @@ namespace BindingsGeneration
             HashSet<string>? publicMemberNames = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
-                internalMemberKeys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath, out var parsedPublicMembers);
-                publicMemberNames = parsedPublicMembers;
+                int parseFailures = 0;
+
+                (internalMemberKeys, publicMemberNames) = TryParseSwiftInterface(
+                    "internal members",
+                    () => {
+                        var keys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath, out var pubMembers);
+                        return (keys, pubMembers);
+                    },
+                    () => (new HashSet<string>(), new HashSet<string>()),
+                    logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} internal member keys and {PublicCount} public member names from swiftinterface", internalMemberKeys.Count, publicMemberNames.Count);
-                parameterNames = SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath);
+
+                parameterNames = TryParseSwiftInterface("parameter names",
+                    () => SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath),
+                    () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
-                typedThrowsErrors = SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath);
+
+                typedThrowsErrors = TryParseSwiftInterface("typed throws",
+                    () => SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath),
+                    () => new Dictionary<string, string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
-                enumCaseLabels = SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath);
+
+                enumCaseLabels = TryParseSwiftInterface("enum case labels",
+                    () => SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath),
+                    () => new Dictionary<string, List<string?>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} enum case label entries from swiftinterface", enumCaseLabels.Count);
-                enumCaseRawValues = SwiftInterfaceAccessParser.GetEnumRawValues(swiftInterfacePath);
+
+                enumCaseRawValues = TryParseSwiftInterface("enum raw values",
+                    () => SwiftInterfaceAccessParser.GetEnumRawValues(swiftInterfacePath),
+                    () => new Dictionary<string, string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} enum case raw value entries from swiftinterface", enumCaseRawValues.Count);
-                publicTypeNames = SwiftInterfaceAccessParser.GetPublicTypeNames(swiftInterfacePath);
+
+                publicTypeNames = TryParseSwiftInterface("public type names",
+                    () => SwiftInterfaceAccessParser.GetPublicTypeNames(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} public type names from swiftinterface", publicTypeNames.Count);
-                mainActorTypes = SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath);
+
+                mainActorTypes = TryParseSwiftInterface("@MainActor types",
+                    () => SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} @MainActor type names from swiftinterface", mainActorTypes.Count);
-                customActorTypes = SwiftInterfaceAccessParser.GetCustomActorTypes(swiftInterfacePath);
+
+                customActorTypes = TryParseSwiftInterface("custom actor types",
+                    () => SwiftInterfaceAccessParser.GetCustomActorTypes(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} custom actor type names from swiftinterface", customActorTypes.Count);
-                actorIsolatedMembers = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath, customActorTypes, out var mainActorMembersOut);
-                mainActorIsolatedMembers = mainActorMembersOut;
+
+                (actorIsolatedMembers, mainActorIsolatedMembers) = TryParseSwiftInterface(
+                    "actor-isolated members",
+                    () => {
+                        var members = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath, customActorTypes, out var mainActorOut);
+                        return (members, mainActorOut);
+                    },
+                    () => (new HashSet<string>(), new HashSet<string>()),
+                    logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} actor-isolated member keys ({MainActorCount} @MainActor) from swiftinterface", actorIsolatedMembers.Count, mainActorIsolatedMembers.Count);
-                nonisolatedMembers = SwiftInterfaceAccessParser.GetNonisolatedMembers(swiftInterfacePath);
+
+                nonisolatedMembers = TryParseSwiftInterface("nonisolated members",
+                    () => SwiftInterfaceAccessParser.GetNonisolatedMembers(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} nonisolated member keys from swiftinterface", nonisolatedMembers.Count);
-                markerProtocolConformances = SwiftInterfaceAccessParser.GetMarkerProtocolConformances(swiftInterfacePath);
+
+                markerProtocolConformances = TryParseSwiftInterface("marker protocol conformances",
+                    () => SwiftInterfaceAccessParser.GetMarkerProtocolConformances(swiftInterfacePath),
+                    () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} marker protocol conformance entries from swiftinterface", markerProtocolConformances.Count);
-                availabilityAnnotations = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath);
+
+                availabilityAnnotations = TryParseSwiftInterface("availability annotations",
+                    () => SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath),
+                    () => new Dictionary<string, List<AvailabilityAnnotation>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} availability annotation entries from swiftinterface", availabilityAnnotations.Count);
-                defaultParameterValues = SwiftInterfaceAccessParser.GetDefaultParameterValues(swiftInterfacePath);
+
+                defaultParameterValues = TryParseSwiftInterface("default parameter values",
+                    () => SwiftInterfaceAccessParser.GetDefaultParameterValues(swiftInterfacePath),
+                    () => new Dictionary<string, List<string?>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} default parameter value entries from swiftinterface", defaultParameterValues.Count);
-                autoclosureParameters = SwiftInterfaceAccessParser.GetAutoclosureParameters(swiftInterfacePath);
+
+                autoclosureParameters = TryParseSwiftInterface("@autoclosure parameters",
+                    () => SwiftInterfaceAccessParser.GetAutoclosureParameters(swiftInterfacePath),
+                    () => new Dictionary<string, List<bool>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} @autoclosure parameter entries from swiftinterface", autoclosureParameters.Count);
-                subscriptLabels = SwiftInterfaceAccessParser.GetSubscriptLabels(swiftInterfacePath);
+
+                subscriptLabels = TryParseSwiftInterface("subscript labels",
+                    () => SwiftInterfaceAccessParser.GetSubscriptLabels(swiftInterfacePath),
+                    () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} subscript label entries from swiftinterface", subscriptLabels.Count);
-                variadicMembers = SwiftInterfaceAccessParser.GetVariadicMembers(swiftInterfacePath);
+
+                variadicMembers = TryParseSwiftInterface("variadic members",
+                    () => SwiftInterfaceAccessParser.GetVariadicMembers(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} variadic member keys from swiftinterface", variadicMembers.Count);
+
+                if (parseFailures > 0)
+                    logger.LogWarning("{Count} swiftinterface parsing pass(es) failed and were skipped. Bindings will be generated with reduced metadata.", parseFailures);
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -1557,6 +1620,25 @@ namespace BindingsGeneration
                     _ => throw new ArgumentOutOfRangeException(nameof(verbosity), "Invalid verbosity level.")
                 });
             });
+        }
+        /// <summary>
+        /// Wraps a swiftinterface parser call with error recovery. If the parser throws,
+        /// logs a warning and returns the fallback value so generation continues with
+        /// reduced metadata rather than aborting entirely.
+        /// </summary>
+        internal static T TryParseSwiftInterface<T>(string description, Func<T> parse, Func<T> fallback, ILogger logger, ref int failureCount)
+        {
+            try
+            {
+                return parse();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                failureCount++;
+                logger.LogWarning("Swiftinterface parsing failed for {Description}: {Message}. Continuing with empty data.", description, ex.Message);
+                logger.LogDebug("Stack trace for {Description} parse failure:\n{StackTrace}", description, ex.ToString());
+                return fallback();
+            }
         }
     }
 }

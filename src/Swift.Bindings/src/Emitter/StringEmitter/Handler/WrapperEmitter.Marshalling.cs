@@ -18,6 +18,12 @@ namespace BindingsGeneration
             if (!_requiresOpaqueReturnWrapper)
                 return;
 
+            // When the method has a @_cdecl wrapper, the standard wrapper body already handles
+            // opaque returns via initializeMemory(as: (any Protocol).self). The @_silgen_name
+            // wrapper is only needed as a fallback when no @_cdecl wrapper is available.
+            if (_env.MethodDecl.UsesCdeclMethodWrapper || _env.MethodDecl.UsesCdeclPropertyWrapper)
+                return;
+
             var returnTypeSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec as ProtocolListTypeSpec;
             if (returnTypeSpec == null)
                 return;
