@@ -572,6 +572,7 @@ KNOWN_UNSUPPORTED_FEATURES = {
     "throwing_closure_with_fallback",  # Same emission issue as throwing_closure
     "generic_pointer_container",  # Generic<PointerType> emits ISwiftObject constraint on IntPtr (CS0315)
     "pointer_container_round_trip",  # Same constraint issue as generic_pointer_container
+    "available_attributes",  # @available/@deprecated attributes not yet projected to C# [Obsolete]/availability
 }
 
 
@@ -1196,7 +1197,7 @@ print(f"\nActive: {mp['passing']}/{mp_active} passing"
 
 if mp_missing > 0:
     print(f"\n*** ERROR: {mp_missing} must-pass feature(s) have no test file ***")
-    missing = [f for f in features if f.get("test_status") == "missing"]
+    missing = [f for f in features if f.get("test_status") == "missing" and f.get("status") == "must_pass"]
     for f in missing:
         print(f"  - {f['name']} ({f['category']}): {f['test_file']}")
 
