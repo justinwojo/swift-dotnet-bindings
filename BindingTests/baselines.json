@@ -3,6 +3,6 @@
   "generator_exit_code": 0,
   "must_pass_degraded": 0,
   "must_pass_compiled_out": 25,
-  "known_unsupported_total": 61,
-  "wrapper_stripped_count": 18
+  "known_unsupported_total": 62,
+  "wrapper_stripped_count": 24
 }
