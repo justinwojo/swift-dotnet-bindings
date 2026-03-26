@@ -403,12 +403,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
             // Wrapper unavailable or returned zero.
             throw new SwiftRuntimeException(
-                numProtocols > 0
-                    ? $"SwiftArray<{type.Name}> is not yet supported. " +
-                      $"Existential containers with {numProtocols} protocol(s) require protocol descriptor " +
-                      "pointers that are not yet implemented in the Swift wrapper."
-                    : $"SwiftArray<{type.Name}> requires the SwiftBindingsRuntime native library. " +
-                      "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+                $"Failed to get existential metadata for {type.Name} ({numProtocols} protocol(s)). " +
+                "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
         }
 
         // Handle CoreGraphics struct types (CGPoint, CGRect, CGSize).
@@ -520,11 +516,8 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             return result;
 
         throw new SwiftRuntimeException(
-            numProtocols > 0
-                ? $"Existential containers with {numProtocols} protocol(s) require protocol descriptor " +
-                  "pointers that are not yet implemented in the Swift wrapper."
-                : "Cannot get existential type metadata. " +
-                  "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
+            $"Failed to get existential metadata for {numProtocols} protocol(s). " +
+            "Ensure libSwiftBindingsRuntime.dylib is included in your application bundle.");
     }
 
     /// <summary>
@@ -552,32 +545,34 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
-    /// Gets existential type metadata, preferring the direct CallConvSwift P/Invoke
-    /// to the Swift runtime. Falls back to the SwiftBindingsRuntime @_cdecl wrapper
-    /// if the direct call fails (e.g., libswiftCore not found).
+    /// Gets existential type metadata. For N=0, prefers the direct CallConvSwift P/Invoke.
+    /// For N > 0, uses the SwiftBindingsRuntime @_cdecl wrapper which constructs metadata
+    /// via Swift's type system (avoiding the complex ProtocolDescriptorRef format).
     /// </summary>
     private static bool TryGetExistentialTypeMetadataViaWrapper(int numProtocols, out TypeMetadata result)
     {
         result = Zero;
 
-        // Direct call to swift_getExistentialTypeMetadata via CallConvSwift.
-        // request=0 is MetadataRequest.Complete, superclass=nil, protocols=nil.
-        // Returns MetadataResponse (2 words: metadata ptr + state) — we capture
-        // only the metadata pointer (x0) by declaring IntPtr return.
-        try
+        // For N=0, try the direct CallConvSwift P/Invoke first (no protocol descriptors needed).
+        if (numProtocols == 0)
         {
-            var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
-                0, IntPtr.Zero, (nint)numProtocols, IntPtr.Zero);
-            if (handle != IntPtr.Zero)
+            try
             {
-                result = new TypeMetadata(handle);
-                return true;
+                var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
+                    0, IntPtr.Zero, 0, IntPtr.Zero);
+                if (handle != IntPtr.Zero)
+                {
+                    result = new TypeMetadata(handle);
+                    return true;
+                }
             }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
         }
-        catch (DllNotFoundException) { }
-        catch (EntryPointNotFoundException) { }
 
-        // Fallback to @_cdecl wrapper in SwiftBindingsRuntime
+        // For all N (including N > 0), use the @_cdecl wrapper in SwiftBindingsRuntime.
+        // The Swift wrapper uses marker protocols to construct existential metadata
+        // with the correct number of witness table slots via Swift's type system.
         try
         {
             var handle = RuntimeNativeMethods.GetExistentialTypeMetadata((nint)numProtocols);

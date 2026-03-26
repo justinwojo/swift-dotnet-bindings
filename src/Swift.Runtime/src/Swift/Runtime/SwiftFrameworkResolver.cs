@@ -1,9 +1,11 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Swift.Runtime;
 
@@ -52,36 +54,55 @@ public static class SwiftFrameworkResolver
         }
     }
 
+    /// <summary>
+    /// The search paths tried for each library name, in order.
+    /// </summary>
+    private static string[] GetSearchPaths(string libraryName) =>
+    [
+        $"@rpath/{libraryName}.framework/{libraryName}",
+        $"@rpath/lib{libraryName}.dylib",
+        $"@rpath/{libraryName}.dylib",
+        $"@executable_path/lib{libraryName}.dylib",
+        $"@executable_path/{libraryName}.dylib",
+    ];
+
     private static IntPtr ResolveSwiftFramework(
         string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
-        // Try framework wrapper path first (standard for xcframeworks on device)
-        var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
-        if (NativeLibrary.TryLoad(frameworkPath, out var handle))
-            return handle;
+        foreach (var path in GetSearchPaths(libraryName))
+        {
+            if (NativeLibrary.TryLoad(path, out var handle))
+            {
+                Debug.WriteLine($"[SwiftFrameworkResolver] Loaded '{libraryName}' from: {path}");
+                return handle;
+            }
+        }
 
-        // Try bare dylib at @rpath (e.g., libSwiftBindingsRuntime.dylib in Frameworks/)
-        var bareDylibPath = $"@rpath/lib{libraryName}.dylib";
-        if (NativeLibrary.TryLoad(bareDylibPath, out handle))
-            return handle;
-
-        // Try bare dylib without lib prefix (matches DllImport name exactly)
-        var bareDylibNoPrefix = $"@rpath/{libraryName}.dylib";
-        if (NativeLibrary.TryLoad(bareDylibNoPrefix, out handle))
-            return handle;
-
-        // Fallback: try @executable_path (resolves to .app root on iOS).
-        // NuGet Content items with <Link>Frameworks/...</Link> may land at the
-        // .app root instead of .app/Frameworks/ depending on the .NET iOS SDK version.
-        // @executable_path catches dylibs placed at the app bundle root.
-        var execDylibPath = $"@executable_path/lib{libraryName}.dylib";
-        if (NativeLibrary.TryLoad(execDylibPath, out handle))
-            return handle;
-
-        var execDylibNoPrefix = $"@executable_path/{libraryName}.dylib";
-        if (NativeLibrary.TryLoad(execDylibNoPrefix, out handle))
-            return handle;
+        Debug.WriteLine($"[SwiftFrameworkResolver] FAILED to load '{libraryName}'. Tried:");
+        foreach (var path in GetSearchPaths(libraryName))
+            Debug.WriteLine($"[SwiftFrameworkResolver]   - {path}");
 
         return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Returns a diagnostic string showing which paths were tried for a library name.
+    /// Call this when debugging DllNotFoundException to understand resolution failures.
+    /// Visible with DOTNET_DebugWriteToStdErr=1 or in the IDE debugger Output window.
+    /// </summary>
+    public static string DiagnoseResolution(string libraryName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"SwiftFrameworkResolver diagnosis for '{libraryName}':");
+
+        foreach (var path in GetSearchPaths(libraryName))
+        {
+            var loaded = NativeLibrary.TryLoad(path, out var handle);
+            sb.AppendLine($"  {(loaded ? "OK" : "FAIL")}  {path}");
+            if (loaded)
+                NativeLibrary.Free(handle);
+        }
+
+        return sb.ToString().TrimEnd();
     }
 }

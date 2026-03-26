@@ -80,7 +80,7 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("MixedEmittability.Increment called without crash");
     }
 
-    [Skip("Opaque return @_cdecl wrapper works (generator fixed), but ExistentialContainer1 metadata not yet supported at runtime — needs protocol descriptor pointers (Bug 6)")]
+    [Skip("Opaque return marshalled as System.Object which has no MarshalFromSwift implementation")]
     public void TestMixedEmittabilityOpaqueReturn()
     {
         // asDescribable() -> some CustomStringConvertible — @_cdecl wrapper boxes to any Protocol

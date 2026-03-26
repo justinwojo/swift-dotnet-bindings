@@ -383,7 +383,6 @@ public class ClosureTests : TestBase
     // init during closure construction — the pattern that caused TypeInitializationException
     // on NativeAOT before the SwiftArray.NativeAotInitialize() try-catch fix.
 
-    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
     public void TestClosureWithExistentialArrayInit()
     {
         var modes = new IProcessingMode[] { new SimpleMode(), new StrictMode() };
@@ -393,7 +392,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"ClosureWithExistentialArray: modes={obj.GetModeCount()}, result={obj.GetTransformResult()}");
     }
 
-    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
     public void TestClosureWithExistentialArrayEmptyModes()
     {
         var modes = Array.Empty<IProcessingMode>();

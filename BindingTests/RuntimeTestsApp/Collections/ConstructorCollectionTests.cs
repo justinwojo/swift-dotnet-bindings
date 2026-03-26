@@ -138,7 +138,6 @@ public class ConstructorCollectionTests : TestBase
     // ProcessingPipeline.init(modes: [any ProcessingMode]) uses SwiftArray<ExistentialContainer1>
     // internally — this is the same pattern as Swinject Container.init(behaviors: [any Behavior]).
 
-    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
     public void TestProcessingPipelineWithExistentialArray()
     {
         var modes = new IProcessingMode[] { new SimpleMode(), new StrictMode() };
@@ -147,7 +146,6 @@ public class ConstructorCollectionTests : TestBase
         TestLogger.Info($"ProcessingPipeline.GetModeCount() = {pipeline.GetModeCount()}");
     }
 
-    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
     public void TestProcessingPipelineEmptyExistentialArray()
     {
         var modes = Array.Empty<IProcessingMode>();

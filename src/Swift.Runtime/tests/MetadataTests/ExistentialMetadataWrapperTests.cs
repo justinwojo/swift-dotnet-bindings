@@ -55,23 +55,22 @@ public class ExistentialMetadataWrapperTests
         Assert.True(result!.Value.IsValid, "ExistentialContainer0 metadata should be valid");
     }
 
-    [Fact]
-    public void GetExistentialTypeMetadata_NonZeroProtocols_Throws()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    public void GetExistentialTypeMetadata_NonZeroProtocols_ReturnsValidMetadata(int numProtocols)
     {
-        // Non-zero protocol counts are not yet supported by the Swift wrapper.
-        // The wrapper returns nil for numProtocols > 0, causing SwiftRuntimeException.
-        var ex = Assert.Throws<SwiftRuntimeException>(
-            () => TypeMetadata.GetExistentialTypeMetadata(1));
-        Assert.Contains("1 protocol(s)", ex.Message);
-    }
+        if (!IsRuntimeLibraryAvailable())
+            return;
 
-    [Fact]
-    public void GetExistentialTypeMetadata_NonZeroProtocols_ErrorMentionsProtocolDescriptors()
-    {
-        // Non-zero protocol counts fail because protocol descriptor pointers aren't
-        // implemented yet — error should say so, not blame a missing library.
-        var ex = Assert.Throws<SwiftRuntimeException>(
-            () => TypeMetadata.GetExistentialTypeMetadata(1));
-        Assert.Contains("protocol descriptor", ex.Message);
+        var metadata = TypeMetadata.GetExistentialTypeMetadata(numProtocols);
+        Assert.True(metadata.IsValid, $"Existential metadata for {numProtocols} protocol(s) should be valid");
+        Assert.Equal(TypeMetadataKind.Existential, metadata.Kind);
     }
 }

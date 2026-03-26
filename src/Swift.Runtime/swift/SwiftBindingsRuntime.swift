@@ -75,35 +75,43 @@ public func isConcurrencyInitialized() -> Bool {
 
 // MARK: - Existential Type Metadata
 
-/// Swift runtime's MetadataResponse: (metadata pointer, completion state).
-/// We model this as a tuple so @_silgen_name captures both return registers
-/// correctly on ARM64, avoiding UB from truncating a 2-word return.
-private typealias MetadataResponse = (metadataPtr: UnsafeMutableRawPointer, state: Int)
+// Marker protocols used to construct existential metadata with N witness table slots.
+// The specific protocols don't matter — only N does, since the VWT layout depends
+// solely on the number of protocol witness table slots.
+private protocol _EP0 {}
+private protocol _EP1 {}
+private protocol _EP2 {}
+private protocol _EP3 {}
+private protocol _EP4 {}
+private protocol _EP5 {}
+private protocol _EP6 {}
+private protocol _EP7 {}
 
-/// Import swift_getExistentialTypeMetadata from the Swift runtime.
-/// Calling this from Swift avoids the Mono JIT assertion that occurs
-/// when C# calls it via CallConvSwift P/Invoke.
-@_silgen_name("swift_getExistentialTypeMetadata")
-private func _swift_getExistentialTypeMetadata(
-    _ request: Int,
-    _ superclass: UnsafeRawPointer?,
-    _ numProtocols: Int,
-    _ protocols: UnsafeRawPointer?
-) -> MetadataResponse
-
-/// Returns existential type metadata for a zero-protocol existential (Any).
+/// Returns existential type metadata for the given number of protocol constraints.
 ///
-/// Wraps `swift_getExistentialTypeMetadata` so the call happens entirely on
-/// the Swift side, avoiding the Mono JIT `CallConvSwift` assertion crash.
+/// Uses Swift's type system to construct existential metadata directly, which is
+/// both simpler and more correct than calling swift_getExistentialTypeMetadata
+/// with raw protocol descriptor pointers (which require ProtocolDescriptorRef format).
 ///
-/// - Parameter numProtocols: Number of protocol constraints. Only 0 is supported.
-/// - Returns: Metadata pointer, or nil if numProtocols is unsupported.
+/// - Parameter numProtocols: Number of protocol constraints (0 for 'Any', 1-8 for typed).
+/// - Returns: Metadata pointer, or nil if numProtocols is out of range.
 @_cdecl("SwiftBindings_GetExistentialTypeMetadata")
 public func getExistentialTypeMetadata(_ numProtocols: Int) -> UnsafeMutableRawPointer? {
-    guard numProtocols == 0 else { return nil }
-    // request=0 is MetadataRequest.Complete, superclass=nil, protocols=nil
-    let response = _swift_getExistentialTypeMetadata(0, nil, 0, nil)
-    return response.metadataPtr
+    let type: Any.Type?
+    switch numProtocols {
+    case 0: type = Any.self
+    case 1: type = (any _EP0).self
+    case 2: type = (any _EP0 & _EP1).self
+    case 3: type = (any _EP0 & _EP1 & _EP2).self
+    case 4: type = (any _EP0 & _EP1 & _EP2 & _EP3).self
+    case 5: type = (any _EP0 & _EP1 & _EP2 & _EP3 & _EP4).self
+    case 6: type = (any _EP0 & _EP1 & _EP2 & _EP3 & _EP4 & _EP5).self
+    case 7: type = (any _EP0 & _EP1 & _EP2 & _EP3 & _EP4 & _EP5 & _EP6).self
+    case 8: type = (any _EP0 & _EP1 & _EP2 & _EP3 & _EP4 & _EP5 & _EP6 & _EP7).self
+    default: type = nil
+    }
+    guard let type else { return nil }
+    return unsafeBitCast(type, to: UnsafeMutableRawPointer.self)
 }
 
 // MARK: - SwiftString Wrapper Functions
