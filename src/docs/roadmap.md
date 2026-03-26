@@ -1,104 +1,27 @@
 # Roadmap
 
-**Updated**: March 24, 2026
-
-Previous sessions archived in `Completed/`:
-- Sessions 0–14, architecture audit, post-audit fixes → `roadmap-march-2026-sessions.md`
-- Stability Sessions 1–2, Post-Stability Sessions A–F, error code audit, CONTRIBUTING.md → `post-stability-sessions-a-f.md`
-- Native thunk migration Sessions 1–6 → `ThunkMigration.md`
-- Finalizer-safe VWT Destroy (Sessions 1–2) → `finalizer-safe-vwt-destroy.md`
+**Updated**: March 25, 2026
 
 ---
 
-## Current State (March 23, 2026)
+## Pending Work
 
-| Metric | Value |
-|--------|-------|
-| Runtime tests (sim) | 897 pass, 101 skip |
-| Runtime tests (device) | ~comparable |
-| Unit tests | 9,334 |
-| Validation compile gate | 90/90 pass |
-| Swift wrapper compilation | 52/56 ok |
-| Member emission | 995/1109 (89.7%) |
-| Type emission | 257/277 (92.8%) |
-| @_cdecl wrapper coverage | 725/918 (78.9%) |
+### SwiftUI Session 6
 
-### Validation failures (0 C# compile, 4 Swift wrapper)
+Observable binding (C# → Swift reactivity) + corpus tracking. Low priority — advanced reactivity. Details in `swiftui-roadmap.md`.
 
-**C# compile failures:** None.
+### Small Fixes
 
-**Swift wrapper failures:**
-
-| Library | Root Cause |
-|---------|------------|
-| GRDB | Protocol extension associated type context (EC-17) — architecturally blocked |
-| Quick | XCTest dependency not found during wrapper compilation (not a generator bug) |
-| SkeletonView | Internal type member gate — ~266 errors when lifted |
-| TinyConstraints | x86_64-only xcframework, no arm64 simulator slice (stale build artifact) |
-
----
-
-## Stability Session 3 (Pending)
-
-| Session | Focus | Impact | Status |
-|---------|-------|--------|--------|
-| **3** | SwiftOptional Mono marshalling investigation | ~22 tests behind crash barriers (DeviceKit, PhoneNumberKit) | Pending |
-
-Full details, root cause analysis, and BindingTests plans in `sdk-0.3.0-validation-findings.md`.
-
----
-
-## Session G: Generated Code Size Reduction ✅ (`526c6304`)
-
-27,336 LOC removed across 90 validation libraries (3.7% reduction). Extracted shared runtime helpers and eliminated empty try/finally blocks.
-
-**Completed:**
-- `SwiftMarshal.ReadUtf8Slice` — replaces 9-line string decode pattern (292 instances)
-- `SwiftMarshal.ThrowSwiftError` + `ReadErrorDescription` — replaces 16-line error handling blocks
-- `Utf8Slice` struct moved to runtime (`Swift.Runtime.Utf8Slice`), generated code uses `using` alias
-- `NeedsTryFinallyForMethod()` predicate — skips empty try/finally for methods without cleanup
-
-**Deferred (with rationale):**
-- P/Invoke deduplication: 631/1064 "duplicates" have same C# types but different Swift entry points (not true duplicates). Modest reward, high risk.
-- XML doc comments: All come from Swift symbol graph data (real documentation), not auto-generated boilerplate.
-- `stackalloc + MarshalToSwift`: `stackalloc` is caller-frame only, can't be moved into a helper method.
-
----
-
-## Remaining Fixes
-
-Small items that can be tackled opportunistically or folded into any session.
-
-| Item | Affects | Effort |
-|------|---------|--------|
-| Optional\<Bool\>/Optional\<SimpleEnum\> in closures | ~5-10 skips (RxSwift, Alamofire) | Medium — requires extra inhabitant encoding support in `MarshalOptionalFromSwift<T>` |
-| SwiftUI type public construction | Consumer ergonomics | Small |
-| ObjC-bridged optional setter @_cdecl wrapper | Final class `UIViewController?`/`NSString?` setters emit with SB0001 — `ShouldEmitWrapper` rejects due to IntPtr reconstruction incompatibility | Medium |
-| Optional-closure property setter @_cdecl wrapper | Final class `((…) -> Void)?` setters emit with SB0001 — `ShouldEmitWrapper` rejects closure properties | Medium |
-
----
-
-## Deferred from Previous Sessions
-
-| Item | Origin | Notes |
-|------|--------|-------|
-| Async frozen struct params | Session 1 | `stackalloc` not safe after `await`. Needs heap allocation path. |
-| `[String: Any]` dictionary projection | Session 3 | Alamofire, Mixpanel JSON-like config patterns. Requires runtime boxing infrastructure. |
-| Cross-module protocol conformances | Session 4 | Medium-high complexity. Multi-module libraries (Stripe) benefit. |
-| Static protocol constructors (`init`) | Session 4 | Factory method synthesis on conforming types. |
-
----
-
-## SwiftUI Bridge (2 remaining sessions)
-
-Active roadmap: `swiftui-roadmap.md`. Sessions 1A–3 + 4A–4C + 1B cover the vast majority of real-world SwiftUI views. Remaining sessions are diminishing returns.
-
-| Session | Focus | Priority | Status |
-|---------|-------|----------|--------|
-| **1B** | Closure non-primitive returns (String, class) | Medium | **Done** (`5573f16a`) |
-| **4B** | Constrained generics (`<T: Identifiable>`, `<T: Hashable>`) | Medium | **Done** (`55c01fc4`) |
-| **5** | Lifecycle (`onAppear`/`onDisappear`), presentation helpers | Medium-low | Planned |
-| **6** | Observable binding (C# → Swift reactivity), corpus tracking | Low | Planned |
+| Item | Notes |
+|------|-------|
+| Async frozen struct params | `stackalloc` not safe after `await`. Needs heap allocation path. |
+| `[String: Any]` dictionary projection | Alamofire, Mixpanel JSON-like config. Requires runtime boxing. |
+| Static protocol constructors (`init`) | Factory method synthesis on conforming types. |
+| Bulk retain/release helpers | Perf win for large collections. Low-medium effort. |
+| Cross-framework `using` directives | Auto-emit `using` for dependency namespaces (e.g., NukeUI referencing Nuke types). Currently hardcoded. |
+| `pack-all.sh` orchestration | Multi-package build+pack in dependency order. Topological sort + manifest already exist. |
+| Binding report as MSBuild warnings | Surface skip counts from `binding-report.json` as build warnings. Report infrastructure exists. |
+| SwiftUI bridge SDK integration | Compile bridge `.swift` and package bridge framework in NuGet. Groundwork done, shell scripts work for now. |
 
 ---
 
@@ -111,8 +34,8 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **Unsupported signatures** (associated type refs, placeholder types) | 353 | 37 | Requires associated type resolution through conformance graph |
 | **Generic type contexts** (generic parent leaks into wrapper) | 349 | 14 | Needs type-erased dispatch for non-final generic class members |
 | **Method-level generics** (`func foo<T>(...)`) | 179 | 13 | Requires specialization or type-erased wrappers |
-| **Protocol extension associated type context** | — | GRDB | 666 errors contained by gate. Needs full generic constraint context. See EC-17. |
-| **Architectural generic closures** | ~45 methods | RxSwift, Alamofire | RxSwift `subscribe`/`flatMap`, Alamofire interceptors. |
+| **Protocol extension associated type context** | — | GRDB | 666 errors contained by gate. Needs full generic constraint context. EC-17. |
+| **Architectural generic closures** | ~45 | RxSwift, Alamofire | `subscribe`/`flatMap`, interceptors |
 | **ObjC-bridged optional setters** | 90 | 11 | Setter paths for optional ObjC-bridged types |
 | **Unsupported generic containers** | 71 | 20 | `Result<T,E>`, `Optional<existential>` |
 | **Custom actor types** (`actor Counter`) | — | 5+ | Requires async dispatch through actor's serial executor |
@@ -120,6 +43,16 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **Async properties** | 14 | 5 | Properties with `async get` |
 | **inout parameters** | 14 | 2 | `inout` write-back semantics |
 | **Noncopyable types** (`~Copyable`) | 8 tests | 0 validation | `@_cdecl` wrappers need `consuming`/`borrowing` + move semantics |
+
+---
+
+## Future Vision
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| **Upstream bug reports** (7 issues) | Trivial (filing) | `Future/upstream-bug-reports-draft.md` — blocked on repo going public |
+| **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
+| **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
 
 ---
 
@@ -132,29 +65,6 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | SwiftUI/Combine dependencies | 60 | Framework boundary — consumers use SwiftUI bridge instead |
 | Generic protocol constraints / PATs | 68 | Architecturally blocked by associated type erasure |
 | Unsatisfied ISwiftObject | 104 | Fundamental type system constraint — generic args must be projectable |
-
----
-
-## Future Vision
-
-Detailed plans in `Future/`. Consolidated priority in `Future/future-roadmap.md`.
-
-| Item | Effort | Design Doc |
-|------|--------|------------|
-| **Upstream bug reports** (4 issues) | Trivial (filing) | `Future/upstream-bug-reports-draft.md`, `Future/upstream-nativeaot-simulator-issue.md` — blocked on repo going public |
-| **Multi-platform support** (macOS, Mac Catalyst, tvOS) | Large (3+ sessions) | `Future/dx-multi-framework-auto-detection.md` |
-| **SPM package support** (source → xcframework → bind) | Large | `Future/sdk-future-work.md` |
-| **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
-| **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
-| **Emitter architecture redesign** | Very Large | `Future/emitter-redesign-proposal.md` — right long-term direction, wrong near-term investment |
-
----
-
-## Runtime
-
-| Item | Effort | Notes |
-|------|--------|-------|
-| Bulk retain/release helpers | Low-medium | Perf win for large collections. Deferred — do when relevant. |
 
 ---
 

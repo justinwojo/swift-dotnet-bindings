@@ -12,11 +12,7 @@ Swift Bindings reads the ABI metadata from a compiled Swift framework and produc
 
 Point the same tool at an Objective-C framework and it parses headers via clang, emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions, and generates a ready-to-build `.csproj` — no manual cleanup required. Drop any xcframework and the correct pipeline runs automatically.
 
-For the story behind this project — why it exists, the process of building it entirely with AI tooling, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
-
-### Support This Project
-
-This project takes a massive amount of effort to build and maintain, and the tooling used to develop it isn't cheap. If you find it useful, please consider [sponsoring the project](https://github.com/sponsors/justinwojo).
+For the story behind this project — why I created it, the process of building it entirely with AI tooling, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
 
 ---
 
@@ -31,7 +27,7 @@ Apple is moving away from Objective-C. Every year, more frameworks ship as Swift
 
 Without Swift interop, **.NET on Apple platforms becomes progressively less accessible each year.**
 
-And for the Objective-C frameworks that remain, the de facto binding tool — Objective Sharpie — hasn't been updated for modern Xcode and produces output requiring extensive manual cleanup (`[Verify]` attributes on every binding).
+And for the Objective-C frameworks that remain, the de facto binding tool — Objective Sharpie — is no longer maintained and produces output requiring extensive manual cleanup (`[Verify]` attributes on every binding).
 
 Swift Bindings automates the entire process:
 
@@ -53,7 +49,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **700+ commits and ~300K net new lines of code (7x the original codebase)**. That breaks down to ~125K lines of production code (generator, runtime, SDK) backed by ~175K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (90 framework targets — 56 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
+Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **700+ commits, ~125K lines of production code and ~175K lines of tests**. The generator now covers protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more.
 
 ---
 
@@ -89,23 +85,6 @@ The generator is also a **full replacement for Objective Sharpie** for pure Obje
 Supports protocol patterns (`[Protocol, Model]`, `WeakDelegate`/`Wrap`), idiomatic C# enums with prefix stripping, availability attributes, foreign-type categories, designated initializer detection, pointer/out-param mapping, and rich XML doc comments.
 
 **Mixed frameworks** (Swift + ObjC) are also supported with automatic type-level dedup. Framework type is auto-detected — no flags needed, same `dotnet build` workflow.
-
-Validated against **34 ObjC framework targets** including Realm, Stripe3DS2, SDWebImage, CocoaLumberjack, MBProgressHUD, and the full Firebase/Google SDK family (28 targets).
-
-### Real-World Validation
-
-Validated against **46 libraries (89 framework targets — 55 Swift, 34 Objective-C)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
-
-| Category | Libraries |
-|----------|-----------|
-| **Image & Animation** | Nuke, Lottie, SwiftyGif, FSPagerView |
-| **Networking & Data** | Alamofire, Starscream, GRDB, KeychainAccess, ObjectMapper |
-| **Payments** | Stripe (14 frameworks) |
-| **UI Components** | SnapKit, SkeletonView, Parchment, SVGView, BonMot |
-| **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
-| **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
-
-Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. Pre-built NuGet packages for popular libraries are coming soon. The generator also validates Nuke across macOS and tvOS targets.
 
 ### Examples
 
@@ -143,16 +122,6 @@ All generated C# — no proxy libraries, no bridging headers, no manual wrapper 
 
 ---
 
-## SwiftUI Interop
-
-SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
-
-Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports two-way state updates via `Update{Param}()` methods, view modifier chains, and multi-level async view hierarchies with cycle detection.
-
-For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
-
----
-
 ## Getting Started
 
 **Requires**: macOS, [Xcode 26](https://developer.apple.com/xcode/) or later, and [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the platform workload for your target (e.g., `dotnet workload install ios`).
@@ -163,42 +132,20 @@ For customization options (bridge hints, constructor selection, import overrides
 # 1. Install the project template and MSBuild SDK
 dotnet new install SwiftBindings.Templates
 
-# 2. Create a binding project (default: iOS; use --platform for others)
+# 2. Create a binding project (use --platform for macos, tvos, or maccatalyst)
 dotnet new swift-binding -n MyLibrary.Swift.iOS
-# dotnet new swift-binding -n MyLibrary.Swift.macOS --platform macos
 
 # 3. Copy your xcframework into the project directory
 cp -r /path/to/MyLibrary.xcframework MyLibrary.Swift.iOS/
 
-# 4. Build — generates bindings and compiles the project
-cd MyLibrary.Swift.iOS && dotnet build
+# 4. Build from the project directory — generates bindings and compiles
+dotnet build
 
-# 5. Pack into a NuGet package, then consume in any .NET Apple platform app
+# 5. Optionally, pack into a NuGet package for distribution
 dotnet pack
-dotnet add package MyLibrary.Swift.iOS
 ```
 
 For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started).
-
-## AI-Assisted Binding Creation
-
-A [Claude Code skill](https://github.com/justinwojo/claude-skills) is available that walks you through the entire binding process — from SPM package or xcframework to a validated NuGet package. It checks prerequisites, builds xcframeworks, diagnoses errors using the latest docs, and optionally reviews the generated binding for completeness.
-
-**Claude Code:**
-
-```bash
-# Add the skills marketplace
-/plugin marketplace add justinwojo/claude-skills
-
-# Install the skill
-/plugin install swift-binding-assistant@justinwojo-claude-skills
-```
-
-Then just ask Claude: *"I want to create a Swift binding for [library name]"*
-
-**Codex / other AI tools:** The skill definition is a standalone markdown file ([`swift-binding-assistant/SKILL.md`](https://github.com/justinwojo/claude-skills/blob/main/swift-binding-assistant/SKILL.md)). Copy its contents into your tool's custom instructions or system prompt to get the same guided workflow.
-
----
 
 ### Working with Swift Package Manager Libraries
 
@@ -223,6 +170,51 @@ cp -r Nuke.xcframework Nuke.Swift.iOS/
 cd Nuke.Swift.iOS && dotnet build
 ```
 
+### AI-Assisted Binding Creation
+
+A [Claude Code skill](https://github.com/justinwojo/claude-skills) is available that walks you through the entire binding process — from SPM package or xcframework to a validated NuGet package. It checks prerequisites, builds xcframeworks, diagnoses errors using the latest docs, and optionally reviews the generated binding for completeness.
+
+**Claude Code:**
+
+```bash
+# Add the skills marketplace
+/plugin marketplace add justinwojo/claude-skills
+
+# Install the skill
+/plugin install swift-binding-assistant@justinwojo-claude-skills
+```
+
+Then just ask Claude: *"I want to create a Swift binding for [library name]"*
+
+**Codex / other AI tools:** The skill definition is a standalone markdown file ([`swift-binding-assistant/SKILL.md`](https://github.com/justinwojo/claude-skills/blob/main/swift-binding-assistant/SKILL.md)). Copy its contents into your tool's custom instructions or system prompt to get the same guided workflow.
+
+---
+
+## SwiftUI Interop
+
+SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
+
+Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports two-way state updates via `Update{Param}()` methods, view modifier chains, and multi-level async view hierarchies with cycle detection.
+
+For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
+
+---
+
+## Real-World Validation
+
+Validated against **46 libraries (90 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+
+| Category | Libraries |
+|----------|-----------|
+| **Image & Animation** | Nuke, Lottie, SwiftyGif, FSPagerView |
+| **Networking & Data** | Alamofire, Starscream, GRDB, KeychainAccess, ObjectMapper |
+| **Payments** | Stripe (14 frameworks) |
+| **UI Components** | SnapKit, SkeletonView, Parchment, SVGView, BonMot |
+| **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
+| **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
+
+Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. The generator also validates Nuke across macOS and tvOS targets.
+
 ---
 
 ## Documentation
@@ -243,7 +235,7 @@ Full documentation is available on the **[project wiki](https://github.com/justi
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms. ~96% of generated P/Invokes use `CallConvCdecl` — either through @_cdecl Swift wrappers (~79%) or native ARM64 thunks (~17%) — and work identically on both the Mono runtime (iOS/tvOS Simulator) and NativeAOT (device builds). The remaining ~4% use direct `CallConvSwift`, which may encounter Mono JIT limitations in certain P/Invoke frame types. **This only affects Mono JIT builds (iOS/tvOS Simulator)** — device builds use NativeAOT and macOS native builds are unaffected. The few methods that can't receive wrappers or thunks are annotated with `SB0001` warnings, auto-suppressed in NativeAOT builds.
+Swift Bindings targets .NET 10 on Apple platforms. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`, which may encounter Mono JIT limitations on iOS/tvOS Simulator. **Device builds (NativeAOT) and macOS are unaffected.**
 
 For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
@@ -251,7 +243,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (90 framework targets — 56 Swift, 34 ObjC) and tested with **7,000+ unit tests** and **1,000+ runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **7,000+ unit tests** and **1,000+ runtime tests** on iOS Simulator and macOS.
 
 ---
 
@@ -260,6 +252,12 @@ Swift Bindings is under active development. The core generator, MSBuild SDK, and
 The best way to contribute right now is through [issue reports](https://github.com/justinwojo/swift-dotnet-bindings/issues) — binding errors, feature requests, and bug reports help prioritize the most impactful work. Pull requests are welcome too, but please open an issue first to discuss the change.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, PR guidelines, and details on the AI-assisted workflow used to build this project.
+
+---
+
+## Support This Project
+
+This project takes a massive amount of effort to build and maintain, and the tooling used to develop it isn't cheap. If you find it useful, please consider [sponsoring the project](https://github.com/sponsors/justinwojo).
 
 ---
 

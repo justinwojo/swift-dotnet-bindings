@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: March 2026
-**Status**: Sessions 1A-3 + 4A-4C + 1B complete (closure/optional expansion + generic views + struct params + two-way state binding + view modifier chains + closure non-primitive returns + constrained generics), Sessions 5-6 planned
+**Status**: Sessions 1A-3 + 4A-4C + 1B + 5 complete, Session 6 planned
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -70,7 +70,7 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | **4A** | Two-way state binding | Medium | **Done** | Dynamic updates after creation (search, toggles, sliders) |
 | **4C** | View modifier chains | Medium | **Done** | Self-returning modifiers (`.playing()`, `.animationSpeed()`) callable from C# |
 | **4B** | Constrained generics | Medium | **Done** | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
-| **5** | Lifecycle, modifiers & navigation | Medium-low | Planned | `onAppear`/`onDisappear`, frame/padding/background, presentation |
+| **5** | Lifecycle, modifiers & navigation | Medium-low | **Done** (`1a5065f6`) | `onAppear`/`onDisappear`, frame/padding/background, presentation |
 | **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
 
 ---
@@ -375,13 +375,13 @@ Session 4C: View Modifier Chains   ✅ COMPLETE (extends Session 4A's State/Wrap
     │
 Session 4B: Constrained Generics   ✅ COMPLETE (20 protocol constraints → concrete types)
     │
-Session 5: Lifecycle & Modifiers    (runtime modifiers depend on Session 4A's ObservableObject)
+Session 5: Lifecycle & Modifiers   ✅ COMPLETE
     │
 Session 6: Observable Binding       (depends on Session 4A's ObservableObject wrapper)
            + Corpus Tracking        (standalone — measures everything above)
 ```
 
-**Stop points**: After Sessions 1A-3 + 4A-4C + 1B, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates, self-returning modifier chains, non-primitive closure returns, and constrained generic resolution. Sessions 5-6 add lifecycle management and advanced reactivity.
+**Stop points**: After Sessions 1A-3 + 4A-4C + 1B + 5, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates, self-returning modifier chains, non-primitive closure returns, constrained generic resolution, lifecycle callbacks, and presentation helpers. Session 6 adds advanced reactivity and measurement infrastructure.
 
 ---
 
