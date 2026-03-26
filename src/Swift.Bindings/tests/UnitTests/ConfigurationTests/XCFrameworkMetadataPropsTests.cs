@@ -361,4 +361,139 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region F. Bridge Metadata Props Tests
+
+    public class BridgeMetadataPropsTests
+    {
+        private static readonly Microsoft.Extensions.Logging.ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void EmitMetadataProps_WithBridge_ContainsBridgeProperties()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
+                    hasBridgeSwift: true, bridgeModuleName: "NukeBridge");
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                AssertPropertyValue(root, "_SwiftBindingHasBridgeSwift", "True");
+                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "NukeBridge");
+                AssertPropertyValue(root, "_SwiftBindingHasBridgeXCFramework", "False");
+                AssertPropertyValue(root, "_SwiftBindingBridgeSliceCount", "0");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_NoBridge_OmitsBridgeProperties()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger);
+
+                var content = File.ReadAllText(Path.Combine(dir, "binding-metadata.props"));
+                Assert.DoesNotContain("_SwiftBindingHasBridgeSwift", content);
+                Assert.DoesNotContain("_SwiftBindingBridgeModuleName", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void EmitMetadataProps_WithBridge_DefaultModuleName()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var metadata = CreateTestMetadata();
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
+                    hasBridgeSwift: true);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                // Default bridge module name: {ModuleName}Bridge
+                AssertPropertyValue(root, "_SwiftBindingBridgeModuleName", "NukeBridge");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void UpdateMetadataPropsBridgeStatus_SetsProperties()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // First emit props with bridge
+                var metadata = CreateTestMetadata();
+                XCFrameworkMetadataExtractor.EmitMetadataProps(
+                    metadata, dir, true, "NukeSwiftBindings", 2, _logger,
+                    hasBridgeSwift: true, bridgeModuleName: "NukeBridge");
+
+                // Now update bridge status
+                XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
+                    dir, true, "NukeBridge", 2, _logger);
+
+                var doc = new XmlDocument();
+                doc.Load(Path.Combine(dir, "binding-metadata.props"));
+                var root = doc.DocumentElement!;
+
+                AssertPropertyValue(root, "_SwiftBindingHasBridgeXCFramework", "True");
+                AssertPropertyValue(root, "_SwiftBindingBridgeSliceCount", "2");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void UpdateMetadataPropsBridgeStatus_NoFile_DoesNotThrow()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                // Should log warning but not throw
+                XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
+                    dir, true, "NukeBridge", 2, _logger);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static void AssertPropertyValue(XmlElement root, string propertyName, string expectedValue)
+        {
+            var node = root.SelectSingleNode($"//PropertyGroup/{propertyName}");
+            Assert.NotNull(node);
+            Assert.Equal(expectedValue, node!.InnerText);
+        }
+
+        private static XCFrameworkMetadata CreateTestMetadata() => new()
+        {
+            LibraryVersion = "12.8.0",
+            PackageVersion = "12.8.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "13.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = "18.0",
+            ModuleName = "Nuke",
+            Platforms = new List<string> { "ios-simulator", "ios" }
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bridge_props_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

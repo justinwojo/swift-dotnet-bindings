@@ -616,6 +616,181 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Compile-bridge-only mode: resolves xcframework, collects *.SwiftUIBridge.swift files,
+        /// compiles to {Module}Bridge.xcframework, and updates binding-metadata.props.
+        /// </summary>
+        internal static int RunCompileBridgeOnly(
+            string xcframeworkPath, string outputDirectory,
+            string? platformStr, string? platformTargetStr,
+            string? wrapperArchitectures, string[]? frameworkDependencies,
+            ILogger logger, PlatformInfo platformInfo)
+        {
+            var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
+            if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
+            {
+                logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
+                return 1;
+            }
+
+            var platformTarget = XCFrameworkPlatformTarget.Simulator;
+            switch (platformTargetStr?.ToLowerInvariant())
+            {
+                case "simulator":
+                case null:
+                    platformTarget = XCFrameworkPlatformTarget.Simulator;
+                    break;
+                case "device":
+                    platformTarget = XCFrameworkPlatformTarget.Device;
+                    break;
+                default:
+                    logger.LogError("Error: Invalid --platform-target '{Value}'.", platformTargetStr);
+                    return 1;
+            }
+
+            // Resolve xcframework to get module name and search paths
+            XCFrameworkResolution resolution;
+            try
+            {
+                resolution = XCFrameworkResolver.Resolve(
+                    xcframeworkPath, outputDirectory, platformTarget, logger, platformInfo: platformInfo);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Error resolving xcframework: {Message}", ex.Message);
+                return 1;
+            }
+
+            var moduleName = resolution.ModuleName;
+
+            // Check for bridge files first
+            var bridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory);
+            if (bridgeFiles.Count == 0)
+            {
+                logger.LogInformation("No SwiftUI bridge files found — skipping bridge compilation.");
+                return 0;
+            }
+
+            // Resolve framework dependency search paths.
+            // Unlike wrapper compilation, bridge tolerates resolution failures — some
+            // passed dependencies may be wrapper xcframeworks (from GetSwiftFrameworkSearchPaths)
+            // that lack .swiftmodule and can't be fully resolved. Skip those gracefully.
+            List<FrameworkDependencyInfo>? resolvedDeps = null;
+            if (frameworkDependencies != null && frameworkDependencies.Length > 0)
+            {
+                // Filter to only xcframeworks that can be resolved (skip wrapper xcframeworks)
+                var resolvableDeps = new List<string>();
+                foreach (var depPath in frameworkDependencies)
+                {
+                    if (!Directory.Exists(depPath))
+                    {
+                        logger.LogDebug("Skipping non-existent dependency: {Path}", depPath);
+                        continue;
+                    }
+                    // Check if this xcframework has an Info.plist with library entries
+                    // (wrapper xcframeworks have Info.plist but no .swiftmodule)
+                    var infoPlist = Path.Combine(depPath, "Info.plist");
+                    if (!File.Exists(infoPlist))
+                    {
+                        logger.LogDebug("Skipping dependency without Info.plist: {Path}", depPath);
+                        continue;
+                    }
+                    // Try to detect if this is a source framework (has .swiftmodule) vs wrapper
+                    var hasSwiftModule = Directory.GetDirectories(depPath, "*.framework", SearchOption.AllDirectories)
+                        .Any(fw => Directory.Exists(Path.Combine(fw, "Modules")));
+                    if (!hasSwiftModule)
+                    {
+                        logger.LogDebug("Skipping wrapper/non-Swift dependency (no Modules dir): {Path}", depPath);
+                        continue;
+                    }
+                    resolvableDeps.Add(depPath);
+                }
+
+                if (resolvableDeps.Count > 0)
+                {
+                    resolvedDeps = ResolveFrameworkDependencies(
+                        resolvableDeps.ToArray(), resolution, xcframeworkPath,
+                        wrapperArchNormalized, platformTarget, logger, platformInfo: platformInfo);
+                    // Don't fail on resolution errors — bridge compilation is best-effort
+                    if (resolvedDeps == null)
+                        resolvedDeps = new List<FrameworkDependencyInfo>();
+                }
+            }
+
+            var simDepPaths = resolvedDeps?
+                .Where(d => d.SimulatorFrameworkSearchPath != null)
+                .Select(d => d.SimulatorFrameworkSearchPath!)
+                .ToList();
+            var deviceDepPaths = resolvedDeps?
+                .Where(d => d.DeviceFrameworkSearchPath != null)
+                .Select(d => d.DeviceFrameworkSearchPath!)
+                .ToList();
+
+            // Compile bridge
+            SwiftWrapperCompilationResult? compilationResult = null;
+            try
+            {
+                if (wrapperArchNormalized == "all")
+                {
+                    var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
+                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo);
+
+                    compilationResult = SwiftWrapperCompiler.CompileBridgeAll(
+                        outputDirectory, moduleName,
+                        simResolution, deviceResolution, logger,
+                        simAdditionalSearchPaths: simDepPaths,
+                        deviceAdditionalSearchPaths: deviceDepPaths,
+                        platformInfo: platformInfo);
+                }
+                else if (wrapperArchNormalized == "device")
+                {
+                    XCFrameworkResolution deviceResolution;
+                    try
+                    {
+                        deviceResolution = XCFrameworkResolver.Resolve(
+                            xcframeworkPath, outputDirectory,
+                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError("Cannot compile device bridge: {Message}", ex.Message);
+                        return 1;
+                    }
+
+                    compilationResult = SwiftWrapperCompiler.CompileBridgeSlice(
+                        outputDirectory, moduleName,
+                        deviceResolution.FrameworkSearchPath,
+                        deviceResolution.DylibPath,
+                        platformInfo.DeviceSlice,
+                        logger, additionalFrameworkSearchPaths: deviceDepPaths);
+                }
+                else
+                {
+                    compilationResult = SwiftWrapperCompiler.CompileBridge(
+                        outputDirectory, moduleName,
+                        resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                        additionalFrameworkSearchPaths: simDepPaths,
+                        platformInfo: platformInfo);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Bridge compilation failure is non-fatal (SWIFTBIND052)
+                logger.LogWarning("SWIFTBIND052: SwiftUI bridge compilation failed — bridge views will throw DllNotFoundException at runtime: {Message}", ex.Message);
+            }
+
+            // Update binding-metadata.props with bridge compilation result
+            var hasBridgeXcfw = compilationResult?.XCFrameworkPath != null
+                && Directory.Exists(compilationResult.XCFrameworkPath);
+            var bridgeModuleName = $"{moduleName}Bridge";
+
+            XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
+                outputDirectory, hasBridgeXcfw, bridgeModuleName,
+                compilationResult?.SliceCount ?? 0, logger);
+
+            return 0; // Always succeed — bridge failure is non-fatal
+        }
+
+        /// <summary>
         /// Determines whether wrapper compilation should proceed based on the resolved
         /// slice type and the requested wrapper architecture scope.
         /// </summary>

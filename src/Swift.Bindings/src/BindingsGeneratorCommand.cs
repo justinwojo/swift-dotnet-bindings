@@ -44,6 +44,7 @@ public static class BindingsGeneratorCommand
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
+        var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
         var configPath = parseResult.GetValueForOption(options.Config);
         var verbose = parseResult.GetValueForOption(options.Verbose);
         var help = parseResult.GetValueForOption(options.Help);
@@ -105,6 +106,21 @@ public static class BindingsGeneratorCommand
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
                 skipThunkCompilation);
+            return;
+        }
+
+        // Handle --compile-bridge-only: fast path that compiles only bridge .swift files
+        if (compileBridgeOnly)
+        {
+            if (string.IsNullOrWhiteSpace(xcframeworkPath))
+            {
+                logger.LogError("Error: --compile-bridge-only requires --xcframework.");
+                context.ExitCode = 1;
+                return;
+            }
+            context.ExitCode = BindingsGenerator.RunCompileBridgeOnly(
+                xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
+                wrapperArchitectures, frameworkDependencies, logger, platformInfo);
             return;
         }
 
@@ -562,6 +578,11 @@ public static class BindingsGeneratorCommand
                     ? Path.GetFileName(mixedObjcResult!.ProjectPath!)
                     : null;
 
+                // Detect bridge Swift files for metadata
+                var bridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(outputDirectory);
+                var hasBridgeSwift = bridgeFiles.Count > 0;
+                var bridgeModuleName = $"{resolution.ModuleName}Bridge";
+
                 // Always emit metadata props (used by SDK and standalone)
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
                     metadata, outputDirectory, hasWrapperXcfw,
@@ -570,13 +591,17 @@ public static class BindingsGeneratorCommand
                     resolvedDependencies,
                     frameworkType: isMixed ? "Mixed" : "Swift",
                     objcProjectName: objcProjFileName,
-                    platformInfo: platformInfo);
+                    platformInfo: platformInfo,
+                    hasBridgeSwift: hasBridgeSwift,
+                    bridgeModuleName: bridgeModuleName);
 
                 // Only emit .csproj in non-SDK mode
                 if (!sdkMode)
                 {
                     var projectFrameworkName = BindingsGenerator.InferFrameworkName(resolution.DylibPath, resolution.ModuleName);
                     var projectResolver = new NamespacePatternResolver(effectiveNamespacePattern, projectFrameworkName);
+                    var bridgeXcfwPath = Path.Combine(outputDirectory, $"{bridgeModuleName}.xcframework");
+                    var hasBridgeXcfw = Directory.Exists(bridgeXcfwPath);
                     BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                     {
                         OutputDirectory = outputDirectory,
@@ -584,6 +609,8 @@ public static class BindingsGeneratorCommand
                         Metadata = metadata,
                         SourceXCFrameworkPath = resolution.XCFrameworkPath,
                         WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
+                        BridgeXCFrameworkPath = hasBridgeXcfw ? bridgeXcfwPath : null,
+                        HasBridgeSwift = hasBridgeSwift,
                         Dependencies = resolvedDependencies,
                         ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
                         ObjCProjectFileName = objcProjFileName,
@@ -591,6 +618,10 @@ public static class BindingsGeneratorCommand
                     }, logger);
                 }
 
+                // Note: HasBridgeXCFramework is set to hasBridgeSwift (not hasBridgeXcfw)
+                // because the bridge xcframework doesn't exist at generation time in SDK mode.
+                // The consumer targets emit conditional NativeReference with Exists() checks,
+                // so it's safe to include the reference even if compilation happens later.
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = outputDirectory,
@@ -598,6 +629,7 @@ public static class BindingsGeneratorCommand
                     PackageId = effectivePackageId,
                     EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
                     HasWrapperXCFramework = hasWrapperXcfw,
+                    HasBridgeXCFramework = hasBridgeSwift,
                     XcframeworkPath = xcframeworkPath,
                     PlatformInfo = platformInfo,
                 }, logger);

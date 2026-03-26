@@ -1088,7 +1088,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.Contains("UnsafeMutablePointer<Double>", content);
         // SwiftUI.Color getter converts to UIColor first
         Assert.Contains("let uiColor = UIColor(MyTheme.shared.alertColor)", content);
-        Assert.Contains("uiColor.getRed(&r, &g, &b, &a)", content);
+        Assert.Contains("uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)", content);
         Assert.Contains("rOut.pointee = Double(r)", content);
     }
 
@@ -1110,7 +1110,7 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         Assert.Contains("@_cdecl(\"SBW_MyTheme_get_primaryColor\")", content);
         // UIColor getter reads RGBA directly (no UIColor conversion)
-        Assert.Contains("MyTheme.shared.primaryColor.getRed(&r, &g, &b, &a)", content);
+        Assert.Contains("MyTheme.shared.primaryColor.getRed(&r, green: &g, blue: &b, alpha: &a)", content);
         Assert.DoesNotContain("let uiColor = UIColor(MyTheme.shared.primaryColor)", content);
     }
 

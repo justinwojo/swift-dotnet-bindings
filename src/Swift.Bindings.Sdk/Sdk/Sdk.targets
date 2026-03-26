@@ -243,6 +243,28 @@
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
     </XmlPeek>
 
+    <!-- Read bridge metadata (may be absent for libraries without SwiftUI views) -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasBridgeSwift/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingHasBridgeSwift" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingBridgeModuleName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingBridgeModuleName" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasBridgeXCFramework/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingHasBridgeXCFramework" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingBridgeSliceCount/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingBridgeSliceCount" />
+    </XmlPeek>
+
     <!-- Set PackageVersion from metadata (user can override) -->
     <PropertyGroup>
       <PackageVersion Condition="'$(PackageVersion)' == ''">$(_SwiftBindingPackageVersion)</PackageVersion>
@@ -484,6 +506,87 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4g: Compile SwiftUI bridge after wrapper                        -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Compiles *.SwiftUIBridge.swift files into {Module}Bridge.xcframework.
+       Bridge compilation is simpler than wrapper: no post-processing, no thunks.
+       Failure is non-fatal (SWIFTBIND052 warning) — main bindings still work. -->
+  <Target Name="_CompileSwiftUIBridge"
+          AfterTargets="_UpdateSwiftWrapperMetadata"
+          DependsOnTargets="_ImportSwiftBindingMetadata">
+
+    <!-- Read bridge metadata from props (set during generation) -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasBridgeSwift/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingHasBridgeSwift" />
+    </XmlPeek>
+
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingBridgeModuleName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingBridgeModuleName" />
+    </XmlPeek>
+
+    <!-- Bridge compilation skip: same logic as wrapper — skip if fingerprint unchanged and no ProjectReferences -->
+    <PropertyGroup>
+      <_SwiftBridgeSkip Condition="'$(_SwiftBindingHasBridgeSwift)' != 'True'">true</_SwiftBridgeSkip>
+      <_SwiftBridgeSkip Condition="'$(SwiftFrameworkType)' == 'ObjC'">true</_SwiftBridgeSkip>
+      <_SwiftBridgeSkip Condition="'$(_SwiftBridgeSkip)' != 'true' AND '$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''">true</_SwiftBridgeSkip>
+    </PropertyGroup>
+
+    <!-- Build the compile-bridge-only command -->
+    <PropertyGroup Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBridgeSkip)' != 'true'">
+      <_SwiftBridgeCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --compile-bridge-only</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --xcframework "%(SwiftFramework.Identity)"</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --platform $(_SwiftBindingPlatform)</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftBridgeCmd) --platform-target $(SwiftPlatformTarget)</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd>$(_SwiftBridgeCmd) -v $(SwiftGeneratorVerbosity)</_SwiftBridgeCmd>
+      <!-- Dependency framework search paths (same as wrapper) -->
+      <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != '' AND '@(_ResolvedDepXCFramework)' == ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+    </PropertyGroup>
+
+    <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBridgeSkip)' != 'true'"
+          Command="$(_SwiftBridgeCmd)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          IgnoreStandardErrorWarningFormat="true"
+          ContinueOnError="WarnAndContinue" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4h: Re-read bridge metadata after compilation                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_UpdateSwiftBridgeMetadata"
+          AfterTargets="_CompileSwiftUIBridge">
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasBridgeXCFramework/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingHasBridgeXCFramework" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingBridgeSliceCount/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingBridgeSliceCount" />
+    </XmlPeek>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4i: Validate bridge compilation result                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ValidateSwiftBridgeCompilation"
+          AfterTargets="_UpdateSwiftBridgeMetadata"
+          Condition="'$(_SwiftBindingHasBridgeSwift)' == 'True' AND '$(SwiftFrameworkType)' != 'ObjC'">
+
+    <Warning Condition="'$(_SwiftBindingHasBridgeXCFramework)' != 'True'"
+             Code="SWIFTBIND052"
+             Text="SwiftUI bridge compilation failed for '$(_SwiftBindingBridgeModuleName)'. Bridge views will throw DllNotFoundException at runtime. The main bindings are unaffected." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 5: Include generated .cs files in compilation                   -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeGeneratedSwiftBindings"
@@ -524,7 +627,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ResolveSwiftNativeReferences"
           BeforeTargets="ResolveNativeReferences"
-          DependsOnTargets="_DiscoverSwiftFrameworks;_UpdateSwiftWrapperMetadata">
+          DependsOnTargets="_DiscoverSwiftFrameworks;_UpdateSwiftWrapperMetadata;_UpdateSwiftBridgeMetadata">
 
     <ItemGroup Condition="'@(SwiftFramework)' != ''">
       <NativeReference Include="%(SwiftFramework.Identity)">
@@ -534,6 +637,12 @@ done"
                        Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                   AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
+        <Kind>Framework</Kind>
+      </NativeReference>
+      <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework"
+                       Condition="'$(SwiftFrameworkType)' != 'ObjC'
+                                  AND '$(_SwiftBindingHasBridgeXCFramework)' == 'True'
+                                  AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')">
         <Kind>Framework</Kind>
       </NativeReference>
     </ItemGroup>
@@ -581,6 +690,18 @@ done"
       <Output TaskParameter="Result" PropertyName="_GNM_WrapperModule" />
     </XmlPeek>
 
+    <!-- Read bridge metadata -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingHasBridgeXCFramework/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_GNM_HasBridge" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingBridgeModuleName/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_GNM_BridgeModule" />
+    </XmlPeek>
+
     <!-- All paths must be absolute — relative paths resolve against the CONSUMER
          project, not this library project, when flowing through GetNativeManifest. -->
     <ItemGroup>
@@ -594,6 +715,14 @@ done"
                                    Condition="'$(SwiftFrameworkType)' != 'ObjC'
                                               AND '$(_GNM_HasWrapper)' == 'True'
                                               AND Exists('$(_SwiftBindingIntermediateDir)$(_GNM_WrapperModule).xcframework')">
+        <Kind>Framework</Kind>
+      </_SwiftBindingNativeManifest>
+
+      <!-- Bridge xcframework (generated during Build) -->
+      <_SwiftBindingNativeManifest Include="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework"
+                                   Condition="'$(SwiftFrameworkType)' != 'ObjC'
+                                              AND '$(_GNM_HasBridge)' == 'True'
+                                              AND Exists('$(_SwiftBindingIntermediateDir)$(_GNM_BridgeModule).xcframework')">
         <Kind>Framework</Kind>
       </_SwiftBindingNativeManifest>
 
@@ -687,6 +816,10 @@ done"
             Pack="true"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
+      <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
+            Pack="true"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework/"
+            Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
             Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"

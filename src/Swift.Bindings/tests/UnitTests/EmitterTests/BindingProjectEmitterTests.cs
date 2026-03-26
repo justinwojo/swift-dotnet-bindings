@@ -779,4 +779,129 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region G. Bridge NativeRef Tests
+
+    public class BindingProjectBridgeTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_WithBridge_BridgeNativeRefPresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var bridgePath = Path.Combine(dir, "NukeBridge.xcframework");
+                Directory.CreateDirectory(bridgePath);
+
+                var content = EmitAndRead(dir, "Nuke", bridgePath: bridgePath);
+                Assert.Contains("NukeBridge.xcframework", content);
+                Assert.Contains("<Kind>Framework</Kind>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithoutBridge_NoBridgeNativeRef()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", bridgePath: null);
+                Assert.DoesNotContain("NukeBridge.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithBridge_BridgePackItemPresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var bridgePath = Path.Combine(dir, "NukeBridge.xcframework");
+                Directory.CreateDirectory(bridgePath);
+
+                var content = EmitAndRead(dir, "Nuke", bridgePath: bridgePath);
+                Assert.Contains("NukeBridge.xcframework/**", content);
+                Assert.Contains("runtimes/ios-arm64/native/NukeBridge.xcframework/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_BridgeAndWrapper_BothPresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var wrapperPath = Path.Combine(dir, "NukeSwiftBindings.xcframework");
+                Directory.CreateDirectory(wrapperPath);
+                var bridgePath = Path.Combine(dir, "NukeBridge.xcframework");
+                Directory.CreateDirectory(bridgePath);
+
+                var content = EmitAndRead(dir, "Nuke", wrapperPath: wrapperPath, bridgePath: bridgePath);
+                Assert.Contains("NukeSwiftBindings.xcframework", content);
+                Assert.Contains("NukeBridge.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_HasBridgeSwift_EmitsBridgeRefsWithoutXCFramework()
+        {
+            // P2 regression test: on first run, bridge .swift exists but xcframework doesn't yet.
+            // The generated .csproj should still contain bridge NativeReference/pack items
+            // with Exists() conditions so they activate once the bridge is compiled.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", hasBridgeSwift: true);
+                Assert.Contains("NukeBridge.xcframework", content);
+                Assert.Contains("Condition=\"Exists('NukeBridge.xcframework')\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(string dir, string module,
+            string? wrapperPath = null, string? bridgePath = null, bool hasBridgeSwift = false)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMinimalMetadata(module),
+                SourceXCFrameworkPath = sourceXcfwPath,
+                HasBridgeSwift = hasBridgeSwift,
+                WrapperXCFrameworkPath = wrapperPath,
+                BridgeXCFrameworkPath = bridgePath,
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMinimalMetadata(string module) => new()
+        {
+            LibraryVersion = "1.0.0",
+            PackageVersion = "1.0.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "15.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_bridge_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

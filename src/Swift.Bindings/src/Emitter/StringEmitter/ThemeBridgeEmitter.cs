@@ -493,14 +493,14 @@ public static class ThemeBridgeEmitter
             {
                 // UIColor has getRed directly
                 sb.AppendLine("        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0");
-                sb.AppendLine($"        {info.ClassName}.{escapedSingleton}.{prop.Name}.getRed(&r, &g, &b, &a)");
+                sb.AppendLine($"        {info.ClassName}.{escapedSingleton}.{prop.Name}.getRed(&r, green: &g, blue: &b, alpha: &a)");
             }
             else
             {
                 // SwiftUI.Color → convert to UIColor first
                 sb.AppendLine($"        let uiColor = UIColor({info.ClassName}.{escapedSingleton}.{prop.Name})");
                 sb.AppendLine("        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0");
-                sb.AppendLine("        uiColor.getRed(&r, &g, &b, &a)");
+                sb.AppendLine("        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)");
             }
 
             sb.AppendLine("        rOut.pointee = Double(r)");

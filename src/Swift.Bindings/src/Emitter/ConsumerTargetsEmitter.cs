@@ -16,6 +16,10 @@ namespace BindingsGeneration
         public required string EffectiveMinimumOSVersion { get; init; }
         public required bool HasWrapperXCFramework { get; init; }
         /// <summary>
+        /// Whether a bridge xcframework was compiled for SwiftUI views.
+        /// </summary>
+        public bool HasBridgeXCFramework { get; init; }
+        /// <summary>
         /// Absolute path to the source xcframework. Used to compute the relative path
         /// from the output directory in the ProjectReference.targets file.
         /// </summary>
@@ -48,6 +52,15 @@ namespace BindingsGeneration
                 ? $"""
                           <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework"
                                            Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework')">
+                            <Kind>Framework</Kind>
+                          </NativeReference>
+                """
+                : "";
+
+            var bridgeNativeRef = options.HasBridgeXCFramework
+                ? $"""
+                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework"
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -86,7 +99,7 @@ namespace BindingsGeneration
                                        Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework')">
                         <Kind>Framework</Kind>
                       </NativeReference>
-                {wrapperNativeRef}    </ItemGroup>
+                {wrapperNativeRef}{bridgeNativeRef}    </ItemGroup>
                   </Target>
 
                   <!-- SwiftBindingFramework registration for downstream tooling -->
@@ -146,6 +159,15 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            var bridgeNativeRef = options.HasBridgeXCFramework
+                ? $"""
+                          <NativeReference Include="$(MSBuildThisFileDirectory){options.ModuleName}Bridge.xcframework"
+                                           Condition="Exists('$(MSBuildThisFileDirectory){options.ModuleName}Bridge.xcframework')">
+                            <Kind>Framework</Kind>
+                          </NativeReference>
+                """
+                : "";
+
             // Compute the relative path from the output directory to the source xcframework.
             // This avoids hardcoding directory traversal depth, which breaks if the consumer
             // customizes IntermediateOutputPath or BaseIntermediateOutputPath.
@@ -183,7 +205,7 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                {sourceXcfwRef}{wrapperNativeRef}    </ItemGroup>
+                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}    </ItemGroup>
                   </Target>
                 </Project>
                 """;

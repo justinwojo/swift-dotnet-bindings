@@ -274,7 +274,9 @@ namespace BindingsGeneration
             IReadOnlyList<FrameworkDependencyInfo>? dependencies = null,
             string? frameworkType = null,
             string? objcProjectName = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            bool hasBridgeSwift = false,
+            string? bridgeModuleName = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
 
@@ -294,6 +296,16 @@ namespace BindingsGeneration
                 ? $"\n    <_SwiftBindingObjCProjectName>{objcProjectName}</_SwiftBindingObjCProjectName>"
                 : "";
 
+            var bridgeProps = "";
+            if (hasBridgeSwift)
+            {
+                var effectiveBridgeModuleName = bridgeModuleName ?? $"{metadata.ModuleName}Bridge";
+                bridgeProps = $"\n    <_SwiftBindingHasBridgeSwift>True</_SwiftBindingHasBridgeSwift>" +
+                              $"\n    <_SwiftBindingBridgeModuleName>{effectiveBridgeModuleName}</_SwiftBindingBridgeModuleName>" +
+                              $"\n    <_SwiftBindingHasBridgeXCFramework>False</_SwiftBindingHasBridgeXCFramework>" +
+                              $"\n    <_SwiftBindingBridgeSliceCount>0</_SwiftBindingBridgeSliceCount>";
+            }
+
             var content = $"""
                 <Project>
                   <PropertyGroup>
@@ -303,7 +315,7 @@ namespace BindingsGeneration
                     <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
                     <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{depsProperty}
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{bridgeProps}{depsProperty}
                   </PropertyGroup>
                 </Project>
                 """;
@@ -349,6 +361,40 @@ namespace BindingsGeneration
             doc.Save(propsPath);
             logger.LogInformation("Updated wrapper status in binding-metadata.props: hasWrapper={HasWrapper}, sliceCount={SliceCount}",
                 hasWrapper, sliceCount);
+        }
+
+        /// <summary>
+        /// Updates an existing binding-metadata.props file in-place to reflect bridge compilation status.
+        /// Used by --compile-bridge-only mode which runs after wrapper compilation.
+        /// </summary>
+        public static void UpdateMetadataPropsBridgeStatus(
+            string outputDirectory,
+            bool hasBridge,
+            string bridgeModuleName,
+            int sliceCount,
+            ILogger logger)
+        {
+            var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
+            if (!File.Exists(propsPath))
+            {
+                logger.LogWarning("Cannot update bridge status: binding-metadata.props not found at {Path}", propsPath);
+                return;
+            }
+
+            var doc = XDocument.Load(propsPath);
+            var propertyGroup = doc.Root?.Element("PropertyGroup");
+            if (propertyGroup == null)
+            {
+                logger.LogWarning("Cannot update bridge status: no PropertyGroup in binding-metadata.props");
+                return;
+            }
+
+            SetOrAddElement(propertyGroup, "_SwiftBindingHasBridgeXCFramework", hasBridge.ToString());
+            SetOrAddElement(propertyGroup, "_SwiftBindingBridgeSliceCount", sliceCount.ToString());
+
+            doc.Save(propsPath);
+            logger.LogInformation("Updated bridge status in binding-metadata.props: hasBridge={HasBridge}, sliceCount={SliceCount}",
+                hasBridge, sliceCount);
         }
 
         private static void SetOrAddElement(XElement parent, string name, string value)

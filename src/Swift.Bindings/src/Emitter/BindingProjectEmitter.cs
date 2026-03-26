@@ -15,6 +15,16 @@ namespace BindingsGeneration
         public required XCFrameworkMetadata Metadata { get; init; }
         public required string SourceXCFrameworkPath { get; init; }
         public string? WrapperXCFrameworkPath { get; init; }
+        /// <summary>
+        /// Path to the bridge xcframework (for SwiftUI views). Null if no bridge.
+        /// </summary>
+        public string? BridgeXCFrameworkPath { get; init; }
+        /// <summary>
+        /// Whether bridge Swift source files were emitted. When true, bridge NativeReference
+        /// and pack items are emitted with Exists() conditions so they activate once the bridge
+        /// is compiled (which may happen after generation in SDK mode).
+        /// </summary>
+        public bool HasBridgeSwift { get; init; }
         public string? SwiftRuntimeVersion { get; init; }
         /// <summary>
         /// Framework dependencies that should be emitted as PackageReference items.
@@ -83,6 +93,32 @@ namespace BindingsGeneration
                     <None Include="{wrapperModuleName}.xcframework/**" Pack="true"
                           Condition="Exists('{wrapperModuleName}.xcframework')"
                           PackagePath="{pi.GetNativePackPath($"{wrapperModuleName}.xcframework")}" />
+                """
+                : "";
+
+            // Bridge xcframework items — emitted when bridge .swift source exists,
+            // with Exists() conditions in the XML so they activate after bridge compilation.
+            // This ensures the .csproj is correct on first-run even before --compile-bridge-only.
+            var hasBridge = options.HasBridgeSwift ||
+                            (options.BridgeXCFrameworkPath != null && Directory.Exists(options.BridgeXCFrameworkPath));
+            var bridgeModuleName = $"{options.ModuleName}Bridge";
+
+            var bridgeNativeRef = hasBridge
+                ? $"""
+
+                    <NativeReference Include="{bridgeModuleName}.xcframework"
+                                     Condition="Exists('{bridgeModuleName}.xcframework')">
+                      <Kind>Framework</Kind>
+                    </NativeReference>
+                """
+                : "";
+
+            var bridgePackItem = hasBridge
+                ? $"""
+
+                    <None Include="{bridgeModuleName}.xcframework/**" Pack="true"
+                          Condition="Exists('{bridgeModuleName}.xcframework')"
+                          PackagePath="{pi.GetNativePackPath($"{bridgeModuleName}.xcframework")}" />
                 """
                 : "";
 
@@ -161,7 +197,7 @@ namespace BindingsGeneration
                   <ItemGroup>
                     <NativeReference Include="{relativeSourceXcfw}">
                       <Kind>Framework</Kind>
-                    </NativeReference>{wrapperNativeRef}
+                    </NativeReference>{wrapperNativeRef}{bridgeNativeRef}
                   </ItemGroup>
 
                   <!-- NuGet pack layout -->
@@ -169,7 +205,7 @@ namespace BindingsGeneration
                     <None Include="{packageId}.targets" Pack="true"
                           PackagePath="{pi.GetBuildTransitivePath()}" />
                     <None Include="{relativeSourceXcfw}/**" Pack="true"
-                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}
+                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}{bridgePackItem}
                   </ItemGroup>{objcProjectRef}
                 </Project>
                 """;

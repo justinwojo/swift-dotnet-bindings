@@ -124,6 +124,12 @@ public class CliOptions
                      "from the output directory, and updates binding-metadata.props. Requires --xcframework and -o.",
         getDefaultValue: () => false);
 
+    public Option<bool> CompileBridgeOnly { get; } = new(
+        aliases: new[] { "--compile-bridge-only" },
+        description: "Compile-bridge-only mode: skips all parsing and C# generation, compiles existing .SwiftUIBridge.swift files " +
+                     "from the output directory into a {Module}Bridge.xcframework, and updates binding-metadata.props. Requires --xcframework and -o.",
+        getDefaultValue: () => false);
+
     public Option<int> Verbose { get; } = new(
         aliases: new[] { "-v", "--verbose" },
         description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -162,6 +168,7 @@ public class CliOptions
             SkipWrapperCompilation,
             SkipThunkCompilation,
             CompileWrapperOnly,
+            CompileBridgeOnly,
             Config,
             Verbose,
             Help,

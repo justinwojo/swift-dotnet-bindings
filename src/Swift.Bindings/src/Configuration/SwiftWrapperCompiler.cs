@@ -694,6 +694,193 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Collects SwiftUI bridge Swift files from the output directory.
+        /// </summary>
+        internal static List<string> CollectBridgeSwiftFiles(string outputDirectory)
+        {
+            if (!Directory.Exists(outputDirectory))
+                return new List<string>();
+
+            return Directory.GetFiles(outputDirectory, "*.SwiftUIBridge.swift")
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Compiles SwiftUI bridge Swift files into a single-slice {Module}Bridge.xcframework.
+        /// Bridge compilation is simpler than wrapper: no post-processing, no thunks, no pre-compiled module.
+        /// Returns null if no bridge Swift files exist.
+        /// </summary>
+        public static SwiftWrapperCompilationResult? CompileBridge(
+            string outputDirectory,
+            string moduleName,
+            string frameworkSearchPath,
+            string dylibPath,
+            ILogger logger,
+            ICommandRunner? commandRunner = null,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+            PlatformInfo? platformInfo = null)
+        {
+            var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+            var simSlice = pi.GetSlice(true);
+            return CompileBridgeSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
+                simSlice, logger, commandRunner, additionalFrameworkSearchPaths);
+        }
+
+        /// <summary>
+        /// Compiles SwiftUI bridge Swift files into a multi-slice {Module}Bridge.xcframework.
+        /// Returns null if no bridge Swift files exist.
+        /// </summary>
+        public static SwiftWrapperCompilationResult? CompileBridgeAll(
+            string outputDirectory,
+            string moduleName,
+            XCFrameworkResolution simulatorResolution,
+            XCFrameworkResolution? deviceResolution,
+            ILogger logger,
+            ICommandRunner? commandRunner = null,
+            IReadOnlyList<string>? simAdditionalSearchPaths = null,
+            IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
+            PlatformInfo? platformInfo = null)
+        {
+            commandRunner ??= new SystemCommandRunner();
+            var bridgeModuleName = $"{moduleName}Bridge";
+
+            var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
+            var simSlice = pi.GetSlice(true);
+            var deviceSlice = pi.DeviceSlice;
+
+            var bridgeFiles = CollectBridgeSwiftFiles(outputDirectory);
+            if (bridgeFiles.Count == 0)
+            {
+                logger.LogInformation("No SwiftUI bridge files found in {Dir} — skipping bridge compilation.", outputDirectory);
+                return null;
+            }
+
+            logger.LogInformation("Compiling bridge into {Module}.xcframework ({Count} file(s))...",
+                bridgeModuleName, bridgeFiles.Count);
+
+            // Resolve deployment target
+            var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
+
+            // Create xcframework directory structure
+            var xcframeworkPath = Path.Combine(outputDirectory, $"{bridgeModuleName}.xcframework");
+            if (Directory.Exists(xcframeworkPath))
+                Directory.Delete(xcframeworkPath, true);
+
+            var sliceCount = 0;
+
+            // Compile simulator slice
+            var simFrameworkDir = Path.Combine(xcframeworkPath, simSlice.SliceId, $"{bridgeModuleName}.framework");
+            Directory.CreateDirectory(simFrameworkDir);
+            WriteFrameworkPlist(simFrameworkDir, bridgeModuleName, minOS, simSlice.PlistPlatformName);
+
+            var simSdkPath = ResolveSdkPath(simSlice.SdkName, commandRunner);
+            var simTargetTriple = simSlice.GetTargetTriple(minOS);
+            var simBinaryPath = Path.Combine(simFrameworkDir, bridgeModuleName);
+
+            InvokeSwiftCompiler(
+                bridgeFiles, simBinaryPath, bridgeModuleName,
+                simTargetTriple, simSdkPath,
+                simulatorResolution.FrameworkSearchPath, commandRunner, logger,
+                simAdditionalSearchPaths, originalModuleName: moduleName);
+            sliceCount++;
+
+            logger.LogInformation("Compiled simulator slice for {Module}.", bridgeModuleName);
+
+            // Compile device slice (if available)
+            if (deviceResolution != null)
+            {
+                var devFrameworkDir = Path.Combine(xcframeworkPath, deviceSlice.SliceId, $"{bridgeModuleName}.framework");
+                Directory.CreateDirectory(devFrameworkDir);
+                WriteFrameworkPlist(devFrameworkDir, bridgeModuleName, minOS, deviceSlice.PlistPlatformName);
+
+                var devSdkPath = ResolveSdkPath(deviceSlice.SdkName, commandRunner);
+                var devTargetTriple = deviceSlice.GetTargetTriple(minOS);
+                var devBinaryPath = Path.Combine(devFrameworkDir, bridgeModuleName);
+
+                InvokeSwiftCompiler(
+                    bridgeFiles, devBinaryPath, bridgeModuleName,
+                    devTargetTriple, devSdkPath,
+                    deviceResolution.FrameworkSearchPath, commandRunner, logger,
+                    deviceAdditionalSearchPaths, originalModuleName: moduleName);
+                sliceCount++;
+
+                logger.LogInformation("Compiled device slice for {Module}.", bridgeModuleName);
+            }
+
+            // Write xcframework Info.plist
+            WriteXCFrameworkPlist(xcframeworkPath, bridgeModuleName, deviceResolution != null,
+                slice: simSlice, deviceSlice: deviceSlice);
+
+            logger.LogInformation("{Module}.xcframework built successfully at {Path} ({SliceCount} slice(s)).",
+                bridgeModuleName, xcframeworkPath, sliceCount);
+
+            return new SwiftWrapperCompilationResult
+            {
+                XCFrameworkPath = xcframeworkPath,
+                CompiledFileCount = bridgeFiles.Count,
+                StrippedBlockCount = 0,
+                SliceCount = sliceCount
+            };
+        }
+
+        /// <summary>
+        /// Compiles SwiftUI bridge Swift files into a single-slice xcframework.
+        /// </summary>
+        internal static SwiftWrapperCompilationResult? CompileBridgeSlice(
+            string outputDirectory,
+            string moduleName,
+            string frameworkSearchPath,
+            string dylibPath,
+            SliceVariant slice,
+            ILogger logger,
+            ICommandRunner? commandRunner = null,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+        {
+            commandRunner ??= new SystemCommandRunner();
+            var bridgeModuleName = $"{moduleName}Bridge";
+
+            var bridgeFiles = CollectBridgeSwiftFiles(outputDirectory);
+            if (bridgeFiles.Count == 0)
+            {
+                logger.LogInformation("No SwiftUI bridge files found in {Dir} — skipping bridge compilation.", outputDirectory);
+                return null;
+            }
+
+            logger.LogInformation("Compiling bridge into {Module}.xcframework ({Count} file(s))...",
+                bridgeModuleName, bridgeFiles.Count);
+
+            // Resolve deployment target
+            var minOS = ResolveDeploymentTarget(dylibPath, logger, commandRunner);
+
+            // Create xcframework directory structure
+            var xcframeworkPath = Path.Combine(outputDirectory, $"{bridgeModuleName}.xcframework");
+            var frameworkDir = Path.Combine(xcframeworkPath, slice.SliceId, $"{bridgeModuleName}.framework");
+            CreateXCFrameworkStructure(xcframeworkPath, frameworkDir, bridgeModuleName, minOS, slice);
+
+            // Resolve SDK path and build target triple
+            var sdkPath = ResolveSdkPath(slice.SdkName, commandRunner);
+            var targetTriple = slice.GetTargetTriple(minOS);
+            var outputBinaryPath = Path.Combine(frameworkDir, bridgeModuleName);
+
+            // Compile bridge — no post-processing, no thunks, no pre-compiled module
+            InvokeSwiftCompiler(
+                bridgeFiles, outputBinaryPath, bridgeModuleName,
+                targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
+                additionalFrameworkSearchPaths, originalModuleName: moduleName);
+
+            logger.LogInformation("{Module}.xcframework built successfully at {Path}",
+                bridgeModuleName, xcframeworkPath);
+
+            return new SwiftWrapperCompilationResult
+            {
+                XCFrameworkPath = xcframeworkPath,
+                CompiledFileCount = bridgeFiles.Count,
+                StrippedBlockCount = 0
+            };
+        }
+
+        /// <summary>
         /// Reads MinimumOSVersion from the source framework's Info.plist.
         /// Falls back to "15.0" if not found.
         /// </summary>

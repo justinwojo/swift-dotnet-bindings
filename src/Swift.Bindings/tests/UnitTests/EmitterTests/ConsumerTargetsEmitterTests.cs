@@ -477,6 +477,93 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region F. Bridge NativeReference Tests
+
+    public class ConsumerTargetsBridgeTests
+    {
+        [Fact]
+        public void Emit_BridgeNativeRef_PresentWhenHasBridge()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                    hasWrapper: true, hasBridge: true);
+                Assert.Contains("NukeBridge.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_BridgeNativeRef_AbsentWhenNoBridge()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0",
+                    hasWrapper: true, hasBridge: false);
+                Assert.DoesNotContain("NukeBridge.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_BridgeAndWrapper_BothPresent()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Lottie", "Lottie.Swift.iOS", "15.0",
+                    hasWrapper: true, hasBridge: true);
+                Assert.Contains("LottieSwiftBindings.xcframework", content);
+                Assert.Contains("LottieBridge.xcframework", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_ProjectReferenceTargets_ContainsBridgeRef()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Nuke",
+                    PackageId = "Nuke.Swift.iOS",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    HasBridgeXCFramework = true,
+                }, NullLogger.Instance);
+
+                var localContent = File.ReadAllText(
+                    Path.Combine(dir, "Nuke.Swift.iOS.ProjectReference.targets"));
+                Assert.Contains("NukeBridge.xcframework", localContent);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir() => ConsumerTargetsTestHelper.CreateTempDir();
+
+        private static string EmitAndRead(string dir, string module, string packageId,
+            string minOS, bool hasWrapper, bool hasBridge)
+        {
+            ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                PackageId = packageId,
+                EffectiveMinimumOSVersion = minOS,
+                HasWrapperXCFramework = hasWrapper,
+                HasBridgeXCFramework = hasBridge,
+            }, NullLogger.Instance);
+            return File.ReadAllText(Path.Combine(dir, $"{packageId}.targets"));
+        }
+    }
+
+    #endregion
+
     #region Test Helper
 
     internal static class ConsumerTargetsTestHelper

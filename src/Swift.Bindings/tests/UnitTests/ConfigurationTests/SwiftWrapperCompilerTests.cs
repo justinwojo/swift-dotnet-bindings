@@ -71,6 +71,102 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region A2. Bridge File Collection Tests
+
+    public class SwiftBridgeFileCollectionTests
+    {
+        [Fact]
+        public void CollectBridgeSwiftFiles_FindsBridgeFiles()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, "Module.SwiftUIBridge.swift"), "// bridge");
+                File.WriteAllText(Path.Combine(dir, "Module.swift"), "// wrapper");
+                var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
+                Assert.Single(files);
+                Assert.Contains("Module.SwiftUIBridge.swift", files[0]);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CollectBridgeSwiftFiles_MultipleBridgeFiles()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, "Nuke.SwiftUIBridge.swift"), "// bridge1");
+                File.WriteAllText(Path.Combine(dir, "Lottie.SwiftUIBridge.swift"), "// bridge2");
+                var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
+                Assert.Equal(2, files.Count);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CollectBridgeSwiftFiles_ExcludesNonBridgeFiles()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, "Module.swift"), "// wrapper");
+                File.WriteAllText(Path.Combine(dir, "Module.Wrappers.swift"), "// wrappers");
+                var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
+                Assert.Empty(files);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CollectBridgeSwiftFiles_EmptyDirectory_ReturnsEmpty()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
+                Assert.Empty(files);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void CollectBridgeSwiftFiles_NonexistentDirectory_ReturnsEmpty()
+        {
+            var files = SwiftWrapperCompiler.CollectBridgeSwiftFiles("/nonexistent/path");
+            Assert.Empty(files);
+        }
+
+        [Fact]
+        public void CollectSwiftFiles_And_CollectBridgeSwiftFiles_AreDisjoint()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, "Module.swift"), "// wrapper");
+                File.WriteAllText(Path.Combine(dir, "Module.SwiftUIBridge.swift"), "// bridge");
+
+                var wrapperFiles = SwiftWrapperCompiler.CollectSwiftFiles(dir);
+                var bridgeFiles = SwiftWrapperCompiler.CollectBridgeSwiftFiles(dir);
+
+                Assert.Single(wrapperFiles);
+                Assert.Single(bridgeFiles);
+                Assert.DoesNotContain(wrapperFiles[0], bridgeFiles);
+                Assert.DoesNotContain(bridgeFiles[0], wrapperFiles);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"swb_test_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
+
     #region B. Deployment Target Resolution Tests
 
     public class SwiftWrapperDeploymentTargetTests

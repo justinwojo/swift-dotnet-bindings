@@ -21,7 +21,7 @@ Observable binding (C# → Swift reactivity) + corpus tracking. Low priority —
 | Cross-framework `using` directives | Auto-emit `using` for dependency namespaces (e.g., NukeUI referencing Nuke types). Currently hardcoded. |
 | `pack-all.sh` orchestration | Multi-package build+pack in dependency order. Topological sort + manifest already exist. |
 | Binding report as MSBuild warnings | Surface skip counts from `binding-report.json` as build warnings. Report infrastructure exists. |
-| SwiftUI bridge SDK integration | Compile bridge `.swift` and package bridge framework in NuGet. Groundwork done, shell scripts work for now. |
+| BindingTests bridge via `--compile-bridge-only` | Replace `build-bridge.sh` shell script with `--compile-bridge-only` CLI path. Requires: (1) handle test helpers (`SwiftUIBridgeTestHelpers.swift`) — either bundle into generated bridge or compile separately, (2) update `run-runtime-tests.sh` NativeReference from `.framework` to `.xcframework`, (3) update runtime test app `DllImport` library name. |
 
 ---
 
