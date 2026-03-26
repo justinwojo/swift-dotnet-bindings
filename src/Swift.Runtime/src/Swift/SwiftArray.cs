@@ -25,29 +25,18 @@ public interface ISwiftCollection { }
 /// <typeparam name="Element">The element type contained in the array.</typeparam>
 public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Element>, IList<Element>, IDisposable
 {
-    // Lazy initialization to avoid calling Swift runtime during static construction.
+    // Thread-safe lazy initialization to avoid calling Swift runtime during static construction.
     // This prevents crashes when Element is an existential container type, where
     // swift_getExistentialTypeMetadata called from .cctor triggers a Mono JIT/async assertion.
-    private static TypeMetadata? _cachedElementMetadata;
-    private static nuint? _cachedElementSize;
+    // Lazy<T> guarantees exactly one thread computes the value (ExecutionAndPublication mode).
+    private static readonly Lazy<TypeMetadata> _lazyElementMetadata =
+        new Lazy<TypeMetadata>(() => TypeMetadata.GetTypeMetadataOrThrow<Element>());
+    private static readonly Lazy<nuint> _lazyElementSize =
+        new Lazy<nuint>(() => _lazyElementMetadata.Value.Size);
 
-    private static TypeMetadata CachedElementTypeMetadata
-    {
-        get
-        {
-            _cachedElementMetadata ??= TypeMetadata.GetTypeMetadataOrThrow<Element>();
-            return _cachedElementMetadata.Value;
-        }
-    }
+    private static TypeMetadata CachedElementTypeMetadata => _lazyElementMetadata.Value;
 
-    private static nuint ElementSize
-    {
-        get
-        {
-            _cachedElementSize ??= CachedElementTypeMetadata.Size;
-            return _cachedElementSize.Value;
-        }
-    }
+    private static nuint ElementSize => _lazyElementSize.Value;
 
     private SwiftSafeHandle<SwiftArray<Element>> _payload;
     private bool _disposed;
@@ -79,16 +68,31 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         // JIT assertions with existential container element types.
         if (SwiftRuntimeInfo.IsNativeAotRuntime)
         {
-            try { NativeAotInitialize(); }
-            catch (Exception)
-            {
-                // Element metadata may be unavailable during type init for certain Element types
-                // (e.g., ExistentialContainer types require protocol descriptor pointers for
-                // swift_getExistentialTypeMetadata, which aren't available here).
-                // Fall back to lazy initialization — metadata will be fetched on first use.
-                System.Diagnostics.Debug.WriteLine(
-                    $"SwiftArray<{typeof(Element).Name}>: NativeAotInitialize skipped, using lazy init");
-            }
+            TryEagerInitialize();
+        }
+    }
+
+    /// <summary>
+    /// Attempts eager initialization of metadata and factory registration for NativeAOT.
+    /// Returns true if initialization succeeded, false if it fell back to lazy init.
+    /// Exposed as internal for testability — the .cctor calls this gated behind IsNativeAotRuntime.
+    /// </summary>
+    internal static bool TryEagerInitialize()
+    {
+        try
+        {
+            NativeAotInitialize();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Element metadata may be unavailable during type init for certain Element types
+            // (e.g., ExistentialContainer types require protocol descriptor pointers for
+            // swift_getExistentialTypeMetadata, which aren't available here).
+            // Fall back to lazy initialization — metadata will be fetched on first use.
+            System.Diagnostics.Debug.WriteLine(
+                $"SwiftArray<{typeof(Element).Name}>: NativeAotInitialize skipped, using lazy init");
+            return false;
         }
     }
 

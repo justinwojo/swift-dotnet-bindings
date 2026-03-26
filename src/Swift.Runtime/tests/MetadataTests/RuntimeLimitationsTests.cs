@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Runtime.CompilerServices;
+using System.Threading;
 using Swift;
 using Swift.Runtime;
 using Swift.Runtime.InteropServices;
@@ -138,25 +139,58 @@ public class RuntimeLimitationsTests
     }
 
     /// <summary>
-    /// Verifies that SwiftArray&lt;ExistentialContainer1&gt; can be constructed without
-    /// throwing TypeInitializationException. Regression test for Swinject NativeAOT
-    /// closure bug: SwiftArray's NativeAotInitialize() called during type init would
-    /// fail for ExistentialContainer element types because swift_getExistentialTypeMetadata
-    /// requires protocol descriptors that aren't available during static construction.
-    /// The fix wraps NativeAotInitialize() in try-catch to fall back to lazy init.
+    /// Verifies that SwiftArray&lt;ExistentialContainer1&gt;.TryEagerInitialize() returns
+    /// gracefully (no exception) even though ExistentialContainer1 metadata lookup fails.
+    /// Regression test for Swinject NativeAOT closure bug: SwiftArray's NativeAotInitialize()
+    /// called during type init would fail for ExistentialContainer element types because
+    /// swift_getExistentialTypeMetadata requires protocol descriptors. The try-catch in
+    /// TryEagerInitialize() catches this and falls back to lazy init.
     /// </summary>
     [Fact]
-    public void SwiftArrayOfExistentialContainer_TypeInit_DoesNotThrow()
+    public void SwiftArrayOfExistentialContainer_TryEagerInitialize_ReturnsGracefully()
     {
-        // On desktop CoreCLR, SwiftArray<ExistentialContainer1> type init skips
-        // NativeAotInitialize() entirely (not NativeAOT). But we verify the type
-        // can be accessed without exception, which also exercises the static constructor.
-        var type = typeof(SwiftArray<ExistentialContainer1>);
-        Assert.NotNull(type);
+        // Directly call TryEagerInitialize() — this exercises the NativeAOT fallback path
+        // regardless of which runtime we're on. ExistentialContainer1 metadata is unavailable,
+        // so NativeAotInitialize() will throw, but TryEagerInitialize() should catch it
+        // and return false (graceful fallback to lazy init).
+        var result = SwiftArray<ExistentialContainer1>.TryEagerInitialize();
+        Assert.False(result, "TryEagerInitialize should return false for ExistentialContainer1 " +
+            "(metadata unavailable, falls back to lazy init)");
+    }
 
-        // Verify the type has a static constructor (field initializers + explicit cctor)
-        var cctor = type.TypeInitializer;
-        Assert.NotNull(cctor);
+    [Fact]
+    public void SwiftArray_CachedMetadata_IsThreadSafe()
+    {
+        // Access SwiftArray<nint> metadata from multiple threads concurrently.
+        // Lazy<T> (ExecutionAndPublication mode) ensures exactly one thread computes
+        // the value while others wait. This test verifies no race conditions.
+        const int threadCount = 10;
+        var barrier = new System.Threading.Barrier(threadCount);
+        var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+        var threads = new Thread[threadCount];
+
+        for (int i = 0; i < threadCount; i++)
+        {
+            threads[i] = new Thread(() =>
+            {
+                try
+                {
+                    barrier.SignalAndWait();
+                    using var array = new SwiftArray<nint>();
+                    _ = array.Count;
+                }
+                catch (Exception ex)
+                {
+                    exceptions.Add(ex);
+                }
+            });
+            threads[i].Start();
+        }
+
+        foreach (var t in threads)
+            t.Join();
+
+        Assert.Empty(exceptions);
     }
 
     [Theory]

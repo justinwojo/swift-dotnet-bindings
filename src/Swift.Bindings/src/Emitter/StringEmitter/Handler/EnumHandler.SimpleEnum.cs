@@ -573,15 +573,10 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
 
-            // Convert tag to enum value using switch
-            if (enumDecl.IsRawRepresentable)
-            {
-                swiftWriter.WriteLine($"let value = {enumQualifiedName}(rawValue: {GetSwiftRawValueCast(enumDecl, swiftScalarType)})!");
-            }
-            else
-            {
-                EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
-            }
+            // Convert tag to enum value using switch. Always use switch-based reconstruction
+            // because C# enum values are sequential tags (ABI JSON lacks raw values), so
+            // rawValue: would fail for enums with non-sequential raw values (e.g., OSStatus codes).
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
 
             // Build method call with arguments, converting enum-typed scalar params back to enum
             var callArgs = new List<string>();
@@ -605,16 +600,11 @@ namespace BindingsGeneration
             }
             else if (returnsEnum)
             {
-                // Convert return value back to tag
+                // Convert return value back to sequential tag (not rawValue — C# enum values are
+                // sequential tags because ABI JSON lacks raw values, so rawValue would return
+                // non-sequential values like OSStatus codes that don't match C# expectations)
                 swiftWriter.WriteLine($"let result = {callStr}");
-                if (enumDecl.IsRawRepresentable)
-                {
-                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
-                }
-                else
-                {
-                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
-                }
+                EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
             }
             else
             {
@@ -988,11 +978,9 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
             swiftWriter.Indent++;
 
-            // Convert tag to enum value
-            if (enumDecl.IsRawRepresentable)
-                swiftWriter.WriteLine($"let value = {enumQualifiedName}(rawValue: {GetSwiftRawValueCast(enumDecl, swiftScalarType)})!");
-            else
-                EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+            // Convert tag to enum value. Always use switch-based reconstruction
+            // because C# enum values are sequential tags (ABI JSON lacks raw values).
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
 
             if (returnsString)
             {
@@ -1001,10 +989,7 @@ namespace BindingsGeneration
             else if (returnsEnum)
             {
                 swiftWriter.WriteLine($"let result = value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
-                if (enumDecl.IsRawRepresentable)
-                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
-                else
-                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+                EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
             }
             else
             {
@@ -1037,10 +1022,7 @@ namespace BindingsGeneration
             else if (returnsEnum)
             {
                 swiftWriter.WriteLine($"let result = {enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
-                if (enumDecl.IsRawRepresentable)
-                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
-                else
-                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+                EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
             }
             else
             {
@@ -1104,10 +1086,7 @@ namespace BindingsGeneration
             else if (returnsEnum)
             {
                 swiftWriter.WriteLine($"let result = {callStr}");
-                if (enumDecl.IsRawRepresentable)
-                    swiftWriter.WriteLine($"return {GetSwiftRawValueReturn(enumDecl, swiftScalarType)}");
-                else
-                    EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
+                EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType);
             }
             else
             {
@@ -1458,14 +1437,6 @@ namespace BindingsGeneration
             return $"{rawType}(tag)";
         }
 
-        private static string GetSwiftRawValueReturn(EnumDecl enumDecl, string swiftScalarType)
-        {
-            var rawType = enumDecl.RawValueTypeName!;
-            if (rawType == swiftScalarType || rawType == "Int32" && swiftScalarType == "Int32")
-                return "result.rawValue";
-            return $"{swiftScalarType}(result.rawValue)";
-        }
-
         /// <summary>
         /// Generates a Swift expression to convert a scalar parameter to an enum value.
         /// For RawRepresentable enums, uses the rawValue initializer.
@@ -1474,13 +1445,10 @@ namespace BindingsGeneration
         private static string EmitEnumParamConversion(EnumDecl enumDecl, string enumQualifiedName,
             string swiftScalarType, string paramExpr)
         {
-            if (enumDecl.IsRawRepresentable)
-            {
-                return $"{enumQualifiedName}(rawValue: {GetSwiftRawValueCast(enumDecl, swiftScalarType).Replace("tag", paramExpr)})!";
-            }
-
-            // Non-RawRepresentable: generate inline closure with switch
-            // This is safe for @_cdecl wrappers since the tag values are compile-time constants.
+            // Always use switch-based reconstruction because C# enum values are sequential
+            // tags (ABI JSON lacks raw values), so rawValue: would fail for enums with
+            // non-sequential raw values (e.g., OSStatus codes).
+            // Generate inline closure with switch.
             return $"{{ () -> {enumQualifiedName} in\n" +
                    $"    switch {paramExpr} {{\n" +
                    string.Join("\n", enumDecl.Cases.Select(c =>

@@ -2648,6 +2648,62 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_RawRepresentableEnumPropertyGetter_UsesTagSwitchNotRawValue()
+    {
+        // Regression: RawRepresentable enum property getters used rawValue: force-unwrap
+        // which crashes when C# sequential tags don't match Swift raw values (e.g.,
+        // KeychainAccess.Status has OSStatus raw values like -25293, but C# uses 0,1,2...).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        enumDecl.Cases.Add(CreateCase("success"));
+        enumDecl.Cases.Add(CreateCase("authFailed"));
+        enumDecl.Cases.Add(CreateCase("itemNotFound"));
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("errorCode", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Property getter Swift wrapper must use switch, NOT rawValue: force-unwrap
+        Assert.DoesNotContain("rawValue: tag)!", swiftOutput);
+        Assert.DoesNotContain("rawValue: Int32(tag))!", swiftOutput);
+        // Must use switch-based reconstruction
+        Assert.Contains("switch tag", swiftOutput);
+        Assert.Contains("case 0: value = .success", swiftOutput);
+        Assert.Contains("case 1: value = .authFailed", swiftOutput);
+        Assert.Contains("case 2: value = .itemNotFound", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_RawRepresentableEnumMethodReturn_UsesTagSwitchNotRawValue()
+    {
+        // Regression: methods returning a RawRepresentable enum used result.rawValue
+        // which returns non-sequential Swift raw values (e.g., OSStatus -25293) instead
+        // of the sequential C# tag values (0, 1, 2...). The return path must use the
+        // same switch-based enum-to-tag conversion as the input path.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int32";
+        enumDecl.Cases.Add(CreateCase("success"));
+        enumDecl.Cases.Add(CreateCase("authFailed"));
+        enumDecl.Cases.Add(CreateCase("itemNotFound"));
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("getCurrent", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // Return path must use switch on result, NOT result.rawValue
+        Assert.DoesNotContain("result.rawValue", swiftOutput);
+        // Must use switch-based enum-to-tag conversion
+        Assert.Contains("switch result", swiftOutput);
+        Assert.Contains("case .success: return 0", swiftOutput);
+        Assert.Contains("case .authFailed: return 1", swiftOutput);
+        Assert.Contains("case .itemNotFound: return 2", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_SimpleEnumWithStringProperty_EmitsUtf8SliceMarshalling()
     {
         // BX2: String-returning property → Utf8Slice pattern + free function
@@ -2973,9 +3029,11 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_StaticMethodWithEnumParam_RawRepresentable_UsesRawValueInit()
+    public void Emit_StaticMethodWithEnumParam_RawRepresentable_UsesTagSwitch()
     {
-        // RawRepresentable enum params should use rawValue initializer
+        // RawRepresentable enum params must also use tag switch (not rawValue initializer)
+        // because C# enum values are sequential tags — ABI JSON lacks raw values, so
+        // rawValue: would fail for enums with non-sequential raw values (e.g., OSStatus codes).
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
@@ -2987,8 +3045,10 @@ public class EnumHandlerOutputTests
 
         var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should use rawValue initializer for RawRepresentable
-        Assert.Contains("rawValue:", swiftOutput);
+        // Should NOT use rawValue initializer (C# tags don't match Swift raw values)
+        Assert.DoesNotContain("rawValue:", swiftOutput);
+        // Should use switch-based conversion
+        Assert.Contains("switch", swiftOutput);
     }
 
     [Fact]

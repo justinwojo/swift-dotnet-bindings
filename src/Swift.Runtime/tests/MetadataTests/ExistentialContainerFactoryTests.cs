@@ -361,26 +361,39 @@ public class ExistentialContainerFactoryTests
     [Fact]
     public void ExistentialContainerFactory_IsPreservedInILLinkDescriptors()
     {
-        // Verify the type is in ILLink.Descriptors.xml by checking it's loadable
-        // and its generic methods are accessible via reflection
-        var createMethod = typeof(ExistentialContainerFactory)
-            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
-            .Where(m => m.Name == "Create" && m.GetGenericArguments().Length == 2)
-            .FirstOrDefault();
+        // ILLink.Descriptors.xml must preserve ExistentialContainerFactory for NativeAOT.
+        // Previous test only checked reflection accessibility which passes even without
+        // the ILLink entry. This reads the actual embedded XML to verify the entry exists.
+        var assembly = typeof(ExistentialContainerFactory).Assembly;
+        var resourceNames = assembly.GetManifestResourceNames();
+        var descriptorName = resourceNames.FirstOrDefault(n => n.Contains("ILLink.Descriptors"));
+        Assert.NotNull(descriptorName);
 
-        Assert.NotNull(createMethod);
+        using var stream = assembly.GetManifestResourceStream(descriptorName!);
+        Assert.NotNull(stream);
+        using var reader = new System.IO.StreamReader(stream!);
+        var content = reader.ReadToEnd();
+        Assert.Contains("ExistentialContainerFactory", content);
     }
 
     [Fact]
-    public void ProtocolWitnessTable_GenericMethods_AreAccessible()
+    public void ProtocolWitnessTable_AndConformanceDescriptor_PreservedInILLinkDescriptors()
     {
-        // Verify ProtocolWitnessTable methods are accessible (preserved from trimming)
-        var getOrThrowMethod = typeof(ProtocolWitnessTable)
-            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
-            .Where(m => m.Name == "GetOrThrowAuto")
-            .FirstOrDefault();
+        // ILLink.Descriptors.xml must preserve ProtocolWitnessTable and
+        // ProtocolConformanceDescriptor for NativeAOT existential container boxing.
+        // Previous test only checked reflection accessibility which passes even without
+        // the ILLink entries. This reads the actual embedded XML to verify both entries.
+        var assembly = typeof(ProtocolWitnessTable).Assembly;
+        var resourceNames = assembly.GetManifestResourceNames();
+        var descriptorName = resourceNames.FirstOrDefault(n => n.Contains("ILLink.Descriptors"));
+        Assert.NotNull(descriptorName);
 
-        Assert.NotNull(getOrThrowMethod);
+        using var stream = assembly.GetManifestResourceStream(descriptorName!);
+        Assert.NotNull(stream);
+        using var reader = new System.IO.StreamReader(stream!);
+        var content = reader.ReadToEnd();
+        Assert.Contains("ProtocolWitnessTable", content);
+        Assert.Contains("ProtocolConformanceDescriptor", content);
     }
 
     #endregion
