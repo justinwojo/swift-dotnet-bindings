@@ -1303,13 +1303,19 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Gets the raw value as int for a case in a RawRepresentable enum.
-        /// For Int-based enums, the raw value equals the tag value in sequential enums.
+        /// Uses explicit raw value from .swiftinterface if available, otherwise falls back
+        /// to sequential tag values. Note: non-sequential integer raw values (e.g., execute=4)
+        /// are NOT available in .swiftinterface or ABI JSON — only string raw values are preserved.
         /// </summary>
         private static int GetRawValueAsInt(EnumDecl enumDecl, EnumCaseDecl caseDecl)
         {
-            // For RawRepresentable enums, Swift assigns raw values sequentially from 0
-            // unless explicitly specified. The ABI JSON doesn't contain explicit raw values,
-            // so we use tag values which match sequential raw values.
+            // Check if an explicit integer raw value was parsed from .swiftinterface
+            if (caseDecl.RawValue is string rawStr && int.TryParse(rawStr, out var explicitValue))
+                return explicitValue;
+
+            // Fallback: sequential tag values (correct for sequential enums, but wrong for
+            // enums with gaps like Permission: none=0, read=1, write=2, execute=4).
+            // Blocked: .swiftinterface strips integer raw values, ABI JSON lacks them.
             return enumDecl.GetCaseTag(caseDecl);
         }
 

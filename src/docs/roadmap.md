@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated**: March 25, 2026
+**Updated**: March 26, 2026
 
 ---
 
@@ -16,8 +16,7 @@ Observable binding (C# → Swift reactivity) + corpus tracking. Low priority —
 |------|-------|
 | Async frozen struct params | `stackalloc` not safe after `await`. Needs heap allocation path. |
 | `[String: Any]` dictionary projection | Alamofire, Mixpanel JSON-like config. Requires runtime boxing. |
-
-Remaining items from the hardening sessions (MSBuild warnings, bulk retain/release, pack-all.sh, static protocol constructors, bridge CLI, bug fixes) are tracked in `remaining-hardening-work.md`.
+| SwiftString.Buffer ABI (4+ string params) | 4th `Buffer` struct overflows GPR registers. Decompose into explicit `nint` fields in P/Invoke. High risk — affects all string marshalling. |
 
 ---
 
@@ -37,6 +36,8 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **Custom actor types** (`actor Counter`) | — | 5+ | Requires async dispatch through actor's serial executor |
 | **Async methods** | 28 | 5 | Methods with `async` keyword |
 | **Async properties** | 14 | 5 | Properties with `async get` |
+| **Non-Int32 enum raw values** | 1 test | — | `.swiftinterface` strips integer raw values; no source of truth. Blocked on Swift compiler. |
+| **Static protocol constructors** (`Create()` factory) | — | — | Init witness dispatch needs allocation, not dispatch on existing container. New infrastructure required. |
 | **inout parameters** | 14 | 2 | `inout` write-back semantics |
 | **Noncopyable types** (`~Copyable`) | 8 tests | 0 validation | `@_cdecl` wrappers need `consuming`/`borrowing` + move semantics |
 

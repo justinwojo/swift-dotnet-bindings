@@ -89,8 +89,10 @@ namespace BindingsGeneration
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
+            EmitExistentialContainerMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
 
+            EmitArrayOwnershipRetain(csWriter);
             // Call P/Invoke (writes Optional<Self> into resultBuffer)
             EmitPInvokeCall(csWriter);
 
@@ -159,6 +161,7 @@ namespace BindingsGeneration
             if (!(_env.MethodDecl.UsesCdeclConstructorWrapper && isFrozenValue))
                 csWriter.WriteLine("optionalMetadata.ValueWitnessTable->Destroy(resultBuffer, optionalMetadata);");
             csWriter.WriteLine("NativeMemory.Free(resultBuffer);");
+            EmitExistentialContainerCleanup(csWriter);
             // Clean up generic payloads and closure GCHandles
             EmitSafeHandleRelease(csWriter);
             csWriter.Indent--;

@@ -1,6 +1,6 @@
 <Project Sdk="SwiftBindings.Sdk/0.0.0-dev">
   <PropertyGroup>
-    <!-- Use --platform to select: ios (default), macos, tvos, maccatalyst -->
+    <!-- Platform options: ios (default), macos, tvos, maccatalyst -->
     <TargetFramework>net10.0-ios</TargetFramework>
   </PropertyGroup>
 </Project>

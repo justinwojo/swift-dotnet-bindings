@@ -7,7 +7,7 @@ Two sessions. Independent — either order works. Session 1 is lower risk (DX/to
 
 ---
 
-## Session 1: DX & Tooling Polish
+## Session 1: DX & Tooling Polish ✅ `4323f7be`
 
 **Scope**: 5 items — MSBuild warnings, bulk retain/release, pack-all.sh, static protocol constructors, bridge CLI
 **Risk**: Low — no core generator/emit pipeline changes
@@ -98,7 +98,7 @@ Two sessions. Independent — either order works. Session 1 is lower risk (DX/to
 
 ---
 
-## Session 2: Bug Fixes & Marshalling
+## Session 2: Bug Fixes & Marshalling ✅ `18258b98`
 
 **Scope**: 4 bugs with known root causes + 1 investigation-first item
 **Risk**: Medium-High — items 1-3 touch marshalling/emit pipeline, regressions possible

@@ -408,6 +408,64 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Emits existential container marshalling for @_cdecl wrapper methods.
+        /// Creates the container, copies it to a heap allocation, and creates an IntPtr pointer.
+        /// Must be called AFTER EmitExistentialHeapDeclarations (which declares the void* heap
+        /// variables) and AFTER EmitTryBlockStart (so the allocation is inside the try block
+        /// for cleanup in finally).
+        /// </summary>
+        private void EmitExistentialContainerMarshalling(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
+                .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
+                if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    continue;
+                var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
+                var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                // GetOrCreate only works for single-protocol (EC1) interfaces.
+                // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
+                if (containerType == "Swift.Runtime.ExistentialContainer1" && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
+                    csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName});");
+                else
+                    csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
+                csWriter.WriteLine($"{csName}Heap = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
+                csWriter.WriteLine($"Unsafe.Copy({csName}Heap, ref {csName}Container);");
+                csWriter.WriteLine($"IntPtr {csName}Ptr = (IntPtr){csName}Heap;");
+            }
+        }
+
+        /// <summary>
+        /// Emits Arc.Retain for array parameters in constructors without @_cdecl wrappers.
+        /// When a constructor stores an array parameter (e.g., variadic init), Swift expects
+        /// @owned semantics (caller transfers ownership). Without a @_cdecl wrapper, the C#
+        /// 'using var' blocks dispose the temporary SwiftArray after the P/Invoke, freeing
+        /// the data Swift stored. The retain ensures the array survives disposal with a net
+        /// +1 retain count that Swift owns.
+        /// </summary>
+        private void EmitArrayOwnershipRetain(CSharpWriter csWriter)
+        {
+            // Only needed for constructors without @_cdecl wrappers (direct CallConvSwift dispatch).
+            // @_cdecl wrappers handle ownership transfer in the Swift wrapper code.
+            if (_env.MethodDecl.UsesCdeclConstructorWrapper)
+                return;
+
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (MarshallingHelpers.IsSwiftArray(arg.SwiftTypeSpec))
+                {
+                    var csName = NameProvider.GetCSharpParameterName(arg);
+                    csWriter.WriteLine($"Arc.Retain({csName}Buffer);");
+                }
+            }
+        }
+
+        /// <summary>
         /// Tries to emit parameter conversion via the projection factory.
         /// Returns true if the projection handled the parameter, false if fallback is needed.
         /// </summary>
@@ -814,32 +872,6 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 {
                     csWriter.WriteLine($"using PayloadBuffer<{typeRecord.CSharpTypeName}.Buffer> {csName}Disposable = {csName}.PayloadBuffer;");
-                }
-            }
-
-            // @_cdecl existential params: extract container, pin it, and pass pointer.
-            // ExistentialContainer1 is a 40-byte blittable struct. The Swift @_cdecl wrapper
-            // receives UnsafeRawPointer and does .load(as:). We must pass a pointer to the
-            // container data, not a ref parameter — Mono JIT crashes on ref for large structs
-            // through CallConvCdecl P/Invoke.
-            if (_env.MethodDecl.UsesCdeclWrapper)
-            {
-                foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
-                    .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
-                {
-                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
-                    if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
-                        continue;
-                    var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
-                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
-                    var csName = NameProvider.GetCSharpParameterName(arg);
-                    // GetOrCreate only works for single-protocol (EC1) interfaces.
-                    // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
-                    if (containerType == "Swift.Runtime.ExistentialContainer1" && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
-                        csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName});");
-                    else
-                        csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
-                    csWriter.WriteLine($"IntPtr {csName}Ptr = (IntPtr)Unsafe.AsPointer(ref {csName}Container);");
                 }
             }
 

@@ -48,7 +48,7 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info($"FeatureFlag underlying type: {underlyingType.Name}");
     }
 
-    [Skip("ABI JSON lacks enum raw values — generator emits sequential ordinals (0,1,2,3) instead of Swift values (0,1,2,4)")]
+    [Skip("Blocked: .swiftinterface strips integer raw values and ABI JSON lacks them — no source of truth for non-sequential values (execute=4 emitted as 3)")]
     public void TestPermissionCaseValues()
     {
         // NOTE: Swift declares none=0, read=1, write=2, execute=4 but the generator

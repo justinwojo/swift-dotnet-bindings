@@ -34,6 +34,17 @@ namespace BindingsGeneration
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
+        // Tracks existential container heap allocation variable names for cleanup in finally block.
+        // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
+        private readonly List<string> _existentialHeapNames = new();
+
+        /// <summary>
+        /// True when the method has @_cdecl existential parameters that require heap allocation.
+        /// Used by constructor and method paths to determine if try/finally cleanup is needed.
+        /// </summary>
+        private bool HasExistentialHeapAllocations =>
+            _env.MethodDecl.UsesCdeclWrapper &&
+            _env.MethodDecl.CSSignature.Skip(1).Any(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec));
 
         internal WrapperEmitter(
             MethodEnvironment methodEnv,
@@ -163,7 +174,7 @@ namespace BindingsGeneration
 
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
-            bool needsTryFinally = isGeneric || hasClosures;
+            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations;
 
             // Emit closure callbacks and error helper P/Invokes before constructor body
             EmitErrorHelperPInvokes(csWriter);
@@ -202,12 +213,14 @@ namespace BindingsGeneration
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
+            EmitExistentialContainerMarshalling(csWriter);
 
             if (isGeneric)
             {
                 EmitProtocolWitnessTables(csWriter);
             }
 
+            EmitArrayOwnershipRetain(csWriter);
             EmitPInvokeCall(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
@@ -235,7 +248,7 @@ namespace BindingsGeneration
         {
             bool isGeneric = _env.MethodDecl.IsGeneric;
             bool hasClosures = _env.MethodDecl.CSSignature.Skip(1).Any(_env.ClosureHandler.IsClosure);
-            bool needsTryFinally = isGeneric || hasClosures;
+            bool needsTryFinally = isGeneric || hasClosures || HasExistentialHeapAllocations;
 
             // Emit closure callbacks and error helper P/Invokes before constructor
             EmitErrorHelperPInvokes(csWriter);
@@ -262,6 +275,7 @@ namespace BindingsGeneration
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
+            EmitExistentialContainerMarshalling(csWriter);
 
             if (needsTryFinally)
             {
@@ -366,6 +380,7 @@ namespace BindingsGeneration
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
             EmitCdeclFrozenStructMarshalling(csWriter);
+            EmitExistentialContainerMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
             EmitPInvokeCall(csWriter);
@@ -390,6 +405,30 @@ namespace BindingsGeneration
         {
             foreach (var line in _syncPlan.DeclarationLines)
                 csWriter.WriteLine(line);
+            EmitExistentialHeapDeclarations(csWriter);
+        }
+
+        /// <summary>
+        /// Pre-computes existential container heap allocation variable names and emits
+        /// their declarations (void* = null) before the try block so they're accessible
+        /// in the finally block for cleanup.
+        /// </summary>
+        private void EmitExistentialHeapDeclarations(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return;
+
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
+                .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
+            {
+                var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
+                if (protocolList == null || !_env.ExistentialHandler.IsSupportedExistential(protocolList))
+                    continue;
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                var heapName = $"{csName}Heap";
+                _existentialHeapNames.Add(heapName);
+                csWriter.WriteLine($"void* {heapName} = null;");
+            }
         }
 
         /// <summary>
@@ -497,7 +536,19 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitSafeHandleRelease(csWriter);
             EmitCdeclIndirectResultCleanup(csWriter);
+            EmitExistentialContainerCleanup(csWriter);
             EmitBodyEnd(csWriter);
+        }
+
+        /// <summary>
+        /// Frees heap-allocated existential container memory in the finally block.
+        /// </summary>
+        private void EmitExistentialContainerCleanup(CSharpWriter csWriter)
+        {
+            foreach (var heapName in _existentialHeapNames)
+            {
+                csWriter.WriteLine($"NativeMemory.Free({heapName});");
+            }
         }
 
         /// <summary>
@@ -535,6 +586,10 @@ namespace BindingsGeneration
 
             // Indirect result buffer cleanup (NativeMemory.Free)
             if (!_env.MethodDecl.IsConstructor && _syncPlan?.IndirectResultMethod?.CleanupCode != null)
+                return true;
+
+            // Existential container heap allocations need cleanup
+            if (HasExistentialHeapAllocations)
                 return true;
 
             return false;

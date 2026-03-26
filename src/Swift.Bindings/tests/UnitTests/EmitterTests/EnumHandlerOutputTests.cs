@@ -3232,11 +3232,13 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // C# P/Invoke should use IntPtr (pointer to container via Unsafe.AsPointer)
+        // C# P/Invoke should use IntPtr (pointer to heap-allocated container)
         Assert.Contains("IntPtr value0", csOutput);
-        // C# body should extract container and create pointer
+        // C# body should extract container and heap-allocate for NativeAOT safety
         Assert.Contains("Container", csOutput);
-        Assert.Contains("Unsafe.AsPointer", csOutput);
+        Assert.Contains("NativeMemory.Alloc", csOutput);
+        Assert.Contains("Unsafe.Copy", csOutput);
+        Assert.Contains("NativeMemory.Free", csOutput);
     }
 
     [Fact]

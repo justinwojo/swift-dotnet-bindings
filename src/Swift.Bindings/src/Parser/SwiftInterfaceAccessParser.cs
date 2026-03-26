@@ -2106,7 +2106,9 @@ public static class SwiftInterfaceAccessParser
     /// Parses a .swiftinterface file and returns a dictionary mapping
     /// "TypeName.caseName" keys to string raw values.
     /// Only extracts string raw values (e.g., case get = "GET").
-    /// Integer raw values are already correctly inferred from case order.
+    /// Note: integer raw values are NOT present in .swiftinterface files —
+    /// the Swift compiler strips them. Non-sequential integer raw values
+    /// (e.g., case execute = 4) cannot be recovered from .swiftinterface or ABI JSON.
     /// </summary>
     public static Dictionary<string, string> GetEnumRawValues(string swiftInterfacePath)
     {

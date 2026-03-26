@@ -287,9 +287,42 @@ namespace BindingsGeneration
                     swiftWriter!, enumDecl, caseDecl, cdeclSymbol, wrapperEnv, emissionCtx);
             }
 
+            // Pre-scan for existential params: declare heap pointers before try so they're
+            // accessible in finally for cleanup (same pattern as WrapperEmitter)
+            var existentialHeapNames = new List<string>();
+            var existentialContainerTypes = new List<string>();
+            if (useCdeclWrapper)
+            {
+                var preScanHandler = new ExistentialHandler(typeDatabase);
+                for (int i = 0; i < parameters.Count; i++)
+                {
+                    var (_, _, name, typeSpec) = parameters[i];
+                    var bareName = NameProvider.StripVerbatimPrefix(name);
+                    if (preScanHandler.IsExistential(typeSpec))
+                    {
+                        var protocolList = preScanHandler.ToProtocolListTypeSpec(typeSpec);
+                        if (protocolList != null)
+                        {
+                            var heapName = $"{bareName}Heap";
+                            existentialHeapNames.Add(heapName);
+                            csWriter.WriteLine($"void* {heapName} = null;");
+                        }
+                    }
+                }
+            }
+
+            bool hasExistentialHeap = existentialHeapNames.Count > 0;
+            if (hasExistentialHeap)
+            {
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
+
             // @_cdecl wrappers need additional setup for existential and tuple params:
             // - Strings: handled above (UTF-8 encoding), no extra setup needed
-            // - Existentials: extract container into local for pass-by-ref (UnsafeRawPointer in Swift)
+            // - Existentials: extract container into local, heap-allocate for pass-by-pointer (UnsafeRawPointer in Swift)
+            int existentialIndex = 0;
             if (useCdeclWrapper)
             {
                 var existentialHandler = new ExistentialHandler(typeDatabase);
@@ -319,6 +352,11 @@ namespace BindingsGeneration
                                 // Unknown protocol: container is already the right type
                                 csWriter.WriteLine($"var {bareName}Container = {name};");
                             }
+                            // Heap-allocate the container to avoid NativeAOT stack reuse issues
+                            // (same fix as WrapperEmitter.EmitExistentialContainerMarshalling)
+                            var heapName = existentialHeapNames[existentialIndex++];
+                            csWriter.WriteLine($"{heapName} = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
+                            csWriter.WriteLine($"Unsafe.Copy({heapName}, ref {bareName}Container);");
                         }
                     }
                     else if (typeSpec is TupleTypeSpec)
@@ -388,8 +426,8 @@ namespace BindingsGeneration
                 }
                 else if (useCdeclWrapper && new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
                 {
-                    // @_cdecl: pass pointer to container (matches Swift's UnsafeRawPointer param)
-                    argList.Add($"(IntPtr)Unsafe.AsPointer(ref {bareName}Container)");
+                    // @_cdecl: pass heap-allocated pointer to container (matches Swift's UnsafeRawPointer param)
+                    argList.Add($"(IntPtr){bareName}Heap");
                 }
                 else if (useCdeclWrapper && IsCustomFrozenStructParam(typeSpec, typeDatabase))
                 {
@@ -469,6 +507,23 @@ namespace BindingsGeneration
 
             csWriter.WriteLine($"{resultVarName}._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
             csWriter.WriteLine($"return {resultVarName};");
+
+            // Close try/finally for existential heap cleanup
+            if (hasExistentialHeap)
+            {
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                foreach (var heapName in existentialHeapNames)
+                {
+                    csWriter.WriteLine($"if ({heapName} != null) NativeMemory.Free({heapName});");
+                }
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
@@ -493,7 +548,7 @@ namespace BindingsGeneration
                     }
                     else if (cdeclExistentialHandler.IsExistential(typeSpec))
                     {
-                        // Pass as IntPtr — call site uses (IntPtr)Unsafe.AsPointer(ref container)
+                        // Pass as IntPtr — call site uses heap-allocated container pointer
                         pInvokeParams.Add($"IntPtr {name}");
                     }
                     else if (typeSpec is TupleTypeSpec)
