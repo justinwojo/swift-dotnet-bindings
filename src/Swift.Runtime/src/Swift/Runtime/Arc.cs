@@ -131,6 +131,41 @@ public static class Arc
     }
 
     /// <summary>
+    /// Retains multiple heap-allocated Swift objects in a single batch.
+    /// Uses [SuppressGCTransition] per-call (validated safe for retain — leaf atomic increment).
+    /// </summary>
+    /// <param name="pointers">Span of non-null pointers to unmanaged Swift objects.</param>
+    /// <exception cref="ArgumentException">Throws if any pointer is null.</exception>
+    public static void RetainMultiple(ReadOnlySpan<IntPtr> pointers)
+    {
+        for (int i = 0; i < pointers.Length; i++)
+        {
+            if (pointers[i] == IntPtr.Zero)
+                throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
+            swift_retain(pointers[i]);
+        }
+    }
+
+    /// <summary>
+    /// Releases multiple heap-allocated Swift objects in a single batch.
+    /// Does NOT use [SuppressGCTransition] — deinit on final release can trigger managed callbacks.
+    /// </summary>
+    /// <param name="pointers">Span of non-null pointers to unmanaged Swift objects.</param>
+    /// <exception cref="ArgumentException">Throws if any pointer is null.</exception>
+    /// <exception cref="Exception">Throws if any pointer points to an object being deinitialized.</exception>
+    public static void ReleaseMultiple(ReadOnlySpan<IntPtr> pointers)
+    {
+        for (int i = 0; i < pointers.Length; i++)
+        {
+            if (pointers[i] == IntPtr.Zero)
+                throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
+            if (swift_isDeallocating(pointers[i]))
+                throw new Exception($"Attempt to release a Swift object at index {i} that has been deinitialized {pointers[i].ToString($"X{IntPtr.Size * 2}")}");
+            swift_release(pointers[i]);
+        }
+    }
+
+    /// <summary>
     /// Returns the retain count for the heap-allocated Swift object.
     /// </summary>
     /// <param name="p">Pointer to an unmanaged Swift object, must be non-null.</param>

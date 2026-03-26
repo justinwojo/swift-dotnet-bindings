@@ -285,6 +285,44 @@
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4b: Surface binding report skip counts as MSBuild warnings      -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ReportSwiftBindingCoverage"
+          AfterTargets="_ImportSwiftBindingMetadata"
+          Condition="Exists('$(_SwiftBindingIntermediateDir)binding-report.json')">
+
+    <!-- Parse skip counts from the JSON report.
+         The report is always pretty-printed (Newtonsoft Formatting.Indented),
+         so each key-value pair is on its own line. awk extracts the numeric
+         value via field splitting + numeric coercion ($2+0 strips trailing comma).
+         Fallback to 0 if the key is absent. -->
+    <Exec Command="awk '/&quot;SkippedTypes&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingSkippedTypes" />
+    </Exec>
+    <Exec Command="awk '/&quot;TotalTypes&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingTotalTypes" />
+    </Exec>
+    <Exec Command="awk '/&quot;SkippedMembers&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingSkippedMembers" />
+    </Exec>
+    <Exec Command="awk '/&quot;TotalMembers&quot;:/{print $2+0}' &quot;$(_SwiftBindingIntermediateDir)binding-report.json&quot; || echo 0"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingTotalMembers" />
+    </Exec>
+
+    <Warning Condition="'$(_SwiftBindingSkippedTypes)' != '0'"
+             Code="SWIFTBIND060"
+             Text="$(_SwiftBindingSkippedTypes) of $(_SwiftBindingTotalTypes) Swift types were skipped during binding generation. See binding-report.json for details and workaround suggestions." />
+
+    <Warning Condition="'$(_SwiftBindingSkippedMembers)' != '0'"
+             Code="SWIFTBIND061"
+             Text="$(_SwiftBindingSkippedMembers) of $(_SwiftBindingTotalMembers) Swift members were skipped during binding generation. See binding-report.json for per-item skip reasons." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 4a: Validate wrapper compilation result                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftWrapperCompilation"

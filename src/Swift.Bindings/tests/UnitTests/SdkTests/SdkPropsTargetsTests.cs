@@ -237,6 +237,7 @@ namespace BindingsGeneration.Tests
                 "_ValidateSwiftBindingPackSlices",
                 "_ConfigureSwiftBindingPack",
                 "GetSwiftFrameworkSearchPaths",
+                "_ReportSwiftBindingCoverage",
                 "_CompileSwiftWrapper",
                 "_UpdateSwiftWrapperMetadata",
             };
@@ -294,6 +295,28 @@ namespace BindingsGeneration.Tests
         {
             Assert.Contains("SWIFTBIND010", TargetsContent);
             Assert.Contains("Unsupported TargetFramework", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind060WarningCode()
+        {
+            Assert.Contains("SWIFTBIND060", TargetsContent);
+            Assert.Contains("types were skipped", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind061WarningCode()
+        {
+            Assert.Contains("SWIFTBIND061", TargetsContent);
+            Assert.Contains("members were skipped", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_ReportCoverageTarget_ReadsBindingReportJson()
+        {
+            Assert.Contains("binding-report.json", TargetsContent);
+            Assert.Contains("_SwiftBindingSkippedTypes", TargetsContent);
+            Assert.Contains("_SwiftBindingSkippedMembers", TargetsContent);
         }
 
         [Fact]
