@@ -168,6 +168,25 @@ public func callWithOptionalDouble(_ callback: @escaping (Double?) -> Double) ->
     return callback(3.14)
 }
 
+// MARK: - Closure with Existential Array Parameter (Swinject Container pattern)
+// Regression test: SwiftArray<ExistentialContainer1> type init must not throw
+// TypeInitializationException when NativeAotInitialize() fails for existential types.
+
+/// Class with init taking a closure alongside an existential array parameter.
+/// Mirrors Swinject Container(behaviors: [any Behavior], registerClosure: ...) pattern.
+public class ClosureWithExistentialArray {
+    private let modes: [any ProcessingMode]
+    private let transformResult: Int32
+
+    public init(modes: [any ProcessingMode], transform: @escaping (Int32) -> Int32) {
+        self.modes = modes
+        self.transformResult = transform(Int32(modes.count))
+    }
+
+    public func getModeCount() -> Int32 { Int32(modes.count) }
+    public func getTransformResult() -> Int32 { transformResult }
+}
+
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.

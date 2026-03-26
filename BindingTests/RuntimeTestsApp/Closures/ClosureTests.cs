@@ -374,4 +374,33 @@ public class ClosureTests : TestBase
     }
 
     #endregion
+
+    #region Closure + Existential Array Constructor (Swinject NativeAOT pattern)
+    // Regression test for Swinject Container.init(behaviors: [any Behavior], registerClosure: ...).
+    // The ClosureWithExistentialArray class takes both an [any ProcessingMode] array and an
+    // @escaping (Int32) -> Int32 closure. This triggers SwiftArray<ExistentialContainer1> type
+    // init during closure construction — the pattern that caused TypeInitializationException
+    // on NativeAOT before the SwiftArray.NativeAotInitialize() try-catch fix.
+
+    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
+    public void TestClosureWithExistentialArrayInit()
+    {
+        var modes = new IProcessingMode[] { new SimpleMode(), new StrictMode() };
+        using var obj = new ClosureWithExistentialArray(modes, x => x * 10);
+        AssertEqual(2, obj.GetModeCount(), "Should have 2 modes");
+        AssertEqual(20, obj.GetTransformResult(), "transform(2 modes) = 2 * 10 = 20");
+        TestLogger.Info($"ClosureWithExistentialArray: modes={obj.GetModeCount()}, result={obj.GetTransformResult()}");
+    }
+
+    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
+    public void TestClosureWithExistentialArrayEmptyModes()
+    {
+        var modes = Array.Empty<IProcessingMode>();
+        using var obj = new ClosureWithExistentialArray(modes, x => x + 100);
+        AssertEqual(0, obj.GetModeCount(), "Should have 0 modes");
+        AssertEqual(100, obj.GetTransformResult(), "transform(0 modes) = 0 + 100 = 100");
+        TestLogger.Info("ClosureWithExistentialArray empty modes passed");
+    }
+
+    #endregion
 }

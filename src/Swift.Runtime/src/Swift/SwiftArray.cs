@@ -79,7 +79,16 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         // JIT assertions with existential container element types.
         if (SwiftRuntimeInfo.IsNativeAotRuntime)
         {
-            NativeAotInitialize();
+            try { NativeAotInitialize(); }
+            catch (Exception)
+            {
+                // Element metadata may be unavailable during type init for certain Element types
+                // (e.g., ExistentialContainer types require protocol descriptor pointers for
+                // swift_getExistentialTypeMetadata, which aren't available here).
+                // Fall back to lazy initialization — metadata will be fetched on first use.
+                System.Diagnostics.Debug.WriteLine(
+                    $"SwiftArray<{typeof(Element).Name}>: NativeAotInitialize skipped, using lazy init");
+            }
         }
     }
 

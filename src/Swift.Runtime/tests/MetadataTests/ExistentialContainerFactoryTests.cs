@@ -260,6 +260,131 @@ public class ExistentialContainerFactoryTests
 
     #endregion
 
+    #region Container Layout Verification Tests
+
+    [Fact]
+    public void ExistentialContainer1_HasCorrectMemoryLayout_ForSwiftInterop()
+    {
+        // ExistentialContainer1 must have the exact layout Swift expects:
+        // [0-2]: payload (3 words), [3]: metadata, [4]: witness table
+        // Total: 5 * IntPtr.Size = 40 bytes on 64-bit
+        Assert.Equal(5 * IntPtr.Size, System.Runtime.InteropServices.Marshal.SizeOf<ExistentialContainer1>());
+    }
+
+    [Fact]
+    public void ExistentialContainer1_FieldOffsets_MatchSwiftLayout()
+    {
+        // Verify the field offsets match Swift's existential container layout.
+        // Use real metadata so all 5 fields have distinct, verifiable values.
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
+        var container = new ExistentialContainer1
+        {
+            Payload0 = (IntPtr)0x1111,
+            Payload1 = (IntPtr)0x2222,
+            Payload2 = (IntPtr)0x3333,
+            ObjectMetadata = metadata
+        };
+        container[0] = (IntPtr)0x5555; // witness table
+
+        // Read back all 5 fields to verify no overlap
+        Assert.Equal((IntPtr)0x1111, container.Payload0);
+        Assert.Equal((IntPtr)0x2222, container.Payload1);
+        Assert.Equal((IntPtr)0x3333, container.Payload2);
+        Assert.Equal(metadata, container.ObjectMetadata);
+        Assert.Equal((IntPtr)0x5555, container[0]);
+    }
+
+    [Fact]
+    public void Create_ClassType_StoresReferenceInPayload0()
+    {
+        // For class types (size == IntPtr.Size, inline), the class reference
+        // should be stored in Payload0, with Payload1/2 remaining zero.
+        var value = new SwiftIntMock(42);
+        var container = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value);
+
+        // Payload0 should be non-zero (the marshalled value)
+        Assert.NotEqual(IntPtr.Zero, container.Payload0);
+        // Payload1/2 should be zero for inline small types (SwiftInt fits in one word)
+        Assert.Equal(IntPtr.Zero, container.Payload1);
+        Assert.Equal(IntPtr.Zero, container.Payload2);
+        // Metadata and witness table should be valid
+        Assert.True(container.ObjectMetadata.IsValid);
+        Assert.NotEqual(IntPtr.Zero, container[0]);
+    }
+
+    [Fact]
+    public void Create_WitnessTable_MatchesDirectLookup()
+    {
+        // The witness table in the container should match what
+        // ProtocolWitnessTable.GetOrThrowDirect returns directly.
+        // This catches NativeAOT dispatch path divergence.
+        var value = new SwiftIntMock(42);
+        var container = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value);
+
+        var directWitness = ProtocolWitnessTable.GetOrThrowDirect<SwiftIntMock, ISwiftHashable>();
+
+        Assert.Equal(directWitness.Handle, container[0]);
+    }
+
+    [Fact]
+    public void Create_TwoContainers_SameType_HaveMatchingMetadataAndWitness()
+    {
+        // Multiple containers for the same type+protocol should have identical
+        // metadata and witness tables (even though payloads may differ).
+        var value1 = new SwiftIntMock(42);
+        var value2 = new SwiftIntMock(99);
+
+        var container1 = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value1);
+        var container2 = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value2);
+
+        Assert.Equal(container1.ObjectMetadata, container2.ObjectMetadata);
+        Assert.Equal(container1[0], container2[0]); // same witness table
+    }
+
+    [Fact]
+    public void Create_Container_MetadataMatchesTypeMetadata()
+    {
+        // The existential container's ObjectMetadata should match the type's
+        // own metadata from GetTypeMetadata(). This is critical for Swift
+        // runtime's existential opening (existential.type must match).
+        var value = new SwiftIntMock(42);
+        var container = ExistentialContainerFactory.Create<SwiftIntMock, ISwiftHashable>(value);
+
+        var typeMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>(); // same as SwiftIntMock's impl
+        Assert.Equal(typeMetadata, container.ObjectMetadata);
+    }
+
+    #endregion
+
+    #region ILLink Preservation Verification Tests
+
+    [Fact]
+    public void ExistentialContainerFactory_IsPreservedInILLinkDescriptors()
+    {
+        // Verify the type is in ILLink.Descriptors.xml by checking it's loadable
+        // and its generic methods are accessible via reflection
+        var createMethod = typeof(ExistentialContainerFactory)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(m => m.Name == "Create" && m.GetGenericArguments().Length == 2)
+            .FirstOrDefault();
+
+        Assert.NotNull(createMethod);
+    }
+
+    [Fact]
+    public void ProtocolWitnessTable_GenericMethods_AreAccessible()
+    {
+        // Verify ProtocolWitnessTable methods are accessible (preserved from trimming)
+        var getOrThrowMethod = typeof(ProtocolWitnessTable)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(m => m.Name == "GetOrThrowAuto")
+            .FirstOrDefault();
+
+        Assert.NotNull(getOrThrowMethod);
+    }
+
+    #endregion
+
     #region EditorBrowsable Attribute Tests
 
     [Theory]

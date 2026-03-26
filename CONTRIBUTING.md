@@ -20,9 +20,9 @@ xcframework (dylib + ABI JSON + TBD + swiftinterface)
 
 **TypeDatabase** is the central type registry. Every Swift type discovered by the parser is registered here with its full metadata — kind, generic parameters, conformances, and relationships.
 
-**Marshaler** decides how each Swift type maps to C#: which calling convention to use (CallConvSwift for direct calls, CallConvCdecl for @_cdecl wrappers), whether a type needs a Swift wrapper function, and how parameters/returns are marshalled across the interop boundary.
+**Marshaler** decides how each Swift type maps to C#: which calling convention to use (CallConvCdecl for @_cdecl wrappers and native ARM64 thunks, CallConvSwift for the small number of direct calls), whether a type needs a Swift wrapper function, and how parameters/returns are marshalled across the interop boundary.
 
-**Emitter** generates the final output: C# source files with P/Invoke declarations and managed wrappers, Swift @_cdecl wrapper functions (when the Swift calling convention can't be called directly), and a consumer `.targets` file for MSBuild integration.
+**Emitter** generates the final output: C# source files with P/Invoke declarations and managed wrappers, Swift @_cdecl wrapper functions (for non-blittable types, closures, and async), native ARM64 assembly thunks (for synchronous blittable methods), and a consumer `.targets` file for MSBuild integration.
 
 **Runtime** (`Swift.Runtime`) provides the .NET-side infrastructure: `SwiftString` and `SwiftArray` for collection interop, `SafeHandle`-based classes for deterministic ARC bridging, and module initializers for dynamic library resolution.
 

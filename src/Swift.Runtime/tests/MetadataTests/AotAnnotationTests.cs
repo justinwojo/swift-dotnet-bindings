@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
@@ -71,6 +72,28 @@ public class AotAnnotationTests
         var attr = method.GetCustomAttribute<DllImportAttribute>();
         Assert.NotNull(attr);
         Assert.Equal(CallingConvention.Cdecl, attr!.CallingConvention);
+    }
+
+    #endregion
+
+    #region ILLink.Descriptors.xml preserves closure infrastructure
+
+    [Fact]
+    public void ILLinkDescriptors_PreservesSwiftClosureMarshaller()
+    {
+        // ILLink.Descriptors.xml must preserve SwiftClosureMarshaller for NativeAOT.
+        // Generated closure callbacks call GetDelegateFromContext<T> which would be
+        // trimmed without the descriptor entry.
+        var assembly = typeof(Swift.Runtime.SwiftClosureMarshaller).Assembly;
+        var resourceNames = assembly.GetManifestResourceNames();
+        var descriptorName = resourceNames.FirstOrDefault(n => n.Contains("ILLink.Descriptors"));
+        Assert.NotNull(descriptorName);
+
+        using var stream = assembly.GetManifestResourceStream(descriptorName!);
+        Assert.NotNull(stream);
+        using var reader = new System.IO.StreamReader(stream!);
+        var content = reader.ReadToEnd();
+        Assert.Contains("SwiftClosureMarshaller", content);
     }
 
     #endregion

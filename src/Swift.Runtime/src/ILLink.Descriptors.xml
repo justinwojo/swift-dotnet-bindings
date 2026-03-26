@@ -27,8 +27,16 @@
     <type fullname="Swift.Runtime.ExistentialContainer6" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer7" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer8" preserve="methods" />
+    <!-- Existential container factory: generic Create/GetOrCreate methods used by
+         generated BoxAsExistential1<TProtocol>() calls through IExistentialBoxable -->
+    <type fullname="Swift.Runtime.ExistentialContainerFactory" preserve="methods" />
+    <!-- Protocol conformance resolution: witness table lookup via swift_getWitnessTable -->
+    <type fullname="Swift.Runtime.ProtocolWitnessTable" preserve="methods" />
+    <type fullname="Swift.Runtime.ProtocolConformanceDescriptor" preserve="methods" />
     <!-- Infrastructure types used by reflection-based marshalling -->
     <type fullname="Swift.Runtime.InteropServices.NewFromPayloadDispatcher" preserve="methods" />
     <type fullname="Swift.Runtime.SwiftObjectReflectionHelper" preserve="methods" />
+    <!-- Closure callback support: generated callbacks call GetDelegateFromContext<T> -->
+    <type fullname="Swift.Runtime.SwiftClosureMarshaller" preserve="methods" />
   </assembly>
 </linker>

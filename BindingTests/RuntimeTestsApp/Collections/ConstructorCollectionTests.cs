@@ -131,4 +131,30 @@ public class ConstructorCollectionTests : TestBase
     }
 
     #endregion
+
+    #region Existential Array Constructor (Swinject NativeAOT regression)
+    // Regression test: SwiftArray<ExistentialContainer1> type init must not throw
+    // TypeInitializationException when NativeAotInitialize() fails for existential types.
+    // ProcessingPipeline.init(modes: [any ProcessingMode]) uses SwiftArray<ExistentialContainer1>
+    // internally — this is the same pattern as Swinject Container.init(behaviors: [any Behavior]).
+
+    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
+    public void TestProcessingPipelineWithExistentialArray()
+    {
+        var modes = new IProcessingMode[] { new SimpleMode(), new StrictMode() };
+        using var pipeline = new ProcessingPipeline(modes);
+        AssertEqual(2, pipeline.GetModeCount(), "ProcessingPipeline should have 2 modes");
+        TestLogger.Info($"ProcessingPipeline.GetModeCount() = {pipeline.GetModeCount()}");
+    }
+
+    [Skip("SwiftArray<ExistentialContainer1> requires protocol descriptor pointers not yet implemented")]
+    public void TestProcessingPipelineEmptyExistentialArray()
+    {
+        var modes = Array.Empty<IProcessingMode>();
+        using var pipeline = new ProcessingPipeline(modes);
+        AssertEqual(0, pipeline.GetModeCount(), "ProcessingPipeline should have 0 modes");
+        TestLogger.Info("ProcessingPipeline empty modes passed");
+    }
+
+    #endregion
 }

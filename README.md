@@ -53,7 +53,7 @@ Swift Bindings approach (both):
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **700+ commits and ~300K net new lines of code (7x the original codebase)**. That breaks down to ~125K lines of production code (generator, runtime, SDK) backed by ~175K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (89 framework targets — 55 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
+Since forking, this project has grown from a proof-of-concept into a comprehensive binding generator — **700+ commits and ~300K net new lines of code (7x the original codebase)**. That breaks down to ~125K lines of production code (generator, runtime, SDK) backed by ~175K lines of tests across 7,000+ test cases. The generator now supports protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more — validated against 46 real-world libraries (90 framework targets — 56 Swift, 34 ObjC), with select libraries tested end-to-end on .NET apps running on iOS and macOS.
 
 ---
 
@@ -243,7 +243,7 @@ Full documentation is available on the **[project wiki](https://github.com/justi
 
 ## Known Limitations
 
-Swift Bindings targets .NET 10 on Apple platforms, which currently uses the Mono runtime. Mono's JIT compiler has a known defect that causes crashes with `CallConvSwift` in certain P/Invoke frame types. **This only affects Mono JIT builds (iOS/tvOS Simulator)** — device builds use NativeAOT and macOS native builds are unaffected. Four transparent workarounds are built into the generator and runtime — generated bindings work correctly without manual intervention.
+Swift Bindings targets .NET 10 on Apple platforms. ~96% of generated P/Invokes use `CallConvCdecl` — either through @_cdecl Swift wrappers (~79%) or native ARM64 thunks (~17%) — and work identically on both the Mono runtime (iOS/tvOS Simulator) and NativeAOT (device builds). The remaining ~4% use direct `CallConvSwift`, which may encounter Mono JIT limitations in certain P/Invoke frame types. **This only affects Mono JIT builds (iOS/tvOS Simulator)** — device builds use NativeAOT and macOS native builds are unaffected. The few methods that can't receive wrappers or thunks are annotated with `SB0001` warnings, auto-suppressed in NativeAOT builds.
 
 For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
@@ -251,7 +251,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (89 framework targets — 55 Swift, 34 ObjC) and tested with **7,000+ unit tests** and **700+ runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — validated against 46 libraries (90 framework targets — 56 Swift, 34 ObjC) and tested with **7,000+ unit tests** and **1,000+ runtime tests** on iOS Simulator and macOS. Multi-platform support (iOS, macOS, Mac Catalyst, tvOS) is built into the generator, SDK, and runtime.
 
 ---
 
