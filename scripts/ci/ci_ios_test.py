@@ -92,7 +92,7 @@ def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
         cwd=app_dir,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=420,
     )
 
     if result.returncode != 0:
@@ -148,8 +148,8 @@ def run_tests(
 
     # First attempt: generous timeout (build + test).
     # Retry overhead depends on whether the previous build completed.
-    FIRST_ATTEMPT_OVERHEAD = 300  # seconds for wrapper+bridge+app build
-    RETRY_OVERHEAD_CLEAN = 300    # full rebuild if build was interrupted
+    FIRST_ATTEMPT_OVERHEAD = 480  # seconds for wrapper+bridge+app build (CI dotnet build can take 4+ min)
+    RETRY_OVERHEAD_CLEAN = 480    # full rebuild if build was interrupted
     RETRY_OVERHEAD_CACHED = 120   # incremental rebuild if build completed
     APP_BUNDLE_ID = "com.swiftbindings.runtimetestsapp"
     last_output = ""  # Track output from previous attempt for smart cleanup
@@ -377,7 +377,7 @@ def run_pipeline(
                         errors = []
                         for name, future in [("simulator", sim_future), ("build", build_future)]:
                             try:
-                                result = future.result(timeout=360)
+                                result = future.result(timeout=480)
                                 if name == "simulator":
                                     created_udid = result
                                     device_udid = result
