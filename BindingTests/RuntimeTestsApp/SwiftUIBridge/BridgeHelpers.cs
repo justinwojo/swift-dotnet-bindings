@@ -173,6 +173,78 @@ internal static class OptionalClosureState
     }
 }
 
+internal static class LifecycleCallbackState
+{
+    internal static volatile int AppearCount;
+    internal static volatile int DisappearCount;
+
+    internal static void Reset()
+    {
+        AppearCount = 0;
+        DisappearCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnAppearCallback(IntPtr userData)
+    {
+        Interlocked.Increment(ref AppearCount);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnDisappearCallback(IntPtr userData)
+    {
+        Interlocked.Increment(ref DisappearCount);
+    }
+}
+
+internal static class StringReturnCallbackState
+{
+    internal static volatile int CallCount;
+    internal static volatile int LastArg;
+
+    internal static void Reset()
+    {
+        CallCount = 0;
+        LastArg = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static unsafe IntPtr TransformerCallback(int arg, IntPtr retLenPtr, IntPtr userData)
+    {
+        LastArg = arg;
+        Interlocked.Increment(ref CallCount);
+
+        var result = $"value_{arg}";
+        var bytes = Encoding.UTF8.GetBytes(result);
+        var nativePtr = (byte*)NativeMemory.Alloc((nuint)bytes.Length);
+        bytes.CopyTo(new Span<byte>(nativePtr, bytes.Length));
+        *(nint*)retLenPtr = bytes.Length;
+        return (IntPtr)nativePtr;
+    }
+}
+
+internal static class ClassReturnCallbackState
+{
+    internal static volatile int CallCount;
+    internal static volatile int LastArg;
+
+    internal static void Reset()
+    {
+        CallCount = 0;
+        LastArg = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static IntPtr FactoryCallback(int arg, IntPtr userData)
+    {
+        LastArg = arg;
+        Interlocked.Increment(ref CallCount);
+        // Create a SimpleModel with value = arg * 10 and return retained pointer.
+        // SBW_TEST_CreateSimpleModel does not use SBW_onMainThread, so safe to call from callback.
+        return BridgeTestHelpers.CreateSimpleModel(arg * 10);
+    }
+}
+
 internal static class AsyncCallbackState
 {
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

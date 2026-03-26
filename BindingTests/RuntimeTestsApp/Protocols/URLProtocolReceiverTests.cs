@@ -20,7 +20,7 @@ public class URLProtocolReceiverTests : TestBase
     /// Tests round-trip: Swift passes URL to C# protocol impl, C# returns a URL back to Swift.
     /// Both parameter and return directions must correctly marshal through ObjC pointers.
     /// </summary>
-    [Skip("Protocol proxy ObjC bridge: URL struct → NSURL pointer marshalling mismatch in EveryProtocol vtable callback")]
+    [Skip("Protocol proxy ObjC bridge: Swift passes _SwiftURL (not NSURL) — GetNSObject<NSUrl> fails because _SwiftURL isn't registered with .NET's ObjC registrar")]
     public void TestURLProtocolRoundTrip()
     {
         var impl = new TestURLProcessor();

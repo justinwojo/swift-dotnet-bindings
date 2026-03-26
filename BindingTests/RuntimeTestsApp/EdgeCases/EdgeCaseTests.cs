@@ -74,26 +74,27 @@ public class EdgeCaseTests : TestBase
 
     #region Deprecation
 
-    [Skip("DeprecationTest type not generated in current bindings")]
     public void TestDeprecationTestNormalMethod()
     {
-        // DeprecationTest — not emitted by generator
+        using var dt = new DeprecationTest(10);
+        AssertEqual(10, dt.GetNormalMethod(), "NormalMethod returns value");
     }
 
     #endregion
 
-    #region Unicode (Skipped)
+    #region Unicode
 
-    [Skip("Unicode identifiers need emitter verification")]
     public void TestUnicodeStructCreation()
     {
-        // Café struct with Unicode name — needs emitter verification
+        using var café = new Café("TestCafe", 5);
+        AssertEqual(5, café.Rating, "Rating preserved for unicode-named struct");
     }
 
-    [Skip("Unicode identifiers need emitter verification")]
     public void TestUnicodeFunctionCall()
     {
-        // greetCafé function — needs emitter verification
+        using var café = new Café("TestCafe", 5);
+        var greeting = TestLibFunctions.GreetCafé(café);
+        AssertTrue(greeting.Contains("TestCafe"), "greetCafé returns greeting containing name");
     }
 
     #endregion

@@ -67,6 +67,25 @@ public class DependencyService {
     }
 }
 
+/// Enum from the dependency module.
+/// Used for cross-module enum parameter/return testing.
+@frozen
+public enum DependencyStatus: Int32 {
+    case unknown = 0
+    case pending = 1
+    case active = 2
+    case inactive = 3
+
+    public var label: String {
+        switch self {
+        case .unknown: return "Unknown"
+        case .pending: return "Pending"
+        case .active: return "Active"
+        case .inactive: return "Inactive"
+        }
+    }
+}
+
 // MARK: - Free Functions
 
 /// Creates a DependencyPoint.

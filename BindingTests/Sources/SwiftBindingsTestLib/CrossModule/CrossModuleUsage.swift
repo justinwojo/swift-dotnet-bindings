@@ -52,6 +52,112 @@ public func describeLocalConformant(_ conformant: some DependencyProtocol) -> St
     return conformant.describe()
 }
 
+// MARK: - Cross-Module Property Type (Part B-1)
+
+/// Struct with a cross-module type as a stored property.
+/// Tests that cross-module type references work in property positions.
+public struct AnnotatedLocation {
+    public var label: String
+    public var point: DependencyPoint
+
+    public init(label: String, point: DependencyPoint) {
+        self.label = label
+        self.point = point
+    }
+
+    public func summary() -> String {
+        return "\(label): (\(point.x), \(point.y))"
+    }
+}
+
+/// Factory for AnnotatedLocation.
+public func makeAnnotatedLocation(label: String, x: Double, y: Double) -> AnnotatedLocation {
+    return AnnotatedLocation(label: label, point: DependencyPoint(x: x, y: y))
+}
+
+/// Reads the point from an AnnotatedLocation (tests property getter round-trip).
+public func getLocationPoint(_ location: AnnotatedLocation) -> DependencyPoint {
+    return location.point
+}
+
+// MARK: - Cross-Module Collection (Part B-2)
+
+/// Takes an array of DependencyPoints and returns the sum point.
+/// Tests cross-module types in collection parameters and returns.
+public func sumDependencyPoints(_ points: [DependencyPoint]) -> DependencyPoint {
+    var totalX = 0.0
+    var totalY = 0.0
+    for p in points {
+        totalX += p.x
+        totalY += p.y
+    }
+    return DependencyPoint(x: totalX, y: totalY)
+}
+
+/// Returns an array of DependencyPoints (tests collection return with cross-module element).
+public func makeDependencyPointGrid(rows: Int32, cols: Int32) -> [DependencyPoint] {
+    var result: [DependencyPoint] = []
+    for r in 0..<rows {
+        for c in 0..<cols {
+            result.append(DependencyPoint(x: Double(c), y: Double(r)))
+        }
+    }
+    return result
+}
+
+// MARK: - Cross-Module Enum Usage (Part B-3)
+
+/// Uses DependencyStatus enum from the dependency module as parameter and return.
+public func promoteDependencyStatus(_ status: DependencyStatus) -> DependencyStatus {
+    switch status {
+    case .unknown: return .pending
+    case .pending: return .active
+    case .active: return .active  // already at max
+    case .inactive: return .pending
+    @unknown default: return .unknown
+    }
+}
+
+/// Returns the label for a DependencyStatus (tests enum property access cross-module).
+public func describeDependencyStatus(_ status: DependencyStatus) -> String {
+    return "Status: \(status.label)"
+}
+
+// MARK: - Cross-Module Closure (Part B-4)
+
+/// Takes a closure that receives a DependencyPoint.
+/// Tests cross-module types as closure parameters.
+public func applyToDependencyPoint(x: Double, y: Double, action: (DependencyPoint) -> Void) {
+    let point = DependencyPoint(x: x, y: y)
+    action(point)
+}
+
+/// Takes a closure that transforms a DependencyPoint and returns the result.
+public func mapDependencyPoint(_ point: DependencyPoint, transform: (DependencyPoint) -> DependencyPoint) -> DependencyPoint {
+    return transform(point)
+}
+
+// MARK: - Cross-Module Extension (Part B-5)
+
+/// Extension on DependencyPoint defined in the main library.
+/// Tests cross-module protocol extension pattern.
+extension DependencyPoint {
+    /// Scales both coordinates by the given factor.
+    public func scaled(by factor: Double) -> DependencyPoint {
+        return DependencyPoint(x: self.x * factor, y: self.y * factor)
+    }
+
+    /// Returns the Manhattan distance from origin.
+    public var manhattanDistance: Double {
+        return abs(x) + abs(y)
+    }
+}
+
+/// Free function that uses the extension method.
+public func scaleDependencyPoint(_ point: DependencyPoint, factor: Double) -> DependencyPoint {
+    return point.scaled(by: factor)
+}
+
 // NOTE: Module name = type name collision (Reachability pattern) is tested
 // through validation libraries. Swift issue #56573 prevents including this
 // pattern in a library-evolution-enabled module used as a build dependency.

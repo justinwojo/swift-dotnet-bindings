@@ -296,7 +296,7 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("Generic free function with 2 type params: generator emits CallConvSwift fallback (SB0001) — concrete @_cdecl specialization not yet generated for multi-param generics")]
+    [SkipOnSimulator("CallConvSwift with 2 generic type params (5 args: IndirectResult + 2 values + 2 TypeMetadata) crashes Mono JIT — identity<T> (3 args) works fine")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);

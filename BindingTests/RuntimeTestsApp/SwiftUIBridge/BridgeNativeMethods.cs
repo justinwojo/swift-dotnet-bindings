@@ -269,6 +269,139 @@ internal static class BridgeNativeMethods
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedAsyncView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void MixedAsyncView_Free(IntPtr handle);
+
+    // --- Universal Modifiers (using EnumParamView as test vehicle) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetFrame")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetFrame(IntPtr handle, int hasWidth, double width, int hasHeight, double height);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetPadding")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetPadding(IntPtr handle, int hasValue, double value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetBackground")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetBackground(IntPtr handle, int hasValue, double r, double g, double b, double a);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetForegroundColor")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetForegroundColor(IntPtr handle, int hasValue, double r, double g, double b, double a);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetCornerRadius")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetCornerRadius(IntPtr handle, int hasValue, double value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetOpacity")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetOpacity(IntPtr handle, int hasValue, double value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetFont")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetFont(IntPtr handle, int hasValue, double size);
+
+    // --- Lifecycle (using EnumParamView as test vehicle) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetLifecycle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void EnumParamView_SetLifecycle(IntPtr handle, IntPtr onAppearCb, IntPtr onAppearUd, IntPtr onDisappearCb, IntPtr onDisappearUd);
+
+    // --- LifecycleTestView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr LifecycleTestView_Create(IntPtr titlePtr, nint titleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr LifecycleTestView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void LifecycleTestView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_SetLifecycle")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void LifecycleTestView_SetLifecycle(IntPtr handle, IntPtr onAppearCb, IntPtr onAppearUd, IntPtr onDisappearCb, IntPtr onDisappearUd);
+
+    // --- StringReturnClosureView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringReturnClosureView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr StringReturnClosureView_Create(IntPtr transformerCallback, IntPtr transformerUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringReturnClosureView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr StringReturnClosureView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringReturnClosureView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void StringReturnClosureView_Free(IntPtr handle);
+
+    // --- ClassReturnClosureView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassReturnClosureView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ClassReturnClosureView_Create(IntPtr factoryCallback, IntPtr factoryUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassReturnClosureView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ClassReturnClosureView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassReturnClosureView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ClassReturnClosureView_Free(IntPtr handle);
+
+    // --- ModifiableView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ModifiableView_Create(IntPtr titlePtr, nint titleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ModifiableView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ModifiableView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_SetHighlighted")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ModifiableView_SetHighlighted(IntPtr handle, int enabled);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_SetOpacity")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ModifiableView_SetOpacity(IntPtr handle, int hasValue, double value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_SetEnabled")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ModifiableView_SetEnabled(IntPtr handle, int hasValue, int value);
+
+    // --- GenericPlaceholderView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_GenericPlaceholderView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr GenericPlaceholderView_Create(IntPtr titlePtr, nint titleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_GenericPlaceholderView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr GenericPlaceholderView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_GenericPlaceholderView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void GenericPlaceholderView_Free(IntPtr handle);
+
+    // --- PlaceholderOnlyView ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr PlaceholderOnlyView_Create();
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlaceholderOnlyView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr PlaceholderOnlyView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void PlaceholderOnlyView_Free(IntPtr handle);
+
+    // --- ClassParamView UpdateModel ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassParamView_UpdateModel")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ClassParamView_UpdateModel(IntPtr handle, IntPtr newValue);
 }
 
 #endregion
@@ -401,6 +534,44 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableMixedView_FireOnTap")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int UpdatableMixedView_FireOnTap(IntPtr handle);
+
+    // GenericPlaceholderView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_GenericPlaceholderView_GetTitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int GenericPlaceholderView_GetTitleLength(IntPtr handle);
+
+    // PlaceholderOnlyView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_PlaceholderOnlyView_IsAlive")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int PlaceholderOnlyView_IsAlive(IntPtr handle);
+
+    // StringReturnClosureView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_StringReturnClosureView_InvokeTransformer")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int StringReturnClosureView_InvokeTransformer(IntPtr handle, int value);
+
+    // ClassReturnClosureView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ClassReturnClosureView_InvokeFactory")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ClassReturnClosureView_InvokeFactory(IntPtr handle, int value);
+
+    // ModifiableView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ModifiableView_GetHighlighted")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ModifiableView_GetHighlighted(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ModifiableView_GetModEnabled")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ModifiableView_GetModEnabled(IntPtr handle);
+
+    // LifecycleTestView (Session 7)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_LifecycleTestView_FireOnAppear")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int LifecycleTestView_FireOnAppear(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_LifecycleTestView_FireOnDisappear")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int LifecycleTestView_FireOnDisappear(IntPtr handle);
 }
 
 #endregion

@@ -330,6 +330,101 @@ public func SBW_TEST_MixedStringView_InvokeClosure(_ handle: UnsafeMutableRawPoi
     }
 }
 
+// MARK: - StringReturnClosureView helpers (always-wrapper, closure on Wrapper)
+
+extension SBW_SwiftBindingsTestLib_StringReturnClosureView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_StringReturnClosureView_Wrapper { hostingController.rootView }
+}
+
+/// Invoke the View's transformer closure with a value, return the result string length.
+@_cdecl("SBW_TEST_StringReturnClosureView_InvokeTransformer")
+public func SBW_TEST_StringReturnClosureView_InvokeTransformer(_ handle: UnsafeMutableRawPointer?, _ value: Int32) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_StringReturnClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_StringReturnClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let result = session.rootView.transformer(value)
+        return Int32(result.utf8.count)
+    }
+}
+
+// MARK: - ClassReturnClosureView helpers (always-wrapper, closure on Wrapper)
+
+extension SBW_SwiftBindingsTestLib_ClassReturnClosureView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_ClassReturnClosureView_Wrapper { hostingController.rootView }
+}
+
+/// Invoke the View's factory closure with a value, return model.getValue().
+@_cdecl("SBW_TEST_ClassReturnClosureView_InvokeFactory")
+public func SBW_TEST_ClassReturnClosureView_InvokeFactory(_ handle: UnsafeMutableRawPointer?, _ value: Int32) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ClassReturnClosureView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ClassReturnClosureView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let model = session.rootView.factory(value)
+        return model.getValue()
+    }
+}
+
+// MARK: - ModifiableView helpers (State/Wrapper pattern, custom modifiers)
+
+/// Read mod_highlighted state (1=true, 0=false).
+@_cdecl("SBW_TEST_ModifiableView_GetHighlighted")
+public func SBW_TEST_ModifiableView_GetHighlighted(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ModifiableView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ModifiableView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.mod_highlighted ? 1 : 0
+    }
+}
+
+/// Read mod_enabled state (1=true, 0=false, -1=nil).
+@_cdecl("SBW_TEST_ModifiableView_GetModEnabled")
+public func SBW_TEST_ModifiableView_GetModEnabled(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ModifiableView_liveHandles.contains(handle) else { return -2 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ModifiableView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let val = session.state.mod_enabled else { return -1 }
+        return val ? 1 : 0
+    }
+}
+
+// MARK: - LifecycleTestView helpers (State/Wrapper pattern, lifecycle callbacks)
+
+/// Fire the stored onAppear callback (1=fired, 0=no callback registered, -1=invalid handle).
+@_cdecl("SBW_TEST_LifecycleTestView_FireOnAppear")
+public func SBW_TEST_LifecycleTestView_FireOnAppear(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_LifecycleTestView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_LifecycleTestView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let onAppear = session.state.lifecycleOnAppear else { return 0 }
+        onAppear()
+        return 1
+    }
+}
+
+/// Fire the stored onDisappear callback (1=fired, 0=no callback registered, -1=invalid handle).
+@_cdecl("SBW_TEST_LifecycleTestView_FireOnDisappear")
+public func SBW_TEST_LifecycleTestView_FireOnDisappear(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_LifecycleTestView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_LifecycleTestView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        guard let onDisappear = session.state.lifecycleOnDisappear else { return 0 }
+        onDisappear()
+        return 1
+    }
+}
+
 // MARK: - GenericPlaceholderView helpers (State/Wrapper pattern)
 
 /// Read the title string length from a GenericPlaceholderView session via state.

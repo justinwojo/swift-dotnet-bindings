@@ -7,19 +7,18 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// Tests that the generator correctly handles methods with unsupported patterns.
+/// Tests that the generator correctly handles methods with mixed emission patterns.
 /// MixedEmittability has methods with method-level generics, inout params,
-/// and opaque returns. The generator DOES emit these methods (with CallConvSwift
-/// fallback and [Obsolete] warning), but they may crash on Mono simulator.
+/// and opaque returns. Most emit with @_cdecl wrappers; some fall back to CallConvSwift.
 ///
 /// This tests the boundary between working @_cdecl methods and fallback
 /// CallConvSwift methods — the same boundary that causes real-world DllNotFoundException
 /// in ObjectMapper/XMLCoder/PhoneNumberKit when wrapper compilation fails.
 ///
-/// Coverage gaps addressed:
-/// - Method-level generics emission (ShouldEmitWrapper:69-70 — generator emits with fallback)
-/// - Inout param emission (ShouldEmitWrapper:97-98 — generator emits with CallConvSwift)
-/// - Opaque return emission (ShouldEmitWrapper:133-134 — generator emits with fallback)
+/// Coverage:
+/// - Method-level generics emission (ShouldEmitWrapper:69-70 — CallConvSwift fallback)
+/// - Inout param emission (ShouldEmitWrapper:97-98 — CallConvSwift fallback)
+/// - Opaque return emission — now routed through @_cdecl wrapper (boxes some→any Protocol)
 /// - Variadic param emission (ShouldEmitWrapper:108-109 — generator emits via IEnumerable)
 /// </summary>
 public class WrapperStrippingTests : TestBase
@@ -81,14 +80,12 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("MixedEmittability.Increment called without crash");
     }
 
-    [Skip("Opaque return (some CustomStringConvertible): EntryPointNotFoundException — CallConvSwift fallback symbol not in dylib")]
+    [Skip("Opaque return @_cdecl wrapper works (generator fixed), but ExistentialContainer1 metadata not yet supported at runtime — needs protocol descriptor pointers (Bug 6)")]
     public void TestMixedEmittabilityOpaqueReturn()
     {
-        // asDescribable() -> some CustomStringConvertible — emitted with CallConvSwift
+        // asDescribable() -> some CustomStringConvertible — @_cdecl wrapper boxes to any Protocol
         var obj = new MixedEmittability(name: "test", count: 7);
-        #pragma warning disable SB0001
         var result = obj.GetAsDescribable();
-        #pragma warning restore SB0001
         AssertNotNull(result, "GetAsDescribable returned non-null");
         TestLogger.Info($"MixedEmittability.GetAsDescribable() = {result}");
     }

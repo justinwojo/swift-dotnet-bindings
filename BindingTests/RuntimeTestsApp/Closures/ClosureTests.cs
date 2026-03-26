@@ -141,9 +141,10 @@ public class ClosureTests : TestBase
 
     // B7 closure return tests — Optional<String> and [String] closure returns
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
-    // Tier 3: SwiftString through CallConvSwift triggers Mono JIT crash on simulator.
+    // Generated code is correct (CallConvCdecl + indirect return), but Mono JIT
+    // assertion !ji->async triggers during SwiftString callback marshalling (upstream Issue 1).
 
-    [Skip("Closure returning Optional<String>: generator emits CallConvSwift fallback (SB0001) — no @_cdecl callback wrapper for non-primitive closure returns")]
+    [SkipOnSimulator("Mono JIT assertion !ji->async during SwiftString callback marshalling (upstream Issue 1)")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -152,7 +153,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    [Skip("Closure returning [String]: generator emits CallConvSwift fallback (SB0001) — no @_cdecl callback wrapper for non-primitive closure returns")]
+    [SkipOnSimulator("Mono JIT assertion !ji->async during SwiftString callback marshalling (upstream Issue 1)")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>
