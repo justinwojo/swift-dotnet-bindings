@@ -145,7 +145,7 @@ dotnet build
 dotnet pack
 ```
 
-For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started).
+For prerequisites, CLI usage, and a full walkthrough, see the [Getting Started guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started). Already installed? See the [Upgrading guide](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Upgrading).
 
 ### Working with Swift Package Manager Libraries
 

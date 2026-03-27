@@ -322,6 +322,26 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // @_cdecl existential returns inside indirect-result block: read the container
+                // from the result buffer and wrap in proxy class. Without this, existential
+                // returns fall through to the generic MarshalFromSwift<IProtocol> catch-all
+                // which throws NotSupportedException at runtime (R3 regression).
+                if (_env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec) && _env.MethodDecl.UsesCdeclWrapper)
+                {
+                    var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+                    var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+                    csWriter.WriteLine($"var existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(resultPtr);");
+
+                    if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
+                    var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
+                    if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
+                    if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkIR))
+                    { csWriter.WriteLine($"return new {wkIR}(existentialResult);"); return; }
+                    var proxyIR = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
+                    csWriter.WriteLine($"return new {proxyIR}(existentialResult);");
+                    return;
+                }
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }

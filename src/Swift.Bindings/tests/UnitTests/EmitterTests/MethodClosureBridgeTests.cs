@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -257,12 +258,14 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        // Static methods use "Self." not "self."
-        Assert.Contains("Self.", swift);
-        Assert.Contains("public static func", swift);
+        // Static methods use fully-qualified type name (not "self." for instance)
+        Assert.Contains("TestModule.MyClass.", swift);
+        // @_cdecl free function (not extension method)
+        Assert.Contains("@_cdecl", swift);
+        Assert.DoesNotContain("extension", swift);
 
         var cs = csOutput.ToString();
-        // Static methods don't use SwiftSelf
+        // Static methods don't use SwiftSelf (now IntPtr-based for @_cdecl)
         Assert.DoesNotContain("SwiftSelf", cs);
         Assert.Contains("static unsafe", cs);
     }
@@ -930,6 +933,90 @@ public class MethodClosureBridgeTests
         Assert.Contains("Action<TestModule.MyError>", cs);
     }
 
+    // ─── Swift wrapper: class vs struct PayloadHandle param loading ────
+
+    [Fact]
+    public void TryEmit_SwiftClassParam_EmitsUnmanagedInSwiftWrapper()
+    {
+        // Class PayloadHandle params must use Unmanaged<T>.fromOpaque().takeUnretainedValue()
+        // in the Swift wrapper — NOT .assumingMemoryBound(to:).pointee (which reads heap memory
+        // as a value slot, corrupting the reference).
+        var (method, typeDatabase, env) = CreateMethodWithSwiftClassParam();
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("Unmanaged<MyData>.fromOpaque(other).takeUnretainedValue()", swift);
+        Assert.DoesNotContain("assumingMemoryBound(to: MyData.self).pointee", swift);
+    }
+
+    [Fact]
+    public void TryEmit_NonFrozenStructParam_EmitsPointeeInSwiftWrapper()
+    {
+        // Non-frozen struct PayloadHandle params use .assumingMemoryBound(to:).pointee
+        // because the pointer points to value storage (not an object reference).
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("TestModule.ImageRequest"), "request");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("assumingMemoryBound(to: ImageRequest.self).pointee", swift);
+        Assert.DoesNotContain("Unmanaged<ImageRequest>", swift);
+    }
+
+    // ─── IsEligible: generic parent types ─────────────────────────────
+
+    [Fact]
+    public void IsEligible_GenericParentType_ReturnsFalse()
+    {
+        // @_cdecl free functions can't access generic parent type parameters.
+        // Unmanaged<GenericClass> without concrete params is invalid Swift.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_NonGenericParentType_ReturnsTrue()
+    {
+        // Sanity: non-generic parent types remain eligible
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
     // ─── Simple Enum Regression (P1 from Codex review) ────────────────
 
     [Fact]
@@ -1302,6 +1389,29 @@ public class MethodClosureBridgeTests
             Operators = new List<OperatorDecl>(),
             Subscripts = new List<SubscriptDecl>(),
             GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(classDecl);
+        return classDecl;
+    }
+
+    private static ClassDecl CreateGenericClassDecl(string name, ModuleDecl moduleDecl, params string[] typeParams)
+    {
+        var classDecl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = typeParams.Select(tp =>
+                new GenericArgumentDecl(tp, tp, new List<GenericParameterConformance>(), new List<GenericParameterConformance>()))
+                .ToList(),
             Conformances = new List<TypeConformance>(),
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl

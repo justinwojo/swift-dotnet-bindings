@@ -87,6 +87,18 @@ public static class MethodClosureBridge
         // or a complex enum (D1: complex enums need heap allocation in Swift wrapper)
         if (!hasBoundGenericInClosure && !hasComplexEnumInClosure) return false;
 
+        // COVERAGE GAP: @_cdecl free functions can't access generic parent type parameters.
+        // Unmanaged<GenericClass>.fromOpaque() and GenericClass.staticMethod() require
+        // concrete generic parameters that aren't available in a free function context.
+        // Returning false here causes MemberValidationPipeline to fall through to
+        // SkipReason.GenericTypeCallback, dropping these APIs from the binding surface.
+        // This is safer than emitting broken Swift (the pre-R2 @_silgen_name extension
+        // approach inherited generic context but had a calling convention mismatch that
+        // crashed at runtime). To restore support: use @_silgen_name extension + matching
+        // CallConvSwift/SwiftSelf on the C# P/Invoke side.
+        if (method.ParentDecl is TypeDecl parentTd && parentTd.IsGeneric)
+            return false;
+
         // Check non-closure params: each must be a class (IntPtr), primitive, or have a default value
         var closureArgSet = new HashSet<ArgumentDecl>(closureArgs.Select(c => c.arg));
         foreach (var arg in method.CSSignature.Skip(1))
@@ -229,13 +241,29 @@ public static class MethodClosureBridge
 
         // Build Swift wrapper params
         var swiftParams = new List<string>();
+        // Track non-primitive params that need pointer-to-value loading inside the body.
+        // isClass distinguishes Swift classes (Unmanaged unwrap) from non-frozen structs (.pointee load).
+        var pointerLoadParams = new List<(string paramName, string swiftType, bool isClass)>();
 
-        // Non-closure passable params first
+        // Non-closure passable params first.
+        // For @_cdecl, non-primitive types (PayloadHandle) must be passed as UnsafeRawPointer
+        // and loaded inside the function body (Swift structs/classes aren't C-representable).
         foreach (var (arg, csName, _, category) in passableNonClosureParams)
         {
             var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
             var paramName = NameProvider.EscapeSwiftKeyword(csName);
-            swiftParams.Add($"    _ {paramName}: {swiftType}");
+            if (category == ParamAbiCategory.PayloadHandle)
+            {
+                swiftParams.Add($"    _ {paramName}: UnsafeRawPointer");
+                // Classes need Unmanaged unwrap; non-frozen structs need .pointee load
+                bool isClass = arg.SwiftTypeSpec is NamedTypeSpec named &&
+                    IsClassTypeForSwift(named, env.TypeDatabase);
+                pointerLoadParams.Add((paramName, swiftType, isClass));
+            }
+            else
+            {
+                swiftParams.Add($"    _ {paramName}: {swiftType}");
+            }
         }
 
         // Each closure → funcPtr + context pair
@@ -246,19 +274,40 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
         }
 
-        // Build return type
+        // Build return type — for @_cdecl, non-primitive returns use UnsafeMutableRawPointer
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
         bool returnsValue = !returnSpec.IsEmptyTuple;
-        var swiftReturnType = returnsValue ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}" : "";
+        bool returnsClass = returnsValue && returnSpec is NamedTypeSpec rts &&
+            !MarshallingHelpers.IsSwiftPrimitive(rts.Name);
+        var swiftReturnType = !returnsValue ? ""
+            : returnsClass ? " -> UnsafeMutableRawPointer"
+            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}";
 
-        // Emit the wrapper — always inside extension block
-        swiftWriter.WriteLine($"extension {typeName} {{");
+        // Emit the wrapper as a @_cdecl free function (not extension method).
+        // Using @_silgen_name on an extension method produces Swift calling convention
+        // (self in x20 register), but the C# P/Invoke uses CallConvCdecl — causing a
+        // calling convention mismatch and Mono JIT assertion crash (R2 regression).
+        if (isInstance)
+        {
+            // Instance methods need explicit self parameter (UnsafeMutableRawPointer)
+            swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
+        }
 
-        swiftWriter.WriteLine($"@_silgen_name(\"{silgenName}\")");
-        var funcKeyword = isInstance ? "public func" : "public static func";
-        swiftWriter.WriteLine($"{funcKeyword} _sb_{method.Name}(");
+        swiftWriter.WriteLine($"@_cdecl(\"{silgenName}\")");
+        swiftWriter.WriteLine($"public func _sbw_mcb_{method.Name}(");
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
         swiftWriter.WriteLine($"){swiftReturnType} {{");
+
+        // Load non-primitive params from UnsafeRawPointer.
+        // Classes: the pointer IS the object reference — use Unmanaged to recover it.
+        // Non-frozen structs: the pointer points to value storage — load via .pointee.
+        foreach (var (paramName, swiftType, isClass) in pointerLoadParams)
+        {
+            if (isClass)
+                swiftWriter.WriteLine($"    let {paramName}Val = Unmanaged<{swiftType}>.fromOpaque({paramName}).takeUnretainedValue()");
+            else
+                swiftWriter.WriteLine($"    let {paramName}Val = {paramName}.assumingMemoryBound(to: {swiftType}.self).pointee");
+        }
 
         // Reconstruct cdecl functions from pointers — one per closure
         foreach (var ci in closures)
@@ -276,9 +325,19 @@ public static class MethodClosureBridge
             swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
         }
 
+        // For instance methods, unwrap self from the explicit pointer parameter
+        if (isInstance)
+        {
+            swiftWriter.WriteLine($"    let selfObj = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+        }
+
         // Build original method call arguments in parameter order
-        var returnPrefix = returnsValue ? "return " : "";
-        var callTarget = isInstance ? "self" : "Self";
+        // Class returns need Unmanaged.passRetained().toOpaque() to return as UnsafeMutableRawPointer
+        var returnPrefix = returnsClass ? "return Unmanaged.passRetained("
+            : returnsValue ? "return "
+            : "";
+        var returnSuffix = returnsClass ? ").toOpaque()" : "";
+        var callTarget = isInstance ? "selfObj" : typeName;
 
         // Collect all method call args in parameter order, interleaving non-closure and closure args
         var methodCallArgs = new List<string>();
@@ -341,7 +400,7 @@ public static class MethodClosureBridge
         {
             // Complex path: at least one closure has value-type args needing withUnsafePointer or heap allocation
             EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, closures,
-                passableNonClosureParams, perClosureAnalysis, returnPrefix, callTarget);
+                passableNonClosureParams, perClosureAnalysis, returnPrefix, returnSuffix, callTarget);
         }
         else
         {
@@ -380,15 +439,16 @@ public static class MethodClosureBridge
                 {
                     var label = GetSwiftArgLabel(passable.arg);
                     var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
-                    allCallArgs.Add($"{label}{paramName}");
+                    // PayloadHandle params were loaded from pointer → use {name}Val
+                    var valSuffix = passable.category == ParamAbiCategory.PayloadHandle ? "Val" : "";
+                    allCallArgs.Add($"{label}{paramName}{valSuffix}");
                 }
             }
 
-            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)})");
+            swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
         }
 
         swiftWriter.WriteLine("}");
-        swiftWriter.WriteLine("}"); // Close extension
         swiftWriter.WriteLine();
     }
 
@@ -403,6 +463,7 @@ public static class MethodClosureBridge
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)> perClosureAnalysis,
         string returnPrefix,
+        string returnSuffix,
         string callTarget)
     {
         // For the pointer wrapping path, we build let-bindings for each closure adapter,
@@ -525,11 +586,13 @@ public static class MethodClosureBridge
             {
                 var label = GetSwiftArgLabel(passable.arg);
                 var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
-                allCallArgs.Add($"{label}{paramName}");
+                // PayloadHandle params were loaded from pointer → use {name}Val
+                var valSuffix = passable.category == ParamAbiCategory.PayloadHandle ? "Val" : "";
+                allCallArgs.Add($"{label}{paramName}{valSuffix}");
             }
         }
 
-        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)})");
+        swiftWriter.WriteLine($"{indent}{returnPrefix}{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", allCallArgs)}){returnSuffix}");
     }
 
     // ─── C# Callback ───────────────────────────────────────────────────
@@ -667,11 +730,12 @@ public static class MethodClosureBridge
             pinvokeParams.Add($"IntPtr __closureCtx{suffix}");
         }
 
-        // SwiftSelf last (standard Swift calling convention) — instance methods only
+        // Self pointer last — instance methods only.
+        // Uses IntPtr (not SwiftSelf) because the @_cdecl wrapper accepts self as a plain pointer.
         bool isInstance = method.MethodType != MethodType.Static;
         if (isInstance)
         {
-            pinvokeParams.Add("SwiftSelf self_");
+            pinvokeParams.Add("IntPtr self_");
         }
 
         // Return type
@@ -875,13 +939,12 @@ public static class MethodClosureBridge
             callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
         }
 
-        // SwiftSelf — instance methods only
+        // Self pointer — instance methods only.
+        // Passes IntPtr directly to the @_cdecl wrapper (not SwiftSelf, since the wrapper is Cdecl).
         if (!isStatic)
         {
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
-            var selfExpr = isObjCRooted
-                ? "new SwiftSelf((void*)Handle)"
-                : "new SwiftSelf((void*)Payload.DangerousGetHandle())";
+            var selfExpr = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
             callArgs.Add(selfExpr);
         }
 
