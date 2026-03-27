@@ -58,12 +58,34 @@ namespace BindingsGeneration
                 })
                 .ToList();
 
+            // Identify frozen blittable struct params that need heap allocation for async safety.
+            // In sync methods, these use stackalloc (fast, stack-lifetime is sufficient).
+            // In async methods, stackalloc is unsafe across await boundaries — use NativeMemory.Alloc.
+            // These are params that EmitCdeclFrozenStructMarshalling would normally handle with stackalloc.
+            var frozenBlittableAsyncParams = _env.MethodDecl.UsesCdeclWrapper
+                ? _env.MethodDecl.CSSignature.Skip(1)
+                    .Where(p => WrapperValidation.IsNonPrimitiveFrozenStructParam(p, _env.TypeDatabase))
+                    .Where(p =>
+                    {
+                        // Same skip conditions as EmitCdeclFrozenStructMarshalling
+                        if (_env.BoundGenericsHandler.IsBoundGeneric(p)) return false;
+                        if (_env.ClosureHandler.IsClosure(p)) return false;
+                        if (MarshallingHelpers.IsConvertibleType(p.SwiftTypeSpec)) return false;
+                        if (_env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec)) return false;
+                        var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(p.SwiftTypeSpec);
+                        // Only blittable frozen structs (not those with RequiresMemoryManagement —
+                        // those use DangerousGetHandle() which is already heap-allocated)
+                        return !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
+                    })
+                    .ToList()
+                : new List<ArgumentDecl>();
+
             // Identify large Optional params that need UnsafeRawPointer widening (separate from non-frozen)
             var largeOptionalParams = _env.MethodDecl.CSSignature.Skip(1)
                 .Where(p => _env.BoundGenericsHandler.IsLargeOptionalParam(p.SwiftTypeSpec) ||
                             _env.BoundGenericsHandler.IsLargeOptionalProtocolParam(p.SwiftTypeSpec))
                 .ToList();
-            bool hasReadCode = nonFrozenParams.Count > 0 || largeOptionalParams.Count > 0;
+            bool hasReadCode = nonFrozenParams.Count > 0 || largeOptionalParams.Count > 0 || frozenBlittableAsyncParams.Count > 0;
 
             // For non-frozen parameters, create proper copies using InitializeWithCopy FIRST
             // (before the holder is created), so the copy buffer pointers can be stored in the holder.
@@ -112,13 +134,41 @@ namespace BindingsGeneration
                             """);
                     }
                 }
+            }
 
+            // Heap-allocate frozen blittable struct params for async safety.
+            // In sync methods, EmitCdeclFrozenStructMarshalling uses stackalloc (fast but stack-lifetime).
+            // In async methods, the stack frame may be gone by the time the callback fires.
+            // Use NativeMemory.Alloc + MarshalToSwift instead, with cleanup via CopyBufferWithType in holder.
+            if (frozenBlittableAsyncParams.Count > 0)
+            {
+                foreach (var p in frozenBlittableAsyncParams)
+                {
+                    var csName = NameProvider.GetCSharpParameterName(p);
+                    var typeRecord = _env.TypeDatabase.GetTypeRecordOrAnyType(p.SwiftTypeSpec);
+                    var csTypeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    csWriter.WriteLines($"""
+                        var {csName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csTypeName}>();
+                        IntPtr {csName}HeapBuffer = (IntPtr)NativeMemory.Alloc({csName}Metadata.Size);
+                        var {csName}Span = new Span<byte>((byte*){csName}HeapBuffer, (int){csName}Metadata.Size);
+                        SwiftMarshal.MarshalToSwift({csName}, ref {csName}Span);
+                        IntPtr {csName}Ptr = {csName}HeapBuffer;
+                        var {csName}CopyBufferWrapper = new CopyBufferWithType({csName}HeapBuffer, {csName}Metadata);
+                        """);
+                }
+            }
+
+            if (nonFrozenParams.Count > 0 || frozenBlittableAsyncParams.Count > 0)
+            {
                 // Now create the holder with copy buffer pointers AND original parameters AND self (for instance methods)
                 // Original parameters must be kept alive to prevent GC from calling Destroy on them
                 // while the async task is still running (InitializeWithCopy increments ref count,
                 // but if original is destroyed, the internal storage could be freed prematurely)
                 // Also keep 'this' alive for instance methods since SwiftSelf doesn't prevent GC
-                var copyBufferList = string.Join(", ", nonFrozenParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper"));
+                // Include both non-frozen and frozen blittable copy buffer wrappers for cleanup
+                var allCopyBufferWrappers = nonFrozenParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper")
+                    .Concat(frozenBlittableAsyncParams.Select(p => $"{NameProvider.GetCSharpParameterName(p)}CopyBufferWrapper"));
+                var copyBufferList = string.Join(", ", allCopyBufferWrappers);
                 var originalParamList = string.Join(", ", nonFrozenParams.Select(p => $"(object){NameProvider.GetCSharpParameterName(p)}"));
 
                 // For Swift classes, Arc.Retain the self pointer before async call.
@@ -159,9 +209,11 @@ namespace BindingsGeneration
                     selfInHolder = "";
                 }
 
+                // Build the holder elements: originalParamList may be empty when only frozen blittable params exist
+                var originalParamSuffix = originalParamList.Length > 0 ? $", {originalParamList}" : "";
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}();
-            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}, {{originalParamList}}{{selfInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }

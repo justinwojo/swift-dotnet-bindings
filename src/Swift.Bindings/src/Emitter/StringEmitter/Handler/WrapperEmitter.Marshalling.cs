@@ -589,9 +589,16 @@ namespace BindingsGeneration
                     // is already allocated by the C# class's Payload. Get its handle.
                     csWriter.WriteLine($"IntPtr {csName}Ptr = {csName}.Payload.DangerousGetHandle();");
                 }
+                else if (_env.MethodDecl.IsAsync)
+                {
+                    // Async method: skip — frozen blittable struct params are heap-allocated
+                    // by EmitAsync instead of stackalloc. stackalloc is unsafe across await
+                    // boundaries because the stack buffer is invalidated when the frame suspends.
+                    continue;
+                }
                 else
                 {
-                    // Blittable frozen struct: allocate a stack buffer, marshal the struct into it.
+                    // Sync method: blittable frozen struct — allocate a stack buffer, marshal the struct into it.
                     csWriter.WriteLines($"""
                         var {csName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csTypeName}>();
                         byte* {csName}Buffer = stackalloc byte[(int){csName}Metadata.Size];

@@ -849,9 +849,8 @@ namespace BindingsGeneration
                     if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
                     if (CdeclParamMapper.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
-                    // Async emitter has no CdeclFrozenStruct marshalling path — keep blocking.
-                    // stackalloc buffers are not safe after await (plan risk #2).
-                    if (MethodWrapperEmitter.IsNonPrimitiveFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
+                    // Frozen blittable struct params are now supported in async via heap allocation
+                    // (NativeMemory.Alloc instead of stackalloc). See WrapperEmitter.Async.cs.
                     return true;
                 });
             }
