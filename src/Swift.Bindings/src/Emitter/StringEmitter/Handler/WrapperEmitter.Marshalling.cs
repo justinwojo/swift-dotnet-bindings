@@ -830,10 +830,17 @@ namespace BindingsGeneration
                 {
                     if (!classParent.IsObjCRooted)
                     {
-                        // Swift classes use SwiftClassHandle — still need DangerousAddRef/Release
-                        // to prevent SafeHandle closure during P/Invoke
-                        csWriter.WriteLine($"var success = false;");
-                        csWriter.WriteLine($"_handle.DangerousAddRef(ref success);");
+                        // For async class instance methods, skip DangerousAddRef — the async holder
+                        // already contains (object)this (preventing GC) and RetainedSelfPtr with
+                        // Arc.Retain (keeping the Swift object alive). EmitSafeHandleRelease returns
+                        // early for async methods, so this AddRef would leak permanently.
+                        if (!_env.MethodDecl.IsAsync)
+                        {
+                            // Swift classes use SwiftClassHandle — still need DangerousAddRef/Release
+                            // to prevent SafeHandle closure during P/Invoke
+                            csWriter.WriteLine($"var success = false;");
+                            csWriter.WriteLine($"_handle.DangerousAddRef(ref success);");
+                        }
                     }
                     // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
                 }

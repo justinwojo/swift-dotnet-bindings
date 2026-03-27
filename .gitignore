@@ -204,6 +204,7 @@ testing/
 src/samples/
 BindingTests/output/
 BindingTests/output-macos/
+BindingTests/SwiftBridge/device/
 
 # Fetched library xcframeworks (rebuilt by scripts/fetch-libraries.sh)
 .libraries/

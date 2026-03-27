@@ -508,11 +508,11 @@ namespace BindingsGeneration
         /// <param name="publicType">The C# public type name (e.g., "UIKit.UIImage", "CoreText.CTFont").</param>
         /// <param name="resultExpr">The expression holding the IntPtr result.</param>
         /// <param name="nonNull">If true, appends ! for non-null assertion.</param>
-        public static string FormatObjCBridgeCall(string publicType, string resultExpr, bool nonNull = false)
+        public static string FormatObjCBridgeCall(string publicType, string resultExpr, bool nonNull = false, bool ownsReference = false)
         {
             var suffix = nonNull ? "!" : "";
             if (IsCoreFoundationType(publicType))
-                return $"ObjCRuntime.Runtime.GetINativeObject<{publicType}>({resultExpr}, false){suffix}";
+                return $"ObjCRuntime.Runtime.GetINativeObject<{publicType}>({resultExpr}, {(ownsReference ? "true" : "false")}){suffix}";
             return $"ObjCRuntime.Runtime.GetNSObject<{publicType}>({resultExpr}){suffix}";
         }
     }

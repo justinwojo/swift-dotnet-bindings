@@ -900,6 +900,10 @@ namespace BindingsGeneration
             switch (typeSpec)
             {
                 case NamedTypeSpec namedType:
+                    // Generic type parameters (τ_0_0, τ_1_0, T, etc.) are not concrete types —
+                    // they don't need to be in the type database and are never internal.
+                    if (TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))
+                        return false;
                     if (namedType.HasModule())
                     {
                         var typeModule = namedType.Module;

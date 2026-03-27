@@ -989,8 +989,14 @@ namespace BindingsGeneration
             string marshalResultCode;
             if (isObjCBridged)
             {
-                // ObjC types: rawResult is the ObjC object pointer, wrap with appropriate bridge call
-                marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "rawResult")};";
+                // ObjC types: rawResult is the ObjC object pointer, wrap with appropriate bridge call.
+                // Swift passed +1 via passRetained or calling convention. GetNSObject adds +1.
+                // DangerousRelease() balances the extra retain.
+                var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "rawResult");
+                if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
+                    marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "rawResult", ownsReference: true)};";
+                else
+                    marshalResultCode = $"var result = {bridgeCall};\n                                result?.DangerousRelease();";
             }
             else if (isClassReturn)
             {
@@ -1315,7 +1321,22 @@ namespace BindingsGeneration
             // not IReadOnlyList<T>) — resolved via TypeProjectionFactory.
             string marshalResultCode;
             if (isObjCBridged)
-                marshalResultCode = $"var result = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr")};";
+            {
+                // Swift passed +1 via passRetained. GetNSObject/GetINativeObject adds its own +1 retain
+                // (NSObject(handle, false) → DangerousRetain). DangerousRelease() balances passRetained,
+                // matching the SwiftHandle constructor pattern for ObjC-rooted classes.
+                var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr");
+                if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
+                {
+                    // CoreFoundation: change owns=false to owns=true to take ownership of passRetained
+                    bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "_retainedObjPtr", ownsReference: true);
+                    marshalResultCode = $"var result = {bridgeCall};";
+                }
+                else
+                {
+                    marshalResultCode = $"var result = {bridgeCall};\n                                // Balance passRetained: GetNSObject added its own retain via DangerousRetain\n                                result?.DangerousRelease();";
+                }
+            }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
             else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion))

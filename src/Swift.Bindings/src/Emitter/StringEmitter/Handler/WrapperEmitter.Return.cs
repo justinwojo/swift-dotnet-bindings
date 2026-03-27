@@ -585,9 +585,22 @@ namespace BindingsGeneration
 
                 // ObjC bridged types: wrap IntPtr result with GetNSObject<T>
                 // ObjC-bridgeable value types (URL): same pattern — IntPtr → GetNSObject<T>
+                // Swift wrapper (both @_cdecl and @_silgen_name) returns +1 via passRetained or
+                // Swift calling convention. GetNSObject adds +1 via DangerousRetain.
+                // DangerousRelease() balances, matching the SwiftHandle ctor for ObjC-rooted classes.
+                // CoreFoundation: ownsReference=true changes GetINativeObject's owns param directly.
                 if (MarshallingHelpers.IsObjCBridged(typeRecord) || MarshallingHelpers.IsObjCBridgeable(typeRecord))
                 {
-                    csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true)};");
+                    if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
+                    {
+                        csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true, ownsReference: true)};");
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"var _objcResult = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true)};");
+                        csWriter.WriteLine($"_objcResult.DangerousRelease();");
+                        csWriter.WriteLine($"return _objcResult;");
+                    }
                     return;
                 }
 

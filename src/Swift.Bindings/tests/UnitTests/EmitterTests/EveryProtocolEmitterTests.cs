@@ -793,6 +793,160 @@ public class EveryProtocolEmitterTests
 
     #endregion
 
+    #region Method-Level Generic Protocol Gate Tests
+
+    [Fact]
+    public void EmitConformance_AllMethodsHaveMethodLevelGenerics_EmitsConformance()
+    {
+        // Like Swinject.Resolver: all methods have method-level generics only (τ_1_0),
+        // no properties — should emit EveryProtocol conformance with stubs
+        var protocol = CreateSimpleProtocol("Resolver");
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("resolve"));
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("resolveWithArg"));
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.Resolver", output);
+    }
+
+    [Fact]
+    public void EmitConformance_MethodLevelGenericsWithNonGenericProperty_SkipsConformance()
+    {
+        // Like RxSwift.SchedulerType: has method-level generics AND a non-generic property
+        // — witness dispatch for the property may generate incorrect type projections
+        var protocol = CreateSimpleProtocol("SchedulerType");
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("scheduleRelative"));
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "now",
+            SwiftTypeSpec = new NamedTypeSpec("Foundation.Date"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("now_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitConformance_MethodLevelGenericsWithNonGenericMethod_SkipsConformance()
+    {
+        // Protocol has both generic and non-generic methods
+        var protocol = CreateSimpleProtocol("MixedProtocol");
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("genericMethod"));
+        protocol.Methods.Add(CreateMethodDecl("nonGenericMethod"));
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void HasOnlyMethodLevelGenerics_MethodWithTau1_ReturnsTrue()
+    {
+        var method = CreateMethodWithMethodLevelGeneric("resolve");
+
+        Assert.True(EveryProtocolEmitter.HasOnlyMethodLevelGenerics(method));
+    }
+
+    [Fact]
+    public void HasOnlyMethodLevelGenerics_MethodWithTau0_ReturnsFalse()
+    {
+        // τ_0_0 is Self (protocol-level) — not method-level only
+        var method = CreateMethodDecl("selfMethod");
+        method.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        Assert.False(EveryProtocolEmitter.HasOnlyMethodLevelGenerics(method));
+    }
+
+    [Fact]
+    public void HasOnlyMethodLevelGenerics_MethodWithNoGenerics_ReturnsFalse()
+    {
+        var method = CreateMethodDecl("plainMethod");
+
+        Assert.False(EveryProtocolEmitter.HasOnlyMethodLevelGenerics(method));
+    }
+
+    [Fact]
+    public void EmitConformance_GenericStubWithAsyncClosure_EmitsAsyncInSignature()
+    {
+        // Protocol with method-level generic that takes an async closure:
+        // func process<T>(_ body: @Sendable (T) async -> Void)
+        var protocol = CreateSimpleProtocol("AsyncProcessor");
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec("τ_1_0"),
+            TupleTypeSpec.Empty)
+        {
+            IsAsync = true
+        };
+        closureType.Attributes.Add(new TypeSpecAttribute("Sendable"));
+        var method = CreateMethodWithSignature("process", closureType);
+        protocol.Methods.Add(method);
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.AsyncProcessor", output);
+        Assert.Contains("async", output);
+        Assert.Contains("@Sendable", output);
+    }
+
+    [Fact]
+    public void EmitConformance_GenericStubWithLabeledTuple_PreservesLabels()
+    {
+        // func transform<T>(_ value: (item: T, count: Int))
+        var elem0 = new NamedTypeSpec("τ_1_0") { TypeLabel = "item" };
+        var elem1 = new NamedTypeSpec("Swift.Int") { TypeLabel = "count" };
+        var tupleType = new TupleTypeSpec(new TypeSpec[] { elem0, elem1 });
+        var method = CreateMethodWithSignature("transform", tupleType);
+        var protocol = CreateSimpleProtocol("LabeledTupleProto");
+        protocol.Methods.Add(method);
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.LabeledTupleProto", output);
+        Assert.Contains("item: _G0", output);
+        Assert.Contains("count: Swift.Int", output);
+    }
+
+    [Fact]
+    public void EmitConformance_GenericStubWithTupleParam_EmitsParenthesizedTuple()
+    {
+        // Protocol with method-level generic that takes a tuple:
+        // func transform<T>(_ value: (T, Int)) -> (T, Int)
+        var tupleType = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("τ_1_0"),
+            new NamedTypeSpec("Swift.Int")
+        });
+        var method = CreateMethodWithSignatureAndReturn("transform", tupleType, tupleType);
+        var protocol = CreateSimpleProtocol("TupleTransformer");
+        protocol.Methods.Add(method);
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.TupleTransformer", output);
+        // Tuple must be parenthesized: (T, Int), not bare T, Int
+        Assert.Matches(@"\(_G0,\s*Swift\.Int\)", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitEveryProtocolClass()
@@ -1195,6 +1349,148 @@ public class EveryProtocolEmitterTests
             ParentDecl = null,
             ModuleDecl = null,
             Throws = throws,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    /// <summary>
+    /// Creates a method with a method-level generic parameter (τ_1_0) in its signature.
+    /// This represents methods like resolve&lt;Service&gt;() where the generic is method-level,
+    /// not protocol-level (Self).
+    /// </summary>
+    private static MethodDecl CreateMethodWithMethodLevelGeneric(string name)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type referencing method-level generic param
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = new NamedTypeSpec("τ_1_0"),
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                // Parameter using method-level generic
+                new ArgumentDecl
+                {
+                    Name = "serviceType",
+                    SwiftTypeSpec = new NamedTypeSpec("τ_1_0"),
+                    PrivateName = "serviceType",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_1_0", "Service", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    /// <summary>
+    /// Creates a method with method-level generics where the parameter uses the given TypeSpec.
+    /// </summary>
+    private static MethodDecl CreateMethodWithSignature(string name, TypeSpec paramType)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = "body",
+                    SwiftTypeSpec = paramType,
+                    PrivateName = "body",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_1_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    /// <summary>
+    /// Creates a method with method-level generics with both param and return TypeSpec.
+    /// </summary>
+    private static MethodDecl CreateMethodWithSignatureAndReturn(string name, TypeSpec paramType, TypeSpec returnType)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = returnType,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = "value",
+                    SwiftTypeSpec = paramType,
+                    PrivateName = "value",
+                    IsInOut = false,
+                    IsGeneric = true,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_1_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
             IsAsync = false,
             Visibility = Visibility.Public
         };

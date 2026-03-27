@@ -144,7 +144,7 @@ public class ClosureTests : TestBase
     // Generated code is correct (CallConvCdecl + indirect return), but Mono JIT
     // assertion !ji->async triggers during SwiftString callback marshalling (upstream Issue 1).
 
-    [SkipOnSimulator("Mono JIT assertion !ji->async during SwiftString callback marshalling (upstream Issue 1)")]
+    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -153,7 +153,7 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT assertion !ji->async during SwiftString callback marshalling (upstream Issue 1)")]
+    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>
@@ -345,7 +345,7 @@ public class ClosureTests : TestBase
 
     #region P2: Static Optional Closure Property (LogRouter)
 
-    [SkipOnSimulator("Mono JIT !ji->async assertion on native-to-managed string callback (upstream Issue 1)")]
+    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestLogRouterSetHandler()
     {
         var captured = "";
@@ -356,7 +356,7 @@ public class ClosureTests : TestBase
         TestLogger.Info("LogRouter.LogHandler setter + route passed");
     }
 
-    [SkipOnSimulator("Mono JIT !ji->async assertion on native-to-managed string callback (upstream Issue 1)")]
+    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestLogRouterClearHandler()
     {
         LogRouter.LogHandler = msg => { };

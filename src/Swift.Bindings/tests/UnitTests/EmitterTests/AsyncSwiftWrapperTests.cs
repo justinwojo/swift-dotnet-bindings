@@ -240,8 +240,12 @@ public class AsyncSwiftWrapperTests
         // Should read the object pointer from buffer (isClassType=true)
         Assert.Contains("_retainedObjPtr", csOutput);
 
-        // GetNSObject takes ownership of the passRetained reference — Arc.Release would
-        // deallocate the object while the wrapper still references it (use-after-free)
+        // DangerousRelease balances passRetained: GetNSObject adds its own retain via
+        // NSObject(handle, false) → DangerousRetain. Without DangerousRelease, each async
+        // call leaks one native retain on the returned object, permanently pinning it in memory.
+        Assert.Contains("DangerousRelease()", csOutput);
+
+        // Arc.Release is NOT used — DangerousRelease is the correct NSObject pattern
         Assert.DoesNotContain("Arc.Release(_retainedObjPtr)", csOutput);
     }
 
@@ -536,6 +540,30 @@ public class AsyncSwiftWrapperTests
 
         // @_silgen_name uses unsafeBitCast to convert OpaquePointer to class instance
         Assert.Contains("unsafeBitCast(_self, to: TestModule.Pipeline.self)", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ClassInstanceMethod_NoDangerousAddRefLeak()
+    {
+        // For async class instance methods, EmitSafeHandleMarshalling must NOT emit
+        // DangerousAddRef on _handle because EmitSafeHandleRelease returns early for async
+        // methods (defers to callback). Without a matching DeferredSafeHandleRelease in the
+        // holder, the SafeHandle ref count leaks permanently — each call increments by 1
+        // with no decrement. The async holder already contains (object)this (preventing GC)
+        // and RetainedSelfPtr with Arc.Retain (keeping the Swift object alive).
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "UIKit.UIImage",
+            returnKind: TypeRecordKind.Class,
+            isObjCBridged: true);
+
+        // The holder pattern should retain via Arc.Retain, not DangerousAddRef
+        Assert.Contains("Arc.Retain(_selfPtr)", csOutput);
+
+        // There should be exactly ONE DangerousAddRef/_selfSuccess pair (for the
+        // safe Arc.Retain window) — not a second leaked one before the P/Invoke.
+        // Count occurrences: should be exactly 1
+        var addRefCount = csOutput.Split("DangerousAddRef").Length - 1;
+        Assert.Equal(1, addRefCount);
     }
 
     #endregion

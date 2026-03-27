@@ -378,13 +378,23 @@ public class EveryProtocolEmitter
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
-                // If this full signature is in the non-throwing overrides set, suppress throws.
-                // A non-throwing method satisfies both throwing and non-throwing protocol requirements,
-                // but a throwing method does NOT satisfy a non-throwing requirement.
-                // Uses full signature so overloads with different types are tracked independently.
-                var effectiveThrows = method.Throws &&
-                    !(nonThrowingOverrides?.Contains(fullSignature) == true);
-                EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows);
+                // Methods with only method-level generics (τ_1_0+, no Self τ_0_*) get stub
+                // implementations. EveryProtocol satisfies the protocol requirement, but can't
+                // dispatch through the vtable (C# can't handle method-level generic dispatch).
+                if (HasOnlyMethodLevelGenerics(method))
+                {
+                    EmitMethodLevelGenericStub(writer, method);
+                }
+                else
+                {
+                    // If this full signature is in the non-throwing overrides set, suppress throws.
+                    // A non-throwing method satisfies both throwing and non-throwing protocol requirements,
+                    // but a throwing method does NOT satisfy a non-throwing requirement.
+                    // Uses full signature so overloads with different types are tracked independently.
+                    var effectiveThrows = method.Throws &&
+                        !(nonThrowingOverrides?.Contains(fullSignature) == true);
+                    EmitMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, effectiveThrows);
+                }
             }
         }
 
@@ -559,16 +569,35 @@ public class EveryProtocolEmitter
 
         bool hasSelfTypedMembers = protocolDecl.Methods
             .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
-            .Any(m => HasGenericTypeParamInSignature(m));
+            .Any(m => HasSelfTypeParamInSignature(m));
         bool hasSelfTypedProperties = protocolDecl.Properties
             .Where(p => !p.IsStatic)
-            .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
+            .Any(p => ContainsSelfTypeParam(p.SwiftTypeSpec));
         bool hasSelfTypedSubscripts = protocolDecl.Subscripts
             .Where(s => !s.IsStatic)
-            .Any(s => ContainsGenericTypeParam(s.ReturnTypeSpec) ||
-                      s.IndexParameters.Any(ip => ContainsGenericTypeParam(ip.SwiftTypeSpec)));
+            .Any(s => ContainsSelfTypeParam(s.ReturnTypeSpec) ||
+                      s.IndexParameters.Any(ip => ContainsSelfTypeParam(ip.SwiftTypeSpec)));
         if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
             return true;
+
+        // Protocols with method-level generics (τ_1_*) are newly eligible for EveryProtocol.
+        // Only allow if ALL instance members are generic methods (they all get stubs).
+        // If the protocol also has non-generic properties, subscripts, or methods, skip it —
+        // witness dispatch for those members may generate incorrect type projections
+        // (e.g., RxSwift.SchedulerType.now resolves RxTime→Double instead of Date).
+        bool hasMethodLevelGenerics = protocolDecl.Methods
+            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+            .Any(m => HasOnlyMethodLevelGenerics(m));
+        if (hasMethodLevelGenerics)
+        {
+            bool hasNonStaticProperties = protocolDecl.Properties.Any(p => !p.IsStatic);
+            bool hasNonStaticSubscripts = protocolDecl.Subscripts.Any(s => !s.IsStatic);
+            bool hasNonGenericMethods = protocolDecl.Methods
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+                .Any(m => !HasOnlyMethodLevelGenerics(m));
+            if (hasNonStaticProperties || hasNonStaticSubscripts || hasNonGenericMethods)
+                return true;
+        }
 
         if (IsClassBoundProtocol(protocolDecl))
             return true;
@@ -652,27 +681,49 @@ public class EveryProtocolEmitter
             return;
         }
 
-        // Skip protocols with Self-typed INSTANCE members (generic type parameters like τ_0_0 in
-        // return/params/properties). Static members are excluded — they're not part of the witness
-        // table and don't need EveryProtocol implementations.
+        // Skip protocols with Self-typed (τ_0_*) INSTANCE members. Method-level generics (τ_1_*)
+        // are allowed — EveryProtocol emits stub implementations for those.
+        // Static members are excluded — they're not part of the witness table.
         // The parser's HasSelfRequirement check looks for "Self" in GenericSig, but ABI JSON uses τ_0_0.
         // SwiftTypeNameHelper converts generic type params to "Any", so Self-returning methods emit
         // "-> Any" instead of "-> Self", which Swift rejects.
         bool hasSelfTypedMembers = protocolDecl.Methods
             .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
-            .Any(m => HasGenericTypeParamInSignature(m));
+            .Any(m => HasSelfTypeParamInSignature(m));
         bool hasSelfTypedProperties = protocolDecl.Properties
             .Where(p => !p.IsStatic)
-            .Any(p => ContainsGenericTypeParam(p.SwiftTypeSpec));
+            .Any(p => ContainsSelfTypeParam(p.SwiftTypeSpec));
         bool hasSelfTypedSubscripts = protocolDecl.Subscripts
             .Where(s => !s.IsStatic)
-            .Any(s => ContainsGenericTypeParam(s.ReturnTypeSpec) ||
-                      s.IndexParameters.Any(ip => ContainsGenericTypeParam(ip.SwiftTypeSpec)));
+            .Any(s => ContainsSelfTypeParam(s.ReturnTypeSpec) ||
+                      s.IndexParameters.Any(ip => ContainsSelfTypeParam(ip.SwiftTypeSpec)));
         if (hasSelfTypedMembers || hasSelfTypedProperties || hasSelfTypedSubscripts)
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self-typed members (generic type params in signature)");
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self-typed members (protocol-level generic params in signature)");
             RecordSkip("SelfTypedMembers");
             return;
+        }
+
+        // Protocols with method-level generics (τ_1_*) are newly eligible for EveryProtocol.
+        // Only allow if ALL instance members are generic methods (they all get stubs).
+        // If the protocol also has non-generic properties, subscripts, or methods, skip it —
+        // witness dispatch for those members may generate incorrect type projections.
+        bool hasMethodLevelGenerics = protocolDecl.Methods
+            .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+            .Any(m => HasOnlyMethodLevelGenerics(m));
+        if (hasMethodLevelGenerics)
+        {
+            bool hasNonStaticProperties = protocolDecl.Properties.Any(p => !p.IsStatic);
+            bool hasNonStaticSubscripts = protocolDecl.Subscripts.Any(s => !s.IsStatic);
+            bool hasNonGenericMethods = protocolDecl.Methods
+                .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
+                .Any(m => !HasOnlyMethodLevelGenerics(m));
+            if (hasNonStaticProperties || hasNonStaticSubscripts || hasNonGenericMethods)
+            {
+                _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has method-level generics but also non-generic members that may not dispatch correctly");
+                RecordSkip("MethodLevelGenericsWithNonGenericMembers");
+                return;
+            }
         }
 
         // Skip protocols that require NSObjectProtocol identity semantics.
@@ -1005,6 +1056,151 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
+    /// <summary>
+    /// Emits a stub implementation for a method with method-level generic parameters (τ_1_0+).
+    /// Returns nil for Optional returns, fatalError for non-Optional. This satisfies the Swift
+    /// protocol conformance without vtable dispatch (C# can't handle method-level generics).
+    /// Uses the raw TypeSpec to preserve generic param references (GetSwiftTypeName resolves them to Any).
+    /// </summary>
+    private void EmitMethodLevelGenericStub(SwiftWriter writer, MethodDecl method)
+    {
+        // Build generic param name mapping: τ_1_0 → _G0, τ_1_1 → _G1, etc.
+        // Filter out depth-0 params (Self).
+        var genericNameMap = new Dictionary<string, string>();
+        int genericIdx = 0;
+        foreach (var gp in method.GenericParameters)
+        {
+            if (gp.TypeName?.StartsWith("τ_0_") == true)
+                continue;
+            var safeName = $"_G{genericIdx++}";
+            if (gp.TypeName != null) genericNameMap[gp.TypeName] = safeName;
+        }
+        // Build generic clause with constraints (e.g., <_G0: Decodable>)
+        var genericParts = new List<string>();
+        foreach (var gp in method.GenericParameters)
+        {
+            if (gp.TypeName?.StartsWith("τ_0_") == true) continue;
+            if (!genericNameMap.TryGetValue(gp.TypeName ?? "", out var safeName)) continue;
+            if (gp.GenericConformances.Count > 0)
+            {
+                var constraints = string.Join(" & ", gp.GenericConformances
+                    .Select(c => c.ConformanceTarget.Name));
+                genericParts.Add($"{safeName}: {constraints}");
+            }
+            else
+            {
+                genericParts.Add(safeName);
+            }
+        }
+        var genericClause = genericParts.Count > 0
+            ? $"<{string.Join(", ", genericParts)}>"
+            : "";
+
+        // Render TypeSpec preserving generic params (replacing τ_1_0 → _G0, etc.)
+        string RenderTypeSpec(TypeSpec? ts)
+        {
+            if (ts == null) return "Any";
+            if (ts is NamedTypeSpec named)
+            {
+                // Direct generic param match: τ_1_0 → _G0
+                if (genericNameMap.TryGetValue(named.Name, out var safeName))
+                    return safeName;
+                // Metatype of generic param: τ_1_0.Type → _G0.Type
+                foreach (var (tauName, gName) in genericNameMap)
+                {
+                    if (named.Name.StartsWith(tauName + "."))
+                        return gName + named.Name.Substring(tauName.Length);
+                }
+                // Non-generic types: use standard renderer
+                if (!TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                {
+                    if (named.ContainsGenericParameters && named.GenericParameters.Count > 0)
+                    {
+                        // Render generic params recursively (e.g., ServiceEntry<τ_1_1> → ServiceEntry<_G1>)
+                        var renderedParams = string.Join(", ", named.GenericParameters.Select(RenderTypeSpec));
+                        return $"{named.Name}<{renderedParams}>";
+                    }
+                    return GetSwiftTypeName(ts);
+                }
+                return "Any"; // Fallback for unrecognized generic params
+            }
+            if (ts is ClosureTypeSpec closure)
+            {
+                var args = RenderTypeSpec(closure.Arguments);
+                var ret = RenderTypeSpec(closure.ReturnType);
+                var attrs = new List<string>();
+                if (closure.IsEscaping) attrs.Add("@escaping");
+                if (closure.HasAttributes)
+                {
+                    foreach (var attr in closure.Attributes)
+                    {
+                        if (attr.Name != "escaping") // already handled above
+                            attrs.Add($"@{attr.Name}");
+                    }
+                }
+                var attrPrefix = attrs.Count > 0 ? string.Join(" ", attrs) + " " : "";
+                var asyncStr = closure.IsAsync ? " async" : "";
+                var throwsStr = closure.Throws ? " throws" : "";
+                return $"{attrPrefix}({args}){asyncStr}{throwsStr} -> {ret}";
+            }
+            if (ts is TupleTypeSpec tuple)
+            {
+                if (tuple.Elements.Count == 0) return "()";
+                var rendered = tuple.Elements.Select(e =>
+                {
+                    var typeName = RenderTypeSpec(e);
+                    return e.TypeLabel != null ? $"{e.TypeLabel}: {typeName}" : typeName;
+                });
+                return $"({string.Join(", ", rendered)})";
+            }
+            if (ts.IsEmptyTuple) return "()";
+            return GetSwiftTypeName(ts);
+        }
+
+        // Build parameter list using raw TypeSpec
+        var parameters = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var paramTypeName = RenderTypeSpec(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+        }
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        var throwsDecl = method.Throws ? " throws" : "";
+        var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
+        bool isOptionalReturn = hasReturn && returnType is NamedTypeSpec nts &&
+            nts.Name == "Swift.Optional";
+
+        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){throwsDecl}{returnDecl} {{");
+        writer.Indent++;
+
+        if (!hasReturn)
+            writer.WriteLine("// Method-level generic stub: no-op for Void return");
+        else if (isOptionalReturn)
+            writer.WriteLine("return nil // Method-level generic stub: can't dispatch through vtable");
+        else if (method.Throws)
+        {
+            writer.WriteLine("// Method-level generic stub: throws error — can't dispatch through vtable");
+            writer.WriteLine($"throw NSError(domain: \"SwiftBindings\", code: -1, userInfo: [NSLocalizedDescriptionKey: \"Protocol method with generic parameters is not supported\"])");
+        }
+        else
+            writer.WriteLine($"fatalError(\"EveryProtocol: method-level generic method '{method.Name}' cannot be dispatched through vtable\")");
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
     private void EmitMethodImplementation(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
         string vtableInstanceName, int index, bool? effectiveThrows = null)
     {
@@ -1144,6 +1340,72 @@ public class EveryProtocolEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks if a method has ONLY method-level generic parameters (τ_1_0+) but NO
+    /// protocol-level Self type params (τ_0_*). Methods like resolve&lt;Service&gt;() have
+    /// method-level generics that EveryProtocol can satisfy with stub implementations,
+    /// unlike Self-typed methods which can't be properly dispatched.
+    /// </summary>
+    internal static bool HasOnlyMethodLevelGenerics(MethodDecl method)
+    {
+        return HasGenericTypeParamInSignature(method) && !HasSelfTypeParamInSignature(method);
+    }
+
+    /// <summary>
+    /// Checks if a method has protocol-level (Self/depth-0) generic type params in its signature.
+    /// Returns false for method-level generics (τ_1_0+) which are independent of the conforming type.
+    /// </summary>
+    private static bool HasSelfTypeParamInSignature(MethodDecl method)
+    {
+        if (method.CSSignature.Count > 0 && ContainsSelfTypeParam(method.CSSignature[0].SwiftTypeSpec))
+            return true;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            if (ContainsSelfTypeParam(method.CSSignature[i].SwiftTypeSpec))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec contains a protocol-level (Self/depth-0) generic type param.
+    /// </summary>
+    private static bool ContainsSelfTypeParam(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case NamedTypeSpec namedType:
+                if (TypeSpecHelpers.IsProtocolLevelGenericParam(namedType.Name))
+                    return true;
+                foreach (var genericParam in namedType.GenericParameters)
+                {
+                    if (ContainsSelfTypeParam(genericParam))
+                        return true;
+                }
+                return false;
+
+            case TupleTypeSpec tupleType:
+                return tupleType.Elements.Any(e => ContainsSelfTypeParam(e));
+
+            case ClosureTypeSpec closureType:
+                return ContainsSelfTypeParam(closureType.Arguments) ||
+                       ContainsSelfTypeParam(closureType.ReturnType);
+
+            case ProtocolListTypeSpec protocolListType:
+                return protocolListType.Protocols.Keys.Any(p => ContainsSelfTypeParam(p));
+
+            case AssociatedTypeReferenceSpec assocType:
+                return TypeSpecHelpers.IsProtocolLevelGenericParam(assocType.BaseType)
+                    || assocType.BaseType == "Self";
+
+            default:
+                return false;
+        }
     }
 
     /// <summary>

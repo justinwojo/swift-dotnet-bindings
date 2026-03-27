@@ -51,4 +51,29 @@ public static class TypeSpecHelpers
             return IsGenericTypeParameter(namedType.Name);
         return false;
     }
+
+    /// <summary>
+    /// Checks if a type name is a protocol-level (depth 0) generic type parameter like τ_0_0 (Self).
+    /// Returns false for method-level generic parameters (τ_1_0, τ_1_1, etc.) which are independent
+    /// of the conforming type and can be satisfied by EveryProtocol with stub implementations.
+    /// </summary>
+    public static bool IsProtocolLevelGenericParam(string typeName)
+    {
+        // τ_0_0, τ_0_1, etc. are depth-0 (protocol-level) params including Self
+        if (typeName.StartsWith("τ_0_"))
+            return true;
+
+        // Simple names (T, U, etc.) could be either — treat as Self conservatively
+        // since we can't distinguish from naming alone
+        if (!typeName.Contains('.') && typeName.Length <= 3)
+        {
+            if (typeName is "T" or "U" or "V" or "W" or "E" or "K" or "R" or "S")
+                return true;
+            if (typeName.Length >= 2 &&
+                char.IsUpper(typeName[0]) && typeName.Skip(1).All(char.IsDigit))
+                return true;
+        }
+
+        return false;
+    }
 }
