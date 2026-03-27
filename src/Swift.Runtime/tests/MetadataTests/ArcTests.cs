@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System;
+using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Xunit;
 
@@ -12,14 +13,12 @@ public class ArcTests
     [Fact]
     public void RetainMultiple_EmptySpan_DoesNothing()
     {
-        // Should not throw for an empty span
         Arc.RetainMultiple(ReadOnlySpan<IntPtr>.Empty);
     }
 
     [Fact]
     public void ReleaseMultiple_EmptySpan_DoesNothing()
     {
-        // Should not throw for an empty span
         Arc.ReleaseMultiple(ReadOnlySpan<IntPtr>.Empty);
     }
 
@@ -38,19 +37,40 @@ public class ArcTests
     }
 
     [Fact]
-    public void RetainMultiple_NullAtIndex_ReportsCorrectIndex()
+    public void RetainMultiple_ValidThenNull_ReportsCorrectIndex()
     {
-        // First pointer is valid (non-zero), second is null
-        var pointers = new IntPtr[] { new IntPtr(0x1234), IntPtr.Zero };
-        var ex = Assert.Throws<ArgumentException>(() => Arc.RetainMultiple(pointers));
-        Assert.Contains("index 1", ex.Message);
+        // Exercises the original crash path: a valid (non-null) pointer followed by null.
+        // Pre-validation must catch the null at index 1 before calling swift_retain on
+        // the valid pointer. If pre-validation regresses, swift_retain on allocated (but
+        // non-Swift) memory will crash the process — that crash IS the regression signal.
+        var allocated = Marshal.AllocHGlobal(64);
+        try
+        {
+            var pointers = new IntPtr[] { allocated, IntPtr.Zero };
+            var ex = Assert.Throws<ArgumentException>(() => Arc.RetainMultiple(pointers));
+            Assert.Contains("index 1", ex.Message);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(allocated);
+        }
     }
 
     [Fact]
-    public void ReleaseMultiple_NullAtIndex_ReportsCorrectIndex()
+    public void ReleaseMultiple_ValidThenNull_ReportsCorrectIndex()
     {
-        var pointers = new IntPtr[] { new IntPtr(0x1234), IntPtr.Zero };
-        var ex = Assert.Throws<ArgumentException>(() => Arc.ReleaseMultiple(pointers));
-        Assert.Contains("index 1", ex.Message);
+        // Same pattern as RetainMultiple: valid pointer at index 0, null at index 1.
+        // Pre-validation must reject before any native swift_isDeallocating/swift_release call.
+        var allocated = Marshal.AllocHGlobal(64);
+        try
+        {
+            var pointers = new IntPtr[] { allocated, IntPtr.Zero };
+            var ex = Assert.Throws<ArgumentException>(() => Arc.ReleaseMultiple(pointers));
+            Assert.Contains("index 1", ex.Message);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(allocated);
+        }
     }
 }

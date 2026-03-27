@@ -1,40 +1,95 @@
 #!/bin/bash
 # Run all tests with proper dotnet host path workaround
-
-set -e
+#
+# Runs all test suites and prints a final summary. Continues past failures
+# so all suites are exercised — the summary at the end shows what failed.
 
 cd "$(dirname "$0")"
 
 DOTNET_PATH=$(which dotnet)
 
+# Track results for final summary
+declare -a SUITE_NAMES=()
+declare -a SUITE_RESULTS=()
+OVERALL_EXIT=0
+
+run_suite() {
+    local name="$1"
+    shift
+    SUITE_NAMES+=("$name")
+
+    echo ""
+    echo "=== $name ==="
+    if "$@"; then
+        SUITE_RESULTS+=("PASS")
+        echo "--- $name: PASS ---"
+    else
+        local ec=$?
+        SUITE_RESULTS+=("FAIL")
+        OVERALL_EXIT=1
+        echo ""
+        echo "*** $name: FAIL (exit code $ec) ***"
+    fi
+}
+
+print_summary() {
+    echo ""
+    echo "========================================"
+    echo "         TEST SUITE SUMMARY"
+    echo "========================================"
+    local i
+    for i in "${!SUITE_NAMES[@]}"; do
+        local marker="PASS"
+        if [ "${SUITE_RESULTS[$i]}" = "FAIL" ]; then
+            marker="FAIL"
+        fi
+        printf "  %-40s %s\n" "${SUITE_NAMES[$i]}" "$marker"
+    done
+    echo "========================================"
+    if [ "$OVERALL_EXIT" -ne 0 ]; then
+        echo "  RESULT: FAILED"
+    else
+        echo "  RESULT: ALL PASSED"
+    fi
+    echo "========================================"
+}
+
+# Always print summary on exit (normal, error, or interrupt)
+trap print_summary EXIT
+
 # Build everything first
 echo "=== Building Projects ==="
-./build.sh
+if ! ./build.sh; then
+    echo "*** BUILD FAILED ***"
+    SUITE_NAMES+=("Build")
+    SUITE_RESULTS+=("FAIL")
+    OVERALL_EXIT=1
+    exit 1
+fi
 
-echo ""
-echo "=== Running Unit Tests ==="
-dotnet test src/Swift.Bindings/tests/UnitTests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+# Run each test suite — failures are tracked but don't stop other suites
+run_suite "Unit Tests" \
+    dotnet test src/Swift.Bindings/tests/UnitTests --no-build -c Debug \
+    -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
-echo ""
-echo "=== Running Runtime Tests ==="
-dotnet test src/Swift.Runtime/tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+run_suite "Runtime Tests" \
+    dotnet test src/Swift.Runtime/tests --no-build -c Debug \
+    -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
-echo ""
-echo "=== Running Analyzer Tests ==="
-dotnet test src/Swift.Analyzers.Tests --no-build -c Debug -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
+run_suite "Analyzer Tests" \
+    dotnet test src/Swift.Analyzers.Tests --no-build -c Debug \
+    -- RunConfiguration.DotNetHostPath="$DOTNET_PATH"
 
-echo ""
-echo "=== Running BindingTests Regression Suite ==="
+# BindingTests suite (macOS + Xcode only)
 if [ "$(uname)" != "Darwin" ]; then
+    echo ""
     echo "Skipping BindingTests (requires macOS with Xcode)."
 elif [ ! -d "BindingTests" ]; then
+    echo ""
     echo "BindingTests directory not found, skipping."
 else
-    cd BindingTests
-    ./build-and-test.sh --strict
-    ./generate-coverage-report.sh
-    ./check-baselines.sh
-    cd ..
+    run_suite "BindingTests Regression Suite" \
+        bash -c 'cd BindingTests && ./build-and-test.sh --strict && ./generate-coverage-report.sh && ./check-baselines.sh'
 
     # Fail on degraded must-pass features (actual regressions)
     COVERAGE_JSON="BindingTests/output/coverage-matrix.json"
@@ -48,21 +103,20 @@ print(mp.get('degraded', 0))
 " 2>/dev/null || echo "0")
         if [ "$DEGRADED" -gt 0 ]; then
             echo ""
-            echo "ERROR: $DEGRADED must-pass feature(s) are degraded in BindingTests."
+            echo "*** $DEGRADED must-pass feature(s) are degraded in BindingTests ***"
             echo "See $COVERAGE_JSON for details."
-            exit 1
+            OVERALL_EXIT=1
         fi
     fi
 
     # Run runtime tests on iOS Simulator (if available)
-    echo ""
-    echo "=== Running BindingTests Runtime Tests ==="
     if ! command -v xcrun &>/dev/null; then
-        echo "Skipping runtime tests (xcrun not available)."
+        echo ""
+        echo "Skipping BindingTests Runtime Tests (xcrun not available)."
     elif ! xcrun simctl list devices &>/dev/null 2>&1; then
-        echo "Skipping runtime tests (iOS Simulator runtime not available)."
+        echo ""
+        echo "Skipping BindingTests Runtime Tests (iOS Simulator runtime not available)."
     else
-        # Check for an available iPhone simulator
         HAS_SIM=$(xcrun simctl list devices available -j 2>/dev/null | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -76,13 +130,13 @@ sys.exit(1)
 " 2>/dev/null) || true
 
         if [ "$HAS_SIM" != "yes" ]; then
-            echo "Skipping runtime tests (no available iPhone simulator found)."
+            echo ""
+            echo "Skipping BindingTests Runtime Tests (no available iPhone simulator found)."
         else
-            cd BindingTests
-            # Simulator mode: runs all tests except [MonoJitCrash] and [Skip].
-            # Any failure or crash is a regression.
-            ./run-runtime-tests.sh --skip-regen --timeout 90
-            cd ..
+            run_suite "BindingTests Runtime Tests" \
+                bash -c 'cd BindingTests && ./run-runtime-tests.sh --skip-regen --timeout 90'
         fi
     fi
 fi
+
+exit $OVERALL_EXIT

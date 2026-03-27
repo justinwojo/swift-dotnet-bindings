@@ -138,10 +138,14 @@ public static class Arc
     /// <exception cref="ArgumentException">Throws if any pointer is null.</exception>
     public static void RetainMultiple(ReadOnlySpan<IntPtr> pointers)
     {
+        // Pre-validate all pointers before calling into native code
         for (int i = 0; i < pointers.Length; i++)
         {
             if (pointers[i] == IntPtr.Zero)
                 throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
+        }
+        for (int i = 0; i < pointers.Length; i++)
+        {
             swift_retain(pointers[i]);
         }
     }
@@ -155,10 +159,14 @@ public static class Arc
     /// <exception cref="Exception">Throws if any pointer points to an object being deinitialized.</exception>
     public static void ReleaseMultiple(ReadOnlySpan<IntPtr> pointers)
     {
+        // Pre-validate all pointers before calling into native code
         for (int i = 0; i < pointers.Length; i++)
         {
             if (pointers[i] == IntPtr.Zero)
                 throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
+        }
+        for (int i = 0; i < pointers.Length; i++)
+        {
             if (swift_isDeallocating(pointers[i]))
                 throw new Exception($"Attempt to release a Swift object at index {i} that has been deinitialized {pointers[i].ToString($"X{IntPtr.Size * 2}")}");
             swift_release(pointers[i]);
