@@ -3973,6 +3973,132 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
+    #region Closure Method Skip Tracking Tests
+
+    [Fact]
+    public void EmitProxyClass_ClosureSkippedMethod_StillEmitsNonClosureMethod()
+    {
+        // Protocol with two methods: one skipped (closure param), one kept.
+        // Pattern from Starscream, RxSwift, StripeUICore.
+        RegisterSwiftString();
+
+        var protocol = CreateSimpleProtocol("EventDelegate");
+
+        // Non-closure method: didReceiveEvent(name:) -> Bool
+        protocol.Methods.Add(CreateMethodDecl("didReceiveEvent"));
+
+        // Closure method: onComplete(handler:) — will be passed as skipped
+        protocol.Methods.Add(CreateMethodDecl("onComplete"));
+
+        var closureSkipped = new HashSet<string> { "onComplete" };
+
+        var output = EmitProxyClassWithSkips(protocol, closureSkippedMethodKeys: closureSkipped);
+
+        // The proxy class should still be emitted
+        Assert.Contains("EventDelegateProxy", output);
+        // Non-closure method should have a receiver
+        Assert.Contains("didReceiveEvent", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureSkippedProperty_StillEmitsNonClosureProperty()
+    {
+        // Protocol with a closure-skipped property and a non-closure property.
+        RegisterSwiftInt32();
+        RegisterSwiftString();
+
+        var protocol = CreateSimpleProtocol("DataDelegate");
+
+        // Non-closure property: count (Int32 getter)
+        var getterMethod = CreateMethodDecl("count_get");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        // Closure property: onUpdate — will be passed as skipped
+        var closureGetterMethod = CreateMethodDecl("onUpdate_get");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "onUpdate",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"), // Placeholder type (actual is closure, but it's skipped)
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = closureGetterMethod } },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var closureSkippedProps = new HashSet<string> { "onUpdate" };
+
+        var output = EmitProxyClassWithSkips(protocol, closureSkippedPropertyNames: closureSkippedProps);
+
+        // Should still generate the proxy class with the non-closure property
+        Assert.Contains("DataDelegateProxy", output);
+        Assert.Contains("count", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_AllMethodsClosureSkipped_StillEmitsProxyClass()
+    {
+        // Protocol where ALL methods are closure-skipped.
+        // The proxy class should still be emitted (for the protocol interface) but
+        // will have no method receivers.
+        var protocol = CreateSimpleProtocol("FullClosureProtocol");
+        protocol.Methods.Add(CreateMethodDecl("onComplete"));
+        protocol.Methods.Add(CreateMethodDecl("onError"));
+
+        var closureSkipped = new HashSet<string> { "onComplete", "onError" };
+
+        var output = EmitProxyClassWithSkips(protocol, closureSkippedMethodKeys: closureSkipped);
+
+        // Proxy class still emitted
+        Assert.Contains("FullClosureProtocolProxy", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SelfRequirement_SkipsEntireProxy()
+    {
+        // Protocols with Self requirement can't have proxy classes at all.
+        var protocol = CreateSimpleProtocol("SelfBound");
+        protocol.HasSelfRequirement = true;
+        protocol.Methods.Add(CreateMethodDecl("compare"));
+
+        var output = EmitProxyClass(protocol);
+
+        // No proxy class should be emitted
+        Assert.DoesNotContain("SelfBoundProxy", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_AssociatedTypes_SkipsEntireProxy()
+    {
+        // Protocols with associated types can't have proxy classes.
+        var protocol = CreateSimpleProtocol("Container");
+        protocol.AssociatedTypes = new List<AssociatedTypeDecl>
+        {
+            new AssociatedTypeDecl
+            {
+                Name = "Element",
+                Constraints = new List<string>()
+            }
+        };
+        protocol.Methods.Add(CreateMethodDecl("getElement"));
+
+        var output = EmitProxyClass(protocol);
+
+        // No proxy class should be emitted
+        Assert.DoesNotContain("ContainerProxy", output);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private string EmitProxyClass(ProtocolDecl protocolDecl)
@@ -3980,6 +4106,24 @@ public class ProtocolProxyEmitterTests
         var stringWriter = new StringWriter();
         var writer = new CSharpWriter(stringWriter);
         _emitter.EmitProxyClass(writer, protocolDecl);
+        return stringWriter.ToString();
+    }
+
+    private string EmitProxyClassWithSkips(
+        ProtocolDecl protocolDecl,
+        HashSet<string> closureSkippedMethodKeys = null,
+        HashSet<string> closureSkippedPropertyNames = null,
+        HashSet<string> skippedMethodKeys = null,
+        HashSet<string> skippedPropertyNames = null)
+    {
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            skippedMethodKeys: skippedMethodKeys,
+            skippedPropertyNames: skippedPropertyNames,
+            closureSkippedMethodKeys: closureSkippedMethodKeys,
+            closureSkippedPropertyNames: closureSkippedPropertyNames);
         return stringWriter.ToString();
     }
 

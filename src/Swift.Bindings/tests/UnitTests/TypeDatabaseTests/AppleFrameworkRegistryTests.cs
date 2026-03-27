@@ -927,6 +927,31 @@ public class AppleFrameworkRegistryTests
 
     // --- IsKnownAppleOrSystemModule ---
 
+    // --- Session 4: CoreGraphics / Apple Framework Type Edge Cases ---
+
+    [Fact]
+    public void CoreGraphics_IsNotAutoBridgeModule()
+    {
+        // CoreGraphics types are handled via XML database, not auto-bridge.
+        // Auto-bridge is for ObjC-class-heavy frameworks; CG is pure C/value types.
+        Assert.False(AppleFrameworkRegistry.IsAutoBridgeModule("CoreGraphics"));
+    }
+
+    [Theory]
+    [InlineData("CoreGraphics.CGPoint", false)]  // CG types are value types, but not in registry's known set
+    [InlineData("CoreGraphics.CGSize", false)]
+    [InlineData("CoreGraphics.CGRect", false)]
+    [InlineData("CoreFoundation.CGFloat", false)]  // CGFloat is a primitive alias, not a struct
+    public void CoreGraphicsTypes_ValueTypeClassification(string name, bool expected)
+    {
+        // CoreGraphics types are NOT in the registry's IsKnownValueType set because
+        // they're handled via CoreGraphicsDatabase.xml at the TypeDatabase level.
+        // This test documents that the registry defers to XML for CG type classification.
+        Assert.Equal(expected, AppleFrameworkRegistry.IsKnownValueType(name));
+    }
+
+    // --- IsKnownAppleOrSystemModule ---
+
     [Theory]
     [InlineData("Swift", true)]
     [InlineData("Foundation", true)]
@@ -936,6 +961,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("ObjectiveC", true)]
     [InlineData("Dispatch", true)]
     [InlineData("CoreFoundation", true)]
+    [InlineData("CoreGraphics", false)]     // CG is handled via XML database, not registry module set
     [InlineData("SwiftUI", true)]          // Unsupported but still a known Apple module
     [InlineData("StripePayments", false)]  // Third-party
     [InlineData("Alamofire", false)]       // Third-party

@@ -5,9 +5,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <!-- CS0169: unused private field (generated backing fields) -->
+    <!-- CS0649: field never assigned (protocol proxy vtable entries for closure-skipped methods) -->
     <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
-    <NoWarn>0169;CA1420</NoWarn>
+    <NoWarn>CS0169;CS0649;CA1420</NoWarn>
   </PropertyGroup>
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>

@@ -580,6 +580,68 @@ public class OptionalMarshalStrategyTests
 
     #endregion
 
+    #region Session 4 — Value-Type Optional Classification
+
+    [Fact]
+    public void Classify_OptionalSimpleEnum_ReturnsLargeOptionalPointer()
+    {
+        // Simple Int32-backed enums (like Color) are frozen value types.
+        // They're not blittable primitives (not in Swift.Int32 etc.), not decomposed (simple),
+        // so they fall through to LargeOptionalPointer (conservative, correct).
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            ("TestModule.Color", TypeRecordFlags.SimpleEnum, TypeRecordKind.Enum));
+
+        var optSpec = MakeOptional("TestModule.Color");
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.LargeOptionalPointer, result);
+    }
+
+    [Fact]
+    public void Classify_OptionalCGFloat_ReturnsLargeOptionalPointer()
+    {
+        // CGFloat is 8 bytes on arm64 — blittable but >= 8, so LargeOptionalPointer.
+        var (_, typeDb) = CreateTestEnvironment();
+        var optSpec = MakeOptional("CoreFoundation.CGFloat");
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.LargeOptionalPointer, result);
+    }
+
+    [Fact]
+    public void Classify_OptionalAppleFrozenStruct_ReturnsLargeOptionalPointer()
+    {
+        // Apple framework frozen structs (like CGPoint with 2 Doubles = 16 bytes)
+        // are not blittable primitives, not decomposed, not reference → LargeOptionalPointer.
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            ("CoreGraphics.CGPoint", TypeRecordFlags.Frozen, TypeRecordKind.Struct));
+
+        var optSpec = MakeOptional("CoreGraphics.CGPoint");
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.LargeOptionalPointer, result);
+    }
+
+    [Fact]
+    public void Classify_OptionalObjCBridgeableType_ReturnsNullablePointer()
+    {
+        // ObjCBridgeable value types (like Foundation.Date → NSDate) use the nullable pointer ABI.
+        // The ObjCBridgeable flag triggers NullablePointer via IsObjCBridgeable check in Path 1.
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            ("TestModule.BridgeableDate", TypeRecordFlags.ObjCBridgeable, TypeRecordKind.Struct));
+
+        var optSpec = MakeOptional("TestModule.BridgeableDate");
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.NullablePointer, result);
+    }
+
+    #endregion
+
     #region GetInnerSpec helper
 
     [Fact]

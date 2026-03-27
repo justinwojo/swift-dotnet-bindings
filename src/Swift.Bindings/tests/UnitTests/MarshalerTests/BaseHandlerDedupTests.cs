@@ -319,6 +319,80 @@ public class BaseHandlerDedupTests
         return (string)method!.Invoke(null, new object?[] { methodDecl, typeDatabase, null })!;
     }
 
+    [Fact]
+    public void GetProjectedCSharpMethodKey_DefaultTrimmedOverload_MatchesExplicitOverload()
+    {
+        // Verify that a method with defaults, when trimmed, produces the same projected key
+        // as an explicit overload with the same signature.
+        // find(query: String) should produce the same key regardless of where it came from.
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+
+        // Explicit 1-param method: find(query: String)
+        var explicitMethod = new MethodDecl
+        {
+            Name = "find",
+            MangledName = "$sExplicit",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type
+                new ArgumentDecl
+                {
+                    Name = "query",
+                    PrivateName = "query",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        // Trimmed overload (simulated): find(query: String) — same signature
+        var trimmedMethod = new MethodDecl
+        {
+            Name = "find",
+            MangledName = "$sTrimmed",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type
+                new ArgumentDecl
+                {
+                    Name = "query",
+                    PrivateName = "query",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var key1 = InvokeGetProjectedCSharpMethodKey(explicitMethod, typeDatabase);
+        var key2 = InvokeGetProjectedCSharpMethodKey(trimmedMethod, typeDatabase);
+
+        // Both should produce the same projected C# key
+        Assert.Equal(key1, key2);
+    }
+
     #endregion
 
     #region Nullable Reference Type Dedup Tests

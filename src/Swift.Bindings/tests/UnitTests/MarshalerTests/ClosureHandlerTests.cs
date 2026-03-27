@@ -2468,6 +2468,83 @@ public class ClosureHandlerTests
 
     #endregion
 
+    #region Nested Closure Detection
+
+    [Fact]
+    public void IsSupportedClosure_WithNestedClosureParameter_ReturnsFalse()
+    {
+        // Closure-in-closure: ((Int) -> Void) -> Void
+        // IsSupportedClosureParameterType rejects ClosureTypeSpec as a parameter type
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var innerClosure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        var outerClosure = new ClosureTypeSpec(innerClosure, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(outerClosure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithNestedClosureReturn_ReturnsFalse()
+    {
+        // Closure returning closure: () -> (() -> Void)
+        // Return type goes through IsSupportedClosureParameterType first, which rejects ClosureTypeSpec
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var innerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var outerClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, innerClosure);
+
+        Assert.False(handler.IsSupportedClosure(outerClosure));
+    }
+
+    #endregion
+
+    #region Generic Type Parameter Detection
+
+    [Fact]
+    public void IsSupportedClosure_WithGenericTypeParameter_ReturnsFalse()
+    {
+        // Closure with generic type parameter τ_0_0 (unresolved generic)
+        // IsGenericTypeParameter detects these as unsupported
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var genericParam = new NamedTypeSpec("τ_0_0");
+        var closure = new ClosureTypeSpec(genericParam, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithNamedGenericTypeParameter_ReturnsFalse()
+    {
+        // Closure with named generic type parameter (e.g., T, Element)
+        // These have no module qualifier and aren't in the type database
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var genericParam = new NamedTypeSpec("T");
+        var closure = new ClosureTypeSpec(genericParam, TupleTypeSpec.Empty);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_WithGenericReturnType_ReturnsFalse()
+    {
+        // Closure returning a generic type parameter: () -> τ_0_0
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var genericReturn = new NamedTypeSpec("τ_0_0");
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, genericReturn);
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    #endregion
+
     #region Mock Type Database
 
     private class MockTypeDatabase : ITypeDatabase

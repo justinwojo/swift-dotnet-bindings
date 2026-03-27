@@ -156,6 +156,31 @@ public class NameProviderSanitizationTests
         Assert.Equal("Self", result);
     }
 
+    [Fact]
+    public void ComputeCaseNameMap_EmojiSanitizedCollision_Deduplicates()
+    {
+        // Two different emoji both sanitize to "__" → PascalCase produces same name → collision
+        // error🚫 → "error__" → "Error__", error🔶 → "error__" → "Error__"
+        // The collision map should append numeric suffix to the second occurrence
+        var cases = MakeCases("error\U0001F6AB", "error\U0001F536");
+        var map = NameProvider.ComputeCaseNameMap(cases);
+        Assert.NotNull(map);
+        // First gets Error__, second gets Error__2
+        var firstName = map["error\U0001F6AB"];
+        var secondName = map["error\U0001F536"];
+        Assert.NotEqual(firstName, secondName);
+        Assert.Equal("Error__", firstName);
+        Assert.Equal("Error__2", secondName);
+    }
+
+    [Fact]
+    public void ToPascalCase_MultipleEmoji_AllReplacedWithUnderscores()
+    {
+        // 🚫🔶 = 4 UTF-16 chars → 4 underscores
+        var result = NameProvider.ToPascalCase("test\U0001F6AB\U0001F536end");
+        Assert.Equal("Test____end", result);
+    }
+
     #endregion
 
     #region EscapeSwiftKeyword

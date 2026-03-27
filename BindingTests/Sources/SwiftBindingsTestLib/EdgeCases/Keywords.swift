@@ -40,6 +40,20 @@ public func processKeywords(`in` input: String, `for` target: String) -> String 
     return "\(target): \(input)"
 }
 
+// MARK: - Simpler Backtick/Keyword Tests
+// The KeywordTest struct above has 4 string params and hits the GPR overflow ABI bug.
+// These simpler functions test backtick keyword handling without hitting that limit.
+
+/// Function with a backtick-escaped keyword parameter label.
+public func getKeywordValue(`for` key: String) -> String {
+    return "value-for-\(key)"
+}
+
+/// Function with a backtick-escaped keyword parameter label and a primitive.
+public func processKeywordParam(`class` name: String, count: Int32) -> String {
+    return "\(name):\(count)"
+}
+
 // MARK: - Enum Cases with Keyword Labels (S1 pattern from Alamofire)
 // See FilterScope.swift.disabled — the actual enum fixture for this pattern.
 // Disabled because the generator produces invalid compound identifiers (`__@in`).

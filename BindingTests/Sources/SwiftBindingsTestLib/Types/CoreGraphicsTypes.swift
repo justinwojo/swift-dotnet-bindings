@@ -47,3 +47,22 @@ public func describeRect(_ rect: CGRect) -> String {
 public func rectArea(_ rect: CGRect) -> CGFloat {
     return rect.size.width * rect.size.height
 }
+
+// MARK: - Optional CoreGraphics Types
+
+/// Optional CGPoint parameter — tests value-type optional for Apple framework frozen struct.
+public func processOptionalPoint(_ point: CGPoint?) -> String {
+    guard let p = point else { return "nil" }
+    return "(\(p.x), \(p.y))"
+}
+
+/// Optional CGRect parameter — tests value-type optional for larger Apple framework struct.
+public func processOptionalRect(_ rect: CGRect?) -> String {
+    guard let r = rect else { return "nil" }
+    return "\(r.origin.x),\(r.origin.y) \(r.size.width)x\(r.size.height)"
+}
+
+/// CGFloat scaling — tests Double mapping for CGFloat parameters and return.
+public func scaleCGFloat(_ value: CGFloat, by factor: CGFloat) -> CGFloat {
+    return value * factor
+}

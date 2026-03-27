@@ -34,6 +34,73 @@ public class CollisionTests : TestBase
         AssertEqual("move-lowercase", result, "Lowercase move described correctly");
     }
 
+    public void TestDrawCommandLineValues()
+    {
+        var line = DrawCommand.Line;
+        AssertEqual(2, (int)line, "line (lowercase) maps to 2");
+
+        var lineUpper = DrawCommand.Line2;
+        AssertEqual(3, (int)lineUpper, "Line (uppercase) renamed to Line2, maps to 3");
+    }
+
+    public void TestDrawCommandCloseValue()
+    {
+        var close = DrawCommand.Close;
+        AssertEqual(4, (int)close, "close maps to 4");
+    }
+
+    public void TestDrawCommandDescribeLine()
+    {
+        var result = TestLibFunctions.DescribeDrawCommand(DrawCommand.Line);
+        AssertEqual("line-lowercase", result, "Lowercase line described correctly");
+
+        var resultUpper = TestLibFunctions.DescribeDrawCommand(DrawCommand.Line2);
+        AssertEqual("Line-uppercase", resultUpper, "Uppercase Line described correctly");
+    }
+
+    public void TestDrawCommandDescribeClose()
+    {
+        var result = TestLibFunctions.DescribeDrawCommand(DrawCommand.Close);
+        AssertEqual("close", result, "Close described correctly");
+    }
+
+    public void TestDrawCommandDescribeMoveUpper()
+    {
+        var result = TestLibFunctions.DescribeDrawCommand(DrawCommand.Move2);
+        AssertEqual("Move-uppercase", result, "Uppercase Move described correctly");
+    }
+
+    #endregion
+
+    #region CSSProperty (String Enum Case Collisions)
+
+    public void TestCSSPropertyCasesExist()
+    {
+        // CSSProperty is a string raw value enum → generated as a class with static properties.
+        // Case-insensitive collision handling: color→Color, Color→Color2, background→Background, BACKGROUND→Background2
+        using var color = CSSProperty.Color;
+        AssertNotNull(color, "CSSProperty.Color exists");
+
+        using var colorUpper = CSSProperty.Color2;
+        AssertNotNull(colorUpper, "CSSProperty.Color2 exists (case collision renamed)");
+
+        using var background = CSSProperty.Background;
+        AssertNotNull(background, "CSSProperty.Background exists");
+
+        using var backgroundUpper = CSSProperty.Background2;
+        AssertNotNull(backgroundUpper, "CSSProperty.Background2 exists (SCREAMING_CASE collision renamed)");
+    }
+
+    [Skip("String enum raw values use case names instead of actual raw values (known generator bug)")]
+    public void TestDescribeCSSProperty()
+    {
+        // The DescribeCSSProperty function returns the rawValue.
+        // Blocked by the string enum raw value bug — raw values are case names, not actual values.
+        using var color = CSSProperty.Color;
+        var desc = TestLibFunctions.DescribeCSSProperty(color);
+        AssertEqual("color", desc, "DescribeCSSProperty returns raw value for color");
+    }
+
     #endregion
 
     #region CollisionStruct (Property Name Collisions)
@@ -114,6 +181,68 @@ public class CollisionTests : TestBase
     {
         var name = TestLibFunctions.ContainerStateName(TypeContainer.State.Loaded);
         AssertEqual("loaded", name, "State name resolves correctly");
+    }
+
+    #endregion
+
+    #region ValidationStatus (Emoji Identifier Sanitization)
+
+    public void TestValidationStatusCasesExist()
+    {
+        // Emoji in case names sanitized to underscores:
+        // success → Success, error🚫 → Error__ (2 UTF-16 units = 2 underscores)
+        var success = ValidationStatus.Success;
+        AssertEqual(0, (int)success, "success maps to 0");
+
+        var error = ValidationStatus.Error__;
+        AssertEqual(1, (int)error, "error🚫 sanitized to Error__, maps to 1");
+
+        var warning = ValidationStatus.Warning__;
+        AssertEqual(2, (int)warning, "warning🔶 sanitized to Warning__, maps to 2");
+
+        var pending = ValidationStatus.Pending__;
+        AssertEqual(3, (int)pending, "pending🔄 sanitized to Pending__, maps to 3");
+    }
+
+    public void TestDescribeValidationStatus()
+    {
+        var result = TestLibFunctions.DescribeValidationStatus(ValidationStatus.Success);
+        AssertEqual("success", result, "success described correctly");
+
+        var errorResult = TestLibFunctions.DescribeValidationStatus(ValidationStatus.Error__);
+        AssertEqual("error", errorResult, "error🚫 round-trips correctly");
+
+        var warningResult = TestLibFunctions.DescribeValidationStatus(ValidationStatus.Warning__);
+        AssertEqual("warning", warningResult, "warning🔶 round-trips correctly");
+
+        var pendingResult = TestLibFunctions.DescribeValidationStatus(ValidationStatus.Pending__);
+        AssertEqual("pending", pendingResult, "pending🔄 round-trips correctly");
+    }
+
+    public void TestValidationStatusRawValue()
+    {
+        var result = TestLibFunctions.ValidationStatusRawValue(ValidationStatus.Error__);
+        AssertEqual(1, result, "error🚫 raw value is 1");
+    }
+
+    #endregion
+
+    #region SearchService (Default Param Collision)
+
+    public void TestSearchServiceFindWithQuery()
+    {
+        using var service = new SearchService();
+        // The explicit 1-param find(query:) should be called (not the 2-param with default)
+        var result = service.Find("test");
+        AssertEqual("find(test)", result, "Explicit 1-param find(query:) called correctly");
+    }
+
+    public void TestSearchServiceFindWithQueryAndLimit()
+    {
+        using var service = new SearchService();
+        // The 2-param find(query:limit:) should be callable with explicit limit
+        var result = service.Find("test", 5);
+        AssertEqual("find(test, limit=5)", result, "2-param find(query:limit:) called correctly");
     }
 
     #endregion

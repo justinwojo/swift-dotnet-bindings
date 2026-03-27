@@ -16,7 +16,8 @@
     <!-- IL2075/IL2087: AOT trimming warnings (reflection use in tests) -->
     <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
-    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Disable trimming for test app (reflection-heavy) -->
     <MtouchLink>None</MtouchLink>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->

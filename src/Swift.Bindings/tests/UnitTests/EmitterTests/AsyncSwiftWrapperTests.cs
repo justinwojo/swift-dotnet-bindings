@@ -1375,4 +1375,507 @@ public class AsyncSwiftWrapperTests
     }
 
     #endregion
+
+    #region Frozen Blittable Struct Async Heap Allocation Tests
+
+    [Fact]
+    public void AsyncWrapper_FrozenBlittableStructParam_UsesNativeMemoryAlloc()
+    {
+        // Frozen blittable struct params in async methods must use NativeMemory.Alloc
+        // instead of stackalloc, because the stack buffer is invalidated across await.
+        var csOutput = GenerateAsyncMethodWithFrozenStructParam(isAsync: true);
+
+        // Should use NativeMemory.Alloc for heap allocation
+        Assert.Contains("NativeMemory.Alloc", csOutput);
+        // Should use CopyBufferWithType for cleanup in the holder
+        Assert.Contains("CopyBufferWithType", csOutput);
+        // Should NOT use stackalloc (unsafe across await boundary)
+        Assert.DoesNotContain("stackalloc", csOutput);
+    }
+
+    [Fact]
+    public void SyncWrapper_FrozenBlittableStructParam_UsesStackalloc()
+    {
+        // Sync methods must still use stackalloc for frozen blittable struct params (faster).
+        var csOutput = GenerateAsyncMethodWithFrozenStructParam(isAsync: false);
+
+        // Should use stackalloc for stack allocation
+        Assert.Contains("stackalloc", csOutput);
+        // Should NOT use HeapBuffer pattern (the async heap allocation path)
+        Assert.DoesNotContain("HeapBuffer", csOutput);
+        // Should NOT use CopyBufferWithType (no async holder needed)
+        Assert.DoesNotContain("CopyBufferWithType", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_FrozenBlittableStructParam_MarshalToSwiftCalled()
+    {
+        // The heap-allocated buffer must be populated via MarshalToSwift
+        var csOutput = GenerateAsyncMethodWithFrozenStructParam(isAsync: true);
+
+        Assert.Contains("SwiftMarshal.MarshalToSwift(data", csOutput);
+        Assert.Contains("HeapBuffer", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_MultipleFrozenBlittableParams_AllHeapAllocated()
+    {
+        // Multiple frozen blittable struct params should all use heap allocation in async
+        var csOutput = GenerateAsyncMethodWithMultipleFrozenStructParams();
+
+        // Both params should have heap allocation via NativeMemory.Alloc
+        Assert.Contains("aHeapBuffer = (IntPtr)NativeMemory.Alloc", csOutput);
+        Assert.Contains("bHeapBuffer = (IntPtr)NativeMemory.Alloc", csOutput);
+        // Both should have CopyBufferWithType for cleanup
+        Assert.Contains("new CopyBufferWithType(aHeapBuffer", csOutput);
+        Assert.Contains("new CopyBufferWithType(bHeapBuffer", csOutput);
+        // No stackalloc
+        Assert.DoesNotContain("stackalloc", csOutput);
+    }
+
+    #endregion
+
+    #region Frozen Blittable Struct Param Helpers
+
+    /// <summary>
+    /// Generates C# output for a method with a frozen blittable struct parameter.
+    /// Used to test async heap allocation vs sync stackalloc behavior.
+    /// </summary>
+    private static string GenerateAsyncMethodWithFrozenStructParam(bool isAsync)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Worker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Worker"),
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6WorkerVMa",
+            MangledName = "$s10TestModule6WorkerV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        // Return type: String (to exercise async path)
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            },
+            // Frozen blittable struct parameter
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.FrozenData"),
+                Name = "data",
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "processData",
+            MangledName = "$s10TestModule6WorkerV11processDataySSAA06FrozenD0VYaKF",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = isAsync,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        // Register parent struct
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Worker"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = parentDecl.MetadataAccessor,
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        // Register the frozen blittable struct param type
+        var frozenDataName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenData");
+        module.RegisterType(frozenDataName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenData"),
+            SwiftTypeName = frozenDataName,
+            MetadataAccessor = "$s10TestModule10FrozenDataVMa",
+            Flags = TypeRecordFlags.Frozen,  // Frozen + no RequiresMemoryManagement = blittable
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        // Register Swift.String and Swift.Int
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.String"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            MetadataAccessor = "$sSSMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
+        });
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
+
+    /// <summary>
+    /// Generates C# output for an async method with multiple frozen blittable struct parameters.
+    /// </summary>
+    private static string GenerateAsyncMethodWithMultipleFrozenStructParams()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Worker",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Worker"),
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6WorkerVMa",
+            MangledName = "$s10TestModule6WorkerV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            },
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.FrozenData"),
+                Name = "a",
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            },
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.FrozenData"),
+                Name = "b",
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "combineData",
+            MangledName = "$s10TestModule6WorkerV11combineDataySSAA06FrozenD0V_AFtYaKF",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Worker"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = parentDecl.MetadataAccessor,
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var frozenDataName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenData");
+        module.RegisterType(frozenDataName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenData"),
+            SwiftTypeName = frozenDataName,
+            MetadataAccessor = "$s10TestModule10FrozenDataVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.String"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            MetadataAccessor = "$sSSMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
+        });
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
+
+    #endregion
+
+    #region Async Instance Method with Frozen Struct Params
+
+    [Fact]
+    public void AsyncWrapper_InstanceMethod_FrozenBlittableStructParam_UsesNativeMemoryAlloc()
+    {
+        // Instance methods with frozen blittable struct params in async context must also
+        // use NativeMemory.Alloc. Session 5's tests only covered static methods.
+        var csOutput = GenerateAsyncInstanceMethodWithFrozenStructParam();
+
+        // Should use NativeMemory.Alloc for heap allocation
+        Assert.Contains("NativeMemory.Alloc", csOutput);
+        // Should use CopyBufferWithType for cleanup in the holder
+        Assert.Contains("CopyBufferWithType", csOutput);
+        // Should NOT use stackalloc (unsafe across await boundary)
+        Assert.DoesNotContain("stackalloc", csOutput);
+    }
+
+    /// <summary>
+    /// Generates C# output for an async INSTANCE method with a frozen blittable struct parameter.
+    /// Mirrors GenerateAsyncMethodWithFrozenStructParam but uses MethodType.Instance on a ClassDecl.
+    /// </summary>
+    private static string GenerateAsyncInstanceMethodWithFrozenStructParam()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "PointProcessor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PointProcessor"),
+            MangledName = "$s10TestModule14PointProcessorCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        // Return type: String
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            },
+            // Frozen blittable struct parameter
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.FrozenData"),
+                Name = "point",
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "processPoint",
+            MangledName = "$s10TestModule14PointProcessorC12processPointySSAA06FrozenD0VYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        // Register parent class
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "PointProcessor"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = "$s10TestModule14PointProcessorCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+
+        // Register the frozen blittable struct param type
+        var frozenDataName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenData");
+        module.RegisterType(frozenDataName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenData"),
+            SwiftTypeName = frozenDataName,
+            MetadataAccessor = "$s10TestModule10FrozenDataVMa",
+            Flags = TypeRecordFlags.Frozen,  // Frozen + no RequiresMemoryManagement = blittable
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        // Register Swift.String and Swift.Int
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.String"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            MetadataAccessor = "$sSSMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
+        });
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
+
+    #endregion
 }

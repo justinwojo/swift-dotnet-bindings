@@ -282,6 +282,85 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Contains("public static func _dbw_init_", swiftOutput);
     }
 
+    [Fact]
+    public void TryEmitOverloads_ProjectedKeyCollision_SkipsOverload()
+    {
+        // Pattern from ObjectMapper/Parchment: an explicit 1-param overload collides
+        // with the trimmed default-param overload after C# projection.
+        // find(query: Int, limit: Int = 10) → trimmed to find(query: Int)
+        // find(query: Int) → explicit 1-param overload
+        // Both produce the same projected C# key → skip the trimmed overload.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("SearchService");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "SearchService",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SearchService"),
+            MangledName = "$s10TestModule13SearchServiceVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule13SearchServiceVMa"
+        };
+
+        // Explicit 1-param overload: find(query: Int)
+        var explicitOverload = new MethodDecl
+        {
+            Name = "find",
+            MangledName = "$s10TestModule13SearchServiceV4findySSSgSSF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("query", hasDefault: false)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(explicitOverload);
+
+        // Method with default param: find(query: Int, limit: Int = 10)
+        // Trimming limit produces find(query: Int) → collides with explicit overload
+        var methodWithDefault = new MethodDecl
+        {
+            Name = "find",
+            MangledName = "$s10TestModule13SearchServiceV4findySSSgSS_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("query", hasDefault: false),
+                CreateArg("limit", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(methodWithDefault);
+
+        var (csOutput, swiftOutput) = EmitOverloads(methodWithDefault, typeDb);
+
+        // Sibling collision with explicit overload → trimmed overload skipped
+        Assert.Empty(csOutput);
+        Assert.Empty(swiftOutput);
+    }
+
     #endregion
 
     #region EC-5: Method-Level Generic Skip

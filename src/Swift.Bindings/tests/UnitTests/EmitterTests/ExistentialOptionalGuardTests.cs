@@ -166,7 +166,134 @@ public class ExistentialOptionalGuardTests
 
     #endregion
 
+    #region Property Position — Optional Existential Guards
+
+    [Fact]
+    public void Property_WithOptionalExistentialType_KnownProtocol_NotBlockedByB6()
+    {
+        // Property: var primary: (any Renderable)?
+        // Known protocol with TypeRecord should pass the optional existential guard.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Renderable");
+        var optionalExistentialSpec = CreateOptionalExistentialTypeSpec("TestModule.Renderable");
+
+        var property = CreatePropertyDecl("primary", optionalExistentialSpec);
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+
+        Assert.True(result != SkipReason.UnsupportedExistential,
+            $"Property Optional<any Renderable> should not be UnsupportedExistential, got {result}: {details}");
+    }
+
+    [Fact]
+    public void Property_WithOptionalExistentialType_UnknownProtocol_PassesPropertyValidator()
+    {
+        // Property: var primary: (any UnknownProtocol)?
+        // Unlike the method validator, the property validator does NOT check TypeRecord existence
+        // for optional existentials. It only checks IsSupportedExistential (count ≤ 8).
+        // The unknown protocol rejection happens downstream during emission, not during validation.
+        // This tests that the property validator's existential path is more lenient than the method path.
+        var typeDatabase = CreateTypeDatabase();
+        var optionalExistentialSpec = CreateOptionalExistentialTypeSpec("TestModule.UnknownProtocol");
+
+        var property = CreatePropertyDecl("primary", optionalExistentialSpec);
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+
+        // Property path does NOT block unknown protocol existentials — passes through
+        Assert.True(result != SkipReason.UnsupportedExistential,
+            $"Property validator should not block unknown protocol optional existential as UnsupportedExistential, got {result}: {details}");
+    }
+
+    [Fact]
+    public void Property_WithDirectExistentialType_KnownProtocol_NotBlockedByB6()
+    {
+        // Property: var delegate: any Renderable
+        // Non-optional existential with known protocol should also pass.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.Renderable");
+        var existentialSpec = new NamedTypeSpec("TestModule.Renderable") { IsAny = true };
+
+        var property = CreatePropertyDecl("delegate", existentialSpec);
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+
+        Assert.True(result != SkipReason.UnsupportedExistential,
+            $"Property any Renderable should not be UnsupportedExistential, got {result}: {details}");
+    }
+
+    [Fact]
+    public void Property_WithOptionalMixedComposition_PassesPropertyValidator()
+    {
+        // Property: var delegate: (any ImageProcessing & UIViewControllerTransitioningDelegate)?
+        // The P1 ObjC filtering guard is in BoundGenericsHandler.IsValidExistentialForContainer,
+        // which applies to containers (Array, Dictionary). The property validator's existential
+        // path uses IsSupportedExistential (count ≤ 8), which passes for 2 protocols.
+        // Mixed composition blocking occurs downstream in emission for properties.
+        var typeDatabase = CreateTypeDatabaseWithMixedComposition();
+
+        var existentialInner1 = new NamedTypeSpec("TestModule.ImageProcessing");
+        var existentialInner2 = new NamedTypeSpec("UIKit.UIViewControllerTransitioningDelegate");
+        var protocolList = new ProtocolListTypeSpec(new[] { existentialInner1, existentialInner2 });
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(protocolList);
+
+        var property = CreatePropertyDecl("delegate", optionalSpec);
+
+        var result = MemberEmissionValidator.CanEmitProperty(property, typeDatabase, out var details, out _);
+
+        // Property validator does NOT apply the P1 mixed composition guard — passes through
+        Assert.True(result != SkipReason.UnsupportedExistential,
+            $"Property validator should not block mixed composition as UnsupportedExistential, got {result}: {details}");
+    }
+
+    #endregion
+
     #region Helpers
+
+    private static PropertyDecl CreatePropertyDecl(string name, TypeSpec typeSpec)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateStructDecl("TestType");
+        parentDecl.ParentDecl = moduleDecl;
+        parentDecl.ModuleDecl = moduleDecl;
+
+        var getterMethod = new MethodDecl
+        {
+            Name = $"{name}_get",
+            MangledName = $"$s{name}_get",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = typeSpec,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = parentDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = typeSpec,
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
 
     private static NamedTypeSpec CreateOptionalExistentialTypeSpec(string protocolName)
     {

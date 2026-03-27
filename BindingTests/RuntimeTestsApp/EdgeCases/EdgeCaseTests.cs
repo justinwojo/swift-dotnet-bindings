@@ -70,6 +70,18 @@ public class EdgeCaseTests : TestBase
         AssertEqual("evt", kt.Event, "C# keyword 'event' as property works");
     }
 
+    public void TestGetKeywordValue()
+    {
+        var result = TestLibFunctions.GetKeywordValue("mykey");
+        AssertEqual("value-for-mykey", result, "getKeywordValue with backtick `for` param works");
+    }
+
+    public void TestProcessKeywordParam()
+    {
+        var result = TestLibFunctions.ProcessKeywordParam("MyClass", 42);
+        AssertEqual("MyClass:42", result, "processKeywordParam with backtick `class` param works");
+    }
+
     #endregion
 
     #region Deprecation

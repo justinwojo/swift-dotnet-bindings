@@ -1111,6 +1111,123 @@ public class BoundGenericsHandlerTests
 
     #endregion
 
+    #region Multi-Type-Argument Bound Generic Tests
+
+    [Fact]
+    public void IsBoundGeneric_MultiTypeArgGeneric_ReturnsTrue()
+    {
+        // Pair<Int32, String> — two type arguments
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var argDecl = CreateArgumentDecl(pairTypeSpec);
+        var result = _handler.IsBoundGeneric(argDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_MultiTypeArgs_FallsBackForUnknownContainer()
+    {
+        // Pair<Int32, String> — TestModule.Pair is not in TypeDatabase,
+        // so the handler falls back to AnyType (same as any unknown bound generic).
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var argDecl = CreateArgumentDecl(pairTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        // Unknown container types fall back to AnyType
+        Assert.Contains("AnyType", result);
+    }
+
+    [Fact]
+    public void IsBoundGeneric_MultiTypeArgProperty_ReturnsTrue()
+    {
+        // Property of type Pair<Int, String>
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var propertyDecl = CreatePropertyDecl(pairTypeSpec);
+        var result = _handler.IsBoundGeneric(propertyDecl);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_MultiTypeWithPrimitive_ReturnsFalse()
+    {
+        // Pair<Int32, String> — Int32 and String are Swift types that implement ISwiftObject.
+        // HasNonSwiftObjectGenericArg checks for types like tuples, void, ObjC-bridged that
+        // can't satisfy ISwiftObject constraint. Primitives and strings are fine.
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(pairTypeSpec));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_MultiTypeOptional_ReturnsFalse()
+    {
+        // Optional<Pair<Int32, String>> — Optional has no ISwiftObject constraint
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var optionalSpec = new NamedTypeSpec("Swift.Optional");
+        optionalSpec.GenericParameters.Add(pairTypeSpec);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optionalSpec));
+    }
+
+    [Fact]
+    public void TryGetFirstExistentialTypeArgument_MultiTypeNoExistential_ReturnsFalse()
+    {
+        // Pair<Int32, String> — no existential type arguments
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var found = _handler.TryGetFirstExistentialTypeArgument(pairTypeSpec, out var existentialType);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, existentialType);
+    }
+
+    [Fact]
+    public void TryGetFirstExistentialTypeArgument_MultiTypeWithExistential_ReturnsTrue()
+    {
+        // Pair<Int, any Equatable> — second type arg is an existential
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        pairTypeSpec.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") }));
+
+        var found = _handler.TryGetFirstExistentialTypeArgument(pairTypeSpec, out var existentialType);
+
+        Assert.True(found);
+        Assert.Equal("Swift.Equatable", existentialType);
+    }
+
+    [Fact]
+    public void GetBufferType_MultiTypeArgGeneric_ReturnsIntPtr()
+    {
+        // Pair<Int32, String> is not in s_bufferTypeMap → fallback to IntPtr
+        var pairTypeSpec = new NamedTypeSpec("TestModule.Pair");
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        pairTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var argDecl = CreateArgumentDecl(pairTypeSpec);
+        var result = _handler.GetBufferType(argDecl);
+
+        Assert.Equal("IntPtr", result);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static ArgumentDecl CreateArgumentDecl(TypeSpec typeSpec)
