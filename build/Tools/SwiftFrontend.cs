@@ -8,13 +8,16 @@ using Nuke.Common.Tooling;
 using Serilog;
 
 /// <summary>
-/// Wrapper for xcrun swift-frontend — generates ABI JSON descriptors from .swiftinterface files.
+/// Generates ABI JSON descriptors from .swiftinterface files via swift-frontend.
+/// Resolves the swift-frontend path once via xcrun --find and invokes it directly.
 /// Uses Tier 2 approach: helper class with ProcessTasks and a fluent settings class.
 /// </summary>
 public static class SwiftFrontend
 {
+    static readonly Lazy<string> FrontendPath = new(() => XcRun.FindTool("swift-frontend"));
+
     /// <summary>
-    /// Starts xcrun swift-frontend with the given settings. Does not wait for completion.
+    /// Starts swift-frontend with the given settings. Does not wait for completion.
     /// </summary>
     public static IProcess Run(SwiftFrontendSettings settings)
     {
@@ -22,12 +25,12 @@ public static class SwiftFrontend
         Log.Debug("swift-frontend {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            "xcrun", $"swift-frontend {args}",
+            FrontendPath.Value, args,
             workingDirectory: settings.WorkingDirectory);
     }
 
     /// <summary>
-    /// Invokes xcrun swift-frontend, waits for completion, and asserts a zero exit code.
+    /// Invokes swift-frontend, waits for completion, and asserts a zero exit code.
     /// </summary>
     public static IProcess Execute(SwiftFrontendSettings settings)
     {

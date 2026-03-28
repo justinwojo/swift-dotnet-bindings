@@ -24,7 +24,13 @@ public record ApplePlatform
     public required string MinOsVersion { get; init; }
     public required string TfmSuffix { get; init; }
     public required string PackageSuffix { get; init; }
+
+    // Xcframework plist fields
+    public required string SupportedPlatform { get; init; }
+    public string? SimulatorPlistVariant { get; init; }
+
     public bool HasDeviceSlice => DeviceSdkName != null;
+    public bool HasSimulatorPlistVariant => SimulatorPlistVariant != null;
 
     public string GetTfm() => $"net10.0-{TfmSuffix}";
 
@@ -44,6 +50,8 @@ public record ApplePlatform
         MinOsVersion = "15.0",
         TfmSuffix = "ios",
         PackageSuffix = "iOS",
+        SupportedPlatform = "ios",
+        SimulatorPlistVariant = "simulator",
     };
 
     public static ApplePlatform MacOS { get; } = new()
@@ -62,6 +70,8 @@ public record ApplePlatform
         MinOsVersion = "12.0",
         TfmSuffix = "macos",
         PackageSuffix = "macOS",
+        SupportedPlatform = "macos",
+        SimulatorPlistVariant = null,
     };
 
     public static ApplePlatform TvOS { get; } = new()
@@ -80,6 +90,8 @@ public record ApplePlatform
         MinOsVersion = "15.0",
         TfmSuffix = "tvos",
         PackageSuffix = "tvOS",
+        SupportedPlatform = "tvos",
+        SimulatorPlistVariant = "simulator",
     };
 
     public static ApplePlatform FromName(string name) => name.ToLowerInvariant() switch

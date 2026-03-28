@@ -8,13 +8,16 @@ using Nuke.Common.Tooling;
 using Serilog;
 
 /// <summary>
-/// Wrapper for xcrun swiftc — compiles Swift source files into modules and libraries.
+/// Compiles Swift source files into modules and libraries via swiftc.
+/// Resolves the swiftc path once via xcrun --find and invokes it directly.
 /// Uses Tier 2 approach: helper class with ProcessTasks and a fluent settings class.
 /// </summary>
 public static class SwiftCompiler
 {
+    static readonly Lazy<string> SwiftcPath = new(() => XcRun.FindTool("swiftc"));
+
     /// <summary>
-    /// Starts xcrun swiftc with the given settings. Does not wait for completion.
+    /// Starts swiftc with the given settings. Does not wait for completion.
     /// </summary>
     public static IProcess Run(SwiftCompilerSettings settings)
     {
@@ -22,12 +25,12 @@ public static class SwiftCompiler
         Log.Debug("swiftc {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            "xcrun", $"swiftc {args}",
+            SwiftcPath.Value, args,
             workingDirectory: settings.WorkingDirectory);
     }
 
     /// <summary>
-    /// Invokes xcrun swiftc, waits for completion, and asserts a zero exit code.
+    /// Invokes swiftc, waits for completion, and asserts a zero exit code.
     /// </summary>
     public static IProcess Execute(SwiftCompilerSettings settings)
     {

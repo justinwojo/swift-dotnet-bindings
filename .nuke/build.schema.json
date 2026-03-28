@@ -25,9 +25,16 @@
       "type": "string",
       "enum": [
         "AnalyzerTests",
+        "BindingTests",
+        "BindingTestsStrict",
+        "BuildAsyncWrapper",
+        "BuildBridge",
+        "BuildXcframework",
         "Clean",
         "Compile",
+        "CompileCheckBindings",
         "FetchLibraries",
+        "RegenerateBindings",
         "RuntimeUnitTests",
         "SmokeTest",
         "UnitTests",
@@ -165,6 +172,10 @@
         "Solution": {
           "type": "string",
           "description": "Path to a solution file that is automatically loaded"
+        },
+        "Strict": {
+          "type": "boolean",
+          "description": "Fail on non-zero generator exit (standalone use)"
         },
         "Tier": {
           "type": "integer",

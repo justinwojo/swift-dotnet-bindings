@@ -8,13 +8,16 @@ using Nuke.Common.Tooling;
 using Serilog;
 
 /// <summary>
-/// Wrapper for xcrun swift-symbolgraph-extract — extracts symbol graphs for documentation.
+/// Extracts symbol graphs for documentation via swift-symbolgraph-extract.
+/// Resolves the tool path once via xcrun --find and invokes it directly.
 /// Uses Tier 2 approach: helper class with ProcessTasks and a fluent settings class.
 /// </summary>
 public static class SymbolGraphExtract
 {
+    static readonly Lazy<string> ToolPath = new(() => XcRun.FindTool("swift-symbolgraph-extract"));
+
     /// <summary>
-    /// Starts xcrun swift-symbolgraph-extract. Does not wait for completion.
+    /// Starts swift-symbolgraph-extract. Does not wait for completion.
     /// </summary>
     public static IProcess Run(SymbolGraphExtractSettings settings)
     {
@@ -22,12 +25,12 @@ public static class SymbolGraphExtract
         Log.Debug("swift-symbolgraph-extract {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            "xcrun", $"swift-symbolgraph-extract {args}",
+            ToolPath.Value, args,
             workingDirectory: settings.WorkingDirectory);
     }
 
     /// <summary>
-    /// Invokes xcrun swift-symbolgraph-extract, waits for completion, and asserts a zero exit code.
+    /// Invokes swift-symbolgraph-extract, waits for completion, and asserts a zero exit code.
     /// </summary>
     public static IProcess Execute(SymbolGraphExtractSettings settings)
     {
