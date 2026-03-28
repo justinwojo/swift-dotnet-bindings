@@ -35,6 +35,10 @@ msbuild.wrn
 *.lo
 *.o
 build/
+!build/
+build/bin/
+build/obj/
+build/.tmp/
 # Unignore NuGet .targets file for Swift.Runtime package
 !src/Swift.Runtime/src/build/
 
