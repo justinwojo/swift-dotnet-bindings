@@ -35,6 +35,9 @@
         "CompileCheckBindings",
         "FetchLibraries",
         "RegenerateBindings",
+        "RuntimeTestsDevice",
+        "RuntimeTestsMacOS",
+        "RuntimeTestsSimulator",
         "RuntimeUnitTests",
         "SmokeTest",
         "UnitTests",
@@ -116,6 +119,10 @@
           "type": "string",
           "description": "Run only one test class"
         },
+        "DeviceUdid": {
+          "type": "string",
+          "description": "Pre-booted simulator or device UDID"
+        },
         "Fetch": {
           "type": "boolean",
           "description": "Run fetch-libraries before validation"
@@ -164,6 +171,10 @@
         "Serial": {
           "type": "boolean",
           "description": "Run sequentially (no parallelism)"
+        },
+        "SkipBuild": {
+          "type": "boolean",
+          "description": "Skip all builds, just install + run"
         },
         "SkipRegen": {
           "type": "boolean",

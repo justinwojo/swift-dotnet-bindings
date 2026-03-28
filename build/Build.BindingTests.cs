@@ -36,9 +36,9 @@ partial class Build
     Target BuildXcframework => _ => _
         .Executes(() => RunBuildXcframework());
 
-    void RunBuildXcframework()
+    void RunBuildXcframework(ApplePlatform? platformOverride = null, bool? includeDeviceOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
         var sdkPath = XcRun.GetSdkPath(platform.SimulatorSdkName);
         var simBuildDir = BtBuildDir / platform.SimulatorSliceId;
         var frameworkDir = simBuildDir / $"{ModuleName}.framework";
@@ -48,8 +48,9 @@ partial class Build
         Log.Information("Platform: {Platform}, Target: {Target}", platform.Name, platform.SimulatorTarget);
 
         // macOS ignores --include-device
-        var includeDevice = IncludeDevice && platform.HasDeviceSlice;
-        if (IncludeDevice && !platform.HasDeviceSlice)
+        var requestedIncludeDevice = includeDeviceOverride ?? IncludeDevice;
+        var includeDevice = requestedIncludeDevice && platform.HasDeviceSlice;
+        if (requestedIncludeDevice && !platform.HasDeviceSlice)
             Log.Information("Note: --include-device ignored for {Platform} (no device slice)", platform.Name);
 
         // Clean previous build
@@ -476,15 +477,16 @@ partial class Build
         .DependsOn(RegenerateBindings)
         .Executes(() => RunBuildAsyncWrapper());
 
-    void RunBuildAsyncWrapper()
+    void RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
+        var outputDir = outputDirOverride ?? BtOutputDir;
         var sliceId = platform.SimulatorSliceId;
         var xcfwSliceDir = BtXcframeworkDir / sliceId;
         var depXcfwSliceDir = BtDepXcframeworkDir / sliceId;
 
         // Collect generated Swift wrapper files (exclude SwiftUI bridge)
-        var swiftFiles = Directory.GetFiles(BtOutputDir, "*.swift")
+        var swiftFiles = Directory.GetFiles(outputDir, "*.swift")
             .Where(f => !f.EndsWith(".SwiftUIBridge.swift"))
             .ToList();
 
@@ -499,7 +501,7 @@ partial class Build
 
         // Post-process: strip known-broken sections
         Log.Information("Post-processing Swift wrappers...");
-        var cleanedDir = BtOutputDir / ".wrapper-build";
+        var cleanedDir = outputDir / ".wrapper-build";
         if (Directory.Exists(cleanedDir))
             ((AbsolutePath)cleanedDir).DeleteDirectory();
         cleanedDir.CreateDirectory();
@@ -513,7 +515,7 @@ partial class Build
             if (result.StrippedCount > 0)
                 Log.Debug("Stripped {Count} broken wrapper(s) from {File}", result.StrippedCount, basename);
         }
-        File.WriteAllText(BtOutputDir / "wrapper-stripped-count", totalStripped.ToString());
+        File.WriteAllText(outputDir / "wrapper-stripped-count", totalStripped.ToString());
 
         var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
         if (cleanedFiles.Count == 0)
@@ -524,7 +526,7 @@ partial class Build
 
         // Compile native ARM64 thunk assembly files (if any)
         var thunkObjects = new List<string>();
-        foreach (var asmFile in Directory.GetFiles(BtOutputDir, "*.arm64.s"))
+        foreach (var asmFile in Directory.GetFiles(outputDir, "*.arm64.s"))
         {
             var objFile = Path.ChangeExtension(asmFile, ".o");
             XcRunTool($"clang -c {asmFile} -o {objFile} -target {platform.SimulatorTarget}");
@@ -532,7 +534,7 @@ partial class Build
         }
 
         // Create output framework structure
-        var wrapperXcfDir = BtOutputDir / $"{WrapperModule}.xcframework";
+        var wrapperXcfDir = outputDir / $"{WrapperModule}.xcframework";
         if (Directory.Exists(wrapperXcfDir))
             ((AbsolutePath)wrapperXcfDir).DeleteDirectory();
         var outputFwDir = wrapperXcfDir / sliceId / $"{WrapperModule}.framework";
