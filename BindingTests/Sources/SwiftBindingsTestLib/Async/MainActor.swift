@@ -59,6 +59,34 @@ public struct MainActorMethods {
     }
 }
 
+// MARK: - @MainActor with nonisolated and closure members
+
+/// A @MainActor class with a nonisolated member and closure-bearing method.
+/// Tests: nonisolated opt-out, MCB @MainActor gap.
+@MainActor
+public class MainActorService {
+    public var name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+
+    /// nonisolated member — should NOT get @MainActor annotation on wrapper.
+    nonisolated public func identifier() -> String {
+        return "service"
+    }
+
+    /// Regular method on @MainActor class — should get @MainActor on wrapper.
+    public func describe() -> String {
+        return "Service: \(name)"
+    }
+
+    /// Subscript on @MainActor class — should get @MainActor on wrapper.
+    public subscript(index: Int32) -> String {
+        return "\(name)[\(index)]"
+    }
+}
+
 // MARK: - Free Functions
 
 /// Free function isolated to @MainActor.

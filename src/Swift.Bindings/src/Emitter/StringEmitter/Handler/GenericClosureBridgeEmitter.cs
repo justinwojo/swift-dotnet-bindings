@@ -234,6 +234,9 @@ public static class GenericClosureBridgeEmitter
         var returningSymbol = $"{methodDecl.MangledName}_XC";
         var voidSymbol = $"{methodDecl.MangledName}_XC_void";
 
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
+
         // --- Returning variant (T = UnsafeMutableRawPointer) ---
         {
             var swiftParams = new List<string>();
@@ -262,6 +265,8 @@ public static class GenericClosureBridgeEmitter
             cdeclCallArgsFull.Add("&innerError");
             cdeclCallArgsFull.Add($"{csClosureName}Context");
 
+            if (needsMainActor)
+                swiftWriter.WriteLine("@MainActor");
             swiftWriter.WriteLine($"@_silgen_name(\"{returningSymbol}\")");
             swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}_XC(");
             swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");
@@ -315,6 +320,8 @@ public static class GenericClosureBridgeEmitter
             cdeclCallArgsFull.Add("&innerError");
             cdeclCallArgsFull.Add($"{csClosureName}Context");
 
+            if (needsMainActor)
+                swiftWriter.WriteLine("@MainActor");
             swiftWriter.WriteLine($"@_silgen_name(\"{voidSymbol}\")");
             swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}_XC_void(");
             swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");

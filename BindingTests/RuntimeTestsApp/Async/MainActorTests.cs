@@ -83,6 +83,41 @@ public class MainActorTests : TestBase
 
     #endregion
 
+    #region MainActorService (class with nonisolated + subscript)
+
+    public void TestMainActorService_Constructor()
+    {
+        var svc = new MainActorService("Test");
+        AssertNotNull(svc, "MainActorService constructor should succeed");
+        svc.Dispose();
+    }
+
+    public void TestMainActorService_Describe()
+    {
+        var svc = new MainActorService("MyService");
+        var result = svc.GetDescribe();
+        AssertEqual("Service: MyService", result, "Describe should include name");
+        svc.Dispose();
+    }
+
+    public void TestMainActorService_NonisolatedIdentifier()
+    {
+        var svc = new MainActorService("Test");
+        var result = svc.GetIdentifier();
+        AssertEqual("service", result, "nonisolated identifier should return 'service'");
+        svc.Dispose();
+    }
+
+    public void TestMainActorService_Subscript()
+    {
+        var svc = new MainActorService("Items");
+        var result = svc[2];
+        AssertEqual("Items[2]", result, "Subscript should return 'name[index]'");
+        svc.Dispose();
+    }
+
+    #endregion
+
     #region Free function — works on simulator
 
     public void TestMainActorFreeFunction()

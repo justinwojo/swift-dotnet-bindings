@@ -1430,6 +1430,80 @@ public class MethodClosureBridgeTests
         Assert.DoesNotContain("self_", swift);
     }
 
+    // ─── @MainActor annotation on @_cdecl ──────────────────────────────
+
+    [Fact]
+    public void TryEmit_MainActorParentClass_EmitsMainActorAnnotation()
+    {
+        // @MainActor parent type → @_cdecl wrapper must have @MainActor annotation
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("ActorVM", moduleDecl);
+        parentDecl.IsMainActorIsolated = true;
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onUpdate", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env, parentDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@MainActor", swift);
+        Assert.Contains("@_cdecl(", swift);
+    }
+
+    [Fact]
+    public void TryEmit_NonActorParentClass_DoesNotEmitMainActorAnnotation()
+    {
+        // Non-actor parent type → @_cdecl wrapper must NOT have @MainActor
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("@MainActor", swift);
+        Assert.Contains("@_cdecl(", swift);
+    }
+
+    [Fact]
+    public void TryEmit_NonisolatedMethodOnMainActorParent_DoesNotEmitMainActorAnnotation()
+    {
+        // nonisolated method on @MainActor parent → no @MainActor on wrapper
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("ActorVM", moduleDecl);
+        parentDecl.IsMainActorIsolated = true;
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onUpdate", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        method.IsNonisolated = true;
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env, parentDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("@MainActor", swift);
+    }
+
     // ─── Type/Declaration Factory Methods ─────────────────────────────
 
     private static TypeDatabase CreateTypeDatabase()

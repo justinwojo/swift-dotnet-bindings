@@ -293,7 +293,9 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
         }
 
-        swiftWriter.WriteLine($"@_cdecl(\"{silgenName}\")");
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentDecl, method.IsMainActorIsolated, method.IsNonisolated);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor);
         swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
         swiftWriter.WriteLine($"){swiftReturnType} {{");

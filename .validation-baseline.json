@@ -1,5 +1,5 @@
 {
-  "git_sha": "a8aadd63",
+  "git_sha": "c6d8fff7",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -224,7 +224,7 @@
         "errors": 0,
         "lines": 31981,
         "dep_compile": "ok",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StripePaymentsUI": {
         "compile": "ok",

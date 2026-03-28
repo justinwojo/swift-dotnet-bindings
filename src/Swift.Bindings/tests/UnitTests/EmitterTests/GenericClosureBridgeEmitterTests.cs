@@ -273,6 +273,111 @@ public class GenericClosureBridgeEmitterTests
 
     #endregion
 
+    #region @MainActor annotation on @_silgen_name
+
+    [Fact]
+    public void TryEmit_MainActorParent_EmitsMainActorAnnotation()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("ViewModel");
+        parentDecl.IsMainActorIsolated = true;
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s4GRDB9ViewModel4readyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("block", closureSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var swift = swiftOutput.ToString();
+        // Both returning and void variants should have @MainActor before @_silgen_name
+        Assert.Contains("@MainActor", swift);
+        Assert.Contains("@_silgen_name", swift);
+        // Count: exactly 2 @MainActor annotations (returning + void variants)
+        var mainActorCount = System.Text.RegularExpressions.Regex.Matches(swift, "@MainActor").Count;
+        Assert.Equal(2, mainActorCount);
+    }
+
+    [Fact]
+    public void TryEmit_NonActorParent_DoesNotEmitMainActorAnnotation()
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s4GRDB8Database4readyyF_v3",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("block", closureSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDatabase);
+        GenericClosureBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("@MainActor", swift);
+        Assert.Contains("@_silgen_name", swift);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static (CSharpWriter csWriter, SwiftWriter swiftWriter) CreateWriters()

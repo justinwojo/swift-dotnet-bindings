@@ -236,9 +236,9 @@ public static class EnumCaseWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
-        swiftWriter.WriteLines($$"""
-            @_cdecl("{{symbolName}}")
-            """);
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            enumDecl, memberIsMainActorIsolated: false);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 
