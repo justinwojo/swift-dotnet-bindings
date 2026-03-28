@@ -1,0 +1,47 @@
+{
+  "description": "SwiftUI bridge corpus — libraries tracked for bridge coverage metrics.",
+  "libraries": [
+    {
+      "name": "BridgeParamTest",
+      "source": "BindingTests",
+      "views": 19,
+      "runtime_validated": true
+    },
+    {
+      "name": "Lottie",
+      "source": "validation",
+      "views": 3,
+      "runtime_validated": true
+    },
+    {
+      "name": "BlinkIDUX",
+      "source": "validation",
+      "views": 4,
+      "runtime_validated": true
+    },
+    {
+      "name": "AlertToast",
+      "source": "validation",
+      "views": 2,
+      "runtime_validated": false
+    },
+    {
+      "name": "ConfettiSwiftUI",
+      "source": "validation",
+      "views": 1,
+      "runtime_validated": false
+    },
+    {
+      "name": "Kingfisher",
+      "source": "validation",
+      "views": 3,
+      "runtime_validated": false
+    },
+    {
+      "name": "SDWebImageSwiftUI",
+      "source": "validation",
+      "views": 3,
+      "runtime_validated": false
+    }
+  ]
+}

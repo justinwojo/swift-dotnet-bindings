@@ -8,7 +8,8 @@
     <!-- CS0649: field never assigned (protocol proxy vtable entries for closure-skipped methods) -->
     <!-- CA1420: using features that require runtime marshalling (LibraryImport with Swift types) -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
-    <NoWarn>CS0169;CS0649;CA1420</NoWarn>
+    <!-- IL2075: reflection in observable binding dispatcher lambdas (GetProperty on INotifyPropertyChanged sender) -->
+    <NoWarn>CS0169;CS0649;CA1420;IL2075</NoWarn>
   </PropertyGroup>
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
   <ItemGroup>

@@ -34,6 +34,12 @@ public sealed class BindingReport
     public List<WrappedItem> WrappedItems { get; } = new();
     public List<BridgedViewItem> BridgedViews { get; } = new();
     public List<ThemeBridgedItem> ThemeBridgedProperties { get; } = new();
+
+    /// <summary>
+    /// Summary of SwiftUI bridge coverage for this module.
+    /// Null when the module has no SwiftUI views.
+    /// </summary>
+    public BridgeSummary? BridgeSummary { get; set; }
 }
 
 /// <summary>
@@ -111,6 +117,18 @@ public sealed class ThemeBridgedItem
     public required string ClassName { get; init; }
     public required string PropertyName { get; init; }
     public required string PropertyType { get; init; }
+}
+
+/// <summary>
+/// SwiftUI bridge coverage summary for a module.
+/// </summary>
+public sealed class BridgeSummary
+{
+    public int TotalViews { get; set; }
+    public int Generated { get; set; }
+    public int Template { get; set; }
+    public int HintSkipped { get; set; }
+    public double GeneratedPercent { get; set; }
 }
 
 /// <summary>

@@ -1480,6 +1480,95 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// Emits C# BindTo/Unbind/OnBoundPropertyChanged methods for INotifyPropertyChanged binding.
+    /// Only emitted for views with updatable parameters.
+    /// </summary>
+    private static void EmitCSharpObservableBindingMethods(
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+    {
+        var updatableParams = bridgeParams.Where(p => p.IsUpdatable).ToList();
+        if (updatableParams.Count == 0)
+            return;
+
+        // EnsureDispatchers — one-time delegate cache mapping property names to Update calls.
+        // Each lambda receives the property VALUE (already extracted via reflection in OnBoundPropertyChanged),
+        // not the sender object. This centralizes reflection in one place and avoids per-property reflection overhead.
+        sb.AppendLine("        private void EnsureDispatchers()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_propertyDispatchers != null) return;");
+        sb.AppendLine("            _propertyDispatchers = new System.Collections.Generic.Dictionary<string, Action<object?>>(StringComparer.OrdinalIgnoreCase)");
+        sb.AppendLine("            {");
+        foreach (var param in updatableParams)
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var castExpr = GetDispatcherValueCast(param);
+            sb.AppendLine($"                [\"{pascalName}\"] = value => Update{pascalName}({castExpr}),");
+        }
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // BindTo
+        sb.AppendLine("        /// <summary>Binds a view model's properties to this session's updatable parameters.</summary>");
+        sb.AppendLine("        public void BindTo(System.ComponentModel.INotifyPropertyChanged viewModel)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            ObjectDisposedException.ThrowIf(_disposed, this);");
+        sb.AppendLine("            if (_boundViewModel != null)");
+        sb.AppendLine("                throw new InvalidOperationException(\"Already bound to a view model. Call Unbind() first.\");");
+        sb.AppendLine("            EnsureDispatchers();");
+        sb.AppendLine("            _boundViewModel = viewModel;");
+        sb.AppendLine("            _boundViewModel.PropertyChanged += OnBoundPropertyChanged;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Unbind
+        sb.AppendLine("        public void Unbind()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_boundViewModel != null)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                _boundViewModel.PropertyChanged -= OnBoundPropertyChanged;");
+        sb.AppendLine("                _boundViewModel = null;");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // OnBoundPropertyChanged — centralized reflection + dispatch to cached Update lambdas
+        sb.AppendLine("#pragma warning disable IL2075");
+        sb.AppendLine("        private void OnBoundPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_disposed || sender == null || e.PropertyName == null) return;");
+        sb.AppendLine("            if (_propertyDispatchers != null && _propertyDispatchers.TryGetValue(e.PropertyName, out var dispatch))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var prop = sender.GetType().GetProperty(e.PropertyName);");
+        sb.AppendLine("                if (prop != null)");
+        sb.AppendLine("                    dispatch(prop.GetValue(sender));");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine("#pragma warning restore IL2075");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Gets the cast expression for converting a property value (object?) to the expected Update method parameter type.
+    /// Used in dispatcher lambdas where 'value' is the property value already extracted via reflection.
+    /// </summary>
+    private static string GetDispatcherValueCast(BridgeParameter param)
+    {
+        var factoryType = GetFactoryParamType(param);
+
+        return param.Kind switch
+        {
+            BridgeParameterKind.String => "(string?)value",
+            BridgeParameterKind.Primitive when param.CSharpConversion != null => "(bool)value!",
+            BridgeParameterKind.BoundEnum => $"({factoryType})value!",
+            BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct => $"({factoryType})value!",
+            BridgeParameterKind.OptionalWrapped when param.InnerParameter?.Kind == BridgeParameterKind.String => "(string?)value",
+            BridgeParameterKind.OptionalWrapped => $"({factoryType})value",
+            _ => $"({factoryType})value!",
+        };
+    }
+
+    /// <summary>
     /// Emits Swift @_cdecl Set functions for each modifier.
     /// </summary>
     private static void EmitSwiftModifierSetFunctions(
@@ -1918,6 +2007,12 @@ public static partial class SwiftUIBridgeEmitter
         }
         // Lifecycle handles (Session 5 — always present)
         sb.AppendLine("        private GCHandle[] _lifecycleHandles = Array.Empty<GCHandle>();");
+        var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
+        if (hasUpdatableParams)
+        {
+            sb.AppendLine("        private System.ComponentModel.INotifyPropertyChanged? _boundViewModel;");
+            sb.AppendLine("        private System.Collections.Generic.Dictionary<string, Action<object?>>? _propertyDispatchers;");
+        }
         sb.AppendLine();
         sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
         sb.AppendLine();
@@ -1961,6 +2056,10 @@ public static partial class SwiftUIBridgeEmitter
         // Update methods for updatable params
         EmitCSharpUpdateMethods(sb, info, bridgeParams);
 
+        // Observable binding methods (Session 6)
+        if (hasUpdatableParams)
+            EmitCSharpObservableBindingMethods(sb, info, bridgeParams);
+
         // Modifier methods
         if (hasModifiers)
             EmitCSharpModifierMethods(sb, info, modifiers!);
@@ -1978,6 +2077,8 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        {");
         sb.AppendLine("            if (!_disposed)");
         sb.AppendLine("            {");
+        if (hasUpdatableParams)
+            sb.AppendLine("                Unbind();");
         sb.AppendLine("                _disposed = true;");
         sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Free(_handle);");
         if (hasClosures)

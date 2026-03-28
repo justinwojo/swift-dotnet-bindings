@@ -1,7 +1,7 @@
 # SwiftUI Bridge Roadmap
 
 **Date**: March 2026
-**Status**: Sessions 1A-3 + 4A-4C + 1B + 5 complete, Session 6 planned
+**Status**: All sessions complete (1A-3 + 4A-4C + 1B + 5 + 6)
 **Prior work**: `Completed/swiftui-bridge-v2-phases1-2.md` (param expansion + async inference), `Completed/swiftui-bridge-v2-phase3.md` (bridge hints)
 
 ---
@@ -71,7 +71,7 @@ Ordered by priority. Each session is a self-contained unit of work. You can stop
 | **4C** | View modifier chains | Medium | **Done** | Self-returning modifiers (`.playing()`, `.animationSpeed()`) callable from C# |
 | **4B** | Constrained generics | Medium | **Done** | `<T: Identifiable>`, `<T: Hashable>` — concrete type when satisfiable |
 | **5** | Lifecycle, modifiers & navigation | Medium-low | **Done** (`1a5065f6`) | `onAppear`/`onDisappear`, frame/padding/background, presentation |
-| **6** | Observable binding & corpus tracking | Low | Planned | C# → Swift reactivity, coverage measurement infrastructure |
+| **6** | Observable binding & corpus tracking | Low | **Done** | C# → Swift reactivity, coverage measurement infrastructure |
 
 ---
 
@@ -377,11 +377,11 @@ Session 4B: Constrained Generics   ✅ COMPLETE (20 protocol constraints → con
     │
 Session 5: Lifecycle & Modifiers   ✅ COMPLETE
     │
-Session 6: Observable Binding       (depends on Session 4A's ObservableObject wrapper)
-           + Corpus Tracking        (standalone — measures everything above)
+Session 6: Observable Binding       ✅ COMPLETE
+           + Corpus Tracking        ✅ COMPLETE
 ```
 
-**Stop points**: After Sessions 1A-3 + 4A-4C + 1B + 5, the bridge covers the vast majority of real-world SwiftUI views with dynamic state updates, self-returning modifier chains, non-primitive closure returns, constrained generic resolution, lifecycle callbacks, and presentation helpers. Session 6 adds advanced reactivity and measurement infrastructure.
+**Stop points**: All sessions complete. The bridge covers the vast majority of real-world SwiftUI views with dynamic state updates, self-returning modifier chains, non-primitive closure returns, constrained generic resolution, lifecycle callbacks, presentation helpers, observable binding (INotifyPropertyChanged → Swift reactivity), and corpus tracking infrastructure.
 
 ---
 

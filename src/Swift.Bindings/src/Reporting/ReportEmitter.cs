@@ -58,6 +58,12 @@ public static class ReportEmitter
         if (report.BridgedViews.Count > 0)
         {
             logger.LogInformation("SwiftUI:    {Count} views detected for bridge generation", report.BridgedViews.Count);
+            if (report.BridgeSummary != null)
+            {
+                var bs = report.BridgeSummary;
+                logger.LogInformation("  Bridge:   {Generated}/{Total} generated ({Percent:F1}%), {Template} templates, {Skipped} skipped",
+                    bs.Generated, bs.TotalViews, bs.GeneratedPercent, bs.Template, bs.HintSkipped);
+            }
         }
 
         if (report.SkippedItems.Count > 0)

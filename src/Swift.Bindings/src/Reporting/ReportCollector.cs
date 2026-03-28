@@ -57,6 +57,10 @@ public static class ReportCollector
             // Compute per-kind breakdown from the keyed sets ("Kind:ContainingType:Name")
             ComputePerKindCounts(_report);
 
+            // Compute BridgeSummary if there are bridged views
+            if (_report.BridgedViews.Count > 0)
+                _report.BridgeSummary = ComputeBridgeSummary(_report);
+
             return _report;
         }
     }
@@ -321,6 +325,24 @@ public static class ReportCollector
             return null;
         var kindStr = key.Substring(0, colonIdx);
         return Enum.TryParse<BindingItemKind>(kindStr, out var kind) ? kind : null;
+    }
+
+    private static BridgeSummary ComputeBridgeSummary(BindingReport report)
+    {
+        var views = report.BridgedViews;
+        var generated = views.Count(v => v.BridgeStatus == "Generated");
+        var template = views.Count(v => v.BridgeStatus == "TemplatePending");
+        var hintSkipped = views.Count(v => v.BridgeStatus == "HintSkipped");
+        var total = views.Count;
+
+        return new BridgeSummary
+        {
+            TotalViews = total,
+            Generated = generated,
+            Template = template,
+            HintSkipped = hintSkipped,
+            GeneratedPercent = total > 0 ? Math.Round(100.0 * generated / total, 1) : 0,
+        };
     }
 
     private static string? GetContainingTypeName(BaseDecl? containingDecl) =>

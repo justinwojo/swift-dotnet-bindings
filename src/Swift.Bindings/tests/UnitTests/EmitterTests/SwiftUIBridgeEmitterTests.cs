@@ -8169,4 +8169,225 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Observable Binding (Session 6)
+
+    [Fact]
+    public void ObservableBinding_EmitsBindToMethod()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void BindTo(System.ComponentModel.INotifyPropertyChanged viewModel)", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_EmitsUnbindMethod()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public void Unbind()", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_EmitsPropertyChangedHandler()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("OnBoundPropertyChanged", csContent);
+        Assert.Contains("PropertyChangedEventArgs", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_EmitsPropertyDispatchers()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Property dispatcher cache should map Count and Label to Update calls via value casts
+        Assert.Contains("[\"Count\"] = value => UpdateCount(", csContent);
+        Assert.Contains("[\"Label\"] = value => UpdateLabel(", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_DisposeCallsUnbind()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Dispose should call Unbind before releasing native handle
+        Assert.Contains("Unbind();", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_ClosureOnlyView_NoBindTo()
+    {
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ActionView", "doSomething") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Closure-only views have no updatable params → no BindTo
+        Assert.DoesNotContain("BindTo", csContent);
+        Assert.DoesNotContain("Unbind", csContent);
+        Assert.DoesNotContain("_boundViewModel", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_MixedView_BindsOnlyUpdatableParams()
+    {
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("MixedView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // BindTo should be present (view has updatable params: title, isEnabled)
+        Assert.Contains("public void BindTo(", csContent);
+        // Dispatchers should include updatable params only
+        Assert.Contains("[\"Title\"] = value => UpdateTitle(", csContent);
+        Assert.Contains("[\"IsEnabled\"] = value => UpdateIsEnabled(", csContent);
+        // Closure should NOT be in dispatchers
+        Assert.DoesNotContain("[\"OnTap\"]", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_BindToThrowsIfAlreadyBound()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("TestView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Already bound to a view model", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_BindToThrowsIfDisposed()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("TestView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("ObjectDisposedException.ThrowIf(_disposed, this)", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_BoolParam_DispatcherUsesBoolCast()
+    {
+        var views = new List<TypeDecl> { CreateViewWithMixedUpdatableInit("BoolView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Bool dispatcher should cast value to bool
+        Assert.Contains("[\"IsEnabled\"] = value => UpdateIsEnabled((bool)value!", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_ParameterlessView_NoBindTo()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("EmptyView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // No updatable params → no BindTo
+        Assert.DoesNotContain("BindTo", csContent);
+    }
+
+    #endregion
+
+    #region BridgeSummary (Session 6)
+
+    [Fact]
+    public void BridgeSummary_Populated_ForModuleWithViews()
+    {
+        ReportCollector.Reset();
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        var views = new List<TypeDecl>
+        {
+            CreateSimpleViewStruct("View1"),
+            CreateSimpleViewStruct("View2"),
+            CreateGenericViewStruct("View3"),
+        };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var report = ReportCollector.Complete()!;
+        Assert.NotNull(report.BridgeSummary);
+        Assert.Equal(3, report.BridgeSummary.TotalViews);
+        Assert.Equal(2, report.BridgeSummary.Generated);
+        Assert.Equal(1, report.BridgeSummary.Template);
+        Assert.Equal(0, report.BridgeSummary.HintSkipped);
+        Assert.True(report.BridgeSummary.GeneratedPercent > 60);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void BridgeSummary_Null_ForModuleWithoutViews()
+    {
+        ReportCollector.Reset();
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        // Don't emit any bridge files — simulate a module with no views
+        var report = ReportCollector.Complete()!;
+        Assert.Null(report.BridgeSummary);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void BridgeSummary_AllGenerated_ShowsHundredPercent()
+    {
+        ReportCollector.Reset();
+        var moduleDecl = CreateModuleDecl();
+        ReportCollector.Start(moduleDecl);
+
+        var views = new List<TypeDecl>
+        {
+            CreateSimpleViewStruct("View1"),
+            CreateSimpleViewStruct("View2"),
+        };
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var report = ReportCollector.Complete()!;
+        Assert.NotNull(report.BridgeSummary);
+        Assert.Equal(2, report.BridgeSummary.TotalViews);
+        Assert.Equal(2, report.BridgeSummary.Generated);
+        Assert.Equal(0, report.BridgeSummary.Template);
+        Assert.Equal(100.0, report.BridgeSummary.GeneratedPercent);
+
+        ReportCollector.Reset();
+    }
+
+    #endregion
 }
