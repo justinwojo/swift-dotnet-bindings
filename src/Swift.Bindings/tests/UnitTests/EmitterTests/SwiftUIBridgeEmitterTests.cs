@@ -8181,7 +8181,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        Assert.Contains("public void BindTo(System.ComponentModel.INotifyPropertyChanged viewModel)", csContent);
+        Assert.Contains("public void BindTo<", csContent);
+        Assert.Contains("DynamicallyAccessedMembers", csContent);
+        Assert.Contains("PublicProperties", csContent);
+        Assert.Contains("where T : System.ComponentModel.INotifyPropertyChanged", csContent);
     }
 
     [Fact]
@@ -8218,9 +8221,11 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        // Property dispatcher cache should map Count and Label to Update calls via value casts
-        Assert.Contains("[\"Count\"] = value => UpdateCount(", csContent);
-        Assert.Contains("[\"Label\"] = value => UpdateLabel(", csContent);
+        // Property dispatchers built in BindTo using viewModel.GetType().GetProperty (runtime type)
+        Assert.Contains("viewModel.GetType().GetProperty(\"Count\")", csContent);
+        Assert.Contains("viewModel.GetType().GetProperty(\"Label\")", csContent);
+        Assert.Contains("UpdateCount(", csContent);
+        Assert.Contains("UpdateLabel(", csContent);
     }
 
     [Fact]
@@ -8261,12 +8266,12 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
         // BindTo should be present (view has updatable params: title, isEnabled)
-        Assert.Contains("public void BindTo(", csContent);
-        // Dispatchers should include updatable params only
-        Assert.Contains("[\"Title\"] = value => UpdateTitle(", csContent);
-        Assert.Contains("[\"IsEnabled\"] = value => UpdateIsEnabled(", csContent);
+        Assert.Contains("public void BindTo<", csContent);
+        // Dispatchers should include updatable params only (resolved via viewModel.GetType().GetProperty)
+        Assert.Contains("GetProperty(\"Title\")", csContent);
+        Assert.Contains("GetProperty(\"IsEnabled\")", csContent);
         // Closure should NOT be in dispatchers
-        Assert.DoesNotContain("[\"OnTap\"]", csContent);
+        Assert.DoesNotContain("GetProperty(\"OnTap\")", csContent);
     }
 
     [Fact]
@@ -8302,8 +8307,41 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        // Bool dispatcher should cast value to bool
-        Assert.Contains("[\"IsEnabled\"] = value => UpdateIsEnabled((bool)value!", csContent);
+        // Bool dispatcher should cast reflected value to bool
+        Assert.Contains("GetProperty(\"IsEnabled\")", csContent);
+        Assert.Contains("(bool)", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_AllPropertiesChanged_DispatchesAll()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // null or empty PropertyName should iterate all dispatchers
+        Assert.Contains("string.IsNullOrEmpty(e.PropertyName)", csContent);
+        Assert.Contains("foreach (var kvp in _propertyDispatchers) kvp.Value()", csContent);
+    }
+
+    [Fact]
+    public void ObservableBinding_TrimSafety_DamPlusRuntimeTypeReflection()
+    {
+        var views = new List<TypeDecl> { CreateViewWithPrimitiveAndStringInit("CounterView", "count", "Swift.Int32", "label") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // DAM on BindTo<T> for best-effort trim hint; viewModel.GetType() for runtime type resolution
+        Assert.Contains("DynamicallyAccessedMembers", csContent);
+        Assert.Contains("viewModel.GetType().GetProperty(", csContent);
+        // Handler has zero reflection — dispatchers are pre-built closures
+        Assert.DoesNotContain("sender.GetType()", csContent);
+        // Scoped IL2075 pragma around BindTo property resolution (known .NET trimming gap)
+        Assert.Contains("#pragma warning disable IL2075", csContent);
     }
 
     [Fact]

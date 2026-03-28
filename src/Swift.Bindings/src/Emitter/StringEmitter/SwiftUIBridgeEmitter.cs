@@ -1490,32 +1490,29 @@ public static partial class SwiftUIBridgeEmitter
         if (updatableParams.Count == 0)
             return;
 
-        // EnsureDispatchers — one-time delegate cache mapping property names to Update calls.
-        // Each lambda receives the property VALUE (already extracted via reflection in OnBoundPropertyChanged),
-        // not the sender object. This centralizes reflection in one place and avoids per-property reflection overhead.
-        sb.AppendLine("        private void EnsureDispatchers()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_propertyDispatchers != null) return;");
-        sb.AppendLine("            _propertyDispatchers = new System.Collections.Generic.Dictionary<string, Action<object?>>(StringComparer.OrdinalIgnoreCase)");
-        sb.AppendLine("            {");
-        foreach (var param in updatableParams)
-        {
-            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
-            var castExpr = GetDispatcherValueCast(param);
-            sb.AppendLine($"                [\"{pascalName}\"] = value => Update{pascalName}({castExpr}),");
-        }
-        sb.AppendLine("            };");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // BindTo
+        // BindTo — generic with DAM on T for best-effort trim safety (covers common case where
+        // T is the concrete VM type). Property resolution uses viewModel.GetType() (runtime type)
+        // so base-typed call sites like `BindTo((INotifyPropertyChanged)vm)` still work correctly.
+        // The IL2075 pragma covers the known .NET trimming gap where GetType() returns a Type without
+        // DAM annotations — same limitation as WPF/MAUI data binding. Dispatchers are parameterless
+        // Action closures capturing the viewModel + PropertyInfo, so the handler has zero reflection.
         sb.AppendLine("        /// <summary>Binds a view model's properties to this session's updatable parameters.</summary>");
-        sb.AppendLine("        public void BindTo(System.ComponentModel.INotifyPropertyChanged viewModel)");
+        sb.AppendLine("        public void BindTo<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(T viewModel) where T : System.ComponentModel.INotifyPropertyChanged");
         sb.AppendLine("        {");
         sb.AppendLine("            ObjectDisposedException.ThrowIf(_disposed, this);");
         sb.AppendLine("            if (_boundViewModel != null)");
         sb.AppendLine("                throw new InvalidOperationException(\"Already bound to a view model. Call Unbind() first.\");");
-        sb.AppendLine("            EnsureDispatchers();");
+        sb.AppendLine("#pragma warning disable IL2075 // viewModel.GetType() resolves runtime type for base-typed call sites; DAM on T covers direct-typed calls");
+        sb.AppendLine("            _propertyDispatchers = new System.Collections.Generic.Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase);");
+        foreach (var param in updatableParams)
+        {
+            var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
+            var castExpr = GetDispatcherValueCast(param);
+            sb.AppendLine($"            var prop{pascalName} = viewModel.GetType().GetProperty(\"{pascalName}\");");
+            sb.AppendLine($"            if (prop{pascalName} != null)");
+            sb.AppendLine($"                _propertyDispatchers[\"{pascalName}\"] = () => Update{pascalName}({castExpr.Replace("value", $"prop{pascalName}.GetValue(viewModel)")});");
+        }
+        sb.AppendLine("#pragma warning restore IL2075");
         sb.AppendLine("            _boundViewModel = viewModel;");
         sb.AppendLine("            _boundViewModel.PropertyChanged += OnBoundPropertyChanged;");
         sb.AppendLine("        }");
@@ -1528,23 +1525,23 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("            {");
         sb.AppendLine("                _boundViewModel.PropertyChanged -= OnBoundPropertyChanged;");
         sb.AppendLine("                _boundViewModel = null;");
+        sb.AppendLine("                _propertyDispatchers = null;");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // OnBoundPropertyChanged — centralized reflection + dispatch to cached Update lambdas
-        sb.AppendLine("#pragma warning disable IL2075");
+        // OnBoundPropertyChanged — zero reflection, just calls pre-built closures.
         sb.AppendLine("        private void OnBoundPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)");
         sb.AppendLine("        {");
-        sb.AppendLine("            if (_disposed || sender == null || e.PropertyName == null) return;");
-        sb.AppendLine("            if (_propertyDispatchers != null && _propertyDispatchers.TryGetValue(e.PropertyName, out var dispatch))");
+        sb.AppendLine("            if (_disposed || _propertyDispatchers == null) return;");
+        sb.AppendLine("            if (string.IsNullOrEmpty(e.PropertyName))");
         sb.AppendLine("            {");
-        sb.AppendLine("                var prop = sender.GetType().GetProperty(e.PropertyName);");
-        sb.AppendLine("                if (prop != null)");
-        sb.AppendLine("                    dispatch(prop.GetValue(sender));");
+        sb.AppendLine("                foreach (var kvp in _propertyDispatchers) kvp.Value();");
+        sb.AppendLine("                return;");
         sb.AppendLine("            }");
+        sb.AppendLine("            if (_propertyDispatchers.TryGetValue(e.PropertyName, out var dispatch))");
+        sb.AppendLine("                dispatch();");
         sb.AppendLine("        }");
-        sb.AppendLine("#pragma warning restore IL2075");
         sb.AppendLine();
     }
 
@@ -2011,7 +2008,7 @@ public static partial class SwiftUIBridgeEmitter
         if (hasUpdatableParams)
         {
             sb.AppendLine("        private System.ComponentModel.INotifyPropertyChanged? _boundViewModel;");
-            sb.AppendLine("        private System.Collections.Generic.Dictionary<string, Action<object?>>? _propertyDispatchers;");
+            sb.AppendLine("        private System.Collections.Generic.Dictionary<string, Action>? _propertyDispatchers;");
         }
         sb.AppendLine();
         sb.AppendLine($"        internal {info.ViewName}Session(IntPtr handle) => _handle = handle;");
