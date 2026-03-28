@@ -2827,5 +2827,28 @@ public class DisposeBag {
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetProtocolsWithConventionClosures_TypealiasOnContinuationLine_DetectsProtocol()
+    {
+        // swiftinterface signatures can wrap across lines — the convention-c typealias
+        // reference may appear on a continuation line, not the func line itself.
+        var path = WriteTempFile("""
+            public typealias FTS5TokenCallback = @convention(c) (_ context: Swift.UnsafeMutableRawPointer?, _ flags: Swift.CInt) -> Swift.CInt
+            public protocol FTS5Tokenizer : AnyObject {
+              func tokenize(
+                _ text: Swift.String,
+                context: Swift.UnsafeMutableRawPointer?,
+                tokenCallback: GRDB.FTS5TokenCallback
+              ) -> Swift.CInt
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Contains("FTS5Tokenizer", result);
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 }

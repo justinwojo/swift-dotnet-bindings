@@ -1371,6 +1371,39 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
+    public void TryEmit_MutatingStructParent_UsesThroughPointerAccess()
+    {
+        // Mutating value-type methods must use through-pointer access so mutations
+        // write back through self_ — NOT a copied `let selfObj = ...pointee`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclOnTypeDecl("process", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion");
+        method.IsMutating = true;
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        // Must NOT emit `let selfObj = ...pointee` (immutable copy that loses mutations)
+        Assert.DoesNotContain("let selfObj", swift);
+        // Call target must use through-pointer access
+        Assert.Contains("self_.assumingMemoryBound(to: TestModule.MyStruct.self).pointee.process", swift);
+    }
+
+    [Fact]
     public void TryEmit_ClassParent_EmitsUnmanagedForSelf()
     {
         // Class parents must still use Unmanaged<T> for self-reconstruction.

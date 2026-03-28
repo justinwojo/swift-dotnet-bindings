@@ -214,6 +214,7 @@ To build local `.nupkg` files at a specific version (e.g. `0.1.1`) for testing:
 
 - **All work must have tests.** Every session, feature, bug fix, and regression fix must include targeted unit or integration tests that exercise the specific behavior. Library validation passing alone is not sufficient — write tests that would catch a regression if the fix were reverted. If fixing a validation regression, add a test case that reproduces the specific pattern that broke.
 - **BindingTests for real binding flows.** For generator, emitter, or runtime changes, also check whether a BindingTests runtime test exists that exercises the pattern end-to-end (Swift source → generated binding → runtime execution on simulator). Unit tests validate internal logic but cannot catch ABI mismatches, calling convention bugs, or marshalling crashes that only surface when running real bindings. If no BindingTests coverage exists for the pattern you're changing, add Swift source to `BindingTests/Sources/SwiftBindingsTestLib/` and a C# runtime test to `BindingTests/RuntimeTestsApp/`. Place tests in the appropriate domain file (e.g., closure tests in closure test files).
+- **BindingTests must replicate validation-library patterns.** When fixing a bug that surfaces through `validate-libraries.sh` (e.g., a Kingfisher wrapper compilation failure), always reproduce the underlying Swift pattern in BindingTests. BindingTests is the long-term test framework and will eventually replace the third-party validation-library script. Every pattern that validation libraries exercise should have a synthetic equivalent in BindingTests so the fix is permanently covered by fast, deterministic tests that don't depend on external libraries.
 - When fixing a bug pattern, grep the entire codebase for ALL instances before finishing.
 - After code gen changes, verify generated output compiles — don't assume correctness.
 - Use exact file paths verified by reading the filesystem. Don't guess paths.
@@ -254,6 +255,8 @@ These gates are for sessions that make **code changes to the generator, runtime,
 **ALWAYS output to temp files.** These commands are slow. Pipe to `/tmp/` as shown above, then use the Read tool to inspect. NEVER re-run a slow command just to see a different slice of output — read further back in the temp file instead.
 
 If a gate fails, fix the regressions before signing off. Do not run gates that aren't relevant to the changes made.
+
+**Zero-regression policy**: Validation baselines must never regress. The `.validation-baseline.json` pass counts (both `cs_compile` and `swift_compile`), BindingTests runtime pass count, and unit test pass count must all be equal to or better than the baseline BEFORE committing. If a change causes any of these numbers to drop, the regression must be fixed before the commit goes in — no exceptions, no "will fix later." This applies to all commits, not just end-of-session gates.
 
 ## Known Issues
 

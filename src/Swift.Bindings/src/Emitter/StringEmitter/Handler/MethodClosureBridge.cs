@@ -330,7 +330,10 @@ public static class MethodClosureBridge
         // For instance methods, unwrap self from the explicit pointer parameter.
         // Classes use Unmanaged<T> (AnyObject reference); all value types (structs, enums)
         // use assumingMemoryBound (pointer to value storage). Matches SelfReconstructionEmitter.
-        if (isInstance)
+        // Mutating value-type methods skip the variable and use through-pointer access directly
+        // so mutations write back through self_ (same pattern as MethodWrapperEmitter).
+        bool isMutatingValueType = isInstance && !(parentDecl is ClassDecl) && method.IsMutating;
+        if (isInstance && !isMutatingValueType)
         {
             bool isClassParent = parentDecl is ClassDecl;
             if (isClassParent)
@@ -345,7 +348,9 @@ public static class MethodClosureBridge
             : returnsValue ? "return "
             : "";
         var returnSuffix = returnsClass ? ").toOpaque()" : "";
-        var callTarget = isInstance ? "selfObj" : typeName;
+        var callTarget = isMutatingValueType
+            ? $"self_.assumingMemoryBound(to: {typeName}.self).pointee"
+            : isInstance ? "selfObj" : typeName;
 
         // Collect all method call args in parameter order, interleaving non-closure and closure args
         var methodCallArgs = new List<string>();

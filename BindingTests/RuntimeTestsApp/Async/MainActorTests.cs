@@ -116,6 +116,15 @@ public class MainActorTests : TestBase
         svc.Dispose();
     }
 
+    public void TestMainActorService_ClosureMethod()
+    {
+        var svc = new MainActorService("Hello");
+        var result = svc.ApplyTransform((n) => n * 2);
+        // "Hello" has 5 chars, transform doubles it
+        AssertEqual(10, result, "Closure method on @MainActor class should work");
+        svc.Dispose();
+    }
+
     #endregion
 
     #region Free function — works on simulator

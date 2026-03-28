@@ -85,6 +85,11 @@ public class MainActorService {
     public subscript(index: Int32) -> String {
         return "\(name)[\(index)]"
     }
+
+    /// Closure method on @MainActor class — exercises @MainActor annotation on closure wrappers.
+    public func applyTransform(_ transform: @escaping (Int32) -> Int32) -> Int32 {
+        return transform(Int32(name.count))
+    }
 }
 
 // MARK: - Free Functions

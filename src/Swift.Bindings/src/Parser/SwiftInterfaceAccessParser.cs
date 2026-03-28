@@ -879,11 +879,11 @@ public static class SwiftInterfaceAccessParser
                     continue;
                 }
 
-                // Check if a method parameter type references a convention-c typealias
-                // Only check func/init lines (not comments or other declarations)
-                if ((trimmed.StartsWith("func ") || trimmed.Contains(" func ") ||
-                     trimmed.StartsWith("init(") || trimmed.Contains(" init(")) &&
-                    conventionTypealiases.Count > 0)
+                // Check if a method parameter type references a convention-c typealias.
+                // Check all non-comment lines inside the protocol block (not just func/init lines)
+                // because swiftinterface signatures can wrap across multiple continuation lines
+                // and the typealias reference may appear on a continuation line.
+                if (conventionTypealiases.Count > 0 && !trimmed.StartsWith("//"))
                 {
                     foreach (var alias in conventionTypealiases)
                     {

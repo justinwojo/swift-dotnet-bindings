@@ -606,7 +606,7 @@ The `stackalloc` path must remain for sync methods (it's faster). Run existing t
 
 ---
 
-## Session 7: Fix EveryProtocol Closure Stub & Optional Existential Getter
+## Session 7: Fix EveryProtocol Closure Stub & Optional Existential Getter ✅ `f9b37256`
 
 **Goal**: Fix two generator bugs discovered during Session 6 review gap analysis. Both cause runtime test skips that should be passing.
 
