@@ -2722,4 +2722,110 @@ public class DisposeBag {
         File.WriteAllText(path, content);
         return path;
     }
+
+    #region GetProtocolsWithConventionClosures Tests
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_TypealiasConventionC_DetectsProtocol()
+    {
+        var path = WriteTempFile("""
+            public typealias FTS5TokenCallback = @convention(c) (_ context: Swift.UnsafeMutableRawPointer?, _ flags: Swift.CInt) -> Swift.CInt
+            public protocol FTS5Tokenizer : AnyObject {
+              func tokenize(context: Swift.UnsafeMutableRawPointer?, tokenCallback: GRDB.FTS5TokenCallback) -> Swift.CInt
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Contains("FTS5Tokenizer", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_DirectConventionC_DetectsProtocol()
+    {
+        var path = WriteTempFile("""
+            public protocol DirectConvention {
+              func process(callback: @convention(c) (Swift.CInt) -> Swift.CInt)
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Contains("DirectConvention", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_ConventionBlock_DetectsProtocol()
+    {
+        var path = WriteTempFile("""
+            public typealias ObjCCallback = @convention(block) () -> Swift.Void
+            public protocol ObjCDelegate {
+              func handle(callback: ObjCCallback)
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Contains("ObjCDelegate", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_NoConventionC_ReturnsEmpty()
+    {
+        var path = WriteTempFile("""
+            public protocol NormalProtocol {
+              func doWork(callback: @escaping () -> Swift.Void)
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_ConventionCOutsideProtocol_NotDetected()
+    {
+        var path = WriteTempFile("""
+            public typealias CCallback = @convention(c) (Swift.CInt) -> Swift.CInt
+            public protocol CleanProtocol {
+              func doWork() -> Swift.Int
+            }
+            public func usesCallback(cb: CCallback) {}
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithConventionClosures_TypealiasSubstringNoMatch_NotDetected()
+    {
+        // A typealias "CB" with @convention(c) should NOT match a parameter type "CBRoot"
+        var path = WriteTempFile("""
+            public typealias CB = @convention(c) (Swift.CInt) -> Swift.CInt
+            public protocol SubstringProtocol {
+              func process(handler: CBRoot)
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 }

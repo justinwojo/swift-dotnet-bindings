@@ -68,6 +68,7 @@ namespace BindingsGeneration
         public string[]? superclassNames { get; set; }
         public bool? inheritsConvenienceInitializers { get; set; }
         public bool? hasMissingDesignatedInitializers { get; set; }
+        public bool? protocolReq { get; set; }
         public string[]? typeAttributes { get; set; }
         public string[]? spi_group_names { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
@@ -548,6 +549,13 @@ namespace BindingsGeneration
         /// </summary>
         private readonly Dictionary<string, List<string>>? _subscriptLabels;
 
+        /// <summary>
+        /// Optional set of protocol names whose methods have @convention(c) or @convention(block)
+        /// closure parameters. Detected from swiftinterface cross-reference since ABI JSON lacks
+        /// convention attributes on TypeFunc nodes.
+        /// </summary>
+        private readonly HashSet<string>? _conventionCProtocols;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -570,7 +578,8 @@ namespace BindingsGeneration
             HashSet<string>? publicMemberNames = null,
             Dictionary<string, List<string>>? subscriptLabels = null,
             HashSet<string>? mainActorIsolatedMembers = null,
-            HashSet<string>? variadicMembers = null)
+            HashSet<string>? variadicMembers = null,
+            HashSet<string>? conventionCProtocols = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -594,6 +603,7 @@ namespace BindingsGeneration
             _subscriptLabels = subscriptLabels;
             _mainActorIsolatedMembers = mainActorIsolatedMembers;
             _variadicMembers = variadicMembers;
+            _conventionCProtocols = conventionCProtocols;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -811,6 +821,24 @@ namespace BindingsGeneration
                 if (decl is EnumDecl enumDecl)
                 {
                     enumDecl.Cases.AddRange(childDecls.OfType<EnumCaseDecl>());
+                }
+
+                // Detect missing protocol requirements: count ABI JSON Function/Constructor
+                // children and compare against successfully parsed methods. A mismatch means
+                // some children failed parsing (e.g., `some` parameter causing
+                // GenericSignatureParser count mismatch). We count ALL Function/Constructor
+                // children (not just protocolReq=true) because extension defaults also need
+                // to parse successfully for the method count to match.
+                if (decl is ProtocolDecl protocolDecl2)
+                {
+                    int expectedFuncChildren = node.Children
+                        .Count(c => c.Kind == "Function" || c.Kind == "Constructor");
+                    if (decl.Methods.Count < expectedFuncChildren)
+                    {
+                        protocolDecl2.HasMissingRequirements = true;
+                        _logger.LogDebug("Protocol {Name}: {Missing} method(s) failed ABI parsing ({Parsed}/{Expected})",
+                            decl.Name, expectedFuncChildren - decl.Methods.Count, decl.Methods.Count, expectedFuncChildren);
+                    }
                 }
 
                 foreach (var type in decl.Types)
@@ -1245,6 +1273,11 @@ namespace BindingsGeneration
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
+
+            // Mark protocols whose methods have @convention(c)/@convention(block) closure parameters
+            if (_conventionCProtocols != null && _conventionCProtocols.Contains(decl.Name))
+                decl.HasConventionCClosureParameters = true;
+
             return decl;
         }
 

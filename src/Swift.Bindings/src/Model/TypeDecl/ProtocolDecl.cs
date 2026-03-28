@@ -70,4 +70,21 @@ public sealed record ProtocolDecl : TypeDecl
     /// without explicit "any" syntax in Swift 5.6+.
     /// </summary>
     public bool CanBeExistential => !HasSelfRequirement && AssociatedTypes.Count == 0;
+
+    /// <summary>
+    /// Indicates whether the protocol has requirements that failed ABI parsing.
+    /// When true, EveryProtocol conformance should be skipped because the emitter
+    /// cannot generate stubs for requirements it doesn't know about.
+    /// This is detected by comparing ABI JSON children with protocolReq=true
+    /// against successfully parsed methods.
+    /// </summary>
+    public bool HasMissingRequirements { get; set; }
+
+    /// <summary>
+    /// Indicates whether the protocol has methods with @convention(c) or @convention(block)
+    /// closure parameters. These conventions are not encoded in ABI JSON, so the EveryProtocol
+    /// closure stub would emit @escaping instead, causing a type mismatch.
+    /// Detected via swiftinterface cross-reference.
+    /// </summary>
+    public bool HasConventionCClosureParameters { get; set; }
 }

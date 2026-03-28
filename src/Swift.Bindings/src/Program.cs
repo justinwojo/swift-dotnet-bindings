@@ -212,6 +212,7 @@ namespace BindingsGeneration
             Dictionary<string, List<bool>>? autoclosureParameters = null;
             Dictionary<string, List<string>>? subscriptLabels = null;
             HashSet<string>? variadicMembers = null;
+            HashSet<string>? conventionCProtocols = null;
             HashSet<string>? publicMemberNames = null;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
@@ -307,6 +308,12 @@ namespace BindingsGeneration
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} variadic member keys from swiftinterface", variadicMembers.Count);
 
+                conventionCProtocols = TryParseSwiftInterface("convention(c) protocols",
+                    () => SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(swiftInterfacePath),
+                    () => new HashSet<string>(), logger, ref parseFailures);
+                if (conventionCProtocols.Count > 0)
+                    logger.LogInformation("Detected {Count} protocol(s) with @convention(c)/@convention(block) closure parameters: {Names}", conventionCProtocols.Count, string.Join(", ", conventionCProtocols));
+
                 if (parseFailures > 0)
                     logger.LogWarning("{Count} swiftinterface parsing pass(es) failed and were skipped. Bindings will be generated with reduced metadata.", parseFailures);
             }
@@ -327,7 +334,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers, conventionCProtocols);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

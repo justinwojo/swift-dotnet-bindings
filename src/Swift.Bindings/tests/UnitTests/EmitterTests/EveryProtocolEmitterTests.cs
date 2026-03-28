@@ -2242,4 +2242,75 @@ public class EveryProtocolEmitterTests
     }
 
     #endregion
+
+    #region Missing Requirements / Convention-C Skip Tests
+
+    [Fact]
+    public void EmitProtocolConformance_HasMissingRequirements_SkipsConformance()
+    {
+        // Protocol with a requirement that failed ABI parsing (e.g., `some` parameter
+        // causes GenericSignatureParser count mismatch). The conformance should be
+        // skipped entirely because the emitter can't generate stubs for unknown requirements.
+        var protocol = CreateProtocolWithMethod("RowAdapter", "addingScopes");
+        protocol.HasMissingRequirements = true;
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_HasConventionCClosureParameters_SkipsConformance()
+    {
+        // Protocol with @convention(c) closure parameters. ABI JSON lacks convention
+        // info, so the closure stub emits @escaping instead of @convention(c).
+        var protocol = CreateProtocolWithMethod("FTS5Tokenizer", "tokenize");
+        protocol.HasConventionCClosureParameters = true;
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NoMissingRequirements_EmitsConformance()
+    {
+        // Normal protocol with all requirements present — should emit conformance normally.
+        var protocol = CreateProtocolWithMethod("ValidProtocol", "doWork");
+        protocol.HasMissingRequirements = false;
+        protocol.HasConventionCClosureParameters = false;
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.ValidProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_HasMissingRequirements_ReturnsTrue()
+    {
+        // WillSkipConformance should detect missing requirements during pre-scan
+        var protocol = CreateProtocolWithMethod("RowAdapter", "addingScopes");
+        protocol.HasMissingRequirements = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        // Verify the protocol was added to skipped set by emitting — should be empty
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_HasConventionCClosureParameters_ReturnsTrue()
+    {
+        // WillSkipConformance should detect convention-C protocols during pre-scan
+        var protocol = CreateProtocolWithMethod("FTS5Tokenizer", "tokenize");
+        protocol.HasConventionCClosureParameters = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    #endregion
 }

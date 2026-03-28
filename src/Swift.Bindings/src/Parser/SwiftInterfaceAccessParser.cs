@@ -802,6 +802,106 @@ public static class SwiftInterfaceAccessParser
     /// the module. Names are unqualified (e.g., "KFOptionSetter"). Used to distinguish
     /// protocol extensions from type extensions when parsing extension blocks.
     /// </summary>
+    /// <summary>
+    /// Parses a .swiftinterface file and returns the names of protocols whose methods
+    /// have @convention(c) or @convention(block) closure parameters (either directly
+    /// or via typealias). ABI JSON doesn't encode calling conventions on TypeFunc nodes,
+    /// so EveryProtocol closure stubs emit @escaping which doesn't match, causing
+    /// conformance failures.
+    /// </summary>
+    public static HashSet<string> GetProtocolsWithConventionClosures(string swiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        // Pass 1: collect typealias names that are @convention(c) or @convention(block)
+        var conventionTypealiases = new HashSet<string>();
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            // Match: public typealias FTS5TokenCallback = @convention(c) ...
+            // Also: typealias Foo = @convention(block) ...
+            if (trimmed.Contains("@convention(c)") || trimmed.Contains("@convention(block)"))
+            {
+                var typealiasMatch = Regex.Match(trimmed, @"typealias\s+(\w+)\s*=");
+                if (typealiasMatch.Success)
+                    conventionTypealiases.Add(typealiasMatch.Groups[1].Value);
+            }
+        }
+
+        // Pass 2: find protocol blocks containing convention-c references
+        int braceDepth = 0;
+        string? currentProtocol = null;
+        int protocolBraceDepth = -1;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Track protocol declarations
+            var protoMatch = ProtocolDeclRegex.Match(trimmed);
+            if (protoMatch.Success && !trimmed.TrimStart().StartsWith("//"))
+            {
+                // Only start tracking if this line opens a brace block
+                var (opens, closes) = CountBraces(trimmed);
+                int newDepth = braceDepth + opens - closes;
+                if (opens > 0)
+                {
+                    currentProtocol = protoMatch.Groups[1].Value;
+                    protocolBraceDepth = braceDepth;
+                }
+                braceDepth = newDepth;
+                continue;
+            }
+
+            var (openCount, closeCount) = CountBraces(trimmed);
+            braceDepth += openCount - closeCount;
+
+            // Exit protocol block
+            if (currentProtocol != null && braceDepth <= protocolBraceDepth)
+            {
+                currentProtocol = null;
+                protocolBraceDepth = -1;
+                continue;
+            }
+
+            // Inside a protocol block: check for convention-c references
+            if (currentProtocol != null && !result.Contains(currentProtocol))
+            {
+                // Direct @convention(c) or @convention(block) in the method signature
+                if (trimmed.Contains("@convention(c)") || trimmed.Contains("@convention(block)"))
+                {
+                    result.Add(currentProtocol);
+                    continue;
+                }
+
+                // Check if a method parameter type references a convention-c typealias
+                // Only check func/init lines (not comments or other declarations)
+                if ((trimmed.StartsWith("func ") || trimmed.Contains(" func ") ||
+                     trimmed.StartsWith("init(") || trimmed.Contains(" init(")) &&
+                    conventionTypealiases.Count > 0)
+                {
+                    foreach (var alias in conventionTypealiases)
+                    {
+                        // Match the typealias name as a whole word type reference (e.g., "GRDB.FTS5TokenCallback"
+                        // or bare "FTS5TokenCallback"), using word boundary to avoid substring false positives
+                        if (Regex.IsMatch(trimmed, $@"\b{Regex.Escape(alias)}\b"))
+                        {
+                            result.Add(currentProtocol);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
     public static HashSet<string> GetProtocolNames(string swiftInterfacePath)
     {
         var result = new HashSet<string>();

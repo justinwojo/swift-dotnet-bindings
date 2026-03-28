@@ -1,8 +1,8 @@
 {
-  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped: 27→31 in Session 7 review (4 new EveryProtocol closure stubs for DataLoadingDelegate, CompletionDelegate + EventDelegate conformances stripped by build-bridge.sh).",
+  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped: 31→35 in Session 2 (new OpaqueParameterProtocols.swift adds RowAdapter/RowLayout protocols whose EveryProtocol conformances are skipped by MissingRequirements gate).",
   "generator_exit_code": 0,
   "must_pass_degraded": 0,
   "must_pass_compiled_out": 25,
   "known_unsupported_total": 62,
-  "wrapper_stripped_count": 31
+  "wrapper_stripped_count": 35
 }

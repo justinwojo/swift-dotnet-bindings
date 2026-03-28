@@ -586,6 +586,12 @@ public class EveryProtocolEmitter
         if (protocolDecl.HasSelfRequirement)
             return true;
 
+        if (protocolDecl.HasMissingRequirements)
+            return true;
+
+        if (protocolDecl.HasConventionCClosureParameters)
+            return true;
+
         bool hasSelfTypedMembers = protocolDecl.Methods
             .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
             .Any(m => HasSelfTypeParamInSignature(m));
@@ -697,6 +703,26 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has Self requirement");
             RecordSkip("HasSelfRequirement");
+            return;
+        }
+
+        // Skip protocols with requirements that failed ABI parsing (e.g., methods with
+        // `some` parameters cause GenericSignatureParser count mismatch). The emitter
+        // cannot generate stubs for requirements it doesn't know about.
+        if (protocolDecl.HasMissingRequirements)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has requirements that failed ABI parsing");
+            RecordSkip("MissingRequirements");
+            return;
+        }
+
+        // Skip protocols with @convention(c) or @convention(block) closure parameters.
+        // ABI JSON doesn't encode calling conventions on TypeFunc nodes, so the closure
+        // stub would emit @escaping instead of @convention(c), causing a type mismatch.
+        if (protocolDecl.HasConventionCClosureParameters)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has @convention(c)/@convention(block) closure parameters");
+            RecordSkip("ConventionCClosureParameters");
             return;
         }
 
