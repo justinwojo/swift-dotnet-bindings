@@ -23,6 +23,7 @@ public record ApplePlatform
 
     public required string MinOsVersion { get; init; }
     public required string TfmSuffix { get; init; }
+    public required string PackageSuffix { get; init; }
     public bool HasDeviceSlice => DeviceSdkName != null;
 
     public string GetTfm() => $"net10.0-{TfmSuffix}";
@@ -42,6 +43,7 @@ public record ApplePlatform
         DevicePlistPlatform = "iPhoneOS",
         MinOsVersion = "15.0",
         TfmSuffix = "ios",
+        PackageSuffix = "iOS",
     };
 
     public static ApplePlatform MacOS { get; } = new()
@@ -59,6 +61,7 @@ public record ApplePlatform
         DevicePlistPlatform = null,
         MinOsVersion = "12.0",
         TfmSuffix = "macos",
+        PackageSuffix = "macOS",
     };
 
     public static ApplePlatform TvOS { get; } = new()
@@ -76,6 +79,7 @@ public record ApplePlatform
         DevicePlistPlatform = "AppleTVOS",
         MinOsVersion = "15.0",
         TfmSuffix = "tvos",
+        PackageSuffix = "tvOS",
     };
 
     public static ApplePlatform FromName(string name) => name.ToLowerInvariant() switch

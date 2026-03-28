@@ -60,6 +60,12 @@ partial class Build : NukeBuild
     [Parameter("Flake detection mode (run each test 3x)")]
     readonly bool FlakeDetect;
 
+    [Parameter("Run fetch-libraries before validation")]
+    readonly bool Fetch;
+
+    [Parameter("Run sequentially (no parallelism)")]
+    readonly bool Serial;
+
     [Parameter] [Secret] readonly string? NuGetApiKey;
 
     // --- Computed paths ---

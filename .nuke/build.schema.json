@@ -30,7 +30,8 @@
         "FetchLibraries",
         "RuntimeUnitTests",
         "SmokeTest",
-        "UnitTests"
+        "UnitTests",
+        "ValidateLibraries"
       ]
     },
     "Verbosity": {
@@ -108,6 +109,10 @@
           "type": "string",
           "description": "Run only one test class"
         },
+        "Fetch": {
+          "type": "boolean",
+          "description": "Run fetch-libraries before validation"
+        },
         "Filter": {
           "type": "string",
           "description": "Filter libraries by name (case-insensitive)"
@@ -148,6 +153,10 @@
         "Quick": {
           "type": "boolean",
           "description": "Reuse cached validation output"
+        },
+        "Serial": {
+          "type": "boolean",
+          "description": "Run sequentially (no parallelism)"
         },
         "SkipRegen": {
           "type": "boolean",
