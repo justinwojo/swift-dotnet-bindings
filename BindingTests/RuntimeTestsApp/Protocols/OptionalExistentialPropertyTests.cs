@@ -178,4 +178,139 @@ public class OptionalExistentialPropertyTests : TestBase
     }
 
     #endregion
+
+    #region EC2 — LabelableRenderableHolder Factory Functions (multi-protocol optional existential)
+
+    public void TestMakeLabelableRenderableHolder()
+    {
+        var holder = TestLibFunctions.MakeLabelableRenderableHolder("test");
+        AssertNotNull(holder, "MakeLabelableRenderableHolder returned non-null");
+        TestLogger.Info("MakeLabelableRenderableHolder construction passed");
+    }
+
+    public void TestMakeEmptyLabelableRenderableHolder()
+    {
+        var holder = TestLibFunctions.MakeEmptyLabelableRenderableHolder();
+        AssertNotNull(holder, "MakeEmptyLabelableRenderableHolder returned non-null");
+        TestLogger.Info("MakeEmptyLabelableRenderableHolder construction passed");
+    }
+
+    #endregion
+
+    #region EC2 — GetItemDescription (String method, EC2 container)
+
+    public void TestGetItemDescriptionWithValue()
+    {
+        var holder = TestLibFunctions.MakeLabelableRenderableHolder("hello");
+        var desc = holder.GetItemDescription();
+        AssertEqual("Render(hello)+Label(hello)", desc, "GetItemDescription with value");
+        TestLogger.Info($"GetItemDescription = \"{desc}\"");
+    }
+
+    public void TestGetItemDescriptionWithNil()
+    {
+        var holder = TestLibFunctions.MakeEmptyLabelableRenderableHolder();
+        var desc = holder.GetItemDescription();
+        AssertEqual("none", desc, "GetItemDescription with nil");
+        TestLogger.Info($"GetItemDescription (nil) = \"{desc}\"");
+    }
+
+    #endregion
+
+    #region EC2 — LabelableRenderableHolder Construction
+
+    public void TestLabelableRenderableHolderDefaultConstructor()
+    {
+        var holder = new LabelableRenderableHolder();
+        AssertNotNull(holder, "LabelableRenderableHolder default constructor");
+        var desc = holder.GetItemDescription();
+        AssertEqual("none", desc, "Default constructed holder has nil item");
+        TestLogger.Info("LabelableRenderableHolder() default constructor passed");
+    }
+
+    #endregion
+
+    #region EC2 — LabelableRenderable Direct Construction
+
+    public void TestLabelableRenderableConstruction()
+    {
+        var renderable = new LabelableRenderable(name: "world");
+        AssertNotNull(renderable, "LabelableRenderable constructed");
+        TestLogger.Info("LabelableRenderable construction passed");
+    }
+
+    public void TestLabelableRenderableRender()
+    {
+        var renderable = new LabelableRenderable(name: "test");
+        var result = renderable.Render();
+        AssertEqual("Render(test)", result, "LabelableRenderable.Render()");
+        TestLogger.Info($"LabelableRenderable.Render() = \"{result}\"");
+    }
+
+    public void TestLabelableRenderableLabel()
+    {
+        var renderable = new LabelableRenderable(name: "test");
+        var result = renderable.GetLabel();
+        AssertEqual("Label(test)", result, "LabelableRenderable.GetLabel()");
+        TestLogger.Info($"LabelableRenderable.GetLabel() = \"{result}\"");
+    }
+
+    #endregion
+
+    #region EC2 — Item Property Getter (optional EC2 existential)
+
+    public void TestItemGetterReturnsNonNull()
+    {
+        var holder = TestLibFunctions.MakeLabelableRenderableHolder("getter-test");
+        var item = holder.Item;
+        AssertNotNull(item, "Item getter returns non-null for EC2");
+        TestLogger.Info($"holder.Item != null: {item != null}");
+    }
+
+    public void TestItemGetterReturnsNullForEmpty()
+    {
+        var holder = TestLibFunctions.MakeEmptyLabelableRenderableHolder();
+        var item = holder.Item;
+        AssertNull(item, "Item getter returns null for empty EC2 holder");
+        TestLogger.Info($"Empty holder.Item == null: {item == null}");
+    }
+
+    #endregion
+
+    #region EC2 — Item Property Setter
+
+    // Composition proxy is wrap-only (EC2 container from Swift), so setter tests
+    // use the getter-from-factory pattern: get ILabelableAndRenderable from one
+    // holder's getter, then set it on another holder.
+
+    public void TestItemSetterFromSwiftExistential()
+    {
+        // Get an ILabelableAndRenderable from a factory-created holder
+        var source = TestLibFunctions.MakeLabelableRenderableHolder("transfer");
+        var existential = source.Item;
+        AssertNotNull(existential, "Source holder has non-null item");
+
+        // Set it on a new empty holder
+        var target = new LabelableRenderableHolder();
+        target.Item = existential;
+
+        var desc = target.GetItemDescription();
+        AssertEqual("Render(transfer)+Label(transfer)", desc, "After EC2 setter, description reflects transferred value");
+        TestLogger.Info($"After Item setter from existential: GetItemDescription() = \"{desc}\"");
+    }
+
+    public void TestItemSetterClearToNull()
+    {
+        var holder = TestLibFunctions.MakeLabelableRenderableHolder("to-clear");
+        var before = holder.GetItemDescription();
+        AssertEqual("Render(to-clear)+Label(to-clear)", before, "EC2 holder starts with value");
+
+        holder.Item = null;
+
+        var after = holder.GetItemDescription();
+        AssertEqual("none", after, "After setting EC2 Item to null, description is 'none'");
+        TestLogger.Info($"After Item = null: GetItemDescription() = \"{after}\"");
+    }
+
+    #endregion
 }

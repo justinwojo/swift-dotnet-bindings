@@ -89,6 +89,21 @@ public func applyThreeProtocols<T: Addable & Subtractable & Multipliable>(_ val:
     return sum + diff + prod
 }
 
+// MARK: - Factory Functions for Composition Testing
+
+/// Creates a Person and returns it as `any Nameable & Ageable` (EC2 existential).
+/// Enables C# tests to call processNameableAgeable without manual EC2 boxing.
+public func makeNameableAgeable(name: String, age: Int32) -> any Nameable & Ageable {
+    return Person(name: name, age: age)
+}
+
+/// Creates a Person and processes it through processNameableAgeable.
+/// Tests the full EC2 round-trip: create Person → box as existential → process.
+public func describePersonAsComposition(name: String, age: Int32) -> String {
+    let person = Person(name: name, age: age)
+    return processNameableAgeable(person)
+}
+
 /// Generic function with a compound 4-protocol constraint.
 public func applyFourProtocols<T: Addable & Subtractable & Multipliable & Dividable>(_ val: T, a: Int32, b: Int32, c: Int32, d: Int32) -> Int32 {
     let sum = val.add(a)

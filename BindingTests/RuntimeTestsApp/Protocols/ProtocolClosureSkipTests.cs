@@ -84,12 +84,14 @@ public class ProtocolClosureSkipTests : TestBase
 
     #region C# Implementation via EventDelegateProxy (Tier 2)
 
-    // EveryProtocol closure stub fix: closure methods get fatalError() stubs in the
-    // EveryProtocol conformance. The conformance compiles correctly in isolation,
-    // but the build-bridge.sh strip/retry mechanism strips it along with other
-    // failing wrapper functions. Needs investigation of the strip script's granularity.
+    // Skip audit (Session 4): Unskipped and tested — still fails. The EveryProtocol
+    // conformance compiles in isolation, but build-bridge.sh strip/retry removes the
+    // witness table function (Get_EveryProtocol_EventDelegate_WitnessTable) because
+    // dependent wrapper functions that reference EventDelegate fail compilation and
+    // the stripping cascades to include the witness table accessor.
+    // Root cause: build-bridge.sh strips at function granularity, not conformance granularity.
     private const string StripReason =
-        "EveryProtocol: EventDelegate witness table stripped by build-bridge.sh strip/retry — conformance compiles but gets caught in aggressive stripping";
+        "EveryProtocol: EventDelegate witness table stripped by build-bridge.sh — strip cascades from dependent wrapper failures to witness table accessor";
 
     [Skip(StripReason)]
     public void TestCSharpImplProxyConstruction()
