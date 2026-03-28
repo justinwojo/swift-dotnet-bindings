@@ -161,6 +161,17 @@ public class ExistentialHandler
         protocolList.Protocols.Count == 0;
 
     /// <summary>
+    /// Returns true if the protocol list represents bare 'Any' (0 protocols in the original list).
+    /// Only matches literal Swift 'Any' — NOT pure-marker compositions like 'any Sendable'
+    /// (which also have 0 effective protocols after marker filtering, but are semantically distinct).
+    /// Bare Any is intentionally supported for container elements (e.g., Dictionary&lt;String, Any&gt;).
+    /// </summary>
+    /// <param name="protocolList">The protocol list type specification.</param>
+    /// <returns><c>true</c> if this is bare Any; otherwise, <c>false</c>.</returns>
+    public bool IsBareAny(ProtocolListTypeSpec protocolList) =>
+        protocolList.Protocols.Count == 0;
+
+    /// <summary>
     /// Determines whether the existential type is a supported type.
     /// Currently supports:
     /// - Protocol compositions with 0-8 protocols (Any through 8-protocol compositions)

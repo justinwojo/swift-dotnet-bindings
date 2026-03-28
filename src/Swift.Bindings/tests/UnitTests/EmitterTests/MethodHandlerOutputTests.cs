@@ -963,7 +963,7 @@ public class MethodHandlerOutputTests
     #endregion
 
     [Fact]
-    public void Emit_MethodReturningAny_EmitsDirectReturnWithoutProxyWrapping()
+    public void Emit_MethodReturningAny_EmitsUnboxWithoutProxyWrapping()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -981,9 +981,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // G5 fix: zero-protocol existential (Any) emits direct "return result;"
-        // instead of wrapping in a proxy class (e.g., "return new ...Proxy(result);")
-        Assert.Contains("return result;", csOutput);
+        // Bare Any uses ExistentialContainer0.Unbox() to convert the container to a C# object.
+        // No proxy wrapping — bare Any has no protocols, so no proxy class.
+        Assert.Contains("ExistentialContainer0.Unbox(result)", csOutput);
         Assert.DoesNotContain("Proxy(result)", csOutput);
     }
 

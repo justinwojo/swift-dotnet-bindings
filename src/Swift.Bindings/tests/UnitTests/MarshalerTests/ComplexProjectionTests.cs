@@ -145,6 +145,55 @@ public class ComplexProjectionTests
         Assert.Equal("ExistentialContainerFactory.GetOrCreate<IRenderable>(item)", conv);
     }
 
+    [Fact]
+    public void Existential_BareAny_ParameterPlan_UsesBox()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
+        var plan = proj.GetParameterPlan("value");
+
+        Assert.Equal("ExistentialContainer0.Box(value)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Existential_BareAny_ReturnPlan_UsesUnbox()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        Assert.Equal("ExistentialContainer0.Unbox(result)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void Existential_BareAny_ParameterElementConversion_UsesBox()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
+        var conv = proj.GetParameterElementConversion("item");
+
+        Assert.NotNull(conv);
+        Assert.Equal("ExistentialContainer0.Box(item)", conv);
+    }
+
+    [Fact]
+    public void Existential_BareAny_ReturnElementConversion_UsesUnbox()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
+        var conv = proj.GetReturnElementConversion("item");
+
+        Assert.NotNull(conv);
+        Assert.Equal("ExistentialContainer0.Unbox(item)", conv);
+    }
+
+    [Fact]
+    public void Existential_NonBareAny_Object_StillUsesLegacyPath()
+    {
+        // Non-bare-Any object projection (unknown protocol) should NOT use Box/Unbox
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: false);
+        var plan = proj.GetParameterPlan("value");
+
+        Assert.Contains("ISwiftExistentialConvertible", plan.PInvokeExpression);
+        Assert.DoesNotContain("Box", plan.PInvokeExpression);
+    }
+
     #endregion
 
     #region ArrayProjection

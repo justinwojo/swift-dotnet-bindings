@@ -215,6 +215,10 @@ public class BoundGenericsHandler
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(existentialTypeSpec);
         if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
             return false;
+        // Bare Any (0 effective protocols) is intentionally supported — it's not an unknown protocol,
+        // it's Swift's explicit "any value" type. ExistentialContainer0 is the correct ABI.
+        if (_existentialHandler.IsBareAny(protocolList))
+            return true;
         if (!_existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
             return false;
         if (_existentialHandler.GetPublicExistentialType(protocolList) == "object")
@@ -569,8 +573,22 @@ public class BoundGenericsHandler
         }
 
         List<string> translatedGenericParameters = new();
+        bool isStdlibContainer = s_stdlibGenerics.Contains(namedTypeSpec.Name);
         foreach (var genericParameter in namedTypeSpec.GenericParameters)
         {
+            // Bare Any (0 effective protocols) inside stdlib containers should use ExistentialContainer0,
+            // which is the correct ABI type for [String: Any], [Any], etc.
+            // For user-defined generics, bare Any stays as AnyType to avoid ISwiftObject constraint violations.
+            if (isStdlibContainer &&
+                _existentialHandler.IsExistential(genericParameter))
+            {
+                var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParameter);
+                if (protocolList != null && _existentialHandler.IsBareAny(protocolList))
+                {
+                    translatedGenericParameters.Add("Swift.Runtime.ExistentialContainer0");
+                    continue;
+                }
+            }
             translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl, parentTypeDecl));
         }
 

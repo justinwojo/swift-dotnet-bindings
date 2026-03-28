@@ -418,10 +418,12 @@ public class TypeProjectionFactory
         { CurrentModuleName = context.CurrentModuleName };
         var containerType = handler.GetCSharpExistentialType(protocolList);
         var publicType = handler.GetPublicExistentialType(protocolList);
+        bool isBareAny = handler.IsBareAny(protocolList);
 
         // Determine proxy class name:
         // - well-known protocols (e.g. Swift.Error → AnyError): no proxy
         // - "object" fallback: no proxy
+        // - bare Any: no proxy (uses Box/Unbox)
         // - known protocols with interface: has proxy
         string? proxyClassName = null;
         if (!handler.TryGetWellKnownProtocolType(protocolList, out _) && publicType != "object")
@@ -429,7 +431,7 @@ public class TypeProjectionFactory
             proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }
 
-        return new ExistentialProjection(containerType, publicType, proxyClassName);
+        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny);
     }
 
     /// <summary>

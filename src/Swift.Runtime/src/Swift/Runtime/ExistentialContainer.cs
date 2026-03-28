@@ -51,6 +51,134 @@ public struct ExistentialContainer0 : IExistentialContainer
         container.Payload2 = Payload2;
         container.ObjectMetadata = ObjectMetadata;
     }
+
+    /// <summary>
+    /// Boxes a C# object into an ExistentialContainer0 for passing as Swift 'Any'.
+    /// Supports: bool, int, long (Swift.Int), double, string.
+    /// </summary>
+    /// <param name="value">The value to box. Must be a supported type.</param>
+    /// <returns>An ExistentialContainer0 containing the value with correct Swift metadata.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if value is null.</exception>
+    /// <exception cref="NotSupportedException">Thrown if the value type is not supported for boxing.</exception>
+    public static unsafe ExistentialContainer0 Box(object value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var container = new ExistentialContainer0();
+
+        switch (value)
+        {
+            case bool b:
+            {
+                if (!TypeMetadata.Cache.TryGet(typeof(bool), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.Bool metadata");
+                container.ObjectMetadata = metadata.Value;
+                container.Payload0 = b ? (IntPtr)1 : IntPtr.Zero;
+                break;
+            }
+            case long l:
+            {
+                if (!TypeMetadata.Cache.TryGet(typeof(nint), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.Int metadata");
+                container.ObjectMetadata = metadata.Value;
+                container.Payload0 = (IntPtr)l;
+                break;
+            }
+            case int i:
+            {
+                if (!TypeMetadata.Cache.TryGet(typeof(nint), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.Int metadata");
+                container.ObjectMetadata = metadata.Value;
+                container.Payload0 = (IntPtr)i;
+                break;
+            }
+            case double d:
+            {
+                if (!TypeMetadata.Cache.TryGet(typeof(double), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.Double metadata");
+                container.ObjectMetadata = metadata.Value;
+                long bits = BitConverter.DoubleToInt64Bits(d);
+                container.Payload0 = (IntPtr)bits;
+                break;
+            }
+            case string s:
+            {
+                using var swiftStr = new SwiftString(s);
+                if (!TypeMetadata.Cache.TryGet(typeof(SwiftString), out var metadata))
+                    throw new SwiftRuntimeException("Cannot get Swift.String metadata");
+                container.ObjectMetadata = metadata.Value;
+                // SwiftString is 16 bytes (2 words) on 64-bit — store inline in payload.
+                // MarshalToSwift calls initializeWithCopy, which retains the string data.
+                // The container takes ownership of that retain count; swiftStr's dispose
+                // releases the original reference — net result: container owns 1 retain.
+                Span<byte> buffer = stackalloc byte[ExistentialContainerFactory.MaxInlinePayloadSize];
+                buffer.Clear();
+                var span = buffer;
+                ((ISwiftObject)swiftStr).MarshalToSwift(ref span);
+                fixed (byte* bufferPtr = buffer)
+                {
+                    var srcPtr = (IntPtr*)bufferPtr;
+                    container.Payload0 = srcPtr[0];
+                    container.Payload1 = srcPtr[1];
+                }
+                break;
+            }
+            default:
+                throw new NotSupportedException(
+                    $"Cannot box value of type '{value.GetType().Name}' into ExistentialContainer0. " +
+                    $"Supported types: bool, int, long, double, string.");
+        }
+
+        return container;
+    }
+
+    /// <summary>
+    /// Unboxes an ExistentialContainer0 back to a C# object.
+    /// Uses the metadata pointer to determine the contained Swift type.
+    /// </summary>
+    /// <param name="container">The existential container to unbox.</param>
+    /// <returns>The contained value as a C# object.</returns>
+    /// <exception cref="NotSupportedException">Thrown if the contained type is not recognized.</exception>
+    public static unsafe object Unbox(ExistentialContainer0 container)
+    {
+        var metadata = container.ObjectMetadata;
+
+        // Compare against known type metadata to determine the contained type
+        if (TypeMetadata.Cache.TryGet(typeof(bool), out var boolMeta) && metadata.Equals(boolMeta.Value))
+        {
+            return container.Payload0 != IntPtr.Zero;
+        }
+
+        if (TypeMetadata.Cache.TryGet(typeof(nint), out var intMeta) && metadata.Equals(intMeta.Value))
+        {
+            return (long)container.Payload0;
+        }
+
+        if (TypeMetadata.Cache.TryGet(typeof(double), out var doubleMeta) && metadata.Equals(doubleMeta.Value))
+        {
+            return BitConverter.Int64BitsToDouble((long)container.Payload0);
+        }
+
+        if (TypeMetadata.Cache.TryGet(typeof(SwiftString), out var stringMeta) && metadata.Equals(stringMeta.Value))
+        {
+            // Reconstruct SwiftString from the container's payload words.
+            // initializeWithCopy creates a retained copy (+1 ARC). The SwiftString
+            // constructor bitwise-copies from the buffer, adopting the retain. When
+            // SwiftString.Dispose calls VWT Destroy, it decrements (-1 ARC), netting
+            // zero change to the container's original reference. Stack buffer memory
+            // is reclaimed on return — no leak, no double-free.
+            byte* buffer = stackalloc byte[ExistentialContainerFactory.MaxInlinePayloadSize];
+            new Span<byte>(buffer, ExistentialContainerFactory.MaxInlinePayloadSize).Clear();
+            metadata.ValueWitnessTable->InitializeWithCopy(buffer, &container, metadata);
+
+            using var swiftStr = SwiftString.FromPayload((IntPtr)buffer);
+            return swiftStr.ToString();
+        }
+
+        throw new NotSupportedException(
+            $"Cannot unbox ExistentialContainer0 with metadata handle 0x{metadata.Handle:X}. " +
+            $"Supported types: Bool, Int, Double, String.");
+    }
 }
 
 /// <summary>

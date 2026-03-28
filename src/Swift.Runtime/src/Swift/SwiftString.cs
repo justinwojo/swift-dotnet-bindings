@@ -107,6 +107,14 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
         return new SwiftString(handle);
     }
 
+    /// <summary>
+    /// Creates a SwiftString from a raw Swift string payload buffer.
+    /// Used for unboxing strings from existential containers.
+    /// </summary>
+    /// <param name="payloadPtr">Pointer to a buffer containing the raw SwiftString payload.</param>
+    /// <returns>A new SwiftString owning the payload data.</returns>
+    public static SwiftString FromPayload(IntPtr payloadPtr) => new SwiftString(payloadPtr);
+
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();
@@ -152,9 +160,10 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     /// <summary>
-    /// Constructs a new SwiftString from the given handle.
+    /// Constructs a new SwiftString from a pointer to raw Swift string payload.
+    /// The caller must ensure the pointer points to a valid SwiftString.Buffer.
     /// </summary>
-    unsafe SwiftString(IntPtr handle)
+    internal unsafe SwiftString(IntPtr handle)
     {
         IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof(SwiftString.Buffer));
         *(SwiftString.Buffer*)bufferPtr = *(SwiftString.Buffer*)handle;

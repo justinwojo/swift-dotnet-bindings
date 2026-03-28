@@ -23,10 +23,10 @@ public class BoundGenericsHandlerTests
     #region Existential Type Arguments Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_DictionaryWithAny_ResolvesToAnyType()
+    public void TranslateBoundGenericTypeToCSharp_DictionaryWithAny_ResolvesToExistentialContainer0()
     {
         // Swift: Dictionary<String, Any>
-        // The 'Any' type is represented as a ProtocolListTypeSpec with 0 protocols
+        // Bare Any (0 effective protocols) is now supported in containers via ExistentialContainer0.
         var anyTypeSpec = new ProtocolListTypeSpec(); // Empty protocol list = Any
         var keyTypeSpec = new NamedTypeSpec("Swift.String");
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
@@ -37,11 +37,12 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_ArrayWithAny_ResolvesToAnyType()
+    public void TranslateBoundGenericTypeToCSharp_ArrayWithAny_ResolvesToExistentialContainer0()
     {
         // Swift: Array<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -52,11 +53,12 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_OptionalWithAny_ResolvesToAnyType()
+    public void TranslateBoundGenericTypeToCSharp_OptionalWithAny_ResolvesToExistentialContainer0()
     {
         // Swift: Optional<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -67,11 +69,12 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
         Assert.Contains("SwiftOptional", result);
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_WithSingleProtocolExistential_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_WithSingleProtocolExistential_FallsBackToAnyType()
     {
         // Swift: Array<any Equatable>
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
@@ -86,7 +89,7 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_WithTwoProtocolExistential_ResolvesToExistentialContainer()
+    public void TranslateBoundGenericTypeToCSharp_WithTwoProtocolExistential_FallsBackToAnyType()
     {
         // Swift: Array<any Equatable & Hashable>
         var protocolList = new ProtocolListTypeSpec(new[]
@@ -109,7 +112,7 @@ public class BoundGenericsHandlerTests
     #region Nested Generic with Existential Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_NestedArrayOfDictionaryWithAny_ResolvesToAnyType()
+    public void TranslateBoundGenericTypeToCSharp_NestedArrayOfDictionaryWithAny_ResolvesToExistentialContainer0()
     {
         // Swift: Array<Dictionary<String, Any>>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -126,7 +129,8 @@ public class BoundGenericsHandlerTests
 
         Assert.Contains("SwiftArray", result);
         Assert.Contains("SwiftDictionary", result);
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     #endregion
@@ -683,7 +687,8 @@ public class BoundGenericsHandlerTests
 
         Assert.Contains("SwiftDictionary", result);
         Assert.Contains("long", result); // Int maps to long (keyword alias)
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     [Fact]
@@ -705,7 +710,7 @@ public class BoundGenericsHandlerTests
     #region Property Bound Generic Tests
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_Property_WithAny_ResolvesToAnyType()
+    public void TranslateBoundGenericTypeToCSharp_Property_WithAny_ResolvesToExistentialContainer0()
     {
         // Swift property: var items: Array<Any>
         var anyTypeSpec = new ProtocolListTypeSpec();
@@ -716,7 +721,8 @@ public class BoundGenericsHandlerTests
         var result = _handler.TranslateBoundGenericTypeToCSharp(propertyDecl);
 
         Assert.Contains("SwiftArray", result);
-        Assert.Contains("AnyType", result);
+        Assert.Contains("ExistentialContainer0", result);
+        Assert.DoesNotContain("AnyType", result);
     }
 
     [Fact]

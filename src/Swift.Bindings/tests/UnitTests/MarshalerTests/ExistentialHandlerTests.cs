@@ -84,6 +84,44 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region IsBareAny Tests
+
+    [Fact]
+    public void IsBareAny_EmptyProtocolList_ReturnsTrue()
+    {
+        // bare Any: 0 protocols
+        var protocolList = new ProtocolListTypeSpec();
+        Assert.True(_handler.IsBareAny(protocolList));
+    }
+
+    [Fact]
+    public void IsBareAny_PureMarkerProtocol_ReturnsFalse()
+    {
+        // 'any Sendable' has 1 raw protocol — not bare Any (semantically distinct from 'Any')
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
+        Assert.False(_handler.IsBareAny(protocolList));
+    }
+
+    [Fact]
+    public void IsBareAny_SingleProtocol_ReturnsFalse()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        Assert.False(_handler.IsBareAny(protocolList));
+    }
+
+    [Fact]
+    public void IsBareAny_MultipleProtocols_ReturnsFalse()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Equatable"),
+            new NamedTypeSpec("Swift.Hashable")
+        });
+        Assert.False(_handler.IsBareAny(protocolList));
+    }
+
+    #endregion
+
     #region GetProtocolListTypeSpec Tests
 
     [Fact]
