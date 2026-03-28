@@ -325,10 +325,16 @@ public static class MethodClosureBridge
             swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
         }
 
-        // For instance methods, unwrap self from the explicit pointer parameter
+        // For instance methods, unwrap self from the explicit pointer parameter.
+        // Classes use Unmanaged<T> (AnyObject reference); all value types (structs, enums)
+        // use assumingMemoryBound (pointer to value storage). Matches SelfReconstructionEmitter.
         if (isInstance)
         {
-            swiftWriter.WriteLine($"    let selfObj = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            bool isClassParent = parentDecl is ClassDecl;
+            if (isClassParent)
+                swiftWriter.WriteLine($"    let selfObj = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
+            else
+                swiftWriter.WriteLine($"    let selfObj = self_.assumingMemoryBound(to: {typeName}.self).pointee");
         }
 
         // Build original method call arguments in parameter order

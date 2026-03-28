@@ -1338,6 +1338,98 @@ public class MethodClosureBridgeTests
         Assert.Equal(MethodClosureBridge.ParamAbiCategory.PayloadHandle, category);
     }
 
+    // ─── Struct parent self-reconstruction ─────────────────────────────
+
+    [Fact]
+    public void TryEmit_StructParent_EmitsAssumingMemoryBoundForSelf()
+    {
+        // Struct parents must use assumingMemoryBound(to:).pointee for self-reconstruction,
+        // NOT Unmanaged<T> which requires AnyObject (class protocol).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclOnTypeDecl("process", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        Assert.Contains("assumingMemoryBound(to: TestModule.MyStruct.self).pointee", swift);
+        Assert.DoesNotContain("Unmanaged<TestModule.MyStruct>", swift);
+    }
+
+    [Fact]
+    public void TryEmit_ClassParent_EmitsUnmanagedForSelf()
+    {
+        // Class parents must still use Unmanaged<T> for self-reconstruction.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        Assert.Contains("Unmanaged<TestModule.MyClass>.fromOpaque(self_).takeUnretainedValue()", swift);
+        Assert.DoesNotContain("assumingMemoryBound(to: TestModule.MyClass.self).pointee", swift);
+    }
+
+    [Fact]
+    public void TryEmit_StructParent_StaticMethod_NoSelfReconstruction()
+    {
+        // Static methods on structs should not emit self-reconstruction at all.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclOnTypeDecl("process", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion");
+        method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("assumingMemoryBound", swift);
+        Assert.DoesNotContain("Unmanaged", swift);
+        Assert.DoesNotContain("self_", swift);
+    }
+
     // ─── Type/Declaration Factory Methods ─────────────────────────────
 
     private static TypeDatabase CreateTypeDatabase()
@@ -1854,5 +1946,57 @@ public class MethodClosureBridgeTests
         typeDatabase.AddModuleDatabase(testModule);
 
         return typeDatabase;
+    }
+
+    private static StructDecl CreateStructDecl(string name, ModuleDecl moduleDecl)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(structDecl);
+        return structDecl;
+    }
+
+    /// <summary>
+    /// Creates a method with a single closure parameter on any TypeDecl (class or struct).
+    /// </summary>
+    private static MethodDecl CreateMethodDeclOnTypeDecl(
+        string name, TypeDecl parentDecl, ModuleDecl moduleDecl,
+        TypeSpec returnType, ClosureTypeSpec closureType, string closureParamName)
+    {
+        var method = new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule{parentDecl.Name.Length}{parentDecl.Name}V{name.Length}{name}yF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, returnType, moduleDecl),
+                CreateArgument(closureParamName, closureType, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+        return method;
     }
 }

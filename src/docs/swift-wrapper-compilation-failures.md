@@ -1,6 +1,6 @@
 # Swift Wrapper Compilation Failures
 
-**Status**: 51/56 passing (5 failures)
+**Status**: 52/56 passing (4 failures)
 **Updated**: 2026-03-28
 **Target**: 56/56 (all passing)
 
@@ -50,13 +50,13 @@ The MCB fix resolved GRDB's redeclaration errors, but 2 EveryProtocol conformanc
 
 **Fix approach**: Detect protocols with unsatisfied hidden requirements and skip the conformance, or use swiftinterface parsing to discover the full requirement set.
 
-### Category 2: Internal Type References — Kingfisher
+### Category 2: MCB Struct Self-Reconstruction — Kingfisher (FIXED)
 
-**Errors**: 4252 errors referencing internal types (`ImageModifier`, `CacheSerializer`, `KingfisherParsedOptionsInfo`, etc.)
+**Errors**: 9 instances of `'Unmanaged' requires that 'X' be a class type`
 
-Kingfisher's internal types appear in the ABI JSON and the generator emits wrappers for them. The post-processor strips functions referencing internal types, but the volume is too large for the current stripping approach to handle — there are structural references (protocol conformances, extension blocks) that go beyond individual function bodies.
+The original diagnosis attributed this to "4252 internal type references." Investigation disproved this — Kingfisher has **zero** internal types (`internalTypeNames` is empty). The actual errors were 9 instances where `MethodClosureBridge.cs` used `Unmanaged<T>.fromOpaque(self_).takeUnretainedValue()` for struct parent types. `Unmanaged<T>` requires `T: AnyObject` (class protocol), so it fails at compile time for the 9 public structs that conform to protocols with closure-bearing methods.
 
-**Fix approach**: Needs deeper investigation — possibly skip entire types flagged as internal in the ABI JSON at the generator level, rather than relying on post-processor stripping.
+**Fix**: Added class/struct distinction in MCB self-reconstruction (line 331). Classes use `Unmanaged<T>`, structs use `self_.assumingMemoryBound(to: T.self).pointee` — matching the pattern in `SelfReconstructionEmitter.cs`.
 
 ### Category 3: Build Environment / Framework Issues — Quick, TinyConstraints, StripePaymentSheet
 
@@ -72,7 +72,7 @@ These failures are not generator bugs — they're caused by the libraries' build
 
 | Priority | Category | Libraries | Impact |
 |----------|----------|-----------|--------|
-| **P1** | Internal type volume | Kingfisher | Fixes 1 library |
+| ~~**P1**~~ | ~~MCB struct self-reconstruction~~ | ~~Kingfisher~~ | ~~FIXED~~ |
 | **P2** | EveryProtocol hidden requirements | GRDB | Fixes 1 library |
 | **P3** | Actor isolation | StripePaymentSheet | Partially helps (still blocked by missing module) |
 | **P3** | XCTest dependency | Quick | Infrastructure fix |

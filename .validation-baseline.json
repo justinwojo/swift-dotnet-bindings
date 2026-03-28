@@ -1,5 +1,5 @@
 {
-  "git_sha": "f9b37256",
+  "git_sha": "424e2a16",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -56,7 +56,7 @@
         "errors": 0,
         "lines": 52406,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
