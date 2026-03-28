@@ -1964,10 +1964,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalExistentialProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalExistentialProperty_ReturnsTrue()
     {
-        // Optional<protocol existential> still blocked — marshalling doesn't convert
-        // ExistentialContainer1 to protocol proxy
+        // Optional<protocol existential> now allowed — getter needs @_cdecl wrapper because
+        // Optional<ExistentialContainer> is too large for CallConvSwift register return.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1977,7 +1977,7 @@ public class PropertyWrapperEmitterTests
         optionalExistential.GenericParameters.Add(protocolList);
         var (propertyDecl, env) = CreatePropertyAndEnv("error", optionalExistential, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]

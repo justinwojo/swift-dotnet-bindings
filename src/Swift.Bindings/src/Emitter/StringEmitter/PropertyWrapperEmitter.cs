@@ -69,7 +69,14 @@ public static class PropertyWrapperEmitter
         //    for indirect results). The nested type name only appears in the function BODY
         //    (e.g., initializeMemory(as: Codec.Format.self)), which is valid Swift.
 
-        // 9. Skip unsupported generic container properties (Result<T,E>, Optional<existential>).
+        // 9a. Optional<protocol existential>: needs @_cdecl wrapper because
+        //     Optional<ExistentialContainer> is too large (40+ bytes on arm64) for register return
+        //     via CallConvSwift. Uses decomposed (resultPtr + hasValuePtr) getter pattern.
+        if (CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
+            WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
+            return true;
+
+        // 9. Skip unsupported generic container properties (Result<T,E>).
         //    Optional<value-type> allowed (IndirectResult). Array/Dictionary/Set allowed (UnsafeRawPointer transport).
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
@@ -330,10 +337,20 @@ public static class PropertyWrapperEmitter
             // for complex enum / non-frozen struct payloads.
             var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
             var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec);
+            // Protocol existential metatypes need "any" prefix and parentheses: (any Protocol).self.
+            // Inner may be ProtocolListTypeSpec (rendered with "any" by bypass emitter) or
+            // NamedTypeSpec for a protocol (needs "any" added manually).
+            bool isExistentialInner = innerSwiftType.StartsWith("any ") ||
+                innerSpec is ProtocolListTypeSpec ||
+                (env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerTR) &&
+                 (innerTR.Kind == TypeRecordKind.Protocol || innerTR.Kind == TypeRecordKind.Existential));
+            var innerMetatype = isExistentialInner
+                ? (innerSwiftType.StartsWith("any ") ? $"({innerSwiftType}).self" : $"(any {innerSwiftType}).self")
+                : $"{innerSwiftType}.self";
             swiftWriter.WriteLine($"let result = {propAccess}");
             swiftWriter.WriteLines($$"""
                 if let value = result {
-                    resultPtr.initializeMemory(as: {{innerSwiftType}}.self, repeating: value, count: 1)
+                    resultPtr.initializeMemory(as: {{innerMetatype}}, repeating: value, count: 1)
                     {{OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", true)}}
                 } else {
                     {{OptionalMarshalClassifier.SwiftWriteHasValue("hasValuePtr", false)}}

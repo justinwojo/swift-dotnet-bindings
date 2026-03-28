@@ -420,6 +420,13 @@ namespace BindingsGeneration
                 });
                 if (projection is OptionalProjection optProj)
                 {
+                    // Existential inner: use the public type (IProtocol?) not the container (ExistentialContainer1?)
+                    // because the method body wraps the container in a proxy before returning.
+                    if (optProj.InnerProjection is ExistentialProjection)
+                    {
+                        SetReturnType($"{optProj.InnerProjection.PublicType}?");
+                        return;
+                    }
                     // Use the inner type's MarshalFromSwift type as nullable
                     SetReturnType($"{optProj.InnerProjection.MarshalFromSwiftType}?");
                     return;

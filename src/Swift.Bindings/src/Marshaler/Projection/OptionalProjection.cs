@@ -280,15 +280,15 @@ public class OptionalProjection : ITypeProjection
                     SetupStatements = new List<MarshalStatement>
                     {
                         new MarshalStatement.Line(
-                            $"var _optVal = {tagExpr} == 0 ? ({innerType}?){valueExpr} : null;")
+                            $"var _optVal = {tagExpr} == 0 ? ({innerType}?){valueExpr} : default;")
                     },
-                    PInvokeExpression = $"_optVal is {{ }} rawVal ? {innerRetConvBlittable} : null",
+                    PInvokeExpression = $"_optVal is {{ }} rawVal ? {innerRetConvBlittable} : default",
                     RequiresUnsafe = true
                 };
             }
             return new MarshalPlan
             {
-                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : null)",
+                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : default)",
                 RequiresUnsafe = true
             };
         }
@@ -309,7 +309,7 @@ public class OptionalProjection : ITypeProjection
             var valueExpr = $"Unsafe.ReadUnaligned<{innerType}>(ref *(byte*){resultName})";
             return new MarshalPlan
             {
-                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : null)",
+                PInvokeExpression = $"({tagExpr} == 0 ? ({innerType}?){valueExpr} : default)",
                 RequiresUnsafe = true
             };
         }
@@ -465,7 +465,7 @@ public class OptionalProjection : ITypeProjection
         {
             // Inner needs conversion: e.g., SwiftOptional<SwiftString> → string?
             // ToNullable() gives SwiftString?, then convert the inner value.
-            return $"({elementVar}.ToNullable() is {{ }} {innerVar} ? ({_innerProjection.PublicType}?){innerConv} : null)";
+            return $"({elementVar}.ToNullable() is {{ }} {innerVar} ? ({_innerProjection.PublicType}?){innerConv} : default)";
         }
         // Simple inner: SwiftOptional<T> → T?
         return $"{elementVar}.ToNullable()";

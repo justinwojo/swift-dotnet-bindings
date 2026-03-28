@@ -151,6 +151,10 @@ namespace BindingsGeneration
             if (env.ExistentialHandler.IsExistential(returnTypeForCdecl.SwiftTypeSpec))
                 return true;
 
+            // Optional<existential> returns: too large (40+ bytes) for register return.
+            if (env.ExistentialHandler.IsOptionalExistential(returnTypeForCdecl.SwiftTypeSpec))
+                return true;
+
             // Optional<value-type>: @_cdecl can't return generics directly.
             // Exception: Optional<ObjC-bridgeable container> (e.g., [URL]?) returns as nullable ObjC pointer.
             if (MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
@@ -232,6 +236,12 @@ namespace BindingsGeneration
             if (env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec))
                 return false;
 
+            // Optional<existential> return types: too large for register return via CallConvSwift.
+            // When the @_cdecl path didn't catch this (e.g., flag timing), force indirect result.
+            if (env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) &&
+                (env.MethodDecl.UsesCdeclPropertyWrapper || env.MethodDecl.UsesCdeclMethodWrapper))
+                return true;
+
             // Non-generic tuple return types are handled by TupleHandler, not via indirect result.
             // Tuples with generic type parameter elements require indirect result (sret).
             if (returnType.SwiftTypeSpec is TupleTypeSpec tupleSpec && !tupleSpec.IsEmptyTuple)
@@ -245,10 +255,17 @@ namespace BindingsGeneration
                 env.BoundGenericsHandler.IsBoundGeneric(returnType) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType))
             {
-                // @_cdecl Optional<value-type>: force IndirectResult instead of IntPtr marshalling.
+                // @_cdecl Optional<value-type> or Optional<existential>: force IndirectResult.
                 if (isCdeclNonSetter &&
                     MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
                     !CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, env.TypeDatabase))
+                {
+                    return true;
+                }
+                // Optional<existential> without @_cdecl flag (e.g., property accessor where
+                // UsesCdeclPropertyWrapper isn't visible yet): check existential type directly.
+                if (env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) ||
+                    CdeclParamMapper.IsProtocolExistentialType(returnType.SwiftTypeSpec, env.TypeDatabase))
                 {
                     return true;
                 }

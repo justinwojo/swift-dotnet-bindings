@@ -713,12 +713,10 @@ public class EveryProtocolEmitterTests
 
         var output = EmitProtocolExtension(protocolDecl);
 
-        // Property type should NOT have @escaping (invalid on property declarations)
-        Assert.DoesNotContain("@escaping", output);
-        // Should have the optional closure type
+        // Optional closure properties get fatalError() stubs (can't dispatch through vtable)
         Assert.Contains("public var onDismiss:", output);
-        // Metatype should use Optional<...> syntax for .self access
-        Assert.Contains("Optional<", output);
+        Assert.Contains("fatalError", output);
+        Assert.Contains("closure property 'onDismiss' cannot be dispatched", output);
     }
 
     [Fact]
@@ -1988,6 +1986,259 @@ public class EveryProtocolEmitterTests
         var writer = new SwiftWriter(output);
         _emitter.EmitProtocolConformance(writer, protocol);
         return output.ToString();
+    }
+
+    #endregion
+
+    #region Closure Method Stub Tests
+
+    [Fact]
+    public void EmitProtocolExtension_ClosureMethod_EmitsFatalErrorStub()
+    {
+        var protocol = CreateSimpleProtocol("EventDelegate");
+        // Non-closure method: should have vtable dispatch
+        protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
+        // Closure method: should get fatalError() stub
+        protocol.Methods.Add(CreateMethodWithClosureParam("onComplete", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Closure method gets fatalError stub with exactly one @escaping
+        Assert.Contains("public func onComplete(", output);
+        Assert.Contains("@escaping", output);
+        Assert.DoesNotContain("@escaping @escaping", output);
+        Assert.Contains("fatalError", output);
+        Assert.Contains("closure method 'onComplete' cannot be dispatched", output);
+        // Non-closure method gets real vtable dispatch
+        Assert.Contains("public func didReceiveEvent(", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_ClosureMethod_SkipsVtableField()
+    {
+        var protocol = CreateSimpleProtocol("EventDelegate");
+        protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
+        protocol.Methods.Add(CreateMethodWithClosureParam("onComplete", "handler"));
+
+        var output = EmitVtableStruct(protocol);
+
+        // Non-closure method gets vtable field
+        Assert.Contains("func_didReceiveEvent_0", output);
+        // Closure method does NOT get vtable field
+        Assert.DoesNotContain("func_onComplete_1", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_ProtocolWithClosureAndNonClosure_EmitsConformance()
+    {
+        var protocol = CreateSimpleProtocol("EventDelegate");
+        protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
+        protocol.Methods.Add(CreateMethodWithClosureParam("onComplete", "handler"));
+
+        var output = EmitFullConformance(protocol);
+
+        // Conformance IS emitted (not skipped entirely)
+        Assert.Contains("extension EveryProtocol: TestModule.EventDelegate", output);
+        // Witness table getter IS emitted
+        Assert.Contains("Get_EveryProtocol_EventDelegate_WitnessTable", output);
+    }
+
+    private static MethodDecl CreateMethodWithClosureParam(string name, string paramLabel)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (void)
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                // Closure parameter
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = CreateEscapingClosure(),
+                    PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_OptionalClosureParam_NoEscapingAnnotation()
+    {
+        var protocol = CreateSimpleProtocol("Notifier");
+        protocol.Methods.Add(CreateMethodWithOptionalClosureParam("notify", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Optional closures are always escaping in Swift — @escaping on Optional<Closure> is invalid syntax
+        Assert.Contains("public func notify(", output);
+        Assert.Contains("fatalError", output);
+        Assert.DoesNotContain("@escaping", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_AsyncClosureMethod_IncludesAsync()
+    {
+        var protocol = CreateSimpleProtocol("AsyncDelegate");
+        protocol.Methods.Add(CreateAsyncMethodWithClosureParam("onComplete", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("public func onComplete(", output);
+        Assert.Contains(" async", output);
+        Assert.Contains("fatalError", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_GenericClosureMethod_IncludesGenericClause()
+    {
+        var protocol = CreateSimpleProtocol("GenericDelegate");
+        protocol.Methods.Add(CreateGenericMethodWithClosureParam("transform", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("public func transform<_G0>(", output);
+        Assert.Contains("fatalError", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_AsyncGenericMethod_IncludesAsync()
+    {
+        // Non-closure method with method-level generics + async — tests EmitMethodLevelGenericStub
+        var protocol = CreateSimpleProtocol("AsyncResolver");
+        var method = CreateMethodWithMethodLevelGeneric("resolve");
+        method.IsAsync = true;
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains(" async", output);
+        Assert.Contains("_G0", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_ClosureMethodWithMetatype_RewritesGenericParam()
+    {
+        // Closure method with a generic metatype param: func register<T>(_ type: T.Type, handler: () -> T)
+        // Tests that the closure stub's RenderTypeSpec rewrites τ_1_0.Type → _G0.Type
+        var protocol = CreateSimpleProtocol("Registry");
+        var method = CreateMethodWithClosureParam("register", "handler");
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_1_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Add a metatype parameter before the closure
+        method.CSSignature.Insert(1, new ArgumentDecl
+        {
+            Name = "type",
+            SwiftTypeSpec = new NamedTypeSpec("τ_1_0.Type"),
+            PrivateName = "type",
+            IsInOut = false,
+            IsGeneric = true,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Should rewrite τ_1_0.Type → _G0.Type
+        Assert.Contains("_G0.Type", output);
+        Assert.DoesNotContain("τ_1_0", output);
+    }
+
+    private static MethodDecl CreateMethodWithOptionalClosureParam(string name, string paramLabel)
+    {
+        var closureSpec = CreateEscapingClosure();
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", closureSpec);
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = optionalSpec,
+                    PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateAsyncMethodWithClosureParam(string name, string paramLabel)
+    {
+        var method = CreateMethodWithClosureParam(name, paramLabel);
+        method.IsAsync = true;
+        return method;
+    }
+
+    private static MethodDecl CreateGenericMethodWithClosureParam(string name, string paramLabel)
+    {
+        var method = CreateMethodWithClosureParam(name, paramLabel);
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_1_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        return method;
+    }
+
+    private static ClosureTypeSpec CreateEscapingClosure()
+    {
+        var closure = new ClosureTypeSpec
+        {
+            Arguments = TupleTypeSpec.Empty,
+            ReturnType = TupleTypeSpec.Empty
+        };
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return closure;
     }
 
     #endregion

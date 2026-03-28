@@ -114,6 +114,35 @@ public class OptionalMarshalStrategyTests
     }
 
     [Fact]
+    public void Classify_OptionalProtocolExistential_ReturnsDecomposedBuffers()
+    {
+        var (_, typeDb) = CreateTestEnvironment();
+
+        // Optional<any Renderable> — ProtocolListTypeSpec inner
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Renderable") });
+        var optSpec = new NamedTypeSpec("Swift.Optional");
+        optSpec.GenericParameters.Add(protocolList);
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.DecomposedBuffers, result);
+    }
+
+    [Fact]
+    public void Classify_OptionalProtocolByName_ReturnsDecomposedBuffers()
+    {
+        // Optional<Protocol> where inner is NamedTypeSpec with Protocol TypeRecord
+        var (_, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            ("TestModule.Renderable", TypeRecordFlags.None, TypeRecordKind.Protocol));
+
+        var optSpec = MakeOptional("TestModule.Renderable");
+
+        var result = OptionalMarshalClassifier.Classify(optSpec, typeDb);
+
+        Assert.Equal(OptionalMarshalStrategy.DecomposedBuffers, result);
+    }
+
+    [Fact]
     public void Classify_OptionalSimpleEnum_IsNotDecomposed()
     {
         // Simple enums (RawRepresentable) are NOT decomposed — they use blittable fast path or large opt.

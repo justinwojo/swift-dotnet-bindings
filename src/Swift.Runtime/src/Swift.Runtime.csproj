@@ -22,6 +22,7 @@
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;dotnet;ios;macos</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <!-- Minimum OS versions -->
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('ios'))">15.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('maccatalyst'))">15.0</SupportedOSPlatformVersion>
@@ -131,6 +132,7 @@
     <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
     <None Include="../../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

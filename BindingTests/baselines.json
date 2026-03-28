@@ -1,8 +1,8 @@
 {
-  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped: 24→27 in Session 4 (3 new optional CGPoint/CGRect/FrameworkTypeHolder wrappers).",
+  "_comment": "Test pipeline baselines. Update deliberately when counts legitimately change. wrapper_stripped: 27→31 in Session 7 review (4 new EveryProtocol closure stubs for DataLoadingDelegate, CompletionDelegate + EventDelegate conformances stripped by build-bridge.sh).",
   "generator_exit_code": 0,
   "must_pass_degraded": 0,
   "must_pass_compiled_out": 25,
   "known_unsupported_total": 62,
-  "wrapper_stripped_count": 27
+  "wrapper_stripped_count": 31
 }

@@ -16,13 +16,6 @@ namespace RuntimeTestsApp.Protocols;
 /// </summary>
 public class OptionalExistentialPropertyTests : TestBase
 {
-    // BUG: Primary getter crashes on Mono simulator because the P/Invoke returns IntPtr
-    // but the Swift getter returns Optional<ExistentialContainer1> (40 bytes on arm64).
-    // This is a non-blittable return via CallConvSwift — our bug in the emitter.
-    // The getter should either use a @_cdecl wrapper or return the correct struct type.
-    private const string GetterSkipReason =
-        "Optional existential getter returns 40-byte Optional<ExistentialContainer1> as IntPtr via CallConvSwift — non-blittable return crash";
-
     public OptionalExistentialPropertyTests(TestResults results) : base(results) { }
 
     #region Factory Functions (Tier 1 — no optional existential property access needed)
@@ -97,7 +90,6 @@ public class OptionalExistentialPropertyTests : TestBase
 
     #region Primary Property Getter (Tier 2 — optional existential property access)
 
-    [Skip(GetterSkipReason)]
     public void TestPrimaryGetterReturnsNonNull()
     {
         var holder = TestLibFunctions.MakeRenderableHolder("getter-test");
@@ -106,7 +98,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"holder.Primary != null: {primary != null}");
     }
 
-    [Skip(GetterSkipReason)]
     public void TestPrimaryGetterReturnsNullForEmpty()
     {
         var holder = TestLibFunctions.MakeEmptyRenderableHolder();
@@ -115,7 +106,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"Empty holder.Primary == null: {primary == null}");
     }
 
-    [Skip(GetterSkipReason)]
     public void TestPrimaryGetterRenderRoundTrip()
     {
         var holder = TestLibFunctions.MakeRenderableHolder("round-trip");
@@ -126,7 +116,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"holder.Primary.Render() = \"{rendered}\"");
     }
 
-    [Skip(GetterSkipReason)]
     public void TestDefaultConstructorPrimaryIsNull()
     {
         var holder = new RenderableHolder();
@@ -160,7 +149,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"After Primary setter: GetPrimaryDescription() = \"{after}\"");
     }
 
-    [Skip(GetterSkipReason)]
     public void TestPrimarySetterThenGetterRoundTrip()
     {
         var holder = new RenderableHolder();

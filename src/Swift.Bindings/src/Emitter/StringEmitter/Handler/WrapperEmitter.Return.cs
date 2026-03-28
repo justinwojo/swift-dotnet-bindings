@@ -205,6 +205,33 @@ namespace BindingsGeneration
                     if (projection is OptionalProjection optProj)
                     {
                         var innerType = optProj.InnerProjection.MarshalFromSwiftType;
+
+                        // Optional<existential>: read ExistentialContainer from buffer, wrap in proxy.
+                        // ExistentialContainer1 is a C# struct — MarshalFromSwift reads it, then
+                        // we wrap it in the protocol proxy class for the interface return type.
+                        if (optProj.InnerProjection is ExistentialProjection existentialProj)
+                        {
+                            var containerType = existentialProj.PInvokeType;
+                            var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec);
+                            string proxyCtorExpr;
+                            if (innerProtocolList != null && _env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
+                                proxyCtorExpr = $"new {wkType}(_container)";
+                            else if (innerProtocolList != null)
+                                proxyCtorExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList)}(_container)";
+                            else
+                                proxyCtorExpr = "_container"; // fallback — no proxy available
+
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                    {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
+                                    var _container = SwiftMarshal.MarshalFromSwift<{{containerType}}>(resultPtr);
+                                    return {{proxyCtorExpr}};
+                                }
+                                """);
+                            return;
+                        }
+
                         csWriter.WriteLines($$"""
                             unsafe {
                                 {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}

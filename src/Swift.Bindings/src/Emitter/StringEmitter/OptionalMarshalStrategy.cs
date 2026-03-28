@@ -90,6 +90,12 @@ public static class OptionalMarshalClassifier
         if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return OptionalMarshalStrategy.NullablePointer;
 
+        // 1b. Optional<protocol existential>: decomposed (resultPtr + hasValuePtr).
+        //     ExistentialContainer is too large for register return and doesn't have a TypeRecord,
+        //     so VWT-based GetEnumTag/DestructiveInjectEnumTag won't work. Decompose instead.
+        if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, typeDatabase))
+            return OptionalMarshalStrategy.DecomposedBuffers;
+
         // 2. DecomposedBuffers: complex enum or non-frozen struct with opaque SafeHandle payload.
         //    Must be checked before LargeOptionalPointer because decomposed types are also "large"
         //    but need the decomposed (payload, hasValue) pattern instead of the pointer-buffer path.
@@ -246,7 +252,11 @@ public static class OptionalMarshalClassifier
     /// <param name="innerSwiftType">The fully-qualified Swift inner type name.</param>
     /// <param name="resultVar">The Swift variable name for the reconstructed Optional.</param>
     public static string SwiftReconstructOptional(string hasValueVar, string payloadVar, string innerSwiftType, string resultVar)
-        => $"let {resultVar}: {innerSwiftType}? = {hasValueVar} != 0 ? {payloadVar}.assumingMemoryBound(to: {innerSwiftType}.self).pointee : nil";
+    {
+        // Protocol existential metatypes need parentheses: (any Protocol).self, not any Protocol.self
+        var metatype = innerSwiftType.StartsWith("any ") ? $"({innerSwiftType}).self" : $"{innerSwiftType}.self";
+        return $"let {resultVar}: {innerSwiftType}? = {hasValueVar} != 0 ? {payloadVar}.assumingMemoryBound(to: {metatype}).pointee : nil";
+    }
 
     /// <summary>
     /// Returns the C# code to read a hasValue byte from a pointer buffer.

@@ -7,6 +7,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>swift;dotnet;bindings;interop;ios;msbuild-sdk</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageType>MSBuildSdk</PackageType>
     <TargetFramework>netstandard2.0</TargetFramework>
 
@@ -29,5 +30,6 @@
   <ItemGroup>
     <None Include="tools/**/*" Pack="true" PackagePath="tools/" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

@@ -481,18 +481,43 @@ internal class MethodMarshalPlanBuilder
                         OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
-                        var innerProjection = s_projectionFactory.Project(innerSpec,
-                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
-                        var innerTypeName = innerProjection?.MarshalFromSwiftType ?? allocTypeName;
-                        allocCode = $$"""
-                            var innerMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
-                            var _bufSize = Math.Max((nuint)innerMetadata.Size + 1, 16);
-                            _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
-                            var resultPtr = (IntPtr)_cdeclBuf;
-                            var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + innerMetadata.Size);
-                            """;
+                        // Protocol existential inner types: ExistentialContainer1 is a C# interop struct
+                        // without Swift type metadata. Use Unsafe.SizeOf instead of TypeMetadata.
+                        bool isExistentialInner = innerSpec is ProtocolListTypeSpec ||
+                            (_env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerRecord) &&
+                             (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential));
+                        if (isExistentialInner)
+                        {
+                            // Use the projected container type (ExistentialContainer1, ExistentialContainer2, etc.)
+                            // to get the correct size for protocol compositions.
+                            var innerProjection = s_projectionFactory.Project(innerSpec,
+                                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                                    GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                            var containerTypeName = (innerProjection as ExistentialProjection)?.PInvokeType ?? "ExistentialContainer1";
+                            allocCode = $$"""
+                                var _innerSize = (nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{containerTypeName}}>();
+                                var _bufSize = Math.Max(_innerSize + 1, 16);
+                                _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
+                                var resultPtr = (IntPtr)_cdeclBuf;
+                                var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + (int)_innerSize);
+                                """;
+                        }
+                        else
+                        {
+                            var innerProjection = s_projectionFactory.Project(innerSpec,
+                                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                                    GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                            var innerTypeName = innerProjection?.MarshalFromSwiftType ?? allocTypeName;
+                            allocCode = $$"""
+                                var innerMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
+                                var _bufSize = Math.Max((nuint)innerMetadata.Size + 1, 16);
+                                _cdeclBuf = NativeMemory.AllocZeroed(_bufSize);
+                                var resultPtr = (IntPtr)_cdeclBuf;
+                                var hasValuePtr = (IntPtr)((byte*)_cdeclBuf + innerMetadata.Size);
+                                """;
+                        }
                     }
                     // For Optional returns, ensure the buffer is large enough for the tag byte.
                     // VWT metadata.Size may return incorrect values for Optional<Int32> on some

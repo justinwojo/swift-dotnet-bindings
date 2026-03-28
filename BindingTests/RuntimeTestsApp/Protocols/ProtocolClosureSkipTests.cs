@@ -49,17 +49,6 @@ internal class TestEventDelegate : IEventDelegate
 /// </summary>
 public class ProtocolClosureSkipTests : TestBase
 {
-    // FINDING: EventDelegateProxy(IEventDelegate) requires the EveryProtocol conformance
-    // witness table for EventDelegate. The Swift wrapper's `EveryProtocol: EventDelegate`
-    // conformance includes the closure method `onComplete(handler:)`, which fails compilation
-    // in the wrapper and gets stripped. As a result, Get_EveryProtocol_EventDelegate_WitnessTable
-    // doesn't exist in the binary and all C#-to-Swift proxy wrapping for EventDelegate fails.
-    //
-    // To fix: the EveryProtocol conformance emitter would need to stub out the closure method
-    // (e.g., fatalError()) so the conformance compiles even though the method isn't callable.
-    private const string ProxySkipReason =
-        "EveryProtocol: EventDelegate conformance stripped — closure method onComplete causes wrapper compilation failure";
-
     public ProtocolClosureSkipTests(TestResults results) : base(results) { }
 
     #region EventRouter Construction (Tier 1)
@@ -95,11 +84,14 @@ public class ProtocolClosureSkipTests : TestBase
 
     #region C# Implementation via EventDelegateProxy (Tier 2)
 
-    // See ProxySkipReason constant for details on why these tests are skipped.
-    // The EventRouter.Delegate getter also crashes (Optional<ExistentialContainer1>
-    // returned as IntPtr via CallConvSwift), so we can't test Swift-backed proxy either.
+    // EveryProtocol closure stub fix: closure methods get fatalError() stubs in the
+    // EveryProtocol conformance. The conformance compiles correctly in isolation,
+    // but the build-bridge.sh strip/retry mechanism strips it along with other
+    // failing wrapper functions. Needs investigation of the strip script's granularity.
+    private const string StripReason =
+        "EveryProtocol: EventDelegate witness table stripped by build-bridge.sh strip/retry — conformance compiles but gets caught in aggressive stripping";
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestCSharpImplProxyConstruction()
     {
         var impl = new TestEventDelegate("TestProxy", _ => true);
@@ -108,7 +100,7 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info("EventDelegateProxy(IEventDelegate) construction passed");
     }
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestCSharpImplDelegateName()
     {
         var impl = new TestEventDelegate("MyDelegate", _ => true);
@@ -118,7 +110,7 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"Proxy.DelegateName = \"{name}\"");
     }
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestCSharpImplDidReceiveEventTrue()
     {
         var impl = new TestEventDelegate("Handler", name => name == "click");
@@ -128,7 +120,7 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"Proxy.DidReceiveEvent(\"click\") = {result}");
     }
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestCSharpImplDidReceiveEventFalse()
     {
         var impl = new TestEventDelegate("Handler", name => name == "click");
@@ -139,7 +131,7 @@ public class ProtocolClosureSkipTests : TestBase
     }
 
 #pragma warning disable CS0618, SB0003 // Obsolete + SB0003 — testing that it throws
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestCSharpImplOnCompleteThrowsNotSupported()
     {
         var impl = new TestEventDelegate("Handler", _ => true);
@@ -158,7 +150,7 @@ public class ProtocolClosureSkipTests : TestBase
     }
 #pragma warning restore CS0618, SB0003
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestSetCSharpImplOnRouterAndRouteEvent()
     {
         var receivedEvents = new List<string>();
@@ -177,7 +169,7 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"RouteEvent(\"tap\") through C# delegate = {result}");
     }
 
-    [Skip(ProxySkipReason)]
+    [Skip(StripReason)]
     public void TestSetCSharpImplOnRouterGetDelegateName()
     {
         var impl = new TestEventDelegate("CustomDelegate", _ => false);
@@ -189,6 +181,54 @@ public class ProtocolClosureSkipTests : TestBase
         var name = router.GetDelegateName();
         AssertEqual("CustomDelegate", name, "GetDelegateName through C# impl");
         TestLogger.Info($"GetDelegateName() through C# delegate = \"{name}\"");
+    }
+
+    #endregion
+
+    #region DataLoadingDelegate — Multi-Arg Closure Tuple Unwrapping (Tier 1)
+
+    // These tests verify that protocols with multi-argument closure methods compile
+    // correctly. The EveryProtocol closure stub must render `(String, Int32, Bool) -> Void`
+    // NOT `((String, Int32, Bool)) -> Void` (tuple-wrapped). If the stub has wrong syntax,
+    // the Swift wrapper won't compile and DataLoader won't exist as a type.
+
+    public void TestDataLoaderConstruction()
+    {
+        var loader = new DataLoader();
+        AssertNotNull(loader, "DataLoader constructed (multi-arg closure protocol compiles)");
+        TestLogger.Info("DataLoader construction passed — multi-arg closure stub compiled correctly");
+    }
+
+    public void TestDataLoaderGetSourceIdWithNilDelegate()
+    {
+        var loader = new DataLoader();
+        var sourceId = loader.GetSourceId();
+        AssertEqual("unknown", sourceId, "GetSourceId with nil delegate");
+        TestLogger.Info($"GetSourceId() with nil delegate = \"{sourceId}\"");
+    }
+
+    #endregion
+
+    #region CompletionDelegate — Optional Closure @escaping Suppression (Tier 1)
+
+    // These tests verify that protocols with optional closure parameters compile
+    // correctly. The EveryProtocol closure stub must NOT emit `@escaping` on
+    // `Optional<Closure>` — optional closures are always escaping in Swift.
+    // If @escaping is emitted, Swift rejects it as invalid syntax.
+
+    public void TestTaskRunnerConstruction()
+    {
+        var runner = new TaskRunner();
+        AssertNotNull(runner, "TaskRunner constructed (optional closure protocol compiles)");
+        TestLogger.Info("TaskRunner construction passed — optional closure stub compiled correctly");
+    }
+
+    public void TestTaskRunnerGetTaskNameWithNilDelegate()
+    {
+        var runner = new TaskRunner();
+        var name = runner.GetTaskName();
+        AssertEqual("idle", name, "GetTaskName with nil delegate");
+        TestLogger.Info($"GetTaskName() with nil delegate = \"{name}\"");
     }
 
     #endregion

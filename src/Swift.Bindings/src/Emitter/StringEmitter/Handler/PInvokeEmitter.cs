@@ -156,20 +156,29 @@ namespace BindingsGeneration
             }
 
             // Handle Optional-wrapped existential return types like (any DataCaching)?
-            // For P/Invoke, these use IntPtr since they require indirect marshalling
             if (_env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec))
             {
                 var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnType.SwiftTypeSpec)!;
                 if (_env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
                 {
-                    // Optional existentials are passed by pointer/indirect result
-                    SetReturnType("IntPtr");
+                    if (_env.MethodDecl.UsesCdeclWrapper)
+                    {
+                        // @_cdecl: fall through to indirect result path — Optional<ExistentialContainer>
+                        // is too large for register return. Uses decomposed (resultPtr + hasValuePtr).
+                    }
+                    else
+                    {
+                        // Non-cdecl: use IntPtr (legacy CallConvSwift path)
+                        SetReturnType("IntPtr");
+                        return;
+                    }
                 }
                 else
                 {
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                    return;
                 }
-                return;
+                // @_cdecl supported: fall through to MethodRequiresIndirectResult
             }
 
             // String @_cdecl property wrappers use indirect result (resultPtr) because
@@ -185,7 +194,22 @@ namespace BindingsGeneration
                 return;
             }
 
-            if (MarshallingHelpers.MethodRequiresIndirectResult(_env))
+            // Optional<existential> property getters: force indirect result. The return type is
+            // Optional<ExistentialContainer> which is too large for register return. The @_cdecl
+            // wrapper writes to resultPtr + hasValuePtr, so force the void+resultPtr+hasValuePtr path.
+
+            bool forceIndirectForOptionalExistential = false;
+            if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                !_env.MethodDecl.IsSubscriptAccessor &&
+                returnType.SwiftTypeSpec != null)
+            {
+                forceIndirectForOptionalExistential =
+                    _env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) ||
+                    CdeclParamMapper.IsProtocolExistentialType(returnType.SwiftTypeSpec, _env.TypeDatabase);
+            }
+
+
+            if (forceIndirectForOptionalExistential || MarshallingHelpers.MethodRequiresIndirectResult(_env))
             {
                 if (_env.MethodDecl.UsesCdeclWrapper)
                 {
@@ -200,7 +224,7 @@ namespace BindingsGeneration
                     // The Swift wrapper writes the inner payload to resultPtr and the hasValue flag to hasValuePtr.
                     if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
                         !_env.MethodDecl.IsSubscriptAccessor &&
-                        OptionalMarshalClassifier.IsDecomposed(returnType.SwiftTypeSpec, _env.TypeDatabase))
+                        returnType.SwiftTypeSpec != null && OptionalMarshalClassifier.IsDecomposed(returnType.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         AddParameter("IntPtr", "hasValuePtr");
                     }
@@ -213,7 +237,7 @@ namespace BindingsGeneration
                 return;
             }
 
-            TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec);
+            TypeRecord returnTypeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(returnType.SwiftTypeSpec!);
 
             // ObjC bridged types return IntPtr in P/Invoke, then wrapped with GetNSObject<T>
             if (MarshallingHelpers.IsObjCBridged(returnTypeRecord))

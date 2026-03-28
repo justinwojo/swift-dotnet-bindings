@@ -204,10 +204,13 @@ public class EveryProtocolEmitter
         // Track emitted fields to avoid duplicates
         var emittedFields = new HashSet<string>();
 
-        // Property getters and setters (skip static and @objc optional properties)
+        // Property getters and setters (skip static, @objc optional, and closure properties)
         foreach (var property in protocolDecl.Properties)
         {
             if (property.IsStatic || property.IsObjCOptional)
+                continue;
+            // Skip vtable fields for closure properties — they get fatalError() stubs
+            if (HasClosureInPropertyType(property))
                 continue;
             EmitPropertyVtableFields(writer, property, protocolDecl, emittedFields);
         }
@@ -238,6 +241,10 @@ public class EveryProtocolEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Skip vtable fields for closure methods — they get fatalError() stubs,
+                // not vtable dispatch, so the field would be dead code.
+                if (HasClosureInMethodSignature(method))
+                    continue;
                 // Only emit vtable field for new methods (not duplicates)
                 EmitMethodVtableField(writer, method, protocolDecl, idx, emittedFields);
             }
@@ -306,7 +313,12 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add($"property:{property.Name}"))
             {
-                EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName);
+                // Closure properties get fatalError() stubs — closure types can't be
+                // dispatched through the @convention(c) vtable.
+                if (HasClosureInPropertyType(property))
+                    EmitClosurePropertyStub(writer, property);
+                else
+                    EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName);
             }
         }
 
@@ -378,10 +390,17 @@ public class EveryProtocolEmitter
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
+                // Methods with closure params/return get fatalError() stubs.
+                // The closure types can't be dispatched through the @convention(c) vtable.
+                // The C# proxy already throws NotSupportedException for these methods.
+                if (HasClosureInMethodSignature(method))
+                {
+                    EmitClosureMethodStub(writer, method);
+                }
                 // Methods with only method-level generics (τ_1_0+, no Self τ_0_*) get stub
                 // implementations. EveryProtocol satisfies the protocol requirement, but can't
                 // dispatch through the vtable (C# can't handle method-level generic dispatch).
-                if (HasOnlyMethodLevelGenerics(method))
+                else if (HasOnlyMethodLevelGenerics(method))
                 {
                     EmitMethodLevelGenericStub(writer, method);
                 }
@@ -939,6 +958,31 @@ public class EveryProtocolEmitter
         writer.WriteLine($"var {fieldName}: {funcType}");
     }
 
+    /// <summary>
+    /// Emits a fatalError() stub for a protocol property that has a closure type.
+    /// Satisfies the protocol conformance requirement without vtable dispatch.
+    /// </summary>
+    private void EmitClosurePropertyStub(SwiftWriter writer, PropertyDecl property)
+    {
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+
+        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.Indent++;
+        if (hasGetter)
+        {
+            writer.WriteLine($"get {{ fatalError(\"EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+        }
+        if (hasSetter)
+        {
+            writer.WriteLine($"set {{ fatalError(\"EveryProtocol: closure property '{property.Name}' cannot be dispatched through vtable\") }}");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
     private void EmitPropertyImplementation(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string vtableInstanceName)
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
@@ -1062,6 +1106,155 @@ public class EveryProtocolEmitter
     /// protocol conformance without vtable dispatch (C# can't handle method-level generics).
     /// Uses the raw TypeSpec to preserve generic param references (GetSwiftTypeName resolves them to Any).
     /// </summary>
+    /// <summary>
+    /// Emits a fatalError() stub for a protocol method that has closure parameters/return.
+    /// The method signature is correct (satisfying the protocol conformance), but the body
+    /// crashes if called. The C# proxy already throws NotSupportedException for closure methods,
+    /// so the fatalError() is a safety net only.
+    /// </summary>
+    private void EmitClosureMethodStub(SwiftWriter writer, MethodDecl method)
+    {
+        // Build generic param name mapping for method-level generics (τ_1_0 → _G0, etc.)
+        // Closure methods can also have method-level generics — we need both in the stub.
+        var genericNameMap = new Dictionary<string, string>();
+        int genericIdx = 0;
+        foreach (var gp in method.GenericParameters)
+        {
+            if (gp.TypeName?.StartsWith("τ_0_") == true)
+                continue; // Skip depth-0 (Self)
+            var safeName = $"_G{genericIdx++}";
+            if (gp.TypeName != null) genericNameMap[gp.TypeName] = safeName;
+        }
+
+        // Build generic clause with constraints (e.g., <_G0: Decodable>)
+        var genericParts = new List<string>();
+        foreach (var gp in method.GenericParameters)
+        {
+            if (gp.TypeName?.StartsWith("τ_0_") == true) continue;
+            if (!genericNameMap.TryGetValue(gp.TypeName ?? "", out var safeName)) continue;
+            if (gp.GenericConformances.Count > 0)
+            {
+                var constraints = string.Join(" & ", gp.GenericConformances
+                    .Select(c => c.ConformanceTarget.Name));
+                genericParts.Add($"{safeName}: {constraints}");
+            }
+            else
+            {
+                genericParts.Add(safeName);
+            }
+        }
+        var genericClause = genericParts.Count > 0
+            ? $"<{string.Join(", ", genericParts)}>"
+            : "";
+
+        // Render TypeSpec, substituting generic param names.
+        // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift,
+        // so @escaping on Optional<Closure> is invalid syntax.
+        string RenderTypeSpec(TypeSpec? ts, bool suppressEscaping = false)
+        {
+            if (ts == null) return "Any";
+            if (ts is NamedTypeSpec named)
+            {
+                // Direct generic param match: τ_1_0 → _G0
+                if (genericNameMap.TryGetValue(named.Name, out var safeName))
+                    return safeName;
+                // Metatype of generic param: τ_1_0.Type → _G0.Type
+                foreach (var (tauName, gName) in genericNameMap)
+                {
+                    if (named.Name.StartsWith(tauName + "."))
+                        return gName + named.Name.Substring(tauName.Length);
+                }
+                if (!TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                {
+                    if (named.ContainsGenericParameters && named.GenericParameters.Count > 0)
+                    {
+                        bool isOptional = named.Name == "Swift.Optional";
+                        var renderedParams = string.Join(", ", named.GenericParameters
+                            .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
+                        return $"{named.Name}<{renderedParams}>";
+                    }
+                    return GetSwiftTypeName(ts);
+                }
+                return "Any"; // Fallback for unrecognized generic params
+            }
+            if (ts is ClosureTypeSpec closure)
+            {
+                // Render closure arguments: unwrap tuple elements to avoid double-wrapping.
+                // A closure (A, B, C) -> D has Arguments as TupleTypeSpec{A, B, C}.
+                // If we render the tuple as "(A, B, C)" then wrap in closure parens, we get "((A, B, C))".
+                // Instead, render elements directly and let the closure format add the parens.
+                string args;
+                if (closure.Arguments is TupleTypeSpec argTuple && argTuple.Elements.Count > 0)
+                    args = string.Join(", ", argTuple.Elements.Select(e => RenderTypeSpec(e)));
+                else if (closure.Arguments.IsEmptyTuple)
+                    args = "";
+                else
+                    args = RenderTypeSpec(closure.Arguments);
+                var ret = RenderTypeSpec(closure.ReturnType);
+                var attrs = new List<string>();
+                if (closure.IsEscaping && !suppressEscaping) attrs.Add("@escaping");
+                if (closure.HasAttributes)
+                {
+                    foreach (var attr in closure.Attributes)
+                    {
+                        if (attr.Name != "escaping")
+                            attrs.Add($"@{attr.Name}");
+                    }
+                }
+                var attrPrefix = attrs.Count > 0 ? string.Join(" ", attrs) + " " : "";
+                var asyncStr = closure.IsAsync ? " async" : "";
+                var throwsStr = closure.Throws ? " throws" : "";
+                return $"{attrPrefix}({args}){asyncStr}{throwsStr} -> {ret}";
+            }
+            if (ts is TupleTypeSpec tuple)
+            {
+                if (tuple.Elements.Count == 0) return "()";
+                var rendered = tuple.Elements.Select(e =>
+                {
+                    var typeName = RenderTypeSpec(e);
+                    return e.TypeLabel != null ? $"{e.TypeLabel}: {typeName}" : typeName;
+                });
+                return $"({string.Join(", ", rendered)})";
+            }
+            if (ts.IsEmptyTuple) return "()";
+            return GetSwiftTypeName(ts);
+        }
+
+        // Build parameter list with proper Swift labeling
+        var parameters = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            // RenderTypeSpec already handles @escaping for direct closures and
+            // suppresses it for Optional<Closure> (always escaping in Swift).
+            var paramTypeName = RenderTypeSpec(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            var inoutPrefix = param.IsInOut ? "inout " : "";
+
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+        }
+
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        var asyncDecl = method.IsAsync ? " async" : "";
+        var throwsDecl = method.Throws ? " throws" : "";
+        var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
+
+        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
+        writer.Indent++;
+        writer.WriteLine($"fatalError(\"EveryProtocol: closure method '{method.Name}' cannot be dispatched through vtable\")");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
     private void EmitMethodLevelGenericStub(SwiftWriter writer, MethodDecl method)
     {
         // Build generic param name mapping: τ_1_0 → _G0, τ_1_1 → _G1, etc.
@@ -1097,7 +1290,8 @@ public class EveryProtocolEmitter
             : "";
 
         // Render TypeSpec preserving generic params (replacing τ_1_0 → _G0, etc.)
-        string RenderTypeSpec(TypeSpec? ts)
+        // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift.
+        string RenderTypeSpec(TypeSpec? ts, bool suppressEscaping = false)
         {
             if (ts == null) return "Any";
             if (ts is NamedTypeSpec named)
@@ -1116,8 +1310,10 @@ public class EveryProtocolEmitter
                 {
                     if (named.ContainsGenericParameters && named.GenericParameters.Count > 0)
                     {
+                        bool isOptional = named.Name == "Swift.Optional";
                         // Render generic params recursively (e.g., ServiceEntry<τ_1_1> → ServiceEntry<_G1>)
-                        var renderedParams = string.Join(", ", named.GenericParameters.Select(RenderTypeSpec));
+                        var renderedParams = string.Join(", ", named.GenericParameters
+                            .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
                         return $"{named.Name}<{renderedParams}>";
                     }
                     return GetSwiftTypeName(ts);
@@ -1126,10 +1322,17 @@ public class EveryProtocolEmitter
             }
             if (ts is ClosureTypeSpec closure)
             {
-                var args = RenderTypeSpec(closure.Arguments);
+                // Unwrap tuple arguments to avoid double-wrapping (see closure stub RenderTypeSpec).
+                string args;
+                if (closure.Arguments is TupleTypeSpec argTuple && argTuple.Elements.Count > 0)
+                    args = string.Join(", ", argTuple.Elements.Select(e => RenderTypeSpec(e)));
+                else if (closure.Arguments.IsEmptyTuple)
+                    args = "";
+                else
+                    args = RenderTypeSpec(closure.Arguments);
                 var ret = RenderTypeSpec(closure.ReturnType);
                 var attrs = new List<string>();
-                if (closure.IsEscaping) attrs.Add("@escaping");
+                if (closure.IsEscaping && !suppressEscaping) attrs.Add("@escaping");
                 if (closure.HasAttributes)
                 {
                     foreach (var attr in closure.Attributes)
@@ -1177,12 +1380,13 @@ public class EveryProtocolEmitter
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? RenderTypeSpec(returnType!) : "Void";
+        var asyncDecl = method.IsAsync ? " async" : "";
         var throwsDecl = method.Throws ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
         bool isOptionalReturn = hasReturn && returnType is NamedTypeSpec nts &&
             nts.Name == "Swift.Optional";
 
-        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {method.Name}{genericClause}({string.Join(", ", parameters)}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
 
         if (!hasReturn)
@@ -1320,6 +1524,63 @@ public class EveryProtocolEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Checks if a method has closure types (ClosureTypeSpec) in any parameter or return type.
+    /// Methods with closure types can't be dispatched through the EveryProtocol vtable
+    /// because closures aren't representable as UnsafeRawPointer in @convention(c) callbacks.
+    /// These methods get fatalError() stubs to satisfy the protocol conformance.
+    /// </summary>
+    private static bool HasClosureInMethodSignature(MethodDecl method)
+    {
+        // Check return type (CSSignature[0])
+        if (method.CSSignature.Count > 0 && ContainsClosureType(method.CSSignature[0].SwiftTypeSpec))
+            return true;
+
+        // Check non-self parameters (skip return type at index 0)
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            if (ContainsClosureType(method.CSSignature[i].SwiftTypeSpec))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Recursively checks if a TypeSpec contains a ClosureTypeSpec.
+    /// </summary>
+    private static bool ContainsClosureType(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+
+        switch (typeSpec)
+        {
+            case ClosureTypeSpec:
+                return true;
+
+            case NamedTypeSpec namedType:
+                return namedType.GenericParameters.Any(ContainsClosureType);
+
+            case TupleTypeSpec tupleType:
+                return tupleType.Elements.Any(e => ContainsClosureType(e));
+
+            case ProtocolListTypeSpec protocolListType:
+                return protocolListType.Protocols.Keys.Any(ContainsClosureType);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a property has closure types in its type spec.
+    /// </summary>
+    private static bool HasClosureInPropertyType(PropertyDecl property)
+    {
+        return ContainsClosureType(property.SwiftTypeSpec);
     }
 
     /// <summary>

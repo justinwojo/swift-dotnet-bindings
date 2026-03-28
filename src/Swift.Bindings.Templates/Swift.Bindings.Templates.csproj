@@ -7,6 +7,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>swift;dotnet;bindings;template;ios;macos;tvos;maccatalyst</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageType>Template</PackageType>
     <TargetFramework>netstandard2.0</TargetFramework>
 
@@ -22,5 +23,6 @@
   <ItemGroup>
     <Content Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

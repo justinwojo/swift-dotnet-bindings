@@ -34,3 +34,55 @@ public class EventRouter {
         return delegate?.delegateName ?? "none"
     }
 }
+
+// MARK: - Protocol with Multi-Argument Closure (Tuple Unwrapping Test)
+
+/// Protocol with a multi-argument closure method.
+/// Tests that EveryProtocol closure stubs render multi-arg closures as
+/// `(String, Int32, Bool) -> Void` instead of `((String, Int32, Bool)) -> Void`.
+/// Pattern from Lottie (LottieURLSession), Nuke (DataLoading), GRDB (FTS5Tokenizer).
+public protocol DataLoadingDelegate {
+    /// Multi-arg closure: tests tuple unwrapping in EveryProtocol stub
+    func onDataLoaded(handler: @escaping (String, Int32, Bool) -> Void)
+    /// Non-closure method: dispatched through vtable
+    func sourceIdentifier() -> String
+}
+
+/// Consumer class for DataLoadingDelegate.
+public class DataLoader {
+    public var delegate: (any DataLoadingDelegate)?
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func getSourceId() -> String {
+        return delegate?.sourceIdentifier() ?? "unknown"
+    }
+}
+
+// MARK: - Protocol with Optional Closure Parameter (@escaping Suppression Test)
+
+/// Protocol with an optional closure parameter.
+/// Tests that EveryProtocol closure stubs do NOT emit `@escaping` on
+/// `Optional<Closure>` — optional closures are always escaping in Swift.
+/// Pattern from Starscream (write(data:completion:)), Kingfisher.
+public protocol CompletionDelegate {
+    /// Optional closure param: tests @escaping suppression on Optional<Closure>
+    func execute(completion: (() -> Void)?)
+    /// Non-closure method: dispatched through vtable
+    func taskName() -> String
+}
+
+/// Consumer class for CompletionDelegate.
+public class TaskRunner {
+    public var delegate: (any CompletionDelegate)?
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func getTaskName() -> String {
+        return delegate?.taskName() ?? "idle"
+    }
+}

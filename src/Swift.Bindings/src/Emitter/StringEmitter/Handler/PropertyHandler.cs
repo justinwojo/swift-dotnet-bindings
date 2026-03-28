@@ -435,6 +435,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (!thunkEligible)
                 {
                     cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, checkEnv) == WrapperDecision.WrapperRequired;
+                    // Optional<existential> setter: @_cdecl is only needed for the GETTER (return type
+                    // too large for CallConvSwift register return). The setter works fine with
+                    // CallConvSwift because parameters are passed by reference/indirect.
+                    if (cdeclEligible && accessor is SetAccessorDecl &&
+                        CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, checkEnv.TypeDatabase) &&
+                        WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
+                        cdeclEligible = false;
                     // Only check ObjC override if no accessor got @_cdecl or thunk
                     if (!cdeclEligible && !needsObjCOverrideWrapper)
                         needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
@@ -531,6 +538,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     {
                         var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                         cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, fallbackEnv) == WrapperDecision.WrapperRequired;
+                        // Optional<existential> setter: same guard as pre-check loop above
+                        if (cdeclEligible && accessor is SetAccessorDecl &&
+                            CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, fallbackEnv.TypeDatabase) &&
+                            WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
+                            cdeclEligible = false;
                         if (cdeclEligible)
                             accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
                     }
