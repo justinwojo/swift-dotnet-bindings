@@ -1,0 +1,95 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Nuke.Common.IO;
+
+/// <summary>
+/// Typed model for validation-libraries.json.
+/// Replaces all python3-based manifest parsing from scripts/lib.sh.
+/// </summary>
+public record ValidationManifest
+{
+    [JsonPropertyName("libraries")]
+    public IReadOnlyList<ValidationLibrary> Libraries { get; init; } = [];
+
+    public static ValidationManifest Load(AbsolutePath path)
+        => JsonSerializer.Deserialize<ValidationManifest>(
+            File.ReadAllText(path),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+
+    /// <summary>
+    /// Expands libraries x products x platforms into flat validation targets.
+    /// Replaces: manifest_expand_targets() in lib.sh (~30 lines of Python).
+    /// </summary>
+    public IReadOnlyList<ValidationTarget> ExpandTargets(
+        string? filter = null, int tier = 0, AbsolutePath? librariesDir = null)
+    {
+        var targets = new List<ValidationTarget>();
+        foreach (var lib in Libraries)
+        {
+            if (tier > 0 && lib.Tier != tier) continue;
+            var platforms = lib.Platforms ?? ["ios"];
+            foreach (var product in lib.Products)
+            {
+                foreach (var platform in platforms)
+                {
+                    var name = platform == "ios" ? product.Framework
+                                                 : $"{product.Framework}@{platform}";
+
+                    if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    targets.Add(new ValidationTarget(
+                        Name: name,
+                        LibraryName: lib.Name,
+                        XcframeworkPath: librariesDir != null
+                            ? librariesDir / lib.Name / $"{product.Framework}.xcframework"
+                            : (AbsolutePath)$".libraries/{lib.Name}/{product.Framework}.xcframework",
+                        Mode: lib.Mode,
+                        KnownErrors: product.KnownErrors,
+                        Platform: platform,
+                        Tier: lib.Tier,
+                        Dependencies: product.Dependencies ?? [],
+                        WrapperDeps: product.WrapperDeps ?? []));
+                }
+            }
+        }
+        return targets;
+    }
+}
+
+public record ValidationLibrary
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("repository")] public string? Repository { get; init; }
+    [JsonPropertyName("version")] public string? Version { get; init; }
+    [JsonPropertyName("revision")] public string? Revision { get; init; }
+    [JsonPropertyName("mode")] public string Mode { get; init; } = "source";
+    [JsonPropertyName("minIOS")] public string MinIOS { get; init; } = "15.0";
+    [JsonPropertyName("tier")] public int Tier { get; init; } = 1;
+    [JsonPropertyName("platforms")] public IReadOnlyList<string>? Platforms { get; init; }
+    [JsonPropertyName("buildSettings")] public Dictionary<string, string>? BuildSettings { get; init; }
+    [JsonPropertyName("note")] public string? Note { get; init; }
+    [JsonPropertyName("products")] public IReadOnlyList<ValidationProduct> Products { get; init; } = [];
+}
+
+public record ValidationProduct
+{
+    [JsonPropertyName("framework")] public string Framework { get; init; } = "";
+    [JsonPropertyName("scheme")] public string? Scheme { get; init; }
+    [JsonPropertyName("project")] public string? Project { get; init; }
+    [JsonPropertyName("knownErrors")] public int KnownErrors { get; init; }
+    [JsonPropertyName("dependencies")] public IReadOnlyList<string>? Dependencies { get; init; }
+    [JsonPropertyName("wrapper_deps")] public IReadOnlyList<string>? WrapperDeps { get; init; }
+}
+
+public record ValidationTarget(
+    string Name, string LibraryName, AbsolutePath XcframeworkPath,
+    string Mode, int KnownErrors, string Platform, int Tier,
+    IReadOnlyList<string> Dependencies, IReadOnlyList<string> WrapperDeps);

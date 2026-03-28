@@ -27,6 +27,7 @@
         "AnalyzerTests",
         "Clean",
         "Compile",
+        "FetchLibraries",
         "RuntimeUnitTests",
         "SmokeTest",
         "UnitTests"
@@ -115,6 +116,10 @@
           "type": "boolean",
           "description": "Flake detection mode (run each test 3x)"
         },
+        "Force": {
+          "type": "boolean",
+          "description": "Force rebuild even if cached"
+        },
         "IncludeDevice": {
           "type": "boolean",
           "description": "Include device slice in xcframework build"
@@ -123,6 +128,10 @@
           "type": "integer",
           "description": "Max parallel validation workers",
           "format": "int32"
+        },
+        "List": {
+          "type": "boolean",
+          "description": "Show library status without building"
         },
         "NuGetApiKey": {
           "type": "string",
