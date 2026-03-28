@@ -6,6 +6,7 @@ using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
+using Serilog;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 [DotNetVerbosityMapping]
@@ -84,5 +85,19 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetClean(s => s.SetProject(Solution.Path));
+        });
+
+    Target SmokeTest => _ => _
+        .Executes(() =>
+        {
+            var platform = ResolvedPlatform;
+            Log.Information("Platform: {Name}, SimTarget: {Target}, SimSdk: {Sdk}",
+                platform.Name, platform.SimulatorTarget, platform.SimulatorSdkName);
+
+            var sdkPath = XcRun.GetSdkPath(platform.SimulatorSdkName);
+            Log.Information("SDK path: {SdkPath}", sdkPath);
+
+            var swiftcPath = XcRun.FindTool("swiftc");
+            Log.Information("swiftc path: {SwiftcPath}", swiftcPath);
         });
 }

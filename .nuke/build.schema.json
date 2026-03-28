@@ -28,6 +28,7 @@
         "Clean",
         "Compile",
         "RuntimeUnitTests",
+        "SmokeTest",
         "UnitTests"
       ]
     },
