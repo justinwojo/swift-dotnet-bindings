@@ -1565,4 +1565,70 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region L. FindBlockEnd Multi-Line Signatures
+
+    public class PostProcessorMultiLineSignatureTests
+    {
+        [Fact]
+        public void FindBlockEnd_MultiLineSignature_ReturnsBlockEnd()
+        {
+            // Multi-line function signature: the opening { is on the line after params close
+            var lines = new List<string>
+            {
+                "@_silgen_name(\"wrapper\")\n",
+                "public func PInvoke_foo(\n",
+                "    _ value: SomeType,\n",
+                "    _ _self: UnsafeMutableRawPointer\n",
+                ") {\n",
+                "    let __self = Unmanaged<InternalType>.fromOpaque(_self).takeUnretainedValue()\n",
+                "}\n"
+            };
+            // Should return line 6 (the closing }), not line 1 (no braces yet)
+            Assert.Equal(6, SwiftWrapperPostProcessor.FindBlockEnd(lines, 0));
+        }
+
+        [Fact]
+        public void FindBlockEnd_MultiLineSignature_NoBraceOnSecondLine_DoesNotReturnEarly()
+        {
+            // Decorator line + signature line with no braces — should NOT return on line 1
+            var lines = new List<string>
+            {
+                "@_silgen_name(\"sym\")\n",
+                "public func foo(\n",
+                "    _ x: Int\n",
+                ") {\n",
+                "    return x\n",
+                "}\n"
+            };
+            Assert.Equal(5, SwiftWrapperPostProcessor.FindBlockEnd(lines, 0));
+        }
+
+        [Fact]
+        public void Process_MultiLineSignatureWithInternalType_StripsBlock()
+        {
+            // Full integration: @_silgen_name with multi-line signature referencing
+            // an internal type should be stripped by the post-processor.
+            var internalTypes = new HashSet<string> { "InternalDataSource" };
+            var input = """
+                // before
+                @_silgen_name("PInvoke_get_dataSource")
+                public func PInvoke_get_dataSource(
+                    _ _self: UnsafeMutableRawPointer
+                ) {
+                    let __self = Unmanaged<InternalDataSource>.fromOpaque(_self).takeUnretainedValue()
+                    return __self.dataSource
+                }
+                // after
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("// before", result.CleanedContent);
+            Assert.Contains("// after", result.CleanedContent);
+            Assert.DoesNotContain("InternalDataSource", result.CleanedContent);
+        }
+    }
+
+    #endregion
+
 }

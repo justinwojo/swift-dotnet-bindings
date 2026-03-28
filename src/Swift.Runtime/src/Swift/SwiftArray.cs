@@ -335,13 +335,16 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             {
                 SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, disposable.Buffer, ElementTypeMetadata);
 
-                // For true Swift class types (not ISwiftStruct), the element IS a class
-                // pointer stored in the buffer. Read the pointer and pass it directly —
+                // For true Swift class types, the element IS a class pointer stored in
+                // the buffer. Read the pointer and pass it directly —
                 // MarshalFromSwift/NewFromPayload for classes expects the pointer value,
                 // not a buffer containing it. Always free the temp buffer afterward.
+                // Use Swift metadata Kind to distinguish classes from complex enums,
+                // since both implement ISwiftObject without ISwiftStruct in generated C#.
                 if (typeof(ISwiftObject).IsAssignableFrom(typeof(Element))
                     && !typeof(Element).IsValueType
-                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element)))
+                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element))
+                    && ElementTypeMetadata.Kind == TypeMetadataKind.Class)
                 {
                     IntPtr classPointer = *(IntPtr*)payload;
                     NativeMemory.Free(payload);

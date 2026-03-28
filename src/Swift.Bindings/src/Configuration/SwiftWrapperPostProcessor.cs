@@ -275,14 +275,15 @@ namespace BindingsGeneration
         internal static int FindBlockEnd(IReadOnlyList<string> lines, int start)
         {
             int depth = 0;
+            bool sawOpenBrace = false;
             for (int j = start; j < lines.Count; j++)
             {
                 foreach (char c in lines[j])
                 {
-                    if (c == '{') depth++;
+                    if (c == '{') { depth++; sawOpenBrace = true; }
                     else if (c == '}') depth--;
                 }
-                if (depth <= 0 && j > start)
+                if (sawOpenBrace && depth <= 0 && j > start)
                     return j;
             }
             return lines.Count - 1;

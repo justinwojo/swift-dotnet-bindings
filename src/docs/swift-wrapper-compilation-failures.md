@@ -1,131 +1,97 @@
 # Swift Wrapper Compilation Failures
 
-**Status**: 49/56 passing (7 failures)
-**Updated**: 2026-03-27
+**Status**: 51/56 passing (5 failures)
+**Updated**: 2026-03-28
 **Target**: 56/56 (all passing)
 
 ## Current State
 
-After the session 7 review fixes, swift wrapper compilation improved from 40/56 to 49/56. The 7 remaining failures fall into 4 root cause categories.
+After the MCB dedup and FindBlockEnd fixes, swift wrapper compilation improved from 49/56 to 51/56. Alamofire and SkeletonView now pass. The 5 remaining failures fall into 4 root cause categories.
 
-## Failure Categories
+## Fixed (This Session)
 
-### Category 1: MCB (Method Callback) Redeclarations — Alamofire, GRDB, Kingfisher
+### MCB Function Name Collision — Alamofire (FIXED)
 
-**Error**: `invalid redeclaration of '_sbw_mcb_*'`
+**File**: `MethodClosureBridge.cs:297`
 
-Multiple `@_cdecl` wrapper functions end up with the same symbol name. This happens when overloaded Swift methods map to the same MCB callback function name after the generator's naming/hashing logic runs.
+The MCB Swift wrapper function `_sbw_mcb_{method.Name}` was not unique across overloaded methods on different parent types. Two `response()` methods on `DataRequest` and `DownloadRequest` both emitted `_sbw_mcb_response`, causing a Swift redeclaration error.
 
-| Library | MCB Redeclarations | Other Errors |
-|---------|-------------------|--------------|
-| Alamofire | 8 | 0 |
-| GRDB | 26 | 2 (EveryProtocol conformance) |
-| Kingfisher | 14 | 0 |
+**Fix**: Changed function name to `_sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}`, where `CallbackBaseName` includes a deterministic hash of the method's mangled name (`MCB_{hash}`). The `@_cdecl` attribute already used this hash, so the Swift function name now matches its uniqueness.
 
-**Examples** (Alamofire):
-- `_sbw_mcb_response` — multiple `response()` overloads on DataRequest/DownloadRequest
-- `_sbw_mcb_responseData`, `_sbw_mcb_responseString`, `_sbw_mcb_responseJSON`
+### FindBlockEnd Multi-Line Signature — SkeletonView (FIXED)
 
-**Root cause**: The MCB function naming in `MethodCallbackEmitter` doesn't disambiguate overloaded methods across different parent types or with different closure signatures. The hash/name collides.
+**File**: `SwiftWrapperPostProcessor.cs:275-289`
 
-**Fix approach**: Improve MCB function name deduplication — include parent type or a disambiguating hash of the full method signature.
+`FindBlockEnd()` returned early for multi-line function signatures. When `@_silgen_name` was followed by a multi-line `func` declaration (no `{` on the decorator or signature lines), the condition `depth <= 0 && j > start` fired on line 2, before reaching the opening brace. This prevented the post-processor from stripping blocks that referenced internal types.
 
-**BindingTests needed**: Add overloaded methods with closure callbacks on different classes that would produce the same MCB name. Verify the generated Swift wrapper compiles.
+**Fix**: Added `sawOpenBrace` tracking. The method now only returns when at least one `{` has been seen and the depth returns to 0.
 
-### Category 2: Incomplete EveryProtocol Conformance — GRDB
+**Note**: The original doc attributed SkeletonView's failure to "internal type stripping regex doesn't catch type references inside generic parameter positions." Investigation disproved this — the `\b` word boundary regex correctly matches types inside `<>`. The actual root cause was `FindBlockEnd()` terminating early on multi-line signatures.
 
-**Error**: `type 'EveryProtocol' does not conform to protocol 'X'`
+### SwiftResult Class Extraction Bug (FOUND & FIXED)
 
-Two GRDB protocols have methods that the generator emits into the EveryProtocol conformance, but the emitted signatures don't match what the protocol actually requires.
+**File**: `SwiftResult.cs` — `Success` and `Failure` getters
 
-| Protocol | Issue |
-|----------|-------|
-| `RowAdapter` | Only `addingScopes(_:)` emitted, but protocol has additional requirements (e.g., `layoutAdapter(from:)`) that the generator doesn't see or skips |
-| `FTS5Tokenizer` | Closure stub emitted for `tokenize(context:...)`, but the protocol likely has additional requirements beyond what was emitted |
+While adding end-to-end runtime tests for the MCB fix, discovered a pre-existing bug in `SwiftResult<TSuccess, TFailure>`. The `Success`/`Failure` getters had two issues:
 
-**Root cause**: The generator's ABI JSON parsing may not capture all protocol requirements, or some requirements are being silently skipped without generating stubs.
+1. **Stack buffer ownership**: Used `stackalloc` for payload copies passed to `NewFromPayload`. For `ISwiftObject` types, `NewFromPayload` stores the pointer in `SwiftSafeHandle` which calls `NativeMemory.Free` on dispose — crashing on the stack pointer. Fixed by heap-allocating (same pattern as `SwiftOptional.Some`).
 
-**Fix approach**: Audit the EveryProtocol conformance emission to ensure ALL protocol requirements are emitted (either as vtable dispatch, closure stubs, or generic stubs). Any requirement the generator can't handle should get a `fatalError()` stub rather than being silently omitted.
+2. **Class pointer type confusion**: For true Swift classes stored in a Result payload, the payload bytes contain the class pointer at offset 0. The old code passed the buffer pointer to `NewFromPayload`, which stored it as the class handle (should be the class pointer *value* at that address). Fixed by dereferencing + `Arc.Retain` for the +1 ownership contract. Uses `TypeMetadata.Kind == TypeMetadataKind.Class` to distinguish true classes from complex enums (both implement `ISwiftObject` without `ISwiftStruct`).
 
-**BindingTests needed**: Add a protocol with a mix of emittable and non-emittable requirements (e.g., associated type methods, complex generic constraints). Verify the conformance compiles even when some methods are stubbed.
+The same class-pointer extraction pattern was hardened in `SwiftOptional.cs` and `SwiftArray.cs` with the metadata Kind guard.
 
-### Category 3: Internal Type References — SkeletonView
+## Remaining Failures
 
-**Error**: `module 'SkeletonView' has no member named 'SkeletonCollectionDataSource'`
+### Category 1: MCB + EveryProtocol — GRDB
 
-The generated wrapper references types that are internal to the library (not public). The post-processor strips functions referencing internal types, but some slip through — particularly in generic contexts where the type name appears in a type parameter position.
+**Errors**: MCB redeclarations (now fixed) + 2 EveryProtocol conformance errors
 
-| Detail | Value |
-|--------|-------|
-| Internal types stripped | 54 |
-| Remaining errors | ~4 (SkeletonCollectionDataSource references in generic contexts) |
+The MCB fix resolved GRDB's redeclaration errors, but 2 EveryProtocol conformance failures remain. Protocols `RowAdapter` and `FTS5Tokenizer` have invisible requirements (underscore-prefixed, not in symbolgraph/ABI JSON) that EveryProtocol can't satisfy.
 
-**Root cause**: The internal type stripping regex doesn't catch type references inside generic parameter positions (e.g., `Foo<SkeletonCollectionDataSource>`).
+**Fix approach**: Detect protocols with unsatisfied hidden requirements and skip the conformance, or use swiftinterface parsing to discover the full requirement set.
 
-**Fix approach**: Improve the `SwiftWrapperPostProcessor.ReferencesInternalType()` method to detect internal type names inside generic parameters, not just as standalone type references.
+### Category 2: Internal Type References — Kingfisher
 
-**BindingTests needed**: Add a type that references an internal type inside a generic parameter (e.g., `func process<T: InternalProtocol>(...)`). Verify the post-processor strips it.
+**Errors**: 4252 errors referencing internal types (`ImageModifier`, `CacheSerializer`, `KingfisherParsedOptionsInfo`, etc.)
 
-### Category 4: Build Environment / Framework Issues — Quick, TinyConstraints, StripePaymentSheet
+Kingfisher's internal types appear in the ABI JSON and the generator emits wrappers for them. The post-processor strips functions referencing internal types, but the volume is too large for the current stripping approach to handle — there are structural references (protocol conformances, extension blocks) that go beyond individual function bodies.
+
+**Fix approach**: Needs deeper investigation — possibly skip entire types flagged as internal in the ABI JSON at the generator level, rather than relying on post-processor stripping.
+
+### Category 3: Build Environment / Framework Issues — Quick, TinyConstraints, StripePaymentSheet
 
 These failures are not generator bugs — they're caused by the libraries' build requirements.
 
-#### Quick
-**Error**: `'XCTest/XCTest.h' file not found`
-
-Quick depends on `XCTest.framework`, which is only available in the Xcode test host environment. The generator compiles against the simulator SDK which doesn't include XCTest headers.
-
-**Fix approach**: Pass `-framework XCTest` and the appropriate `-F` search path pointing to the Xcode developer platforms directory. Or skip Quick from wrapper compilation (it's a test framework, not a runtime dependency).
-
-**BindingTests needed**: None — this is an infrastructure issue, not a generator bug.
-
-#### TinyConstraints
-**Error**: `unsupported Swift architecture`
-
-The TinyConstraints xcframework was built for `x86_64-simulator` only (no `arm64-simulator` slice). The generator targets `arm64-apple-ios*-simulator`, so the ObjC bridging header fails.
-
-**Fix approach**: Rebuild the TinyConstraints xcframework with arm64-simulator support, or handle architecture mismatches gracefully in the generator.
-
-**BindingTests needed**: None — this is a library build issue.
-
-#### StripePaymentSheet
-**Errors**:
-- `invalid redeclaration of '_sbw_mcb_create'` (1 MCB redeclaration — same as Category 1)
-- `call to main actor-isolated method in a synchronous nonisolated context` (3 actor isolation errors)
-
-The actor isolation errors occur because the generator emits `@_cdecl` wrapper functions that call `@MainActor`-isolated methods without being on the main actor.
-
-**Fix approach**: The MCB redeclaration is the same fix as Category 1. The actor isolation errors require emitting `@MainActor` on the wrapper function or dispatching to the main actor inside the wrapper.
-
-**BindingTests needed**: Add a `@MainActor` class with methods that get `@_cdecl` wrappers. Verify the wrapper compiles with proper actor isolation.
+| Library | Error | Root Cause |
+|---------|-------|------------|
+| Quick | `'XCTest/XCTest.h' file not found` | Depends on XCTest.framework, only available in Xcode test host |
+| TinyConstraints | `unsupported Swift architecture` | xcframework built for x86_64-simulator only, no arm64 slice |
+| StripePaymentSheet | MCB (fixed) + actor isolation + missing `StripePayments` module | Inter-module dependency blocks compilation regardless of other fixes |
 
 ## Fix Priority
 
-| Priority | Category | Libraries | Impact | BindingTests |
-|----------|----------|-----------|--------|--------------|
-| **P1** | MCB redeclarations | Alamofire, GRDB, Kingfisher (+StripePaymentSheet) | Fixes 3-4 libraries | Overloaded MCB methods across types |
-| **P2** | EveryProtocol incomplete conformance | GRDB | Fixes remaining GRDB errors | Protocol with mixed emittable/non-emittable requirements |
-| **P2** | Internal type in generics | SkeletonView | Fixes 1 library | Internal type inside generic parameter |
-| **P3** | Actor isolation | StripePaymentSheet | Fixes 1 library | @MainActor class with @_cdecl wrappers |
-| **P3** | XCTest dependency | Quick | Fixes 1 library | Infrastructure fix (no BindingTests) |
-| **P3** | Architecture mismatch | TinyConstraints | Fixes 1 library | Library rebuild (no BindingTests) |
+| Priority | Category | Libraries | Impact |
+|----------|----------|-----------|--------|
+| **P1** | Internal type volume | Kingfisher | Fixes 1 library |
+| **P2** | EveryProtocol hidden requirements | GRDB | Fixes 1 library |
+| **P3** | Actor isolation | StripePaymentSheet | Partially helps (still blocked by missing module) |
+| **P3** | XCTest dependency | Quick | Infrastructure fix |
+| **P3** | Architecture mismatch | TinyConstraints | Library rebuild issue |
 
-## Test Coverage Gaps
+## Test Coverage
 
 ### Multi-protocol optional existential (`ExistentialContainer2+`)
 
-The Optional existential getter fix (session 7) uses the projected container type for buffer allocation (`ExistentialContainer1`, `ExistentialContainer2`, etc.) instead of hardcoding `ExistentialContainer1`. The code path is correct but **no test exercises `ExistentialContainer2+`** — all current tests use single-protocol optionals (`(any Renderable)?`).
+The Optional existential getter fix uses the projected container type for buffer allocation (`ExistentialContainer1`, `ExistentialContainer2`, etc.) instead of hardcoding `ExistentialContainer1`. No test exercises `ExistentialContainer2+`.
 
-**Risk**: If a library has a property like `var combined: (any P & Q)?`, the allocation would use `ExistentialContainer2` (48 bytes) instead of `ExistentialContainer1` (40 bytes). The code handles this correctly via `(innerProjection as ExistentialProjection)?.PInvokeType`, but a bug in the projection factory or a fallback to the default `"ExistentialContainer1"` would silently corrupt memory.
-
-**BindingTests needed**: Add a protocol composition property (`(any ProtocolA & ProtocolB)?`) to `OptionalExistentialProperties.swift` and corresponding getter/setter runtime tests. This would exercise `ExistentialContainer2` allocation and verify round-trip marshalling.
+**BindingTests needed**: Add a protocol composition property (`(any ProtocolA & ProtocolB)?`) to `OptionalExistentialProperties.swift` and corresponding getter/setter runtime tests.
 
 ## Completion Criteria
 
 Each fix is complete when:
 1. The generator change is implemented with unit tests
-2. **BindingTests coverage exists** — Swift source + C# runtime tests in `BindingTests/` that exercise the specific pattern, serving as a permanent regression gate
+2. **BindingTests coverage exists** — Swift source + C# runtime tests in `BindingTests/` that exercise the specific pattern
 3. The affected validation library passes swift wrapper compilation
 4. `validate-libraries.sh` shows improvement (no regressions)
 
-Target: **56/56** swift wrapper compilation (or as close as possible — Quick and TinyConstraints may remain as known infrastructure limitations).
+Target: **56/56** swift wrapper compilation (Quick and TinyConstraints may remain as known infrastructure limitations).

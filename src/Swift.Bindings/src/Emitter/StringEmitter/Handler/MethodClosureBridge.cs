@@ -294,7 +294,7 @@ public static class MethodClosureBridge
         }
 
         swiftWriter.WriteLine($"@_cdecl(\"{silgenName}\")");
-        swiftWriter.WriteLine($"public func _sbw_mcb_{method.Name}(");
+        swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
         swiftWriter.WriteLine($"){swiftReturnType} {{");
 

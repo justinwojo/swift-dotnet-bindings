@@ -233,13 +233,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
             _payload.DangerousAddRef(ref success);
             try
             {
-                byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
-                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
-                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
-                fixed (byte* payloadPtr = payloadCopy)
-                {
-                    return SwiftMarshal.MarshalFromSwift<TSuccess>(new IntPtr(payloadPtr));
-                }
+                return ExtractPayloadValue<TSuccess>();
             }
             finally
             {
@@ -264,18 +258,60 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
             _payload.DangerousAddRef(ref success);
             try
             {
-                byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
-                Span<byte> payloadCopy = stackalloc byte[(int)_payloadSize];
-                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(payloadCopy);
-                fixed (byte* payloadPtr = payloadCopy)
-                {
-                    return SwiftMarshal.MarshalFromSwift<TFailure>(new IntPtr(payloadPtr));
-                }
+                return ExtractPayloadValue<TFailure>();
             }
             finally
             {
                 if (success)
                     _payload.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts a typed value from the Result payload.
+    /// Follows the same ownership pattern as SwiftOptional.Some:
+    /// - Classes: dereference the class pointer from payload bytes, Arc.Retain for +1 ownership.
+    /// - ISwiftObject (enums, non-frozen structs): heap-allocate a copy, NewFromPayload takes ownership.
+    /// - Primitives/value types: heap-allocate a copy, free after marshal.
+    /// Uses Swift metadata Kind to distinguish true classes from complex enums.
+    /// </summary>
+    private unsafe T ExtractPayloadValue<T>()
+    {
+        byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+
+        // True Swift classes: payload bytes contain the class pointer at offset 0.
+        // Dereference and Arc.Retain for +1 ownership (SwiftClassHandle expects this).
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)) &&
+            !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
+        {
+            var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+            if (metadata.Kind == TypeMetadataKind.Class)
+            {
+                IntPtr classPtr = *(IntPtr*)sourcePayload;
+                Arc.Retain(classPtr);
+                return SwiftMarshal.MarshalFromSwift<T>(classPtr);
+            }
+        }
+
+        // Non-class ISwiftObject types (complex enums, non-frozen structs) and
+        // ISwiftStruct types: NewFromPayload takes ownership of the buffer pointer.
+        // Must heap-allocate — stackalloc would be freed on return.
+        byte* heapCopy = (byte*)NativeMemory.Alloc(_payloadSize);
+        new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(
+            new Span<byte>(heapCopy, (int)_payloadSize));
+        try
+        {
+            return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(heapCopy));
+        }
+        finally
+        {
+            // ISwiftObject.NewFromPayload takes ownership of the buffer
+            // (stores it in SwiftSafeHandle which frees on dispose).
+            // Only free for non-ISwiftObject types (primitives, tuples, etc.)
+            if (!typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+            {
+                NativeMemory.Free(heapCopy);
             }
         }
     }

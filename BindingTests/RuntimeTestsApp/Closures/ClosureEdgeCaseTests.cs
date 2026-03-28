@@ -205,4 +205,54 @@ public class ClosureEdgeCaseTests : TestBase
     }
 
     #endregion
+
+    #region MCB Function Name Dedup
+
+    public void TestMCBOverload_DataProcessorProcess()
+    {
+        // DataProcessor.process(completion:) and ImageProcessor.process(completion:) share
+        // the same method name. The MCB fix gives each a unique Swift wrapper function
+        // name (_sbw_mcb_MCB_{hash}_process). This test validates the bridge works end-to-end,
+        // including extracting the class value from the SwiftResult payload.
+        var processor = new DataProcessor("test");
+        string? capturedData = null;
+        processor.Process(result =>
+        {
+            if (result.TryGetSuccess(out var success))
+                capturedData = success.Data;
+        });
+        AssertEqual("processed-by-test", capturedData, "DataProcessor.Process returns correct data");
+        TestLogger.Info($"DataProcessor.Process = {capturedData}");
+    }
+
+    public void TestMCBOverload_ImageProcessorProcess()
+    {
+        var processor = new ImageProcessor("photo");
+        string? capturedData = null;
+        processor.Process(result =>
+        {
+            if (result.TryGetSuccess(out var success))
+                capturedData = success.Data;
+        });
+        AssertEqual("image-photo", capturedData, "ImageProcessor.Process returns correct data");
+        TestLogger.Info($"ImageProcessor.Process = {capturedData}");
+    }
+
+    public void TestMCBOverload_DataProcessorProcessWithError()
+    {
+        // Exercises the SwiftResult.Failure getter path with a class-typed error.
+        // FetchError is ISwiftObject (not ISwiftStruct) in C#, so this validates
+        // the ExtractMarshalSource dereference + Arc.Retain for the failure case.
+        var processor = new DataProcessor("test");
+        bool gotFailure = false;
+        processor.ProcessWithError(result =>
+        {
+            if (result.TryGetFailure(out var error))
+                gotFailure = error != null;
+        });
+        AssertTrue(gotFailure, "DataProcessor.ProcessWithError returned failure with non-null FetchError");
+        TestLogger.Info($"DataProcessor.ProcessWithError failure extracted = {gotFailure}");
+    }
+
+    #endregion
 }

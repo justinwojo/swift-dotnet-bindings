@@ -369,8 +369,19 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                     && !typeof(T).IsValueType
                     && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
                 {
-                    IntPtr classPointer = *(IntPtr*)sourcePayload;
-                    return SwiftMarshal.MarshalFromSwift<T>(classPointer);
+                    // Use Swift metadata to distinguish true classes from complex enums,
+                    // since both implement ISwiftObject without ISwiftStruct in generated C#.
+                    var elementMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                    if (elementMetadata.Kind == TypeMetadataKind.Class)
+                    {
+                        IntPtr classPointer = *(IntPtr*)sourcePayload;
+                        // The class pointer's ARC retain belongs to _payload. We need an
+                        // independent +1 retain for the SwiftClassHandle that NewFromPayload
+                        // creates, otherwise disposing this SwiftOptional releases the only
+                        // retain and the extracted wrapper becomes a dangling pointer.
+                        Arc.Retain(classPointer);
+                        return SwiftMarshal.MarshalFromSwift<T>(classPointer);
+                    }
                 }
 
                 // For value types, ISwiftStruct types, and non-ISwiftObject types: heap-copy the payload

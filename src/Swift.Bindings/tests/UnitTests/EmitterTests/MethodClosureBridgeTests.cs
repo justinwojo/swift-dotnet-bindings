@@ -1067,6 +1067,86 @@ public class MethodClosureBridgeTests
         Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    // ─── Fix 1: MCB Swift function name uniqueness ─────────────────────
+
+    [Fact]
+    public void TryEmit_OverloadedMethodsSameNameDifferentTypes_UniqueSwiftFunctionNames()
+    {
+        // Two methods named "response" on different parent types must produce
+        // different _sbw_mcb_ Swift function names to avoid redeclaration errors.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentA = CreateClassDecl("TypeA", moduleDecl);
+        var parentB = CreateClassDecl("TypeB", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType1 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType1.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var closureType2 = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType2.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        // Same method name, different parents → different MangledName → different hash
+        var methodA = CreateMethodDecl("response", parentA, moduleDecl,
+            TupleTypeSpec.Empty, closureType1, "handler");
+        methodA.MangledName = "$s10TestModule5TypeAC8responseyACyF";
+
+        var methodB = CreateMethodDecl("response", parentB, moduleDecl,
+            TupleTypeSpec.Empty, closureType2, "handler");
+        methodB.MangledName = "$s10TestModule5TypeBC8responseyACyF";
+
+        var swiftOutputA = new StringWriter();
+        var swiftWriterA = new SwiftWriter(swiftOutputA);
+        var envA = new MethodEnvironment(methodA, typeDatabase);
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriterA, envA, parentA);
+
+        var swiftOutputB = new StringWriter();
+        var swiftWriterB = new SwiftWriter(swiftOutputB);
+        var envB = new MethodEnvironment(methodB, typeDatabase);
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriterB, envB, parentB);
+
+        var swiftA = swiftOutputA.ToString();
+        var swiftB = swiftOutputB.ToString();
+
+        // Both should contain _sbw_mcb_ prefix
+        Assert.Contains("_sbw_mcb_MCB_", swiftA);
+        Assert.Contains("_sbw_mcb_MCB_", swiftB);
+
+        // Extract the function names and verify they differ
+        var funcNameA = ExtractSwiftFuncName(swiftA, "_sbw_mcb_");
+        var funcNameB = ExtractSwiftFuncName(swiftB, "_sbw_mcb_");
+        Assert.NotEqual(funcNameA, funcNameB);
+    }
+
+    [Fact]
+    public void TryEmit_SwiftFunctionNameContainsHashAndMethodName()
+    {
+        // The Swift function name should contain both the hash prefix (for uniqueness)
+        // and the original method name (for readability/debugging).
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        // Should contain both hash (MCB_XXXXXXXX) and method name (onResponse)
+        Assert.Contains("_sbw_mcb_MCB_", swift);
+        Assert.Contains("_onResponse(", swift);
+    }
+
+    private static string ExtractSwiftFuncName(string swift, string prefix)
+    {
+        var idx = swift.IndexOf(prefix);
+        if (idx < 0) return "";
+        var end = swift.IndexOf('(', idx);
+        return end < 0 ? swift[idx..] : swift[idx..end];
+    }
+
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>

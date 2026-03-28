@@ -1,5 +1,5 @@
 {
-  "git_sha": "adb22738",
+  "git_sha": "f9b37256",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -7,7 +7,7 @@
         "errors": 0,
         "lines": 45356,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "BlinkID": {
         "compile": "ok",
@@ -115,11 +115,11 @@
         "swift_compile": "ok"
       },
       "SkeletonView": {
-        "compile": "ok",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 1,
         "lines": 10392,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "SmartCardIO": {
         "compile": "ok",
