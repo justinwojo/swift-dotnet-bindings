@@ -1,5 +1,5 @@
 {
-  "git_sha": "c6d8fff7",
+  "git_sha": "5f9e91f5",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -357,7 +357,7 @@
         "errors": 0,
         "lines": 3962,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "DifferenceKit": {
         "compile": "ok",
@@ -371,7 +371,7 @@
         "errors": 0,
         "lines": 508,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "AMPopTip": {
         "compile": "ok",

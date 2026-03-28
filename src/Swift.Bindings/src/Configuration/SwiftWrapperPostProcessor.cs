@@ -27,6 +27,15 @@ namespace BindingsGeneration
     /// </summary>
     public static class SwiftWrapperPostProcessor
     {
+        /// <summary>
+        /// ObjC types that are explicitly unavailable in Swift. Wrapper functions that reference
+        /// these types must be stripped because they cannot compile in a Swift source file.
+        /// </summary>
+        private static readonly HashSet<string> SwiftUnavailableTypes = new(StringComparer.Ordinal)
+        {
+            "NSInvocation",
+        };
+
         // NOTE: Safety-net patterns (b)-(f) were removed in Phase 1 of the architecture refactoring.
         // Pattern (b) self-without-_self: prevented by extension scoping in emitters.
         // Pattern (c) __self.init: prevented at emission time.
@@ -102,9 +111,10 @@ namespace BindingsGeneration
                     else
                     {
                         // For protocol conformance extensions with method/property bodies,
-                        // strip if the body references an internal type
+                        // strip if the body references an internal or Swift-unavailable type
                         var body = ScanBlockBody(lines, i, end);
-                        if (ReferencesInternalType(body, internalTypeNames))
+                        if (ReferencesInternalType(body, internalTypeNames) ||
+                            ReferencesSwiftUnavailableType(body))
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
@@ -125,7 +135,8 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     if (IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning) ||
-                        ReferencesInternalType(body, internalTypeNames))
+                        ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
@@ -147,7 +158,8 @@ namespace BindingsGeneration
                         var body = ScanBlockBody(lines, i + 1, end);
 
                         if (IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning) ||
-                            ReferencesInternalType(body, internalTypeNames))
+                            ReferencesInternalType(body, internalTypeNames) ||
+                            ReferencesSwiftUnavailableType(body))
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
@@ -169,7 +181,8 @@ namespace BindingsGeneration
                     // being extended, which may be internal even when the body uses Self.
                     if (IsExtensionBroken(lines, i, end, body, onSafetyNetWarning) ||
                         ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames))
+                        ReferencesInternalType(stripped, internalTypeNames) ||
+                        ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
@@ -187,7 +200,8 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     if (ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames))
+                        ReferencesInternalType(stripped, internalTypeNames) ||
+                        ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
@@ -204,7 +218,8 @@ namespace BindingsGeneration
                     var body = ScanBlockBody(lines, i, end);
 
                     if (IsStandaloneFuncBroken(body, i, onSafetyNetWarning) ||
-                        ReferencesInternalType(body, internalTypeNames))
+                        ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
@@ -424,6 +439,20 @@ namespace BindingsGeneration
                     return true;
             }
 
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if the body references an ObjC type that is explicitly unavailable in Swift.
+        /// These types exist in ObjC headers but are annotated with NS_SWIFT_UNAVAILABLE.
+        /// </summary>
+        private static bool ReferencesSwiftUnavailableType(string body)
+        {
+            foreach (var typeName in SwiftUnavailableTypes)
+            {
+                if (body.Contains(typeName, StringComparison.Ordinal))
+                    return true;
+            }
             return false;
         }
 

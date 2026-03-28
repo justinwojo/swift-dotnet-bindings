@@ -1191,4 +1191,220 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region H. Platform Path Resolution Tests
+
+    public class SwiftWrapperPlatformPathTests
+    {
+        [Fact]
+        public void ResolvePlatformPath_Success_ReturnsPath()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-platform-path", 0,
+                "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform");
+
+            var result = SwiftWrapperCompiler.ResolvePlatformPath("iphonesimulator", runner);
+            Assert.Contains("iPhoneSimulator.platform", result);
+        }
+
+        [Fact]
+        public void ResolvePlatformPath_Failure_Throws()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-platform-path", 1, "", "xcode-select: error");
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.ResolvePlatformPath("iphonesimulator", runner));
+            Assert.Contains("platform path", ex.Message);
+        }
+
+        [Fact]
+        public void ResolvePlatformPath_EmptyOutput_Throws()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-platform-path", 0, "");
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.ResolvePlatformPath("iphonesimulator", runner));
+            Assert.Contains("platform path", ex.Message);
+        }
+
+        [Theory]
+        [InlineData("iphonesimulator")]
+        [InlineData("iphoneos")]
+        [InlineData("macosx")]
+        public void ResolvePlatformPath_UsesCorrectSdkName(string sdkName)
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("--show-sdk-platform-path", 0, "/some/path");
+
+            SwiftWrapperCompiler.ResolvePlatformPath(sdkName, runner);
+
+            Assert.Single(runner.Invocations);
+            Assert.Contains($"--sdk {sdkName}", runner.Invocations[0].Arguments);
+            Assert.Contains("--show-sdk-platform-path", runner.Invocations[0].Arguments);
+        }
+    }
+
+    #endregion
+
+    #region I. XCTest Dependency Detection Tests
+
+    public class XCTestDependencyDetectionTests
+    {
+        [Fact]
+        public void DetectXCTestDependency_WithImport_ReturnsTrue()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var path = Path.Combine(dir, "Quick.swiftinterface");
+                File.WriteAllText(path, "import Swift\nimport XCTest\nimport Foundation\n");
+
+                Assert.True(SwiftWrapperCompiler.DetectXCTestDependency(path));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void DetectXCTestDependency_WithExportedImport_ReturnsTrue()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var path = Path.Combine(dir, "Quick.swiftinterface");
+                File.WriteAllText(path, "import Swift\n@_exported import XCTest\n");
+
+                Assert.True(SwiftWrapperCompiler.DetectXCTestDependency(path));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void DetectXCTestDependency_WithoutImport_ReturnsFalse()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var path = Path.Combine(dir, "Nuke.swiftinterface");
+                File.WriteAllText(path, "import Swift\nimport Foundation\nimport UIKit\n");
+
+                Assert.False(SwiftWrapperCompiler.DetectXCTestDependency(path));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void DetectXCTestDependency_NullPath_ReturnsFalse()
+        {
+            Assert.False(SwiftWrapperCompiler.DetectXCTestDependency(null));
+        }
+
+        [Fact]
+        public void DetectXCTestDependency_NonexistentFile_ReturnsFalse()
+        {
+            Assert.False(SwiftWrapperCompiler.DetectXCTestDependency("/nonexistent/file.swiftinterface"));
+        }
+
+        [Fact]
+        public void DetectXCTestDependency_SubstringMatch_ReturnsFalse()
+        {
+            // "import XCTestUtils" should NOT trigger detection
+            var dir = CreateTempDir();
+            try
+            {
+                var path = Path.Combine(dir, "Lib.swiftinterface");
+                File.WriteAllText(path, "import Swift\nimport XCTestUtils\n");
+
+                Assert.False(SwiftWrapperCompiler.DetectXCTestDependency(path));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"xctest_det_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
+
+    #region J. Architecture Propagation Tests
+
+    public class ArchitecturePropagationTests
+    {
+        [Fact]
+        public void SliceVariant_DefaultArchitecture_IsArm64()
+        {
+            var slice = new SliceVariant
+            {
+                Platform = ApplePlatform.iOS,
+                IsSimulator = true,
+                SdkName = "iphonesimulator",
+                SliceId = "ios-arm64-simulator",
+                PlistPlatformName = "iPhoneSimulator",
+                XCFrameworkPlatformString = "ios",
+                XCFrameworkPlatformVariant = "simulator",
+            };
+            Assert.Equal("arm64", slice.Architecture);
+        }
+
+        [Fact]
+        public void SliceVariant_WithOverride_UsesOverriddenArchitecture()
+        {
+            var slice = new SliceVariant
+            {
+                Platform = ApplePlatform.iOS,
+                IsSimulator = true,
+                SdkName = "iphonesimulator",
+                SliceId = "ios-x86_64-simulator",
+                PlistPlatformName = "iPhoneSimulator",
+                XCFrameworkPlatformString = "ios",
+                XCFrameworkPlatformVariant = "simulator",
+                Architecture = "x86_64"
+            };
+            Assert.Equal("x86_64", slice.Architecture);
+        }
+
+        [Fact]
+        public void SliceVariant_WithExpression_OverridesArchitecture()
+        {
+            var original = new SliceVariant
+            {
+                Platform = ApplePlatform.iOS,
+                IsSimulator = true,
+                SdkName = "iphonesimulator",
+                SliceId = "ios-arm64-simulator",
+                PlistPlatformName = "iPhoneSimulator",
+                XCFrameworkPlatformString = "ios",
+                XCFrameworkPlatformVariant = "simulator",
+            };
+            var overridden = original with { Architecture = "x86_64" };
+            Assert.Equal("x86_64", overridden.Architecture);
+            Assert.Equal("arm64", original.Architecture);
+        }
+
+        [Theory]
+        [InlineData("arm64", "arm64-apple-ios17.0-simulator")]
+        [InlineData("x86_64", "x86_64-apple-ios17.0-simulator")]
+        public void SliceVariant_GetTargetTriple_UsesArchitecture(string arch, string expected)
+        {
+            var slice = new SliceVariant
+            {
+                Platform = ApplePlatform.iOS,
+                IsSimulator = true,
+                SdkName = "iphonesimulator",
+                SliceId = $"ios-{arch}-simulator",
+                PlistPlatformName = "iPhoneSimulator",
+                XCFrameworkPlatformString = "ios",
+                XCFrameworkPlatformVariant = "simulator",
+                Architecture = arch,
+            };
+            Assert.Equal(expected, slice.GetTargetTriple("17.0"));
+        }
+    }
+
+    #endregion
 }

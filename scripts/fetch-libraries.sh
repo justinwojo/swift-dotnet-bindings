@@ -169,6 +169,7 @@ build_source() {
             SKIP_INSTALL=NO \
             MACH_O_TYPE=mh_dylib \
             IPHONEOS_DEPLOYMENT_TARGET="$min_ios" \
+            'VALID_ARCHS=$(ARCHS_STANDARD)' \
             ${build_settings[@]+"${build_settings[@]}"} \
             -quiet 2>&1 | tail -3); then
             echo -e "  ${RED}Device build failed for $framework${NC}"
@@ -187,6 +188,7 @@ build_source() {
             SKIP_INSTALL=NO \
             MACH_O_TYPE=mh_dylib \
             IPHONEOS_DEPLOYMENT_TARGET="$min_ios" \
+            'VALID_ARCHS=$(ARCHS_STANDARD)' \
             ${build_settings[@]+"${build_settings[@]}"} \
             -quiet 2>&1 | tail -3); then
             echo -e "  ${RED}Simulator build failed for $framework${NC}"

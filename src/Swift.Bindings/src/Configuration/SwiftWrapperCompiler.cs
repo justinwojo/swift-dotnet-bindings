@@ -122,10 +122,13 @@ namespace BindingsGeneration
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
-            bool skipThunkCompilation = false)
+            bool skipThunkCompilation = false,
+            string? resolvedArchitecture = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
+            if (!string.IsNullOrEmpty(resolvedArchitecture))
+                simSlice = simSlice with { Architecture = resolvedArchitecture };
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 simSlice, logger, commandRunner, internalTypeNames,
                 additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision,
@@ -159,8 +162,11 @@ namespace BindingsGeneration
             var wrapperModuleName = $"{moduleName}SwiftBindings";
 
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
-            var simSlice = pi.GetSlice(true);
-            var deviceSlice = pi.DeviceSlice;
+            // Override architecture from resolution (defense-in-depth: not all xcframeworks have arm64)
+            var simSlice = pi.GetSlice(true) with { Architecture = simulatorResolution.SelectedArchitecture };
+            var deviceSlice = deviceResolution != null
+                ? pi.DeviceSlice with { Architecture = deviceResolution.SelectedArchitecture }
+                : pi.DeviceSlice;
 
             // 1. Collect and post-process Swift files (once — source is architecture-agnostic)
             var swiftFiles = CollectSwiftFiles(outputDirectory);
@@ -280,13 +286,34 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass);
                 }
 
+                // XCTest dependency: add platform framework search path + collision resolution.
+                // Pre-compile the source framework's interface with XCTest collision patched out.
+                var simEffectiveSearchPaths = simAdditionalSearchPaths != null
+                    ? new List<string>(simAdditionalSearchPaths) : new List<string>();
+                if (DetectXCTestDependency(swiftInterfacePath))
+                {
+                    var simPlatformPath = ResolvePlatformPath(simSlice.SdkName, commandRunner);
+                    var platformFrameworksPath = Path.Combine(simPlatformPath, "Developer", "Library", "Frameworks");
+                    simEffectiveSearchPaths.Add(platformFrameworksPath);
+                    logger.LogInformation("Detected XCTest dependency — added platform frameworks search path for simulator slice.");
+
+                    if (!string.IsNullOrEmpty(swiftInterfacePath))
+                    {
+                        var xcTestPrecompiled = PrecompileCollidingModule(
+                            moduleName, swiftInterfacePath, simTargetTriple, simSdkPath,
+                            cleanedDir, commandRunner, logger, "XCTest",
+                            additionalFrameworkSearchPaths: new[] { platformFrameworksPath });
+                        simPrecompiledModulePath ??= xcTestPrecompiled;
+                    }
+                }
+
                 if (cleanedFiles.Count > 0)
                 {
                     InvokeSwiftCompiler(
                         cleanedFiles, simBinaryPath, wrapperModuleName,
                         simTargetTriple, simSdkPath,
                         simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                        simAdditionalSearchPaths, simPrecompiledModulePath,
+                        simEffectiveSearchPaths, simPrecompiledModulePath,
                         simThunkResult?.ObjectFiles, moduleName);
                     sliceCount++;
                 }
@@ -348,13 +375,34 @@ namespace BindingsGeneration
                             nestedTypesInCollidingClass);
                     }
 
+                    // XCTest dependency: add platform framework search path + collision resolution (device)
+                    var devEffectiveSearchPaths = deviceAdditionalSearchPaths != null
+                        ? new List<string>(deviceAdditionalSearchPaths) : new List<string>();
+                    if (DetectXCTestDependency(deviceResolution.SwiftInterfacePath))
+                    {
+                        var devPlatformPath = ResolvePlatformPath(deviceSlice.SdkName, commandRunner);
+                        var devPlatformFrameworksPath = Path.Combine(devPlatformPath, "Developer", "Library", "Frameworks");
+                        devEffectiveSearchPaths.Add(devPlatformFrameworksPath);
+                        logger.LogInformation("Detected XCTest dependency — added platform frameworks search path for device slice.");
+
+                        if (!string.IsNullOrEmpty(deviceResolution.SwiftInterfacePath))
+                        {
+                            var xcTestPrecompiled = PrecompileCollidingModule(
+                                moduleName, deviceResolution.SwiftInterfacePath,
+                                devTargetTriple, devSdkPath,
+                                cleanedDir, commandRunner, logger, "XCTest",
+                                additionalFrameworkSearchPaths: new[] { devPlatformFrameworksPath });
+                            devPrecompiledModulePath ??= xcTestPrecompiled;
+                        }
+                    }
+
                     if (cleanedFiles.Count > 0)
                     {
                         InvokeSwiftCompiler(
                             cleanedFiles, devBinaryPath, wrapperModuleName,
                             devTargetTriple, devSdkPath,
                             deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                            deviceAdditionalSearchPaths, devPrecompiledModulePath,
+                            devEffectiveSearchPaths, devPrecompiledModulePath,
                             devThunkResult?.ObjectFiles, moduleName);
                         sliceCount++;
                     }
@@ -577,6 +625,31 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass);
                 }
 
+                // 6c. XCTest dependency: add platform framework search path + collision resolution.
+                // XCTest.framework lives at the platform level. The XCTest module also has a class
+                // named "XCTest", causing Swift to misresolve XCTest.XCTestCase as a nested type.
+                // Fix: pre-compile the SOURCE framework's interface with XCTest collision patching.
+                var effectiveSearchPaths = additionalFrameworkSearchPaths != null
+                    ? new List<string>(additionalFrameworkSearchPaths) : new List<string>();
+                if (DetectXCTestDependency(swiftInterfacePath))
+                {
+                    var platformPath = ResolvePlatformPath(slice.SdkName, commandRunner);
+                    var platformFrameworksPath = Path.Combine(platformPath, "Developer", "Library", "Frameworks");
+                    effectiveSearchPaths.Add(platformFrameworksPath);
+                    logger.LogInformation("Detected XCTest dependency — added platform frameworks search path.");
+
+                    // Pre-compile the source framework's interface with XCTest collision patched out.
+                    // This creates a shadow framework with a binary .swiftmodule that resolves types correctly.
+                    if (!string.IsNullOrEmpty(swiftInterfacePath))
+                    {
+                        var xcTestPrecompiled = PrecompileCollidingModule(
+                            moduleName, swiftInterfacePath, targetTriple, sdkPath,
+                            cleanedDir, commandRunner, logger, "XCTest",
+                            additionalFrameworkSearchPaths: new[] { platformFrameworksPath });
+                        precompiledModulePath ??= xcTestPrecompiled;
+                    }
+                }
+
                 // 7. Link into wrapper binary
                 if (cleanedFiles.Count > 0)
                 {
@@ -584,7 +657,7 @@ namespace BindingsGeneration
                     InvokeSwiftCompiler(
                         cleanedFiles, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                        additionalFrameworkSearchPaths, precompiledModulePath,
+                        effectiveSearchPaths, precompiledModulePath,
                         thunkResult?.ObjectFiles, moduleName);
                 }
                 else if (thunkResult != null && thunkResult.ObjectFiles.Count > 0)
@@ -949,6 +1022,52 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves a platform path via xcrun (e.g., iPhoneSimulator.platform directory).
+        /// Used to locate platform-level frameworks like XCTest that live outside the SDK.
+        /// </summary>
+        /// <param name="sdkName">SDK name: "iphonesimulator", "iphoneos", "macosx", etc.</param>
+        /// <param name="commandRunner">Command runner.</param>
+        internal static string ResolvePlatformPath(string sdkName, ICommandRunner commandRunner)
+        {
+            var (exitCode, platformPath, stderr) = commandRunner.Run("xcrun", $"--sdk {sdkName} --show-sdk-platform-path");
+            if (exitCode != 0 || string.IsNullOrWhiteSpace(platformPath))
+            {
+                throw new InvalidOperationException(
+                    $"Failed to resolve platform path for '{sdkName}'. Ensure Xcode and the platform SDK are installed. " +
+                    $"Error: {stderr}");
+            }
+            return platformPath;
+        }
+
+        /// <summary>
+        /// Detects whether a Swift framework depends on XCTest by scanning its swiftinterface
+        /// for <c>import XCTest</c>. XCTest.framework lives at the platform level (not SDK level),
+        /// so extra framework search paths and collision resolution are needed.
+        /// </summary>
+        internal static bool DetectXCTestDependency(string? swiftInterfacePath)
+        {
+            if (string.IsNullOrEmpty(swiftInterfacePath) || !File.Exists(swiftInterfacePath))
+                return false;
+
+            // Read the swiftinterface and look for "import XCTest" on its own line.
+            // Match: "import XCTest", "import XCTest.Sub", "@_exported import XCTest"
+            // Reject: "import XCTestUtils" (different module)
+            foreach (var line in File.ReadLines(swiftInterfacePath))
+            {
+                var trimmed = line.TrimStart();
+                if (trimmed == "import XCTest" ||
+                    trimmed.StartsWith("import XCTest.", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("import XCTest ", StringComparison.Ordinal))
+                    return true;
+                if (trimmed == "@_exported import XCTest" ||
+                    trimmed.StartsWith("@_exported import XCTest.", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("@_exported import XCTest ", StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Creates the xcframework directory structure with both Info.plists (single-slice).
         /// </summary>
         internal static void CreateXCFrameworkStructure(
@@ -1211,7 +1330,8 @@ namespace BindingsGeneration
             ICommandRunner commandRunner,
             ILogger logger,
             string moduleNameForCollision,
-            HashSet<string>? nestedTypesInCollidingClass = null)
+            HashSet<string>? nestedTypesInCollidingClass = null,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
         {
             try
             {
@@ -1236,13 +1356,18 @@ namespace BindingsGeneration
                 var patchedInterfacePath = Path.Combine(precompileDir, Path.GetFileName(swiftInterfacePath));
                 PatchSwiftInterface(swiftInterfacePath, patchedInterfacePath, collisionPattern, nestedTypesInCollidingClass);
 
-                // Also copy and patch ALL swiftinterface files from the source .swiftmodule dir
-                // into the shadow framework, so the .private.swiftinterface is also overridden.
+                // Copy and patch swiftinterface files from the source .swiftmodule dir
+                // into the shadow framework. Exclude .private.swiftinterface files:
+                // the binary .swiftmodule is self-contained for public API resolution,
+                // and private interfaces can contain types from colliding modules that
+                // fail to resolve even after patching (e.g., XCTest class/module collision).
                 var sourceModuleDir = Path.GetDirectoryName(swiftInterfacePath);
                 if (sourceModuleDir != null)
                 {
                     foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
                     {
+                        if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                            continue;
                         var destPath = Path.Combine(fwDir, Path.GetFileName(ifaceFile));
                         PatchSwiftInterface(ifaceFile, destPath, collisionPattern, nestedTypesInCollidingClass);
                     }
@@ -1255,7 +1380,13 @@ namespace BindingsGeneration
                 var minimalModulemap = $"framework module {moduleName} {{\n}}\n";
                 File.WriteAllText(Path.Combine(shadowModulesDir, "module.modulemap"), minimalModulemap);
 
-                var outputModulePath = Path.Combine(fwDir, $"{targetTriple}.swiftmodule");
+                // Derive binary module name from the .swiftinterface filename pattern.
+                // Framework .swiftmodule dirs use versionless arch names (e.g., "arm64-apple-ios-simulator")
+                // while GetTargetTriple() includes the OS version (e.g., "arm64-apple-ios17.0-simulator").
+                // swiftc only finds the binary module if the filename matches the versionless pattern.
+                var interfaceBaseName = Path.GetFileNameWithoutExtension(
+                    Path.GetFileName(swiftInterfacePath));
+                var outputModulePath = Path.Combine(fwDir, $"{interfaceBaseName}.swiftmodule");
 
                 // 3. Compile to binary .swiftmodule
                 // Derive the framework search path from the swiftinterface path.
@@ -1270,6 +1401,15 @@ namespace BindingsGeneration
                 if (!string.IsNullOrEmpty(sliceSearchPath) && Directory.Exists(sliceSearchPath))
                 {
                     fwSearchFlag = $"-F \"{sliceSearchPath}\" ";
+                }
+
+                // Append additional -F paths (e.g., platform frameworks for XCTest dependency)
+                if (additionalFrameworkSearchPaths != null)
+                {
+                    foreach (var addPath in additionalFrameworkSearchPaths)
+                    {
+                        fwSearchFlag += $"-F \"{addPath}\" ";
+                    }
                 }
 
                 var args = $"swift-frontend -compile-module-from-interface " +
@@ -1288,6 +1428,14 @@ namespace BindingsGeneration
                         "Pre-compilation of colliding module '{Module}' failed (non-fatal): {Error}",
                         moduleName, stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
                     return null;
+                }
+
+                // Remove textual .swiftinterface files from the shadow framework.
+                // The binary .swiftmodule is self-contained — leaving the textual interfaces
+                // causes swiftc to fall back to re-parsing them (which hits the collision).
+                foreach (var ifaceFile in Directory.GetFiles(fwDir, "*.swiftinterface"))
+                {
+                    File.Delete(ifaceFile);
                 }
 
                 logger.LogInformation("Pre-compiled patched .swiftinterface for collision resolution ({Module}).", moduleName);

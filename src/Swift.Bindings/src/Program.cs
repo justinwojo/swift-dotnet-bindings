@@ -640,7 +640,8 @@ namespace BindingsGeneration
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: resolution.SwiftInterfacePath,
-                        skipThunkCompilation: skipThunkCompilation);
+                        skipThunkCompilation: skipThunkCompilation,
+                        resolvedArchitecture: resolution.SelectedArchitecture);
                 }
             }
             catch (Exception ex)

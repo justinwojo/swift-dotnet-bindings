@@ -1631,4 +1631,68 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region L. Swift-Unavailable Type Stripping Tests
+
+    public class SwiftUnavailableTypeTests
+    {
+        [Fact]
+        public void Process_CdeclReferencingNSInvocation_IsStripped()
+        {
+            var input = """
+                @_cdecl("SBW_Quick_forwardInvocation")
+                public func SBW_Quick_forwardInvocation(_ self_: UnsafeRawPointer, _ invocation: NSInvocation) {
+                    let obj = Unmanaged<QuickSpec>.fromOpaque(self_).takeUnretainedValue()
+                    obj.forwardInvocation(invocation)
+                }
+
+                @_cdecl("SBW_Quick_getName")
+                public func SBW_Quick_getName(_ self_: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let obj = Unmanaged<QuickSpec>.fromOpaque(self_).takeUnretainedValue()
+                    return SwiftBindingsHelpers.stringToPointer(obj.name)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("NSInvocation", result.CleanedContent);
+            Assert.DoesNotContain("forwardInvocation", result.CleanedContent);
+            // The clean function should be preserved
+            Assert.Contains("SBW_Quick_getName", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_ExtensionReferencingNSInvocation_IsStripped()
+        {
+            var input = """
+                extension QuickSpec {
+                    @objc func forwardInvocation(_ invocation: NSInvocation) {
+                        super.forwardInvocation(invocation)
+                    }
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("NSInvocation", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_BlockWithoutNSInvocation_Preserved()
+        {
+            var input = """
+                @_cdecl("SBW_Quick_getName")
+                public func SBW_Quick_getName(_ self_: UnsafeRawPointer) -> UnsafeMutableRawPointer {
+                    let obj = Unmanaged<QuickSpec>.fromOpaque(self_).takeUnretainedValue()
+                    return SwiftBindingsHelpers.stringToPointer(obj.name)
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("SBW_Quick_getName", result.CleanedContent);
+        }
+    }
+
+    #endregion
+
 }
