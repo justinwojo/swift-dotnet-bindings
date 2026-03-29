@@ -81,24 +81,52 @@ partial class Build
             }
 
             // Run BindingTests regression suite: strict regen + coverage + baselines
-            RunBindingTestsRegression();
+            // Both suites run even if the first fails (matching run-tests.sh behavior
+            // where regression and runtime are separate run_suite calls).
+            Exception? regressionFailure = null;
+            try
+            {
+                RunBindingTestsRegression();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("BindingTests Regression Suite FAILED: {Message}", ex.Message);
+                regressionFailure = ex;
+            }
 
             // Suite 5: Conditional simulator runtime tests (run-tests.sh lines 112-139)
+            Exception? runtimeFailure = null;
             if (!HasXcrun())
             {
                 Log.Information("Skipping BindingTests Runtime Tests (xcrun not available).");
-                return;
             }
-            if (!HasAvailableSimulator())
+            else if (!HasAvailableSimulator())
             {
                 Log.Information("Skipping BindingTests Runtime Tests (no available iPhone simulator found).");
-                return;
+            }
+            else
+            {
+                // Run simulator runtime tests with --skip-regen (bindings already generated
+                // by the regression suite above). Matches:
+                //   run-tests.sh → run-runtime-tests.sh --skip-regen --timeout 90
+                try
+                {
+                    RunRuntimeTestsOnSimulator();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("BindingTests Runtime Tests FAILED: {Message}", ex.Message);
+                    runtimeFailure = ex;
+                }
             }
 
-            // Run simulator runtime tests with --skip-regen (bindings already generated
-            // by the regression suite above). Matches:
-            //   run-tests.sh → run-runtime-tests.sh --skip-regen --timeout 90
-            RunRuntimeTestsOnSimulator();
+            // Report failures after both suites have had a chance to run
+            if (regressionFailure != null && runtimeFailure != null)
+                throw new AggregateException("BindingTests suites failed", regressionFailure, runtimeFailure);
+            if (regressionFailure != null)
+                throw regressionFailure;
+            if (runtimeFailure != null)
+                throw runtimeFailure;
         });
 
     // ============================================================

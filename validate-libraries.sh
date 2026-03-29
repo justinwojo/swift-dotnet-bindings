@@ -10,4 +10,5 @@
 #   --fetch        → --fetch
 #   --serial       → --serial
 #   --jobs N       → --jobs N
-exec nuke validate-libraries "$@"
+cd "$(dirname "$0")"
+exec dotnet nuke validate-libraries "$@"

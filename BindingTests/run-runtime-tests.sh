@@ -41,4 +41,4 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-exec nuke "$TARGET" "${NUKE_ARGS[@]}"
+exec dotnet nuke "$TARGET" "${NUKE_ARGS[@]}"

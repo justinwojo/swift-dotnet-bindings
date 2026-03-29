@@ -5,4 +5,4 @@
 # Translates flags:
 #   --strict → --strict (passed through to Nuke)
 cd "$(dirname "$0")/.."
-exec nuke binding-tests "$@"
+exec dotnet nuke binding-tests "$@"

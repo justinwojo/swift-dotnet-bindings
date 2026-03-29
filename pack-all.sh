@@ -20,4 +20,5 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-exec nuke pack "${ARGS[@]}"
+cd "$(dirname "$0")"
+exec dotnet nuke pack "${ARGS[@]}"
