@@ -2388,7 +2388,7 @@ Concrete session breakdown for the orchestrator. Each session is one worker, one
 - The csproj patching (lines 620-628) replaces `PackageReference` for `SwiftBindings.Runtime` with a local `Reference` to the debug DLL.
 - `write_fallback_csproj` (in `lib.sh` lines 158-196) creates a minimal test csproj when the generator's emitted csproj fails.
 
-### Session 5: BindingTests Pipeline
+### Session 5: BindingTests Pipeline ✅ `be246935`
 
 **Goal:** Port the full BindingTests build pipeline — xcframework through bridge compilation.
 
@@ -2409,7 +2409,7 @@ Concrete session breakdown for the orchestrator. Each session is one worker, one
 - `build-async-wrapper.sh` has a non-trivial post-processing step that strips broken Swift wrapper functions before compilation. Read lines ~80-200 carefully.
 - The bridge build (`build-bridge.sh`) does a smoke-check for expected `@_cdecl` entrypoints before compiling (lines 127-138).
 
-### Session 6: SimCtl + DeviceCtl + Runtime Tests
+### Session 6: SimCtl + DeviceCtl + Runtime Tests ✅ `e919bb77`
 
 **Goal:** Implement simulator/device management and the three runtime test targets.
 

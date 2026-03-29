@@ -34,12 +34,14 @@
         "Compile",
         "CompileCheckBindings",
         "FetchLibraries",
+        "Pack",
         "RegenerateBindings",
         "RuntimeTestsDevice",
         "RuntimeTestsMacOS",
         "RuntimeTestsSimulator",
         "RuntimeUnitTests",
         "SmokeTest",
+        "Test",
         "UnitTests",
         "ValidateLibraries"
       ]

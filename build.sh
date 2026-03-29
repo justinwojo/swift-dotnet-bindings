@@ -1,6 +1,4 @@
-#!/usr/bin/env bash
-set -e
-
-scriptroot="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-dotnet build "$scriptroot/SwiftBindings.sln" "$@"
+#!/bin/bash
+# build.sh — thin wrapper over Nuke (preserved for compatibility)
+# Original script: build.sh.original
+exec nuke compile "$@"
