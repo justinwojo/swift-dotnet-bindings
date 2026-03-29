@@ -76,6 +76,15 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
+      - name: Create and boot iOS Simulator (background)
+        run: |
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID" &
+          echo "Boot started in background"
+
       - name: Build and test bindings (strict + coverage + baselines)
         run: dotnet nuke binding-tests --strict
 
@@ -86,11 +95,16 @@ jobs:
           --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
+      - name: Wait for simulator boot
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
       - name: Run iOS Simulator tests
         timeout-minutes: 20
         run: >
           python3 scripts/ci/ci_ios_test.py
-          --tier 2 --timeout 90 --skip-regen --skip-build
+          --device-udid "$SIM_UDID" --skip-prepare --skip-build
+          --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
       - name: Upload simulator diagnostics
