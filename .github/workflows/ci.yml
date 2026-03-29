@@ -91,7 +91,7 @@ jobs:
         timeout-minutes: 20
         run: >
           python3 scripts/ci/ci_ios_test.py
-          --tier 2 --timeout 90 --skip-regen
+          --tier 2 --timeout 90 --skip-regen --skip-build
           --step-timeout 1140
 
       - name: Upload simulator diagnostics
