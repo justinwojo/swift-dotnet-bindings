@@ -9,11 +9,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- CS1591: Missing XML comment for publicly visible type or member -->
-    <!-- Suppress as error until XML docs are added to all public APIs -->
-    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
     <!-- SB1001: The runtime itself manages ISwiftObject lifetimes; suppress its own analyzer -->
-    <NoWarn>$(NoWarn);SB1001</NoWarn>
+    <!-- CS1591: Missing XML comment for publicly visible type or member — not adding XML docs to all public APIs -->
+    <NoWarn>$(NoWarn);SB1001;CS1591</NoWarn>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Runtime</PackageId>

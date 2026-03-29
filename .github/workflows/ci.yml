@@ -40,6 +40,7 @@ jobs:
           restore-keys: nuget-
 
       - name: Build and run tests
+        timeout-minutes: 10
         run: dotnet nuke test
 
       - name: Upload test results

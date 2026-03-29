@@ -99,10 +99,12 @@ public static class SimCtl
 
     public static void Boot(string udid)
     {
-        ProcessTasks.StartProcess("xcrun", $"simctl boot {udid}")
+        ProcessTasks.StartProcess("xcrun", $"simctl boot {udid}",
+                timeout: 60_000)
             .AssertWaitForExit();
         Log.Information("Waiting for simulator to finish booting...");
-        ProcessTasks.StartProcess("xcrun", $"simctl bootstatus {udid} -b")
+        ProcessTasks.StartProcess("xcrun", $"simctl bootstatus {udid} -b",
+                timeout: 120_000)
             .AssertWaitForExit();
         Log.Information("Simulator booted.");
     }
