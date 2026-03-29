@@ -23,7 +23,7 @@ partial class Build
     // --- Computed validation paths ---
     AbsolutePath GeneratorProject => RootDirectory / "src" / "Swift.Bindings" / "src" / "Swift.Bindings.csproj";
     AbsolutePath RuntimeProject => RootDirectory / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj";
-    AbsolutePath GeneratorDll => RootDirectory / "src" / "Swift.Bindings" / "src" / "bin" / "Debug" / "net10.0" / "Swift.Bindings.dll";
+    AbsolutePath GeneratorDll => RootDirectory / "src" / "Swift.Bindings" / "src" / "bin" / "Debug" / DotNetTfm / "Swift.Bindings.dll";
 
     AbsolutePath GetRuntimeDll(string platform)
     {
@@ -32,13 +32,13 @@ partial class Build
     }
 
     // ============================================================
-    // FetchLibraries target (Session 3)
+    // Fetch target — fetches/builds library xcframeworks
     // ============================================================
 
-    Target FetchLibraries => _ => _
-        .Executes(() => RunFetchLibraries());
+    Target Fetch => _ => _
+        .Executes(() => RunFetch());
 
-    void RunFetchLibraries()
+    void RunFetch()
     {
         var manifest = ValidationManifest.Load(ManifestPath);
         var libraries = manifest.Libraries
@@ -108,17 +108,17 @@ partial class Build
     }
 
     // ============================================================
-    // ValidateLibraries target (Session 4)
+    // Validate target — library validation compile gate
     // ============================================================
 
-    Target ValidateLibraries => _ => _
+    Target Validate => _ => _
         .Executes(async () =>
         {
-            // --- Fetch if requested (invoke FetchLibraries logic directly) ---
-            if (Fetch)
+            // --- Fetch if requested ---
+            if (FetchFirst)
             {
                 Log.Information("=== Fetching libraries ===");
-                RunFetchLibraries();
+                RunFetch();
                 Log.Information("");
             }
 
@@ -171,7 +171,7 @@ partial class Build
                 // Check .libraries/ exists
                 if (!Directory.Exists(LibrariesDir))
                 {
-                    Log.Error(".libraries/ not found. Run first: scripts/fetch-libraries.sh");
+                    Log.Error(".libraries/ not found. Run first: nuke fetch");
                     Assert.Fail(".libraries/ directory not found");
                 }
             }
@@ -208,7 +208,7 @@ partial class Build
                 else if (Filter != null)
                     Log.Warning("No libraries match filter: {Filter}", Filter);
                 else
-                    Log.Error("No libraries available. Run: scripts/fetch-libraries.sh");
+                    Log.Error("No libraries available. Run: nuke fetch");
                 return;
             }
 
@@ -581,9 +581,9 @@ partial class Build
                     Log.Error("REGRESSION: {R}", r);
                     // Extract the target name for diagnostic hint
                     var targetName = r.Split(':')[0].Trim();
-                    Log.Information("  -> Diagnose:  nuke validate-libraries --filter {Name} --verbose", targetName);
+                    Log.Information("  -> Diagnose:  nuke validate --filter {Name} --verbose", targetName);
                     Log.Information("  -> After fix: add unit/integration test reproducing the pattern");
-                    Log.Information("  -> Verify:    nuke validate-libraries");
+                    Log.Information("  -> Verify:    nuke validate");
                     Log.Information("");
                 }
 
@@ -1087,13 +1087,17 @@ partial class Build
         return closures;
     }
 
-    static void ComputeClosure(string fw, Dictionary<string, List<string>> depMap, HashSet<string> seen)
+    static void ComputeClosure(
+        string fw, Dictionary<string, List<string>> depMap,
+        HashSet<string> seen, HashSet<string>? visiting = null)
     {
+        visiting ??= new HashSet<string>(StringComparer.Ordinal);
+        if (!visiting.Add(fw)) return; // Cycle detected — stop recursion
         if (!depMap.TryGetValue(fw, out var deps)) return;
         foreach (var dep in deps)
         {
             if (seen.Add(dep))
-                ComputeClosure(dep, depMap, seen);
+                ComputeClosure(dep, depMap, seen, visiting);
         }
     }
 
@@ -1400,7 +1404,7 @@ $"""
     }
 
     // ============================================================
-    // FetchLibraries helpers (unchanged from Session 3)
+    // Fetch helpers
     // ============================================================
 
     static void ValidateRequiredFields(ValidationLibrary lib)

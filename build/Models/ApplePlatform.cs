@@ -32,7 +32,8 @@ public record ApplePlatform
     public bool HasDeviceSlice => DeviceSdkName != null;
     public bool HasSimulatorPlistVariant => SimulatorPlistVariant != null;
 
-    public string GetTfm() => $"net10.0-{TfmSuffix}";
+    public const string BaseTfm = "net10.0";
+    public string GetTfm() => $"{BaseTfm}-{TfmSuffix}";
 
     public static ApplePlatform IOS { get; } = new()
     {

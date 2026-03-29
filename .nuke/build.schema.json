@@ -33,7 +33,7 @@
         "Clean",
         "Compile",
         "CompileCheckBindings",
-        "FetchLibraries",
+        "Fetch",
         "Pack",
         "RegenerateBindings",
         "RuntimeTestsDevice",
@@ -43,7 +43,7 @@
         "SmokeTest",
         "Test",
         "UnitTests",
-        "ValidateLibraries"
+        "Validate"
       ]
     },
     "Verbosity": {
@@ -125,9 +125,9 @@
           "type": "string",
           "description": "Pre-booted simulator or device UDID"
         },
-        "Fetch": {
+        "FetchFirst": {
           "type": "boolean",
-          "description": "Run fetch-libraries before validation"
+          "description": "Run fetch before validation"
         },
         "Filter": {
           "type": "string",

@@ -210,13 +210,13 @@ BindingTests/output/
 BindingTests/output-macos/
 BindingTests/SwiftBridge/device/
 
-# Fetched library xcframeworks (rebuilt by scripts/fetch-libraries.sh)
+# Fetched library xcframeworks (rebuilt by nuke fetch)
 .libraries/
 
-# Validation build artifacts (fingerprint stamps, rebuilt by validate-libraries.sh)
+# Validation build artifacts (fingerprint stamps, rebuilt by nuke validate)
 .validation-output/
 
-# SDK build artifacts (published generator tooling, rebuilt by build-sdk.sh)
+# SDK build artifacts (published generator tooling, rebuilt by nuke pack)
 src/Swift.Bindings.Sdk/tools/
 src/Swift.Bindings.Sdk/bin/
 

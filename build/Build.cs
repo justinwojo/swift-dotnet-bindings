@@ -16,9 +16,11 @@ partial class Build : NukeBuild
 
     [Solution] readonly Solution Solution = null!;
 
+    // --- Constants ---
+    const string DotNetTfm = "net10.0";
+
     // --- Tool injection ---
     [PathVariable("xcrun")] readonly Tool XcRunTool = null!;
-    [PathVariable("nm")] readonly Tool NmTool = null!;
 
     // --- Parameters ---
     [Parameter("Target Apple platform (ios, macos, tvos)")]
@@ -60,8 +62,8 @@ partial class Build : NukeBuild
     [Parameter("Flake detection mode (run each test 3x)")]
     readonly bool FlakeDetect;
 
-    [Parameter("Run fetch-libraries before validation")]
-    readonly bool Fetch;
+    [Parameter("Run fetch before validation")]
+    readonly bool FetchFirst;
 
     [Parameter("Run sequentially (no parallelism)")]
     readonly bool Serial;

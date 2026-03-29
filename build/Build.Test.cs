@@ -34,6 +34,7 @@ partial class Build
                 .SetProjectFile(SourceDir / "Swift.Bindings" / "tests" / "UnitTests")
                 .EnableNoBuild()
                 .SetConfiguration("Debug")
+                .AddLoggers("trx;LogFileName=unit-tests.trx")
                 .SetProcessAdditionalArguments($"-- RunConfiguration.DotNetHostPath=\"{DotNetHostPath}\""));
         });
 
@@ -45,6 +46,7 @@ partial class Build
                 .SetProjectFile(SourceDir / "Swift.Analyzers.Tests")
                 .EnableNoBuild()
                 .SetConfiguration("Debug")
+                .AddLoggers("trx;LogFileName=analyzer-tests.trx")
                 .SetProcessAdditionalArguments($"-- RunConfiguration.DotNetHostPath=\"{DotNetHostPath}\""));
         });
 
@@ -56,6 +58,7 @@ partial class Build
                 .SetProjectFile(SourceDir / "Swift.Runtime" / "tests")
                 .EnableNoBuild()
                 .SetConfiguration("Debug")
+                .AddLoggers("trx;LogFileName=runtime-lib-tests.trx")
                 .SetProcessAdditionalArguments($"-- RunConfiguration.DotNetHostPath=\"{DotNetHostPath}\""));
         });
 
@@ -166,25 +169,37 @@ partial class Build
     {
         Log.Information("=== Generating Coverage Report ===");
 
-        // generate-coverage-report.sh is an embedded Python script that parses
-        // ABI JSON + binding-report.json to produce coverage-matrix.json.
-        // Rather than reimplementing the Python logic in C#, we invoke the script directly.
-        var scriptPath = BindingTestsDir / "generate-coverage-report.sh";
+        var scriptPath = RootDirectory / "scripts" / "coverage-report.py";
         if (!File.Exists(scriptPath))
         {
-            Log.Warning("generate-coverage-report.sh not found — skipping coverage report generation.");
+            Log.Warning("scripts/coverage-report.py not found — skipping coverage report generation.");
             return;
         }
 
+        // Locate ABI JSON from xcframework
+        string abiJsonArg = "";
+        if (Directory.Exists(BtXcframeworkDir))
+        {
+            var abiJson = Directory.GetFiles(BtXcframeworkDir, "*.abi.json", SearchOption.AllDirectories)
+                .FirstOrDefault();
+            if (abiJson != null)
+                abiJsonArg = $"--abi-json \"{abiJson}\"";
+        }
+
+        var bindingReport = BtOutputDir / "binding-report.json";
+        var bindingReportArg = File.Exists(bindingReport) ? $"--binding-report \"{bindingReport}\"" : "";
+
+        var args = $"\"{scriptPath}\" {abiJsonArg} {bindingReportArg} --output-dir \"{BtOutputDir}\"";
+
         var process = ProcessTasks.StartProcess(
-            "bash", scriptPath,
+            "python3", args,
             workingDirectory: BindingTestsDir);
         process.WaitForExit();
 
         if (process.ExitCode != 0)
             throw new Exception($"Coverage report generation failed (exit code {process.ExitCode})");
 
-        Log.Information("Coverage report generated: {Path}", BindingTestsDir / "output" / "coverage-matrix.json");
+        Log.Information("Coverage report generated: {Path}", BtOutputDir / "coverage-matrix.json");
     }
 
     // ============================================================
@@ -359,7 +374,7 @@ partial class Build
             .SetVerbosity(DotNetVerbosity.quiet));
 
         var appBundle = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-            "net10.0-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
+            $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
 
         if (!Directory.Exists(appBundle))
             throw new Exception("Build failed - app bundle not found");

@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Nuke.Common.IO;
 
@@ -25,6 +27,8 @@ public sealed class VersionScope : IDisposable
             repoRoot / "src" / "Swift.Bindings.Templates" / "Swift.Bindings.Templates.csproj",
             repoRoot / "src" / "Swift.Bindings.Sdk" / "Sdk" / "Sdk.props",
             repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / "ProjectName.csproj",
+            repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / ".template.config" / "template.json",
+            repoRoot / "src" / "Swift.Bindings" / "src" / "Emitter" / "BindingProjectEmitter.cs",
         };
 
         foreach (var file in files)
@@ -34,12 +38,14 @@ public sealed class VersionScope : IDisposable
             _originals[file] = File.ReadAllBytes(file);
         }
 
-        // Apply version stamps (same patterns as pack-all.sh)
+        // Apply version stamps
         StampPackageVersion(files[0], version); // Runtime
         StampPackageVersion(files[1], version); // SDK
         StampPackageVersion(files[2], version); // Templates
         StampSdkProps(files[3], version);       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
         StampTemplateSdk(files[4], version);    // Sdk="SwiftBindings.Sdk/..."
+        StampTemplateJson(files[5], version);   // template.json sdkVersion symbol
+        StampGeneratorDefault(files[6], version); // DefaultSwiftRuntimeVersion constant
     }
 
     public void Dispose()
@@ -87,6 +93,25 @@ public sealed class VersionScope : IDisposable
         content = Regex.Replace(content,
             @"Sdk=""SwiftBindings\.Sdk/[^""]*""",
             $@"Sdk=""SwiftBindings.Sdk/{version}""");
+        File.WriteAllText(file, content);
+    }
+
+    private static void StampTemplateJson(string file, string version)
+    {
+        // Update only the sdkVersion symbol's defaultValue and replaces
+        var node = JsonNode.Parse(File.ReadAllText(file))!;
+        var sdk = node["symbols"]!["sdkVersion"]!;
+        sdk["defaultValue"] = version;
+        sdk["replaces"] = version;
+        File.WriteAllText(file, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    }
+
+    private static void StampGeneratorDefault(string file, string version)
+    {
+        var content = File.ReadAllText(file);
+        content = Regex.Replace(content,
+            @"DefaultSwiftRuntimeVersion\s*=\s*""[^""]*""",
+            $@"DefaultSwiftRuntimeVersion = ""{version}""");
         File.WriteAllText(file, content);
     }
 }

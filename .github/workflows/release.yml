@@ -29,6 +29,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -36,29 +39,8 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build solution
-        run: ./build.sh
-
-      - name: Run unit tests
-        run: >
-          dotnet test src/Swift.Bindings/tests/UnitTests
-          --no-build -c Debug
-          --logger "trx;LogFileName=unit-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run runtime library tests
-        run: >
-          dotnet test src/Swift.Runtime/tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=runtime-lib-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run analyzer tests
-        run: >
-          dotnet test src/Swift.Analyzers.Tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=analyzer-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+      - name: Build and run tests
+        run: dotnet nuke test
 
       - name: Upload test results
         if: always()
@@ -84,6 +66,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -91,29 +76,15 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build and test
-        run: cd BindingTests && ./build-and-test.sh --strict
+      - name: Build and test bindings (strict + coverage + baselines)
+        run: dotnet nuke binding-tests --strict
 
       - name: Generate coverage report
-        run: cd BindingTests && ./generate-coverage-report.sh
-
-      - name: Check baselines
-        run: cd BindingTests && ./check-baselines.sh
-
-      - name: Verify no degraded must-pass features
-        run: |
-          DEGRADED=$(python3 -c "
-          import json
-          with open('BindingTests/output/coverage-matrix.json') as f:
-              data = json.load(f)
-          mp = data.get('summary', {}).get('must_pass', {})
-          print(mp.get('degraded', 0))
-          ")
-          if [ "$DEGRADED" -gt 0 ]; then
-            echo "ERROR: $DEGRADED must-pass feature(s) are degraded."
-            exit 1
-          fi
-          echo "All must-pass features passing."
+        working-directory: BindingTests
+        run: >
+          python3 ../scripts/coverage-report.py
+          --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
+          --binding-report output/binding-report.json
 
       - name: Run iOS Simulator tests
         timeout-minutes: 20
@@ -151,6 +122,9 @@ jobs:
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Restore Nuke tool
+        run: dotnet tool restore
 
       - name: Extract version from branch
         id: version
@@ -201,63 +175,11 @@ jobs:
             echo "All packages available for publishing."
           fi
 
-      - name: Patch version references
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Sdk.props: _SwiftBindingSdkVersion and SwiftRuntimeVersion
-          sed -i '' \
-            "s|<_SwiftBindingSdkVersion>.*</_SwiftBindingSdkVersion>|<_SwiftBindingSdkVersion>${VERSION}</_SwiftBindingSdkVersion>|" \
-            src/Swift.Bindings.Sdk/Sdk/Sdk.props
-          sed -i '' \
-            "s|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">.*</SwiftRuntimeVersion>|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">${VERSION}</SwiftRuntimeVersion>|" \
-            src/Swift.Bindings.Sdk/Sdk/Sdk.props
-
-          # Template ProjectName.csproj: SDK version
-          sed -i '' \
-            "s|Sdk=\"SwiftBindings.Sdk/[^\"]*\"|Sdk=\"SwiftBindings.Sdk/${VERSION}\"|" \
-            src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
-
-          # Template template.json: patch only sdkVersion symbol (not platform/tfm)
-          python3 -c "
-          import json, sys
-          path = 'src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json'
-          with open(path) as f:
-              data = json.load(f)
-          sdk = data['symbols']['sdkVersion']
-          sdk['defaultValue'] = sys.argv[1]
-          sdk['replaces'] = sys.argv[1]
-          with open(path, 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-          " "$VERSION"
-
-          # Generator: DefaultSwiftRuntimeVersion constant
-          sed -i '' \
-            "s|DefaultSwiftRuntimeVersion = \"[^\"]*\"|DefaultSwiftRuntimeVersion = \"${VERSION}\"|" \
-            src/Swift.Bindings/src/Emitter/BindingProjectEmitter.cs
-
-          echo "Patched version references to $VERSION"
-
-      - name: Pack Swift.Runtime
+      - name: Build and pack NuGet packages
         run: >
-          dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
-
-      - name: Publish generator
-        run: >
-          dotnet publish src/Swift.Bindings/src/ -c Release
-          -o src/Swift.Bindings.Sdk/tools/net10.0/any/
-
-      - name: Pack Swift.Bindings.Sdk
-        run: >
-          dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
-
-      - name: Pack Swift.Bindings.Templates
-        run: >
-          dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
+          dotnet nuke pack
+          --version ${{ steps.version.outputs.version }}
+          --output-dir artifacts
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

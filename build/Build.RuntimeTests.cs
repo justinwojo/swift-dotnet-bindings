@@ -90,10 +90,10 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
 
                 var appFrameworks = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-                    "net10.0-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app" / "Frameworks";
+                    $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app" / "Frameworks";
 
                 if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-                    "net10.0-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app"))
+                    $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app"))
                     throw new Exception("Build failed - app bundle not found");
 
                 Log.Information("Build successful.");
@@ -217,7 +217,7 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
 
                 var outputBin = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-                    "net10.0" / "osx-arm64";
+                    DotNetTfm / "osx-arm64";
                 if (!File.Exists(outputBin / "RuntimeTestsApp.Mac"))
                     throw new Exception("Build failed - macOS executable not found");
 
@@ -246,7 +246,7 @@ partial class Build
         var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
 
         var appPath = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
-            "net10.0-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
+            $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
         SimCtl.Install(device.Udid, appPath);
 
         var args = new List<string> { "--platform", "simulator" };

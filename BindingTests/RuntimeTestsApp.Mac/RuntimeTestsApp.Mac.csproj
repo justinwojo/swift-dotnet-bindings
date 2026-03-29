@@ -57,7 +57,7 @@
     <Compile Include="../output-macos/SwiftBindingsTestLib.cs" Condition="Exists('../output-macos/SwiftBindingsTestLib.cs')" />
   </ItemGroup>
 
-  <!-- Native libraries are injected by run-runtime-tests.sh (platform=macos).
+  <!-- Native libraries are injected by Nuke's runtime-tests-macos target.
        NativeReference is not supported for net10.0 console apps.
-       The script copies dylibs from xcframework slices into the output directory. -->
+       The target copies dylibs from xcframework slices into the output directory. -->
 </Project>

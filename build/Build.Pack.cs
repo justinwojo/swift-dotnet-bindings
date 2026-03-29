@@ -45,7 +45,7 @@ partial class Build
             DotNetPublish(s => s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
                 .SetConfiguration("Release")
-                .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / "net10.0" / "any")
+                .SetOutput(SourceDir / "Swift.Bindings.Sdk" / "tools" / DotNetTfm / "any")
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
 
