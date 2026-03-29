@@ -34,6 +34,7 @@ partial class Build
     // ============================================================
 
     Target BuildXcframework => _ => _
+        .After(Clean, Fetch)
         .Executes(() => RunBuildXcframework());
 
     void RunBuildXcframework(ApplePlatform? platformOverride = null, bool? includeDeviceOverride = null)
@@ -409,6 +410,7 @@ partial class Build
 
     Target BuildAsyncWrapper => _ => _
         .DependsOn(RegenerateBindings)
+        .After(CompileCheckBindings)
         .Executes(() => RunBuildAsyncWrapper());
 
     void RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
@@ -562,6 +564,7 @@ partial class Build
 
     Target BuildBridge => _ => _
         .DependsOn(RegenerateBindings)
+        .After(BuildAsyncWrapper)
         .Executes(() => RunBuildBridge());
 
     void RunBuildBridge(string target = "simulator")
@@ -665,12 +668,14 @@ partial class Build
 
     Target BindingTests => _ => _
         .DependsOn(CompileCheckBindings, BuildAsyncWrapper, BuildBridge)
+        .After(Test)
         .Executes(() =>
         {
             ReportBindingTestResults();
         });
 
     Target BindingTestsStrict => _ => _
+        .After(Clean, BindingTests, Validate)
         .Executes(() =>
         {
             ForceStrict = true;

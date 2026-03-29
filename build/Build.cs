@@ -83,6 +83,7 @@ partial class Build : NukeBuild
 
     // --- Core targets ---
     Target Compile => _ => _
+        .After(Clean)
         .Executes(() =>
         {
             DotNetBuild(s => s
@@ -97,6 +98,7 @@ partial class Build : NukeBuild
         });
 
     Target SmokeTest => _ => _
+        .After(Clean, Compile, Pack, RuntimeTestsMacOS)
         .Executes(() =>
         {
             var platform = ResolvedPlatform;

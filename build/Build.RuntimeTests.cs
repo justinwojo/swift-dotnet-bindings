@@ -53,6 +53,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsSimulator => _ => _
+        .After(Clean, BindingTestsStrict)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -119,6 +120,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsDevice => _ => _
+        .After(Clean, RuntimeTestsSimulator)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -188,6 +190,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsMacOS => _ => _
+        .After(Clean, RuntimeTestsDevice, BindingTestsStrict)
         .Executes(() =>
         {
             Log.Information("=========================================");

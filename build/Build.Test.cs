@@ -40,6 +40,7 @@ partial class Build
 
     Target AnalyzerTests => _ => _
         .DependsOn(Compile)
+        .After(UnitTests)
         .Executes(() =>
         {
             DotNetTest(s => s
@@ -52,6 +53,7 @@ partial class Build
 
     Target RuntimeUnitTests => _ => _
         .DependsOn(Compile)
+        .After(AnalyzerTests)
         .Executes(() =>
         {
             DotNetTest(s => s

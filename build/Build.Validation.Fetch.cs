@@ -20,6 +20,7 @@ partial class Build
     // ============================================================
 
     Target Fetch => _ => _
+        .After(Clean, Test)
         .Executes(() => RunFetch());
 
     void RunFetch()

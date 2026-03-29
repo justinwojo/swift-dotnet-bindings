@@ -33,6 +33,7 @@ partial class Build
     // ============================================================
 
     Target Validate => _ => _
+        .After(Clean, Fetch, BindingTests)
         .Executes(async () =>
         {
             // --- Fetch if requested ---
