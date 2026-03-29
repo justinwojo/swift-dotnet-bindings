@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Nuke.Common.Tooling;
 using Serilog;
 
@@ -14,8 +13,6 @@ using Serilog;
 /// </summary>
 public static class SwiftCompiler
 {
-    static readonly Lazy<string> SwiftcPath = new(() => XcRun.FindTool("swiftc"));
-
     /// <summary>
     /// Starts swiftc with the given settings. Does not wait for completion.
     /// </summary>
@@ -25,7 +22,7 @@ public static class SwiftCompiler
         Log.Debug("swiftc {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            SwiftcPath.Value, args,
+            XcRun.FindTool("swiftc"), args,
             workingDirectory: settings.WorkingDirectory);
     }
 
@@ -138,13 +135,6 @@ public class SwiftCompilerSettings
         args.AddRange(_extraArguments);
         args.AddRange(_sourceFiles);
 
-        return string.Join(" ", args.Select(EscapeArgument));
-    }
-
-    private static string EscapeArgument(string arg)
-    {
-        if (arg.Contains(' ') || arg.Contains('"'))
-            return $"\"{arg.Replace("\"", "\\\"")}\"";
-        return arg;
+        return ArgumentEscaper.Join(args);
     }
 }

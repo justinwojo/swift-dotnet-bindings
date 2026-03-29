@@ -58,15 +58,17 @@ partial class Build
         simBuildDir.CreateDirectory();
 
         // --- Build dependency module ---
-        BuildModuleSlice(
-            DepModuleName, platform, sdkPath, simBuildDir, depFrameworkDir,
-            GetDepSourceFiles(), frameworkSearchPaths: null);
+        CompileModuleSlice(
+            DepModuleName, platform.SimulatorTarget, sdkPath,
+            platform.SimulatorModuleSuffix, platform.MinOsVersion, platform.SimulatorPlistPlatform,
+            depFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null);
 
         // --- Build main module ---
         var mainSourceFiles = GetMainSourceFiles();
-        BuildModuleSlice(
-            ModuleName, platform, sdkPath, simBuildDir, frameworkDir,
-            mainSourceFiles, frameworkSearchPaths: new[] { simBuildDir.ToString() });
+        CompileModuleSlice(
+            ModuleName, platform.SimulatorTarget, sdkPath,
+            platform.SimulatorModuleSuffix, platform.MinOsVersion, platform.SimulatorPlistPlatform,
+            frameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { simBuildDir.ToString() });
 
         // --- Extract symbol graph ---
         ExtractSymbolGraph(platform, sdkPath, simBuildDir);
@@ -82,18 +84,23 @@ partial class Build
         Log.Information("xcframeworks: {Main}, {Dep}", BtXcframeworkDir, BtDepXcframeworkDir);
     }
 
-    void BuildModuleSlice(
-        string moduleName, ApplePlatform platform, string sdkPath,
-        string buildDir, string frameworkDir,
-        IReadOnlyList<string> sourceFiles, string[]? frameworkSearchPaths)
+    /// <summary>
+    /// Compiles a single framework slice (simulator or device) for a given module.
+    /// Produces dylib, swiftmodule, swiftinterface, TBD, ABI JSON, and Info.plist.
+    /// </summary>
+    void CompileModuleSlice(
+        string moduleName, string target, string sdkPath,
+        string moduleSuffix, string minOs, string plistPlatform,
+        string frameworkDir, IReadOnlyList<string> sourceFiles, string[]? frameworkSearchPaths)
     {
-        Log.Information("--- Building {Module} ({Platform}) ---", moduleName, platform.Name);
+        Log.Information("--- Building {Module} ({Target}) ---", moduleName, target);
 
         var moduleDir = Path.Combine(frameworkDir, "Modules", $"{moduleName}.swiftmodule");
         Directory.CreateDirectory(moduleDir);
 
+        // Compile
         var settings = new SwiftCompilerSettings()
-            .SetTarget(platform.SimulatorTarget)
+            .SetTarget(target)
             .SetSdk(sdkPath)
             .SetEmitModule()
             .SetEmitLibrary()
@@ -102,22 +109,20 @@ partial class Build
             .SetModuleName(moduleName)
             .SetInstallName($"@rpath/{moduleName}.framework/{moduleName}")
             .SetOutputPath(Path.Combine(frameworkDir, moduleName))
-            .SetModulePath(Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.swiftmodule"))
-            .SetModuleInterfacePath(Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.swiftinterface"))
+            .SetModulePath(Path.Combine(moduleDir, $"{moduleSuffix}.swiftmodule"))
+            .SetModuleInterfacePath(Path.Combine(moduleDir, $"{moduleSuffix}.swiftinterface"))
             .AddSourceFiles(sourceFiles);
 
         if (frameworkSearchPaths != null)
-        {
             foreach (var path in frameworkSearchPaths)
                 settings.AddFrameworkSearchPath(path);
-        }
 
         SwiftCompiler.Execute(settings);
 
         // Copy private swiftinterface (same as public for our purposes)
         File.Copy(
-            Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.swiftinterface"),
-            Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.private.swiftinterface"),
+            Path.Combine(moduleDir, $"{moduleSuffix}.swiftinterface"),
+            Path.Combine(moduleDir, $"{moduleSuffix}.private.swiftinterface"),
             overwrite: true);
 
         // Generate TBD
@@ -127,17 +132,15 @@ partial class Build
 
         // Generate ABI JSON
         var frontendSettings = new SwiftFrontendSettings()
-            .SetSwiftInterfacePath(Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.swiftinterface"))
-            .SetTarget(platform.SimulatorTarget)
+            .SetSwiftInterfacePath(Path.Combine(moduleDir, $"{moduleSuffix}.swiftinterface"))
+            .SetTarget(target)
             .SetModuleName(moduleName)
             .SetSdk(sdkPath)
-            .SetAbiDescriptorPath(Path.Combine(moduleDir, $"{platform.SimulatorModuleSuffix}.abi.json"));
+            .SetAbiDescriptorPath(Path.Combine(moduleDir, $"{moduleSuffix}.abi.json"));
 
         if (frameworkSearchPaths != null)
-        {
             foreach (var path in frameworkSearchPaths)
                 frontendSettings.AddFrameworkSearchPath(path);
-        }
 
         SwiftFrontend.Execute(frontendSettings);
 
@@ -145,7 +148,7 @@ partial class Build
         PlistGenerator.WriteFrameworkPlist(
             Path.Combine(frameworkDir, "Info.plist"),
             $"com.test.{moduleName}", moduleName, moduleName,
-            platform.MinOsVersion, platform.SimulatorPlistPlatform);
+            minOs, plistPlatform);
 
         Log.Information("{Module} built: {Dir}", moduleName, frameworkDir);
     }
@@ -163,85 +166,16 @@ partial class Build
         deviceBuildDir.CreateDirectory();
 
         // Build dependency device slice
-        BuildDeviceModuleSlice(
-            DepModuleName, platform, deviceSdkPath, deviceBuildDir, depDeviceFrameworkDir,
-            GetDepSourceFiles(), frameworkSearchPaths: null);
+        CompileModuleSlice(
+            DepModuleName, platform.DeviceTarget!, deviceSdkPath,
+            platform.DeviceModuleSuffix!, platform.MinOsVersion, platform.DevicePlistPlatform!,
+            depDeviceFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null);
 
         // Build main module device slice
-        BuildDeviceModuleSlice(
-            ModuleName, platform, deviceSdkPath, deviceBuildDir, deviceFrameworkDir,
-            mainSourceFiles, frameworkSearchPaths: new[] { deviceBuildDir.ToString() });
-
-        // TBD and ABI JSON for main device slice
-        Log.Information("=== Generating TBD (device) ===");
-        TapiStubify(
-            deviceFrameworkDir / ModuleName,
-            deviceFrameworkDir / "Modules" / $"{ModuleName}.swiftmodule" / $"{ModuleName}.tbd");
-
-        Log.Information("=== Generating ABI JSON (device) ===");
-        SwiftFrontend.Execute(new SwiftFrontendSettings()
-            .SetSwiftInterfacePath(deviceFrameworkDir / "Modules" / $"{ModuleName}.swiftmodule" / $"{platform.DeviceModuleSuffix}.swiftinterface")
-            .SetTarget(platform.DeviceTarget!)
-            .SetModuleName(ModuleName)
-            .SetSdk(deviceSdkPath)
-            .AddFrameworkSearchPath(deviceBuildDir)
-            .SetAbiDescriptorPath(deviceFrameworkDir / "Modules" / $"{ModuleName}.swiftmodule" / $"{platform.DeviceModuleSuffix}.abi.json"));
-    }
-
-    void BuildDeviceModuleSlice(
-        string moduleName, ApplePlatform platform, string sdkPath,
-        string buildDir, string frameworkDir,
-        IReadOnlyList<string> sourceFiles, string[]? frameworkSearchPaths)
-    {
-        var moduleDir = Path.Combine(frameworkDir, "Modules", $"{moduleName}.swiftmodule");
-        Directory.CreateDirectory(moduleDir);
-
-        var settings = new SwiftCompilerSettings()
-            .SetTarget(platform.DeviceTarget!)
-            .SetSdk(sdkPath)
-            .SetEmitModule()
-            .SetEmitLibrary()
-            .SetEnableLibraryEvolution()
-            .SetEmitModuleInterface()
-            .SetModuleName(moduleName)
-            .SetInstallName($"@rpath/{moduleName}.framework/{moduleName}")
-            .SetOutputPath(Path.Combine(frameworkDir, moduleName))
-            .SetModulePath(Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.swiftmodule"))
-            .SetModuleInterfacePath(Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.swiftinterface"))
-            .AddSourceFiles(sourceFiles);
-
-        if (frameworkSearchPaths != null)
-        {
-            foreach (var path in frameworkSearchPaths)
-                settings.AddFrameworkSearchPath(path);
-        }
-
-        SwiftCompiler.Execute(settings);
-
-        // Copy private swiftinterface
-        File.Copy(
-            Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.swiftinterface"),
-            Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.private.swiftinterface"),
-            overwrite: true);
-
-        // Generate TBD
-        TapiStubify(
-            Path.Combine(frameworkDir, moduleName),
-            Path.Combine(moduleDir, $"{moduleName}.tbd"));
-
-        // Generate ABI JSON
-        SwiftFrontend.Execute(new SwiftFrontendSettings()
-            .SetSwiftInterfacePath(Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.swiftinterface"))
-            .SetTarget(platform.DeviceTarget!)
-            .SetModuleName(moduleName)
-            .SetSdk(sdkPath)
-            .SetAbiDescriptorPath(Path.Combine(moduleDir, $"{platform.DeviceModuleSuffix}.abi.json")));
-
-        // Info.plist
-        PlistGenerator.WriteFrameworkPlist(
-            Path.Combine(frameworkDir, "Info.plist"),
-            $"com.test.{moduleName}", moduleName, moduleName,
-            platform.MinOsVersion, platform.DevicePlistPlatform!);
+        CompileModuleSlice(
+            ModuleName, platform.DeviceTarget!, deviceSdkPath,
+            platform.DeviceModuleSuffix!, platform.MinOsVersion, platform.DevicePlistPlatform!,
+            deviceFrameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { deviceBuildDir.ToString() });
     }
 
     void ExtractSymbolGraph(ApplePlatform platform, string sdkPath, string simBuildDir)

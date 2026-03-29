@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.IO;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.ProjectModel;
@@ -42,7 +43,7 @@ partial class Build : NukeBuild
     readonly string? Version;
 
     [Parameter("NuGet output directory")]
-    readonly string OutputDir = "/tmp/swift-nuget/";
+    readonly string OutputDir = Path.Combine(Path.GetTempPath(), "swift-nuget");
 
     [Parameter("Max parallel validation workers")]
     readonly int Jobs;

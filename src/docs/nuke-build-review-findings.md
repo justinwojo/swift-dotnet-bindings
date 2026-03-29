@@ -106,20 +106,25 @@ Logic is in `Build.Test.cs` `RunCheckBaselines()`. Shell script is dead code.
 
 - [x] **Hardcoded `net10.0` TFM** — Extracted to `Build.DotNetTfm` constant and `ApplePlatform.BaseTfm`. Updated all build files.
 - [x] **No cycle detection in dependency resolution** — Added `visiting` set to `ComputeClosure()` for cycle detection.
-- [ ] **`VersionScope.cs` uses regex for XML** — Fragile to whitespace changes in `.csproj` files. Works today with known inputs but could break silently.
+- [x] **`VersionScope.cs` uses regex for XML** — Rewritten to use `System.Xml.Linq` (`XDocument`) for all XML files (.csproj, .props). Regex retained only for non-XML files (template.json, .cs).
 
 ### Low Priority
 
-- [ ] **`SwiftSourceStripper.cs` brace counting** — Doesn't account for braces in string literals or comments. Low risk since inputs are generated Swift code.
-- [ ] **`PlistGenerator.cs` no XML escaping** — Input params inserted directly. Low risk since inputs are code-generated module names.
-- [ ] **`XcRun.cs` no caching** — SDK paths and tool locations queried repeatedly. Add a `Dictionary<string, string>` cache.
+- [x] **`SwiftSourceStripper.cs` brace counting** — Won't fix. Inputs are generated Swift code (not arbitrary user code), so braces in string literals/comments won't appear. A full parser would add complexity for zero practical risk.
+- [x] **`PlistGenerator.cs` no XML escaping** — Won't fix. Inputs are code-generated module names (alphanumeric only). No injection risk in practice.
+- [x] **`XcRun.cs` no caching** — Added `ConcurrentDictionary` cache for both `GetSdkPath()` and `FindTool()`. Each SDK/tool path is resolved once per build process. Removed per-consumer `Lazy<string>` wrappers from SwiftCompiler, SwiftFrontend, SymbolGraphExtract.
 
 ### Optimizations
 
-- [ ] **Deduplicate wrapper build logic** — `Build.BindingTests.cs` `BuildModuleSlice()` and `BuildDeviceModuleSlice()` are ~95% identical. Extract shared method.
-- [ ] **Deduplicate native artifact injection** — `Build.RuntimeTests.cs` has 4 `Inject*()` methods following the same copy pattern. Extract generic `InjectArtifact()`.
-- [ ] **Centralize `EscapeArgument()`** — `SwiftCompiler`, `SwiftFrontend`, `XcodeBuild`, `SymbolGraphExtract` each have their own copy. Move to shared utility.
-- [ ] **Extract app bundle path constants** — `"net10.0-ios"`, `"iossimulator-arm64"`, etc. appear in 10+ locations.
+- [x] **Deduplicate wrapper build logic** — Merged `BuildModuleSlice()` and `BuildDeviceModuleSlice()` into a single `CompileModuleSlice()` method parameterized by target/suffix/plistPlatform. Also fixed a bug: the old `BuildDeviceModuleSlice` didn't pass framework search paths to the swift-frontend (ABI JSON generation), requiring redundant calls in `BuildDeviceSlices` to compensate. The unified method handles this correctly.
+- [ ] **Deduplicate native artifact injection** — `Build.RuntimeTests.cs` has 4 `Inject*()` methods following the same copy pattern. Low priority — each has slightly different semantics (dylib vs framework, plist generation).
+- [x] **Centralize `EscapeArgument()`** — Extracted to `build/Tools/ArgumentEscaper.cs` with `Escape()` and `Join()` methods. All 4 tool settings classes now use the shared utility.
+- [ ] **Extract app bundle path constants** — Low priority. The `DotNetTfm` constant and `ApplePlatform` model already centralize most of these; remaining string literals are in context-specific code.
+
+### Structural Improvements
+
+- [x] **Split `Build.Validation.cs`** — Extracted fetch logic into `Build.Validation.Fetch.cs` (Fetch target + all fetch helpers: BuildFromSource, ResolveBinary, CheckManual, etc.). Main file reduced from 1,775 to ~1,100 lines.
+- [x] **Replace hardcoded `/tmp/`** — Replaced `/tmp/swift-nuget/` and `/tmp/binding-validation-{branch}` with `Path.GetTempPath()` equivalents.
 
 ---
 

@@ -92,14 +92,7 @@ public class CreateXcframeworkSettings
         foreach (var path in _frameworkPaths) { args.Add("-framework"); args.Add(path); }
         args.Add("-output"); args.Add(OutputPath);
 
-        return string.Join(" ", args.Select(EscapeArgument));
-    }
-
-    private static string EscapeArgument(string arg)
-    {
-        if (arg.Contains(' ') || arg.Contains('"'))
-            return $"\"{arg.Replace("\"", "\\\"")}\"";
-        return arg;
+        return ArgumentEscaper.Join(args);
     }
 }
 
@@ -175,13 +168,6 @@ public class ArchiveBuildSettings
 
         if (Quiet) args.Add("-quiet");
 
-        return string.Join(" ", args.Select(EscapeArgument));
-    }
-
-    private static string EscapeArgument(string arg)
-    {
-        if (arg.Contains(' ') || arg.Contains('"'))
-            return $"\"{arg.Replace("\"", "\\\"")}\"";
-        return arg;
+        return ArgumentEscaper.Join(args);
     }
 }

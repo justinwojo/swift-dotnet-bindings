@@ -129,7 +129,7 @@ jobs:
           restore-keys: nuget-
 
       - name: Pack all NuGet packages
-        run: dotnet nuke pack --version 0.0.0-smoke
+        run: dotnet nuke pack --version 0.0.0-smoke --output-dir /tmp/swift-nuget
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

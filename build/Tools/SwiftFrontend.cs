@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Nuke.Common.Tooling;
 using Serilog;
 
@@ -14,8 +13,6 @@ using Serilog;
 /// </summary>
 public static class SwiftFrontend
 {
-    static readonly Lazy<string> FrontendPath = new(() => XcRun.FindTool("swift-frontend"));
-
     /// <summary>
     /// Starts swift-frontend with the given settings. Does not wait for completion.
     /// </summary>
@@ -25,7 +22,7 @@ public static class SwiftFrontend
         Log.Debug("swift-frontend {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            FrontendPath.Value, args,
+            XcRun.FindTool("swift-frontend"), args,
             workingDirectory: settings.WorkingDirectory);
     }
 
@@ -94,13 +91,6 @@ public class SwiftFrontendSettings
 
         if (AbiDescriptorPath != null) { args.Add("-emit-abi-descriptor-path"); args.Add(AbiDescriptorPath); }
 
-        return string.Join(" ", args.Select(EscapeArgument));
-    }
-
-    private static string EscapeArgument(string arg)
-    {
-        if (arg.Contains(' ') || arg.Contains('"'))
-            return $"\"{arg.Replace("\"", "\\\"")}\"";
-        return arg;
+        return ArgumentEscaper.Join(args);
     }
 }

@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Nuke.Common.Tooling;
 using Serilog;
 
@@ -14,8 +13,6 @@ using Serilog;
 /// </summary>
 public static class SymbolGraphExtract
 {
-    static readonly Lazy<string> ToolPath = new(() => XcRun.FindTool("swift-symbolgraph-extract"));
-
     /// <summary>
     /// Starts swift-symbolgraph-extract. Does not wait for completion.
     /// </summary>
@@ -25,7 +22,7 @@ public static class SymbolGraphExtract
         Log.Debug("swift-symbolgraph-extract {Arguments}", args);
 
         return ProcessTasks.StartProcess(
-            ToolPath.Value, args,
+            XcRun.FindTool("swift-symbolgraph-extract"), args,
             workingDirectory: settings.WorkingDirectory);
     }
 
@@ -92,13 +89,6 @@ public class SymbolGraphExtractSettings
         if (OutputDir != null) { args.Add("-output-dir"); args.Add(OutputDir); }
         if (PrettyPrint) args.Add("-pretty-print");
 
-        return string.Join(" ", args.Select(EscapeArgument));
-    }
-
-    private static string EscapeArgument(string arg)
-    {
-        if (arg.Contains(' ') || arg.Contains('"'))
-            return $"\"{arg.Replace("\"", "\\\"")}\"";
-        return arg;
+        return ArgumentEscaper.Join(args);
     }
 }
