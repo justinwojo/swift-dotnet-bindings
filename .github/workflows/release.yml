@@ -281,20 +281,28 @@ jobs:
           commits = os.environ["COMMITS"]
           api_key = os.environ["XAI_API_KEY"]
           prompt = textwrap.dedent(f"""
-              Generate release notes for v{version} of swift-dotnet-bindings,
+              Write release notes for v{version} of swift-dotnet-bindings,
               a Swift/.NET binding generator that creates C# bindings from compiled
               Swift libraries for .NET on Apple platforms.
 
-              Here are the commits since the last release:
+              Commits since the last release:
 
               {commits}
 
-              Write concise, professional markdown release notes. Format:
-              - First line: TITLE: <short release title, under 70 chars, no version prefix>
-              - Then a blank line, followed by markdown release notes body
-              - Group changes by category (e.g., Bug Fixes, Improvements, Infrastructure)
-              - Use the commit messages as the source of truth - do not invent changes
-              - Keep it factual and brief
+              Structure (in this exact order):
+              1. First line: TITLE: <short release title, under 70 chars, no version prefix>
+              2. A blank line, then 1-2 sentences capturing the theme of this release — what it means for users, not a list of changes. Write this like a human maintainer would, with confidence and personality.
+              3. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters.
+              4. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience", "## Test coverage"). Only include categories that have meaningful content.
+              5. End with a "## Packages" table listing SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates all at version {version}, followed by a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
+
+              Style guidelines:
+              - Write like a knowledgeable maintainer, not a bot. Vary sentence structure. Be direct.
+              - In the highlights, explain impact ("fixes a crash when..." not "fixed crash in X function")
+              - In detail sections, use concise bullet points. Bold the first few words of each bullet as a label.
+              - Do not use filler phrases like "This release includes" or "We are excited to announce"
+              - Use the commit messages as source of truth — do not invent changes
+              - Omit trivial changes (typo fixes, minor refactors) unless they're part of a larger story
           """).strip()
           data = json.dumps({
               "model": "grok-4-1-fast-reasoning",
