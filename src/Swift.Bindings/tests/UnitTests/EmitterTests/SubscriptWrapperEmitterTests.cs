@@ -158,8 +158,9 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmit_NonCopyableStructParent_ReturnsFalse()
+    public void ShouldEmit_NonCopyableStructParent_ReturnsTrue()
     {
+        // Noncopyable types now get @_cdecl wrappers with borrowing pointer semantics
         var (moduleDecl, typeDb) = CreateTestEnvironment("MoveOnly");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -179,7 +180,7 @@ public class SubscriptWrapperEmitterTests
             parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(accessor.Method, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, env));
     }
 
     [Fact]

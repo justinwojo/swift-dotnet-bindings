@@ -200,6 +200,7 @@ public static class MethodWrapperEmitter
         bool isStatic = methodDecl.MethodType == MethodType.Static || parentTypeDecl == null;
         bool isMutating = methodDecl.IsMutating;
         bool throws = methodDecl.Throws;
+        bool isNonCopyableParent = !isClass && !isStatic && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
 
         // Determine return mapping
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
@@ -361,12 +362,13 @@ public static class MethodWrapperEmitter
 
         // Build the call expression
         // For mutating methods, use through-pointer access so mutations write back.
+        // For noncopyable types, use inline borrow to avoid copy (let obj = ...pointee copies).
         string selfRef;
         if (isStatic && parentTypeDecl != null)
             selfRef = moduleQualifiedSwiftName;
         else if (isStatic)
             selfRef = "";  // Free function: no type prefix
-        else if (isMutating && !isClass)
+        else if ((isMutating || isNonCopyableParent) && !isClass)
             selfRef = $"self_.assumingMemoryBound(to: {moduleQualifiedSwiftName}.self).pointee";
         else
             selfRef = "obj";
@@ -449,7 +451,7 @@ public static class MethodWrapperEmitter
             }
             else
             {
-                EmitSelfReconstruction(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName);
+                EmitSelfReconstruction(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName, isNonCopyableParent);
             }
         }
 
@@ -490,11 +492,26 @@ public static class MethodWrapperEmitter
         {
             // Non-frozen struct, complex enum, Optional<value-type>: write to result buffer
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
-            // Protocol existentials (any Protocol1 & Protocol2) need parentheses before .self
-            // to prevent .self from binding to only the last protocol in the composition.
-            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
-            swiftWriter.WriteLine($"let result = {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+
+            // Noncopyable return types: initializeMemory(as:repeating:count:) requires Copyable.
+            // Use assumingMemoryBound(to:).initialize(to:) which takes consuming T instead.
+            bool isNonCopyableReturn = returnTypeSpec is NamedTypeSpec returnNamed &&
+                env.TypeDatabase.TryGetTypeRecord(returnNamed, out var returnRecord) &&
+                returnRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable);
+
+            if (isNonCopyableReturn)
+            {
+                swiftWriter.WriteLine($"let result = {callExpr}");
+                swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: {swiftType}.self).initialize(to: result)");
+            }
+            else
+            {
+                // Protocol existentials (any Protocol1 & Protocol2) need parentheses before .self
+                // to prevent .self from binding to only the last protocol in the composition.
+                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
+                swiftWriter.WriteLine($"let result = {callExpr}");
+                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+            }
         }
         else
         {
@@ -930,9 +947,9 @@ public static class MethodWrapperEmitter
     /// Emits self reconstruction for instance methods.
     /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
-    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedSwiftName)
+    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedSwiftName, bool isNonCopyable = false)
     {
-        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName);
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating, moduleQualifiedSwiftName, isNonCopyable);
     }
 
     /// <summary>
@@ -969,9 +986,24 @@ public static class MethodWrapperEmitter
         else if (needsResultPtr)
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
-            var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
-            swiftWriter.WriteLine($"let result = try {callExpr}");
-            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+
+            // Noncopyable return types: initializeMemory(as:repeating:count:) requires Copyable.
+            // Use assumingMemoryBound(to:).initialize(to:) which takes consuming T instead.
+            bool isNonCopyableReturn = returnTypeSpec is NamedTypeSpec returnNamed &&
+                typeDatabase.TryGetTypeRecord(returnNamed, out var returnRecord) &&
+                returnRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable);
+
+            if (isNonCopyableReturn)
+            {
+                swiftWriter.WriteLine($"let result = try {callExpr}");
+                swiftWriter.WriteLine($"resultPtr.assumingMemoryBound(to: {swiftType}.self).initialize(to: result)");
+            }
+            else
+            {
+                var metatype = swiftType.StartsWith("any ") ? $"({swiftType}).self" : $"{swiftType}.self";
+                swiftWriter.WriteLine($"let result = try {callExpr}");
+                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
+            }
         }
         else
         {

@@ -39,7 +39,6 @@ public class DisposeScopeTests : TestBase
         TestLogger.Info("Scope correctly disposed Animal on exit");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestScopeDisposesMultipleObjects()
     {
         Animal animal;

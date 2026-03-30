@@ -133,7 +133,7 @@ public static class WrapperValidation
     /// 1. xcframework mode (all)
     /// 2. Module internal (Method, Constructor, Property)
     /// 3. SPI protected (Method, Property)
-    /// 4. Non-copyable struct parent (Method, Property, Constructor, Subscript)
+    /// 4. (removed — noncopyable struct parents are now allowed with borrowing pointer semantics)
     /// 5. Async (Method, Constructor — Property/Subscript check differently)
     /// 6. Actor isolation (Method, Property, Subscript)
     /// 7. Inherited generic context (Method, Property, Constructor — checked when parent is generic)
@@ -172,12 +172,9 @@ public static class WrapperValidation
                 return false;
         }
 
-        // 4. Non-copyable struct parent (Method, Property, Constructor, Subscript)
-        if (kind is not MemberKind.Operator)
-        {
-            if (IsNonCopyableStructParent(env.ParentDecl))
-                return false;
-        }
+        // 4. Non-copyable struct parent — ALLOWED. Noncopyable types get @_cdecl wrappers
+        // with borrowing pointer semantics (no .pointee copy). Self is accessed inline through
+        // self_.assumingMemoryBound(to:).pointee which gives a borrow in Swift 6.
 
         // 5. Async (Method, Constructor — Property/Subscript check differently via accessor)
         if (kind is MemberKind.Method or MemberKind.Constructor)
@@ -581,9 +578,7 @@ public static class WrapperValidation
         // Wrapper would pass [T] where T... is expected, causing "cannot pass array" compile error.
         if (env.MethodDecl.HasVariadicParameter)
             return false;
-        // Guard 11: Not non-copyable struct parent
-        if (IsNonCopyableStructParent(env.ParentDecl))
-            return false;
+        // Guard 11: (removed — noncopyable struct parents now use borrowing pointer semantics)
         // Guards 15-15d: Return type checks
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
         // Opaque returns (some Protocol): ALLOWED — @_cdecl wrapper boxes into existential.
@@ -799,9 +794,7 @@ public static class WrapperValidation
                 return "closure_params";
         }
 
-        // 11. Non-copyable struct guards
-        if (IsNonCopyableStructParent(env.ParentDecl))
-            return "non_copyable_struct";
+        // 11. (removed — noncopyable struct parents now use borrowing pointer semantics)
 
         // 11b. No inout parameters
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))

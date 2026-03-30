@@ -190,7 +190,6 @@ public class NegativePathTests : TestBase
         TestLogger.Info("MutableProps.Name set after dispose correctly throws");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestDisposedResourceConsumeAfterDispose()
     {
         var resource = TestLibFunctions.CreateUniqueResource(10);

@@ -34,7 +34,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("Create-use-release cycle completed without crash");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceCreateUseRelease()
     {
         // UniqueResource via factory
@@ -51,7 +50,6 @@ public class OwnershipGCStressTests : TestBase
         TestLogger.Info("UniqueResource create-use-release completed");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceConstructorLifecycle()
     {
         // UniqueResource via public constructor

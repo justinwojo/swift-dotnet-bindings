@@ -499,11 +499,11 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NonCopyableStruct_ReturnsFalse()
+    public void ShouldEmitWrapper_NonCopyableStruct_ReturnsTrue()
     {
         // ~Copyable types list Escapable WITHOUT Copyable in their conformances.
-        // Defense-in-depth guard: skip non-copyable types even though assumingMemoryBound.initialize
-        // is ~Copyable-safe, because non-copyable types may have other ABI constraints.
+        // Noncopyable types now get @_cdecl wrappers — constructors use
+        // assumingMemoryBound(to:).initialize(to:) which takes consuming T.
         var (moduleDecl, typeDb) = CreateTestEnvironment("UniqueResource");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -518,7 +518,7 @@ public class ConstructorWrapperEmitterTests
         var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

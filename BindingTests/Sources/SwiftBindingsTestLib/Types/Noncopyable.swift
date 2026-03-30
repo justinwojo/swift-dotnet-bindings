@@ -5,8 +5,8 @@ import Foundation
 
 // MARK: - Noncopyable Types (Swift 6.0)
 // Tests: ~Copyable structs, consuming/borrowing ownership modifiers, deinit
-// Expected C#: Move semantics instead of copy/ARC; different value witness table
-// Limitation: Noncopyable types are not yet supported by the generator
+// Expected C#: Class wrapper with SafeHandle; borrowing pointer semantics in @_cdecl wrappers
+// The generator emits inline UnsafePointer<T>.pointee borrows (no let binding = no copy)
 
 /// A noncopyable resource with unique ownership semantics.
 ///

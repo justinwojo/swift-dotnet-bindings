@@ -718,6 +718,56 @@ namespace BindingsGeneration.Tests
             Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
+        [Fact]
+        public void ShouldEmitThunk_BoundGenericStructReturn_ReturnsFalse()
+        {
+            // A non-generic function returning a bound generic struct (e.g., Pair<CoordinateRef, LabelRef>)
+            // must not be thunked. The return ABI for generic structs differs between swiftcall
+            // (always indirect result via x8) and cdecl (register return for ≤16B structs).
+            // The thunk's tail call can't adapt between these conventions.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.Pair", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "Pair"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.Pair"),
+                MetadataAccessor = "$s4Test4PairVMa",
+                Flags = TypeRecordFlags.None, // non-frozen generic struct
+                InlineSize = 16,
+            });
+            db.AddType("Test.CoordinateRef", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "CoordinateRef"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.CoordinateRef"),
+                MetadataAccessor = "$s4Test13CoordinateRefCMa",
+                Flags = TypeRecordFlags.None,
+            });
+            db.AddType("Test.LabelRef", new TypeRecord
+            {
+                Kind = TypeRecordKind.Class,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "LabelRef"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.LabelRef"),
+                MetadataAccessor = "$s4Test8LabelRefCMa",
+                Flags = TypeRecordFlags.None,
+            });
+
+            var parentDecl = CreateClassDecl();
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: parentDecl);
+            // Return type: Pair<CoordinateRef, LabelRef> — bound generic with concrete type args
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec("Test.Pair",
+                    new NamedTypeSpec("Test.CoordinateRef"),
+                    new NamedTypeSpec("Test.LabelRef")), ""),
+                MakeArg(new NamedTypeSpec("Test.CoordinateRef"), "coord"),
+                MakeArg(new NamedTypeSpec("Test.LabelRef"), "label"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
         #endregion
 
         #region GetThunkSymbol

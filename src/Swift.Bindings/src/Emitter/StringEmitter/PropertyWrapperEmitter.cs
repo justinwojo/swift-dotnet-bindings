@@ -139,8 +139,7 @@ public static class PropertyWrapperEmitter
             return "async_property";
         if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
             return "actor_type_property";
-        if (WrapperValidation.IsNonCopyableStructParent(accessorEnv.ParentDecl))
-            return "non_copyable_struct_parent";
+        // Noncopyable struct parents are now allowed (borrowing pointer semantics)
         // Nested types are now allowed — see guard 8 comment in ShouldEmitWrapper()
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return "unsupported_generic_container";
@@ -191,6 +190,7 @@ public static class PropertyWrapperEmitter
         bool isClass = env.ParentDecl is ClassDecl;
         bool isStatic = propertyDecl.IsStatic;
         bool isString = WitnessDispatchEmitter.IsStringType(propertyDecl.SwiftTypeSpec);
+        bool isNonCopyableParent = !isClass && !isStatic && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
 
         // Ensure SBW_Utf8Slice infrastructure is emitted for string properties
         if (isString)
@@ -318,12 +318,19 @@ public static class PropertyWrapperEmitter
             }
             else
             {
-                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: false);
+                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: false, isNonCopyableParent);
             }
         }
 
         // Get property value
-        string propAccess = isStatic ? $"{moduleQualifiedName}.{propertyDecl.Name}" : $"obj.{propertyDecl.Name}";
+        // For noncopyable types, use inline pointer borrow instead of obj (no let binding = no copy)
+        string propAccess;
+        if (isStatic)
+            propAccess = $"{moduleQualifiedName}.{propertyDecl.Name}";
+        else if (isNonCopyableParent)
+            propAccess = $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee.{propertyDecl.Name}";
+        else
+            propAccess = $"obj.{propertyDecl.Name}";
 
         // Emit return based on type category
         if (isString)
@@ -611,9 +618,9 @@ public static class PropertyWrapperEmitter
     /// Emits the self reconstruction line for the getter/setter body.
     /// Delegates to <see cref="SelfReconstructionEmitter.Emit"/>.
     /// </summary>
-    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isMutable)
+    private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isMutable, bool isNonCopyable = false)
     {
-        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName);
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName, isNonCopyable);
     }
 
     /// <summary>

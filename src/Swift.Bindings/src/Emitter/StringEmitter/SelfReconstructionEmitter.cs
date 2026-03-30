@@ -7,10 +7,12 @@ namespace BindingsGeneration;
 /// Shared utility for emitting Swift self-reconstruction patterns in @_cdecl wrappers.
 /// Converts C# pointers back to Swift objects at the start of wrapper function bodies.
 ///
-/// Three patterns:
+/// Four patterns:
 /// - Class: <c>let obj = Unmanaged&lt;ClassName&gt;.fromOpaque(self_).takeUnretainedValue()</c>
 /// - Struct (immutable): <c>let obj = self_.assumingMemoryBound(to: ClassName.self).pointee</c>
 /// - Struct (mutating): no variable emitted — caller uses through-pointer access directly
+/// - Struct (noncopyable): no variable emitted — caller uses inline <c>self_.assumingMemoryBound(to:).pointee</c>
+///   borrow without copying (let binding would require a copy, which ~Copyable types reject)
 /// - Protocol cast: <c>let/var obj = Unmanaged&lt;AnyObject&gt;.fromOpaque(self_).takeUnretainedValue() as! any {protocol}</c>
 ///
 /// Used by PropertyWrapperEmitter, MethodWrapperEmitter, SubscriptWrapperEmitter,
@@ -23,12 +25,14 @@ public static class SelfReconstructionEmitter
     /// For classes: emits Unmanaged.fromOpaque().takeUnretainedValue().
     /// For structs (non-mutating): emits assumingMemoryBound().pointee with <c>let</c>.
     /// For structs (mutating): emits nothing — caller uses through-pointer access directly.
+    /// For structs (noncopyable): emits nothing — caller uses inline borrow without copying.
     /// </summary>
     /// <param name="swiftWriter">The Swift writer to emit to.</param>
     /// <param name="isClass">Whether the parent type is a class.</param>
     /// <param name="isMutating">Whether the method is mutating (structs only).</param>
     /// <param name="moduleQualifiedName">The module-qualified Swift type name.</param>
-    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName)
+    /// <param name="isNonCopyable">Whether the parent type is noncopyable (~Copyable).</param>
+    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName, bool isNonCopyable = false)
     {
         if (isClass)
         {
@@ -38,6 +42,12 @@ public static class SelfReconstructionEmitter
         {
             // Mutating method: use through-pointer access (self_.assumingMemoryBound(...).pointee)
             // so mutations write back. No separate obj variable needed — callExpr uses pointer directly.
+        }
+        else if (isNonCopyable)
+        {
+            // Noncopyable struct: use inline self_.assumingMemoryBound(to:).pointee borrow.
+            // let obj = ...pointee would copy the value, which ~Copyable types reject.
+            // The caller's selfRef/propAccess uses the inline expression directly.
         }
         else
         {

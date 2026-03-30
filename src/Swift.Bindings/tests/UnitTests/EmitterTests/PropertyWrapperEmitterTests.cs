@@ -240,8 +240,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NonCopyableStructParent_ReturnsFalse()
+    public void ShouldEmitWrapper_NonCopyableStructParent_ReturnsTrue()
     {
+        // Noncopyable types now get @_cdecl wrappers with borrowing pointer semantics
         var (moduleDecl, typeDb) = CreateTestEnvironment("MoveOnly");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -255,7 +256,7 @@ public class PropertyWrapperEmitterTests
         };
         var (propertyDecl, env) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]

@@ -524,9 +524,17 @@ public static class NativeThunkEmitter
         if (record.Kind == TypeRecordKind.Class)
             return false;
 
-        // Non-frozen structs are always indirect — both ABIs agree, no bridge needed
+        // Non-frozen structs are always indirect — both ABIs agree, no bridge needed.
+        // Exception: bound generic non-frozen structs (e.g., Pair<A, B>) need bridging
+        // because MethodRequiresIndirectResult returns false for them during ShouldEmitThunk
+        // evaluation (UsesCdecl flags not set yet), so the cdecl P/Invoke won't set up x8
+        // for indirect result. Fall back to @_cdecl wrapper which handles the buffer.
         if (record.Kind == TypeRecordKind.Struct && !record.Flags.HasFlag(TypeRecordFlags.Frozen))
+        {
+            if (returnSpec is NamedTypeSpec { ContainsGenericParameters: true })
+                return true;
             return false;
+        }
 
         // Frozen simple enums return in a single register — safe for tail call.
         // Non-frozen simple enums are returned indirectly (resilient ABI), so they

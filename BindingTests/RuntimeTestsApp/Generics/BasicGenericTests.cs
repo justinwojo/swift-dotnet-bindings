@@ -296,12 +296,14 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("Method-level generic free function with 2 type params: crashes Mono JIT (sim) and NativeAOT SIGSEGV (device). Needs dedicated wrapper pattern for multi-param generics.")]
+    [Skip("Upstream issue #4: multi-type-parameter generic SIGSEGV. CallConvSwift with 2+ type metadata params crashes on both Mono and NativeAOT. No @_cdecl wrapper possible for method-level generics.")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);
         var b = new SummableInt32(value: 20);
+#pragma warning disable CS0618 // [Obsolete] — CallConvSwift fallback for method-level generics
         var pair = TestLibFunctions.Pair(a, b);
+#pragma warning restore CS0618
         AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
         AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");
         TestLogger.Info($"GetPair(10, 20) = ({pair.Item1.Value}, {pair.Item2.Value})");

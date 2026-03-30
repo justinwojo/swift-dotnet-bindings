@@ -306,6 +306,19 @@ public static class CdeclParamMapper
         // Classes: receive as UnsafeMutableRawPointer, reconstruct via Unmanaged
         if (env.TypeDatabase.TryGetTypeRecord(swiftTypeSpec, out var typeRecord))
         {
+            // Non-copyable structs (~Copyable): pass as pointer, use inline borrow without copy.
+            // let xVal = ptr.assumingMemoryBound(to: T.self).pointee creates a copy which
+            // noncopyable types reject. Instead, pass the inline borrow expression as the call arg.
+            // UnsafePointer<T: ~Copyable>.pointee gives a borrow in Swift 6 — safe for passing
+            // to functions that take borrowing parameters.
+            if (typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+            {
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+                return ($"_ {label}: UnsafeRawPointer",
+                        null,  // no reconstruction — inline borrow avoids copy
+                        $"{argLabel}{label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+            }
+
             if (typeRecord.Kind == TypeRecordKind.Class ||
                 MarshallingHelpers.IsObjCBridged(typeRecord) ||
                 MarshallingHelpers.IsObjCRooted(typeRecord))

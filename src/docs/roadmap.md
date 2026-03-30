@@ -84,32 +84,31 @@ Additional fixes from code review: ARC leak in buffer return paths (`load(as:)` 
 | Opaque return type marshalling | 1 | `WrapperStrippingTests`: TestMixedEmittabilityOpaqueReturn — the @_cdecl wrapper already correctly boxes `some CustomStringConvertible` to `any Protocol` existential container; C# reads `ExistentialContainer1` and returns as `object`. Skip was premature — removed |
 | Protocol conformance via generic dispatch | 1 | `LifetimeTrackingTests`: TestOwnableProtocolConformance — `some Ownable` is ABI sugar for `<T: Ownable>`; generated C# generic with `CallConvSwift` + type metadata + protocol witness table dispatch works correctly. Filled in empty test body |
 
-### Session 7: String Callback Fixes
+### ~~Session 7: String Callback Fixes~~ ✅ Complete (f8f04b7)
 
-**Target**: 4 skipped tests
-**Focus**: Fix string callback marshalling. These are labeled "Mono JIT" in skip reasons but **are almost certainly generator bugs** — investigate the generated C#/Swift wrapper signatures first.
+**Result**: 6/4 skipped tests now passing (4 target + 2 deferred from Session 3). Zero validation regressions. 1229 pass / 0 fail / 31 skip.
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| String callback marshalling | 4 | `ClosureTests`: TestClosureWithOptionalStringReturn, TestClosureWithStringArrayReturn, TestLogRouterSetHandler/ClearHandler — currently blamed on Mono JIT async assertion + NativeAOT metadata resolution, but jit-info.c assertions are always secondary symptoms of our bugs. Investigate wrapper signatures. |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Optional/Array String closure indirect return | 2 | `SwiftOptional<SwiftString>`/`SwiftArray<SwiftString>` marshalling instead of `TypeMetadata.GetTypeMetadataOrThrow<string?>` which fails (System.String has no Swift metadata) |
+| Closure callback String params | 2 | `MarshalFromSwift<SwiftString>().ToString()` instead of `MarshalFromSwift<string>` which fails |
+| Protocol receiver String params | 2 | Runtime `SwiftMarshal.MarshalFromSwift` for String params instead of `Unsafe.Read` which can't construct managed types from raw memory (also fixed Session 3 deferred tests) |
 
-### Session 8: Noncopyable Type Wrapper Generation
+### ~~Session 8: Noncopyable Type Wrapper Generation~~ ✅ Complete (9fec151)
 
-**Target**: 11 skipped tests
-**Focus**: Fix `@_cdecl` wrapper generation for `~Copyable` types. The wrappers are stripped during Swift compilation because they emit `.pointee` copy semantics that `~Copyable` types reject. This is a generator bug, not a Swift language limitation.
+**Result**: 11/11 skipped tests now passing. Zero validation regressions. 1241 pass / 0 fail.
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| UniqueResource wrapper stripping | 11 | `ClassMarshallingTests` (2), `OwnershipTests` (4), `OwnershipGCStressTests` (2), `DisposeScopeTests` (1), `NegativePathTests` (1) — wrapper emitter generates `.pointee` copy for `~Copyable` types; needs `consuming`/`borrowing` parameter semantics instead |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Noncopyable inline borrow semantics | 11 | Replaced `.pointee` copy with inline `assumingMemoryBound(to:).pointee` borrow for self, params, properties, subscripts, and returns. Removed noncopyable rejection gates from `WrapperValidation`, `SelfReconstructionEmitter`, `CdeclParamMapper`. Both non-throwing and throwing return paths fixed. |
 
-### Session 9: Async Device Crash Investigation
+### ~~Session 9: Async Device Crash Investigation~~ ✅ Complete (c37400bb)
 
-**Target**: 9 `[SkipOnDevice]` tests
-**Focus**: Investigate async P/Invoke crashes on device. These are labeled "NativeAOT SIGBUS" but **must be investigated as our bugs first**. Only confirmed upstream issue #5 (Mono SafeHandle async lifetime) is even close, and that was never independently reproduced. Check generated signatures, calling conventions, and parameter counts before blaming the runtime.
+**Result**: 9/9 `[SkipOnDevice]` tests unskipped. Confirmed as generator bug, not upstream. Zero validation regressions. 1241 pass / 0 fail (device tests need on-device verification).
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| Async factory method device crashes | 9 | `AsyncFactoryMethodTests`: TestLoadAnimationFromFile/Data/Url/EmptyPath/InvalidUrl/NonHttpUrl, TestLoadBundleFromFile/EmptyPath, TestBundleAnimationByIndex — investigate wrapper signatures and SafeHandle marshalling; likely generator bugs in async return path |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Async optional class return marshalling | 9 | Async wrapper missing conditional retain + null-check for optional class returns. NativeAOT SIGBUS was caused by retaining nil pointer. Not upstream issue #5. |
 
 ### Session 10: Generic Edge Cases
 

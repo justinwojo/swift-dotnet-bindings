@@ -139,8 +139,7 @@ public static class SubscriptWrapperEmitter
         }
         if (accessor.Method.IsAsync)
             return "async_accessor";
-        if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl))
-            return "non_copyable_struct_parent";
+        // Noncopyable struct parents are now allowed (borrowing pointer semantics)
         if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated))
             return "actor_type_subscript";
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
@@ -220,6 +219,7 @@ public static class SubscriptWrapperEmitter
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
         bool isClass = env.ParentDecl is ClassDecl;
         bool isString = WitnessDispatchEmitter.IsStringType(subscriptDecl.ReturnTypeSpec);
+        bool isNonCopyableParent = !isClass && WrapperValidation.IsNonCopyableStructParent(env.ParentDecl);
 
         // Determine return mapping
         var (returnMapping, needsResultPtr) = isString
@@ -297,7 +297,11 @@ public static class SubscriptWrapperEmitter
         var swiftFuncName = $"_sbw_subget_{EmitterUtility.DeterministicHash8(symbolName)}";
 
         // Build bracket access expression
-        var subscriptAccess = BuildSubscriptAccessExpr("obj", callArgs);
+        // For noncopyable types, use inline pointer borrow instead of obj
+        var selfExpr = isNonCopyableParent
+            ? $"self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee"
+            : "obj";
+        var subscriptAccess = BuildSubscriptAccessExpr(selfExpr, callArgs);
 
         // For generic parent class types, emit protocol + conformance for type erasure
         string? protocolName = null;
@@ -337,12 +341,12 @@ public static class SubscriptWrapperEmitter
         foreach (var line in reconstructionLines)
             swiftWriter.WriteLine(line);
 
-        // Reconstruct self
+        // Reconstruct self (skip for noncopyable — inline pointer borrow used in subscriptAccess)
         if (isGenericParent && protocolName != null)
         {
             SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
         }
-        else
+        else if (!isNonCopyableParent)
         {
             EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName);
         }

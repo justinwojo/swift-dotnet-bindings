@@ -176,12 +176,12 @@ namespace BindingsGeneration
             if (returnTypeForCdecl.SwiftTypeSpec is ClosureTypeSpec)
                 return true;
 
-            // Bound generic collection returns (Array, Dictionary, Set): @_cdecl can't return
-            // generics directly. Swift wrapper writes to resultPtr via initializeMemory(as:).
-            // Exception: ObjC-bridgeable containers (e.g., [URL]) return as retained ObjC pointer directly.
+            // Bound generic returns requiring marshalling: @_cdecl can't return generics directly.
+            // Swift wrapper writes to resultPtr via initializeMemory(as:).
+            // Exceptions: Optional (handled above), ObjC-bridgeable containers (retained pointer).
             if (env.BoundGenericsHandler.IsBoundGeneric(returnTypeForCdecl) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnTypeForCdecl) &&
-                MethodWrapperEmitter.IsSupportedCollectionType(returnTypeForCdecl.SwiftTypeSpec) &&
+                !MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
                 !CdeclParamMapper.IsObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 

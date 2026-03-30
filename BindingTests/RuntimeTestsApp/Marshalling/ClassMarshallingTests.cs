@@ -93,7 +93,6 @@ public class ClassMarshallingTests : TestBase
 
     #region UniqueResource (via public constructor)
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestUniqueResourceCreation()
     {
         var resource = TestLibFunctions.CreateUniqueResource(42);
@@ -113,7 +112,6 @@ public class ClassMarshallingTests : TestBase
         TestLogger.Info($"UniqueResource constructor with Id={id}");
     }
 
-    [Skip("UniqueResource is ~Copyable: @_cdecl wrapper stripped during compilation")]
     public void TestBorrowResource()
     {
         var resource = TestLibFunctions.CreateUniqueResource(7);

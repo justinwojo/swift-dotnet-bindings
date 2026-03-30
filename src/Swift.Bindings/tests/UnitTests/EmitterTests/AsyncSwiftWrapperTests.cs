@@ -219,6 +219,68 @@ public class AsyncSwiftWrapperTests
 
     #endregion
 
+    #region Optional Class Async Return Tests
+
+    [Fact]
+    public void AsyncWrapper_OptionalClassReturnType_UsesConditionalRetainOnSwiftSide()
+    {
+        // Optional<ClassType> must unwrap the optional and retain if .some, store zero if .none.
+        // Previously, the emitter used copyMemory (struct/enum path) which doesn't retain,
+        // causing use-after-free when Swift's Task scope ends.
+        var (_, swiftOutput) = GenerateAsyncMethodWithOptionalClassReturn(
+            innerTypeName: "TestModule.ImageResult");
+
+        // Should use if-let unwrap + Unmanaged.passRetained (retain .some value)
+        Assert.Contains("if let _unwrapped =", swiftOutput);
+        Assert.Contains("Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()", swiftOutput);
+
+        // Should store zero for .none case
+        Assert.Contains("storeBytes(of: 0, as: Int.self)", swiftOutput);
+
+        // Should allocate pointer-sized buffer (not Optional<Class>.size)
+        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+
+        // Should NOT use copyMemory (that's for struct/enum, no ARC retain)
+        Assert.DoesNotContain("copyMemory", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_OptionalClassReturnType_NullCheckOnCSharpSide()
+    {
+        // C# callback must dereference the buffer to get the retained object pointer,
+        // then check for IntPtr.Zero (Swift nil) before MarshalFromSwift.
+        var (csOutput, _) = GenerateAsyncMethodWithOptionalClassReturn(
+            innerTypeName: "TestModule.ImageResult");
+
+        // Should read object pointer from buffer (same as non-optional class)
+        Assert.Contains("_retainedObjPtr = *(IntPtr*)resultPtr", csOutput);
+
+        // Should check for null (IntPtr.Zero = Swift nil)
+        Assert.Contains("_retainedObjPtr != IntPtr.Zero", csOutput);
+
+        // Should use MarshalFromSwift for non-null case
+        Assert.Contains("MarshalFromSwift<", csOutput);
+
+        // Should free the carrier buffer
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_OptionalClassReturnType_AllocatesPointerSizedBuffer()
+    {
+        // Optional class buffer holds a retained pointer (or zero for nil), not the Optional layout.
+        var (_, swiftOutput) = GenerateAsyncMethodWithOptionalClassReturn(
+            innerTypeName: "TestModule.ImageResult");
+
+        // Should use pointer-sized allocation
+        Assert.Contains("MemoryLayout<UnsafeMutableRawPointer>.size", swiftOutput);
+
+        // Should NOT use Optional<T>.size (that's the wrong layout for nullable pointer ABI)
+        Assert.DoesNotContain("MemoryLayout<Swift.Optional<TestModule.ImageResult>>.size", swiftOutput);
+    }
+
+    #endregion
+
     #region ObjC-Bridged Async Callback Tests
 
     [Fact]
@@ -1875,6 +1937,135 @@ public class AsyncSwiftWrapperTests
         handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
 
         return csStringWriter.ToString();
+    }
+
+    #endregion
+
+    #region Optional Class Async Return Helpers
+
+    /// <summary>
+    /// Generates output for an async method returning Optional&lt;ClassType&gt;.
+    /// Tests that optional class returns use nullable pointer ABI (retain + null check)
+    /// instead of raw copyMemory.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithOptionalClassReturn(
+        string innerTypeName)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "Pipeline",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pipeline"),
+            MangledName = "$s10TestModule8PipelineCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+        parentDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            IsStatic = true,
+            HasStorage = true,
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.Pipeline"),
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        });
+        moduleDecl.Types.Add(parentDecl);
+
+        // Return type: Optional<ClassType>
+        var innerTypeSpec = new NamedTypeSpec(innerTypeName);
+        var optionalTypeSpec = new NamedTypeSpec("Swift.Optional", innerTypeSpec);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = optionalTypeSpec,
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetchResult",
+            MangledName = $"$s10TestModule8PipelineC11fetchResult_tYaKF",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+
+        module.RegisterType(
+            parentDecl.SwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Pipeline"),
+                SwiftTypeName = parentDecl.SwiftTypeName,
+                MetadataAccessor = "$s10TestModule8PipelineCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+
+        // Register the inner class type
+        var innerSwiftTypeName = SwiftTypeName.FromModuleQualifiedName(innerTypeName);
+        module.RegisterType(
+            innerSwiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", innerTypeName.Split('.').Last()),
+                SwiftTypeName = innerSwiftTypeName,
+                MetadataAccessor = $"$s10TestModule{innerTypeName.Split('.').Last()}CMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
 
     #endregion

@@ -560,6 +560,12 @@ namespace BindingsGeneration
                     bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class
                                        || returnTypeSpec.IsDynamicSelf;
 
+                    // Optional<ClassType>: unwrap optional, retain if .some, store nil if .none.
+                    // Uses the same nullable pointer ABI as sync @_cdecl wrappers (OptionalClassPointer).
+                    // Must check AFTER isClassType since isClassType handles non-optional classes.
+                    bool isOptionalClassType = !isClassType &&
+                        CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeSpec, _env.TypeDatabase);
+
                     // Determine whether C#'s NewFromPayload takes ownership of the buffer
                     // (non-frozen structs/enums projected as C# classes with SwiftSafeHandle).
                     // When NewFromPayload takes ownership, we must use initializeMemory to properly
@@ -623,7 +629,19 @@ namespace BindingsGeneration
                               $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
                               $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
                               $"                            _rawPtr.storeBytes(of: Unmanaged.passRetained({resultVar} as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n"
-                            : structEnumCopyCode) +
+                            : isOptionalClassType
+                              ? // Optional<ClassType>: unwrap, retain if .some, store zero (nil) if .none.
+                                // Matches sync @_cdecl pattern: result.map { Unmanaged.passRetained($0).toOpaque() }
+                                // C# reads pointer from buffer, checks for IntPtr.Zero (nil), then MarshalFromSwift.
+                                $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                                $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
+                                $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
+                                $"                            if let _unwrapped = {resultVar} {{\n" +
+                                $"                                _rawPtr.storeBytes(of: Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n" +
+                                $"                            }} else {{\n" +
+                                $"                                _rawPtr.storeBytes(of: 0, as: Int.self)\n" +
+                                $"                            }}\n"
+                              : structEnumCopyCode) +
                         $"                            _resultPtr = OpaquePointer(_rawPtr)\n" +
                         $"                        }}";
                 }
@@ -1005,19 +1023,23 @@ namespace BindingsGeneration
             {
                 _env.TypeDatabase.TryGetTypeRecord(returnType.SwiftTypeSpec, out var complexTypeRecord);
                 bool isClassType = complexTypeRecord?.Kind == TypeRecordKind.Class;
+                // Optional<ClassType>: uses nullable pointer ABI — same buffer layout as class
+                // (retained pointer or zero for nil) but needs null check on C# side.
+                bool isOptionalClassType = !isClassType &&
+                    CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase);
                 // ObjCBridged requires class type — the GetNSObject path reads _retainedObjPtr
                 // which is only declared when isClassType is true
                 bool isComplexObjCBridged = isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord);
                 // Non-frozen structs/enums with memory management: NewFromPayload takes ownership → no SBW_Free.
                 // All other types (frozen, classes, collections): NewFromPayload copies → SBW_Free needed.
                 bool cbTakesOwnership = false;
-                if (!isClassType && complexTypeRecord != null)
+                if (!isClassType && !isOptionalClassType && complexTypeRecord != null)
                 {
                     bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexTypeRecord);
                     bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
                     cbTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
                 }
-                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership);
+                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType);
                 return;
             }
 
@@ -1354,19 +1376,21 @@ namespace BindingsGeneration
         /// allocates memory, stores the result, and passes an OpaquePointer.
         /// C# receives IntPtr, reads the value, and frees the memory.
         /// </summary>
-        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false)
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false, bool isOptionalClass = false)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
-            // For class types, Swift retained the object before passing through callback.
+            // For class types (including optional class), Swift retained the object before passing through callback.
             // We must read the object pointer from the buffer (resultPtr points to buffer containing the pointer).
             // SwiftClassHandle takes ownership of the +1 retain — no Arc.Release needed here.
-            var readObjPtrCode = isClassType
+            // Optional class: buffer contains retained pointer (non-nil) or zero (nil).
+            var readObjPtrCode = (isClassType || isOptionalClass)
                 ? "\n                            // Read object pointer from buffer (for class types, buffer contains the object reference)\n                            IntPtr _retainedObjPtr = *(IntPtr*)resultPtr;"
                 : "";
 
             // For ObjC-bridged types, read the object pointer from the buffer and wrap with GetNSObject<T>
             // For class types, use the dereferenced object pointer (NewFromPayload expects raw pointer, not buffer)
+            // For optional class types, same dereference but with null check (IntPtr.Zero = Swift nil)
             // For non-class types, marshal from Swift memory layout (resultPtr is the buffer)
             // For optional (nullable) types, use SwiftOptional<T> to read the discriminator byte correctly.
             // The inner type must be the runtime/marshal type (e.g., SwiftString not string, SwiftArray<T>
@@ -1388,6 +1412,12 @@ namespace BindingsGeneration
                 {
                     marshalResultCode = $"var result = {bridgeCall};\n                                // Balance passRetained: GetNSObject added its own retain via DangerousRetain\n                                result?.DangerousRelease();";
                 }
+            }
+            else if (isOptionalClass)
+            {
+                // Optional<ClassType>: buffer contains retained pointer or zero (nil).
+                // Check for nil before marshalling — IntPtr.Zero means Swift returned .none.
+                marshalResultCode = $"var result = _retainedObjPtr != IntPtr.Zero ? SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr) : null;";
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";

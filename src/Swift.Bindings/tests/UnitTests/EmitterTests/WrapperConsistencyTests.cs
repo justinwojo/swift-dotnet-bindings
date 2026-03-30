@@ -13,15 +13,16 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class WrapperConsistencyTests
 {
-    #region Non-Copyable Struct — All Wrappers Must Reject
+    #region Non-Copyable Struct — Wrappers Must Accept (borrowing pointer semantics)
 
     [Fact]
-    public void NonCopyableStructParent_AllWrappersReject()
+    public void NonCopyableStructParent_AllWrappersAccept()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("NonCopyableToken");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         // Create a non-copyable struct: Escapable WITHOUT Copyable
+        // Noncopyable types now get @_cdecl wrappers with borrowing pointer semantics
         var parentDecl = CreateStructDecl("NonCopyableToken", moduleDecl);
         parentDecl.Conformances = new List<TypeConformance>
         {
@@ -30,24 +31,24 @@ public class WrapperConsistencyTests
                 "$s10TestModule15NonCopyableTokenVACSWAAMc")
         };
 
-        // Method
+        // Method — accepted (borrowing pointer semantics)
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var methodEnv = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
-            "MethodWrapperEmitter should reject non-copyable struct parent");
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(methodEnv),
+            "MethodWrapperEmitter should accept non-copyable struct parent");
 
-        // Constructor
+        // Constructor — accepted (initialize(to:) is consuming, works for ~Copyable)
         var ctor = CreateConstructor("init", parentDecl, moduleDecl);
         var ctorEnv = new MethodEnvironment(ctor, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),
-            "ConstructorWrapperEmitter should reject non-copyable struct parent");
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(ctorEnv),
+            "ConstructorWrapperEmitter should accept non-copyable struct parent");
 
-        // Property
+        // Property — accepted (borrowing pointer semantics)
         var (propertyDecl, propEnv) = CreatePropertyAndEnv("value", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, propEnv),
-            "PropertyWrapperEmitter should reject non-copyable struct parent");
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, propEnv),
+            "PropertyWrapperEmitter should accept non-copyable struct parent");
 
-        // Subscript
+        // Subscript — accepted (borrowing pointer semantics)
         var accessor = new GetAccessorDecl { Method = CreateAccessorMethod("getter:subscript", true, parentDecl, moduleDecl) };
         var subscriptDecl = CreateSubscriptDecl(
             new NamedTypeSpec("Swift.Int"),
@@ -55,8 +56,8 @@ public class WrapperConsistencyTests
             new AccessorDecl[] { accessor },
             parentDecl, moduleDecl);
         var subEnv = new MethodEnvironment(accessor.Method, typeDb);
-        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, subEnv),
-            "SubscriptWrapperEmitter should reject non-copyable struct parent");
+        Assert.True(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscriptDecl, accessor, subEnv),
+            "SubscriptWrapperEmitter should accept non-copyable struct parent");
     }
 
     [Fact]
@@ -683,7 +684,7 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void GetRejectionReason_NonCopyableStruct_ReturnsReason()
+    public void GetRejectionReason_NonCopyableStruct_ReturnsNull()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("Token");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -698,7 +699,7 @@ public class WrapperConsistencyTests
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.Equal("non_copyable_struct", WrapperValidation.GetRejectionReason(env));
+        Assert.Null(WrapperValidation.GetRejectionReason(env));
     }
 
     [Fact]
@@ -1029,8 +1030,9 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void CanEmitMember_NonCopyableStruct_AllExceptOperatorReject()
+    public void CanEmitMember_NonCopyableStruct_AllAccepted()
     {
+        // Noncopyable types now get @_cdecl wrappers with borrowing pointer semantics
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
         var parentDecl = CreateStructDecl("NonCopyableToken", moduleDecl);
@@ -1043,11 +1045,10 @@ public class WrapperConsistencyTests
         var method = CreateMethod("doWork", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Method));
-        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor));
-        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Property));
-        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Subscript));
-        // Operator does NOT check non-copyable
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Method));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Constructor));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Property));
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Subscript));
         Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Operator));
     }
 

@@ -1,11 +1,11 @@
 {
-  "git_sha": "db809000",
+  "git_sha": "c37400bb",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 45528,
+        "lines": 45584,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 74548,
+        "lines": 74551,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52728,
+        "lines": 52732,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 30263,
+        "lines": 30279,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

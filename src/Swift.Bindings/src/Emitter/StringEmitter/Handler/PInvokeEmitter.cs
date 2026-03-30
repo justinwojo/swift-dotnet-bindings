@@ -48,6 +48,15 @@ namespace BindingsGeneration
                     // Swift wrapper writes to resultPtr via initializeMemory(as:).
                     // ObjC-bridgeable containers use ClassPointer return (UnsafeMutableRawPointer) instead.
                 }
+                else if (_env.MethodDecl.UsesCdeclWrapper &&
+                    _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) &&
+                    !MethodWrapperEmitter.IsOptionalType(returnType.SwiftTypeSpec) &&
+                    !CdeclParamMapper.IsObjCBridgeableContainer(returnType.SwiftTypeSpec, _env.TypeDatabase))
+                {
+                    // @_cdecl non-optional, non-ObjC-bridgeable bound generic struct returns (e.g., Pair<A, B>):
+                    // fall through to IndirectResult path. Swift wrapper writes to resultPtr
+                    // via initializeMemory(as:). Optional and ObjC-bridgeable containers have their own paths.
+                }
                 else
                 {
                     // Large Optional returns use out-buffer pattern — PInvoke returns void
