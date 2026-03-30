@@ -596,6 +596,11 @@ public static partial class ClosureEmitter
                 return $"SwiftMarshal.MarshalOptionalFromSwift<{innerType}>(new IntPtr(arg{argIndex}))";
             }
 
+            // String parameter: System.String has no Swift metadata, so MarshalFromSwift<string> fails.
+            // Marshal as SwiftString (which implements ISwiftObject) and convert to string.
+            if (WitnessDispatchEmitter.IsStringType(namedType))
+                return $"SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
+
             // The callback receives void* but the delegate expects the actual type.
             // Use SwiftMarshal.MarshalFromSwift to convert.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);

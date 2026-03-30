@@ -56,19 +56,97 @@ public static partial class ClosureEmitter
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
-        csWriter.WriteLines($$"""
-            [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
-            private static unsafe void {{callbackName}}({{parametersString}})
-            {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
-                var result = del({{invokeArgsString}});
+        // String-containing return types need special handling: System.String has no Swift
+        // TypeMetadata, so the generic MarshalToSwift path fails. Convert C# string values
+        // to SwiftString, wrap in the correct Swift container, and marshal that.
+        bool isOptionalString = IsOptionalStringReturn(closureTypeSpec.ReturnType);
+        bool isArrayString = IsArrayStringReturn(closureTypeSpec.ReturnType);
 
-                // Marshal the result to the indirect result buffer
-                var metadata = TypeMetadata.GetTypeMetadataOrThrow<{{returnCSharpType}}>();
-                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
-                SwiftMarshal.MarshalToSwift(result, ref resultSpan);
-            }
-            """);
+        if (isOptionalString)
+        {
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // Convert string? → SwiftOptional<SwiftString> (System.String has no Swift metadata)
+                    using var _swiftStr = result != null ? new Swift.SwiftString(result) : null;
+                    using var _swiftOpt = _swiftStr != null
+                        ? SwiftOptional<Swift.SwiftString>.NewSome(_swiftStr)
+                        : SwiftOptional<Swift.SwiftString>.NewNone();
+                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<Swift.SwiftString>>();
+                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                    SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
+                }
+                """);
+        }
+        else if (isArrayString)
+        {
+            // Array<String> delegate type: GetCSharpDelegateType returns SwiftArray<string> but
+            // the public API uses IReadOnlyList<string>. The GCHandle stores the public API type,
+            // so the callback must recover using the same type.
+            var arrayDelegateType = delegateType.Replace("Swift.SwiftArray<string>", "IReadOnlyList<string>");
+
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{arrayDelegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // Convert IReadOnlyList<string> → SwiftArray<SwiftString> (System.String has no Swift metadata)
+                    using var _swiftArray = new Swift.SwiftArray<Swift.SwiftString>();
+                    foreach (var _item in result)
+                    {
+                        using var _str = new Swift.SwiftString(_item);
+                        _swiftArray.Append(_str);
+                    }
+                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
+                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                    SwiftMarshal.MarshalToSwift(_swiftArray, ref resultSpan);
+                }
+                """);
+        }
+        else
+        {
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // Marshal the result to the indirect result buffer
+                    var metadata = TypeMetadata.GetTypeMetadataOrThrow<{{returnCSharpType}}>();
+                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                    SwiftMarshal.MarshalToSwift(result, ref resultSpan);
+                }
+                """);
+        }
+    }
+
+    /// <summary>
+    /// Checks if the return type is Optional&lt;String&gt; (needs String-specific indirect return marshalling).
+    /// </summary>
+    private static bool IsOptionalStringReturn(TypeSpec returnType)
+    {
+        return returnType is NamedTypeSpec named &&
+               named.Name == "Swift.Optional" &&
+               named.GenericParameters.Count == 1 &&
+               WitnessDispatchEmitter.IsStringType(named.GenericParameters[0]);
+    }
+
+    /// <summary>
+    /// Checks if the return type is Array&lt;String&gt; (needs String-specific indirect return marshalling).
+    /// </summary>
+    private static bool IsArrayStringReturn(TypeSpec returnType)
+    {
+        return returnType is NamedTypeSpec named &&
+               named.Name == "Swift.Array" &&
+               named.GenericParameters.Count == 1 &&
+               WitnessDispatchEmitter.IsStringType(named.GenericParameters[0]);
     }
 
     /// <summary>

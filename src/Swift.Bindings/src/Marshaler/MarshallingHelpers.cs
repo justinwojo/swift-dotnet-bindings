@@ -56,6 +56,16 @@ namespace BindingsGeneration
         public static bool IsSwiftString(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftStringTypeName);
 
         /// <summary>
+        /// Whether a SwiftString parameter should be decomposed into two nint words for @_cdecl
+        /// constructor/method wrappers. The @_cdecl Swift wrappers receive String as two Int words
+        /// (_sW0_, _sW1_), so the C# P/Invoke must emit matching nint pairs instead of a Buffer struct.
+        /// Invariant: SwiftString.Buffer is exactly 16 bytes (two nint-sized words).
+        /// </summary>
+        public static bool ShouldDecomposeStringForCdecl(MethodDecl methodDecl, TypeSpec? typeSpec)
+            => (methodDecl.UsesCdeclConstructorWrapper || methodDecl.UsesCdeclMethodWrapper)
+                && IsSwiftString(typeSpec);
+
+        /// <summary>
         /// Determines whether the specified type spec represents Swift.Array.
         /// </summary>
         public static bool IsSwiftArray(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftArrayTypeName);

@@ -545,6 +545,18 @@ namespace BindingsGeneration
             }
 
             MarshalPlanRenderer.RenderStatements(csWriter, plan.SetupStatements);
+
+            // SwiftString ABI decomposition for @_cdecl constructor/method wrappers:
+            // Extract two nint words from the Buffer struct. The local variable names
+            // ({csName}_w0, {csName}_w1) match the P/Invoke parameter names emitted by
+            // PInvokeEmitter, so GetCallArgumentString returns them directly.
+            if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argumentDecl.SwiftTypeSpec))
+            {
+                csWriter.WriteLine($"var {csName}Buf = {csName}Disposable.Buffer;");
+                csWriter.WriteLine($"nint {csName}_w0 = Unsafe.As<SwiftString.Buffer, nint>(ref {csName}Buf);");
+                csWriter.WriteLine($"nint {csName}_w1 = Unsafe.Add(ref Unsafe.As<SwiftString.Buffer, nint>(ref {csName}Buf), 1);");
+            }
+
             return true;
         }
 

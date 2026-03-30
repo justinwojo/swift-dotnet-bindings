@@ -1375,4 +1375,130 @@ public class ClosureEmitterDirectTests
     }
 
     #endregion
+
+    #region String callback marshalling
+
+    [Fact]
+    public void EmitIndirectReturnCallback_OptionalStringReturn_EmitsSwiftOptionalSwiftString()
+    {
+        // Closure: () -> Optional<String>
+        // Should emit SwiftOptional<SwiftString> marshalling, not TypeMetadata.GetTypeMetadataOrThrow<string?>()
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitIndirectReturnCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("SwiftOptional<Swift.SwiftString>", result);
+        Assert.Contains("new Swift.SwiftString(result)", result);
+        Assert.DoesNotContain("TypeMetadata.GetTypeMetadataOrThrow<string?>", result);
+    }
+
+    [Fact]
+    public void EmitIndirectReturnCallback_ArrayStringReturn_EmitsSwiftArraySwiftString()
+    {
+        // Closure: () -> Array<String>
+        // Should emit SwiftArray<SwiftString> marshalling, not MarshalToSwift<SwiftArray<string>>
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")));
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitIndirectReturnCallback(
+            csWriter, "doWork", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule6doWorkyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("SwiftArray<Swift.SwiftString>", result);
+        Assert.Contains("new Swift.SwiftString(_item)", result);
+        Assert.Contains("IReadOnlyList<string>", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_StringParam_EmitsMarshalFromSwiftString()
+    {
+        // Closure: (String) -> Void
+        // Callback should marshal via SwiftString.ToString(), not MarshalFromSwift<string>
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.String"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "logMessage", "handler", closureTypeSpec, closureHandler,
+            "$s10TestModule10logMessageyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("MarshalFromSwift<Swift.SwiftString>", result);
+        Assert.Contains(".ToString()", result);
+        Assert.DoesNotContain("MarshalFromSwift<string>", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithString()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
 }

@@ -1,8 +1,8 @@
 # Roadmap
 
-**Updated**: March 30, 2026
+**Updated**: March 30, 2026 (Session 6)
 
-**Current baseline**: 89/90 CS compile, 55/56 Swift compile (SkeletonView + GRDB: known non-binding failures). 45 `[Skip]` + 9 `[SkipOnDevice]` = 54 skipped runtime tests in BindingTests.
+**Current baseline**: 89/90 CS compile, 55/56 Swift compile (SkeletonView + GRDB: known non-binding failures). 43 `[Skip]` + 9 `[SkipOnDevice]` = 52 skipped runtime tests in BindingTests.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of those 5, it's our bug. Investigate generated C#/Swift wrapper signatures before ever labeling a failure as upstream.
 
@@ -45,49 +45,44 @@ Additional fixes from code review: ARC leak in buffer return paths (`load(as:)` 
 | Optional Bool extra-inhabitant encoding | 1 | Constructor memcpy fast path for Bool bypasses VWT InitializeWithCopy which corrupts extra-inhabitant encoding on Mono |
 | Optional\<T\> return marshalling for value types | 2 | Fixed `ToNullable()` bug: in C# generics, `T?` with unconstrained T is `T` (not `Nullable<T>`). Generator now emits explicit `HasValue`/`Some` check with nullable cast |
 
-### Session 3: Protocol & Existential Wrapper Fixes
+### ~~Session 3: Protocol & Existential Wrapper Fixes~~ ✅ Complete (fe50a00)
 
-**Target**: 9 skipped tests
-**Focus**: Fix wrapper generation for protocol closures and existential constructor parameters.
+**Result**: 7/9 skipped tests now passing on simulator. 2 remaining tests (RouteEvent/GetDelegateName) moved to `[SkipOnSimulator]` — string callback vtable issue, Session 7 territory. +2 Swift validation improvements (ObjectMapper, Parchment). 1211 pass / 0 fail.
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| Protocol closure wrapper stripping | 7 | `ProtocolClosureSkipTests`: TestCSharpImplProxyConstruction, TestCSharpImplDelegateName, TestCSharpImplDidReceiveEventTrue/False, TestCSharpImplOnCompleteThrowsNotSupported, TestSetCSharpImplOnRouterAndRouteEvent/GetDelegateName — protocol implementation closures fail wrapper generation |
-| Existential parameter in constructor wrappers | 2 | `ExistentialReturnTests`: TestERTestHolderConstruction, TestERTestHolderHeldLabel — existential params cause wrapper stripping |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Protocol closure wrapper stripping | 5 | Added EventDelegate to SwiftSourceStripper PreservedProtocols so witness table isn't cascade-stripped |
+| Existential `any` keyword in @_cdecl wrappers | 2 | CdeclParamMapper now emits `any` prefix for protocol existentials in Swift 6 output, with correct `Optional<any Protocol>` handling |
+| String vtable callbacks (deferred) | 2 | RouteEvent/GetDelegateName hit Mono JIT async assertion via string callback through vtable — deferred to Session 7 |
 
-### Session 4: SwiftString.Buffer ABI Decomposition
+### ~~Session 4: SwiftString.Buffer ABI Decomposition~~ ✅ Complete (c7670e2)
 
-**Target**: 2 skipped tests + broad correctness improvement
-**Focus**: Decompose `SwiftString.Buffer` into explicit `nint` fields in P/Invoke to fix ARM64 register overflow.
+**Result**: 2/2 skipped tests now passing. Zero validation regressions despite high-risk ABI change. 1213 pass / 0 fail.
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| SwiftString.Buffer ABI (4+ string params) | 1 | `EdgeCaseTests`: TestKeywordTestCreation — 4th Buffer struct overflows GPR registers; @_cdecl and C# disagree on stack layout |
-| String enum raw values | 1 | `CollisionTests`: TestDescribeCSSProperty — CSSProperty enum cases use names instead of raw values |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| SwiftString.Buffer ABI (4+ string params) | 1 | Decomposed 16-byte Buffer struct into two `nint` P/Invoke parameters (_w0, _w1), matching Swift's two-Int-word layout. Fixes ARM64 AAPCS64 register overflow with 4+ string params |
+| String enum raw values | 1 | CSSProperty enum cases now round-trip correctly via string raw value support |
 
-**Risk**: High — this changes how `SwiftString.Buffer` is projected everywhere. Decomposing the struct into two `nint` fields makes register assignment explicit and avoids ABI ambiguity. Needs thorough regression testing.
+### ~~Session 5: Variadic, ObjC & Cross-Module~~ ✅ Complete (af8518f)
 
-### Session 5: Variadic, ObjC & Cross-Module
+**Result**: 8/8 skipped tests now passing. Zero validation regressions. 1221 pass / 0 fail.
 
-**Target**: 8 skipped tests
-**Focus**: Fix variadic parameter retention, ObjC interop gaps, and cross-module wrapper issues.
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Variadic parameter support | 3 | Removed MemberValidationPipeline gate — `T...` is `Array<T>` at ABI level, CallConvSwift dispatches correctly via `SwiftArray<T>` |
+| ObjC Selector type | 3 | Added Selector/ObjCBool to FoundationDatabase.xml (TypeSpecParser rewrites `ObjectiveC.*` → `Foundation.*`) |
+| URL protocol bridge | 1 | EveryProtocolEmitter converts URL→AnyObject for vtable params/returns so C# receives NSURL pointer |
+| Cross-module closure | 1 | Wrapper already generated correctly, removed stale `[Skip]` |
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| Variadic init data retention | 3 | `ParameterTests`: TestSumAll, TestJoinStrings, TestVariadicConsumer — `@owned` array params released before init runs; needs `swift_retain` |
-| ObjC Selector type support | 3 | `ObjCInteropTests`: TestSelectorCreation, TestSelectorPerformAction, TestObjectRespondsToSelector — Selector type not marshalled |
-| ObjC NSURL/SwiftURL bridge | 1 | `URLProtocolReceiverTests`: TestURLProtocolRoundTrip — NSURL/SwiftURL mismatch at ObjC bridge boundary |
-| Cross-module wrapper stripping | 1 | `CrossModuleTests`: TestMapDependencyPoint — wrapper stripped for cross-module dependency types |
+### ~~Session 6: Opaque Types & Protocol Conformance~~ ✅ Complete (pending commit)
 
-### Session 6: Opaque Types & Protocol Conformance
+**Result**: 2/2 skipped tests now passing on simulator. Zero validation regressions. 1223 pass / 0 fail.
 
-**Target**: 2+ skipped tests
-**Focus**: Fix opaque return type marshalling and protocol existential conformance.
-
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| Opaque type marshalling | 1 | `WrapperStrippingTests`: TestMixedEmittabilityOpaqueReturn — opaque `some` return type not marshalled |
-| Ownable protocol conformance | 1 | `LifetimeTrackingTests`: TestOwnableProtocolConformance — opaque existential parameter in protocol conformance |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Opaque return type marshalling | 1 | `WrapperStrippingTests`: TestMixedEmittabilityOpaqueReturn — the @_cdecl wrapper already correctly boxes `some CustomStringConvertible` to `any Protocol` existential container; C# reads `ExistentialContainer1` and returns as `object`. Skip was premature — removed |
+| Protocol conformance via generic dispatch | 1 | `LifetimeTrackingTests`: TestOwnableProtocolConformance — `some Ownable` is ABI sugar for `<T: Ownable>`; generated C# generic with `CallConvSwift` + type metadata + protocol witness table dispatch works correctly. Filled in empty test body |
 
 ### Session 7: String Callback Fixes
 

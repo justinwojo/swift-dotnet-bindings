@@ -152,24 +152,45 @@ public class ObjCInteropTests : TestBase
 
     #endregion
 
-    #region Selectors (Unsupported)
+    #region Selectors
 
-    [Skip("Selector type not fully supported by generator")]
     public void TestSelectorCreation()
     {
-        // SelectorTarget uses Selector type — partially supported
+        // SelectorTarget.actionSelector() returns the Selector for handleAction
+        using var target = TestLibFunctions.CreateSelectorTarget();
+        var sel = target.GetActionSelector();
+        var name = TestLibFunctions.SelectorName(sel);
+        AssertEqual("handleAction", name, "actionSelector returns handleAction selector");
     }
 
-    [Skip("Selector type not fully supported by generator")]
-    public void TestSelectorPerformAction()
+    public void TestSelectorNames()
     {
-        // Selector-based action dispatch not yet supported
+        // Verify both action and actionWithSender selectors resolve to the expected ObjC names
+        using var target = TestLibFunctions.CreateSelectorTarget();
+        var actionSel = target.GetActionSelector();
+        var actionWithSenderSel = target.GetActionWithSenderSelector();
+
+        // Verify the selectors have the expected names
+        var actionName = TestLibFunctions.SelectorName(actionSel);
+        var actionWithSenderName = TestLibFunctions.SelectorName(actionWithSenderSel);
+        AssertEqual("handleAction", actionName, "Action selector name");
+        AssertEqual("handleActionWithSender:", actionWithSenderName, "Action with sender selector name");
     }
 
-    [Skip("Selector type not fully supported by generator")]
     public void TestObjectRespondsToSelector()
     {
-        // objectRespondsTo uses Selector parameter
+        // objectRespondsTo checks whether an NSObject responds to a selector
+        using var target = TestLibFunctions.CreateSelectorTarget();
+        var actionSel = target.GetActionSelector();
+
+        // SelectorTarget responds to handleAction
+        var responds = TestLibFunctions.ObjectRespondsTo(target, actionSel);
+        AssertTrue(responds, "SelectorTarget responds to handleAction");
+
+        // Create a selector for a method that doesn't exist
+        var fakeSel = new ObjCRuntime.Selector("nonExistentMethod").Handle;
+        var notResponds = TestLibFunctions.ObjectRespondsTo(target, fakeSel);
+        AssertTrue(!notResponds, "SelectorTarget does not respond to nonExistentMethod");
     }
 
     #endregion

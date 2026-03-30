@@ -144,13 +144,19 @@ public partial class ProtocolProxyEmitter
                 if (NativeIntOverloadEmitter.TryGetNarrowedType(property.SwiftTypeSpec, out var narrowedType))
                     assignmentExpr = $"({narrowedType}){assignmentExpr}";
 
+                // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
+                // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
+                var marshalExpr = IsStringTypeSpec(property.SwiftTypeSpec)
+                    ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(valuePtr)"
+                    : $"MarshalFromSwift<{abiTypeName}>(valuePtr)";
+
                 writer.WriteLines($$"""
                     [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                     private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
                     {
                         var container = *(ExistentialContainer1*)selfContainer;
                         var proxy = SwiftObjectRegistry.GetProxyFromContainer<{{proxyClassName}}>(container);
-                        var value = MarshalFromSwift<{{abiTypeName}}>(valuePtr);
+                        var value = {{marshalExpr}};
                         proxy._csharpImpl!.{{pascalPropertyName}} = {{assignmentExpr}};
                     }
 
@@ -188,7 +194,10 @@ public partial class ProtocolProxyEmitter
                 {
                     var param = subscript.IndexParameters[i];
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                    writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
+                    if (IsStringTypeSpec(param.SwiftTypeSpec))
+                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(arg{i}).ToString();");
+                    else
+                        writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
                 var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
@@ -227,15 +236,22 @@ public partial class ProtocolProxyEmitter
 
                 writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
-                var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
-                if (subscriptSetterConv != null)
+                if (IsStringTypeSpec(subscript.ReturnTypeSpec))
                 {
-                    writer.WriteLine($"var rawValue = MarshalFromSwift<{returnTypeName}>(valuePtr);");
-                    writer.WriteLine($"var value = {subscriptSetterConv};");
+                    writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(valuePtr).ToString();");
                 }
                 else
                 {
-                    writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                    var subscriptSetterConv = GetReceiverExistentialSetterConversion("rawValue", subscript.ReturnTypeSpec);
+                    if (subscriptSetterConv != null)
+                    {
+                        writer.WriteLine($"var rawValue = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                        writer.WriteLine($"var value = {subscriptSetterConv};");
+                    }
+                    else
+                    {
+                        writer.WriteLine($"var value = MarshalFromSwift<{returnTypeName}>(valuePtr);");
+                    }
                 }
 
                 // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
@@ -243,7 +259,10 @@ public partial class ProtocolProxyEmitter
                 {
                     var param = subscript.IndexParameters[i];
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
-                    writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
+                    if (IsStringTypeSpec(param.SwiftTypeSpec))
+                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(arg{i}).ToString();");
+                    else
+                        writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
                 var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
@@ -325,12 +344,19 @@ public partial class ProtocolProxyEmitter
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
+            // String parameter: the local MarshalFromSwift<SwiftString> helper uses Unsafe.Read<T>
+            // which can't construct a managed SwiftString from raw Swift memory (16-byte value).
+            // Use the runtime's SwiftMarshal.MarshalFromSwift which calls NewFromPayload.
+            if (IsStringTypeSpec(param.SwiftTypeSpec))
+            {
+                writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(rawArg{argIndex});");
+                writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
+            }
             // Dictionaries need special handling in receiver context: the interface declares
             // IDictionary<K,V> (parameter form), but projection produces .AsProjected()
             // which returns IReadOnlyDictionary<K,V> (return form). IReadOnlyDictionary doesn't
             // implement IDictionary, so we must use .ToDictionary() for eager materialization.
-            var receiverDictConversion = GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec);
-            if (receiverDictConversion != null)
+            else if (GetReceiverDictionaryConversion(rawArgName, param.SwiftTypeSpec) is string receiverDictConversion)
             {
                 writer.WriteLine($"var {rawArgName} = MarshalFromSwift<{paramTypeName}>(rawArg{argIndex});");
                 writer.WriteLine($"var {argName} = {receiverDictConversion};");

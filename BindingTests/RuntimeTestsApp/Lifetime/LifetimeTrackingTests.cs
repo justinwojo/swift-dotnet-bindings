@@ -135,10 +135,17 @@ public class LifetimeTrackingTests : TestBase
 
     #region Protocol Conformance
 
-    [Skip("some Ownable: opaque existential parameter not yet supported")]
     public void TestOwnableProtocolConformance()
     {
-        // getOwnerId accepts `some Ownable` — requires existential boxing
+        // getOwnerId accepts `some Ownable` — uses CallConvSwift generic dispatch.
+        // CallConvSwift is safe here: all P/Invoke params are IntPtr (blittable),
+        // and single-type-param generics work on both Mono and NativeAOT.
+        using var obj = TestLibFunctions.CreateTrackedObject(42);
+#pragma warning disable SB0001
+        var ownerId = TestLibFunctions.GetOwnerId(obj);
+#pragma warning restore SB0001
+        AssertEqual(42, ownerId, "GetOwnerId returns objectId");
+        TestLogger.Info($"GetOwnerId(TrackedObject(42)) = {ownerId}");
     }
 
     #endregion

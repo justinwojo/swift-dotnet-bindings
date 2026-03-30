@@ -91,11 +91,10 @@ public class CollisionTests : TestBase
         AssertNotNull(backgroundUpper, "CSSProperty.Background2 exists (SCREAMING_CASE collision renamed)");
     }
 
-    [Skip("String enum raw values use case names instead of actual raw values (known generator bug)")]
     public void TestDescribeCSSProperty()
     {
-        // The DescribeCSSProperty function returns the rawValue.
-        // Blocked by the string enum raw value bug — raw values are case names, not actual values.
+        // The DescribeCSSProperty function returns the rawValue via Swift wrapper.
+        // Non-frozen string enums use RawRepresentable class path which calls actual Swift .rawValue.
         using var color = CSSProperty.Color;
         var desc = TestLibFunctions.DescribeCSSProperty(color);
         AssertEqual("color", desc, "DescribeCSSProperty returns raw value for color");

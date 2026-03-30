@@ -346,6 +346,36 @@ public class TypeDatabaseExtensionsTests
             typeDatabase.GetTypeRecordOrThrow(new NamedTypeSpec("ObjectiveC.Selector")));
     }
 
+    // --- ObjectiveC module types resolved via FoundationDatabase ---
+
+    [Fact]
+    public async Task TryGetTypeRecord_SelectorFromFoundationDb_ReturnsNint()
+    {
+        // TypeSpecParser rewrites ObjectiveC.Selector → Foundation.Selector.
+        // FoundationDatabase.xml contains Selector mapped to nint.
+        var db = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var found = db.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.Selector"), out var record);
+
+        Assert.True(found, "Foundation.Selector should be found after loading FoundationDatabase");
+        Assert.Equal("nint", record!.CSharpTypeName.ToString());
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+    }
+
+    [Fact]
+    public async Task TryGetTypeRecord_ObjCBoolFromFoundationDb_ReturnsNint()
+    {
+        var db = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var found = db.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.ObjCBool"), out var record);
+
+        Assert.True(found, "Foundation.ObjCBool should be found after loading FoundationDatabase");
+        Assert.Equal("nint", record!.CSharpTypeName.ToString());
+    }
+
     // --- Apple framework ObjC types are auto-bridged (Phase I1b) ---
 
     [Theory]

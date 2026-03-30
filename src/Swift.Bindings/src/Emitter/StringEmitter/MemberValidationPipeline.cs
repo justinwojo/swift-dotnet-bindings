@@ -80,11 +80,11 @@ public class MemberValidationPipeline
             return ValidationResult.Synthesized("Synthesized protocol method suppressed.");
 
         // 4. Variadic methods — Swift variadic params (T...) appear as Array<T> in ABI JSON.
-        // Neither @_cdecl (can't spread array into variadic) nor CallConvSwift (wrong ABI)
-        // can call these correctly. Suppress entirely — no C# binding is possible.
-        // Variadic constructors are already handled by ConstructorWrapperEmitter.ShouldEmitWrapper.
-        if (!methodDecl.IsConstructor && methodDecl.HasVariadicParameter)
-            return ValidationResult.Skip(SkipReason.UnsupportedSignature, "Variadic methods cannot be bound — ABI JSON represents T... as Array<T>, neither @_cdecl nor CallConvSwift can dispatch correctly.");
+        // At the ABI level, variadic T... IS Array<T>, so CallConvSwift can dispatch correctly
+        // by passing SwiftArray<T> as a single pointer. @_cdecl wrappers cannot call variadic
+        // functions (compiler rejects [T] where T... expected), so these methods fall through
+        // to CallConvSwift P/Invoke with the original mangled symbol.
+        // No gate needed — variadic Array<T> is handled by existing ArrayProjection.
 
         // ── Phase 2: Closure + module gates (via ShouldSkipMethodEmission) ──
         // Catches: synthesized Codable, unsupported closures (B20), SwiftUI/Combine refs (B19),

@@ -141,10 +141,8 @@ public class ClosureTests : TestBase
 
     // B7 closure return tests — Optional<String> and [String] closure returns
     // These use the normal ClosureEmitter pipeline with the B7 gate lifted for String.
-    // Generated code is correct (CallConvCdecl + indirect return), but Mono JIT
-    // assertion !ji->async triggers during SwiftString callback marshalling (upstream Issue 1).
+    // Indirect return callbacks use SwiftOptional<SwiftString>/SwiftArray<SwiftString> marshalling.
 
-    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestClosureWithOptionalStringReturn()
     {
         var result = TestLibFunctions.CallWithOptionalStringReturn(n => n > 0 ? $"value_{n}" : null);
@@ -153,7 +151,6 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalStringReturn = {result}");
     }
 
-    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestClosureWithStringArrayReturn()
     {
         var result = TestLibFunctions.CallWithStringArrayReturn(n =>
@@ -345,7 +342,6 @@ public class ClosureTests : TestBase
 
     #region P2: Static Optional Closure Property (LogRouter)
 
-    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestLogRouterSetHandler()
     {
         var captured = "";
@@ -356,7 +352,6 @@ public class ClosureTests : TestBase
         TestLogger.Info("LogRouter.LogHandler setter + route passed");
     }
 
-    [Skip("String callback marshalling: Mono JIT !ji->async (sim, upstream Issue 1), NativeAOT SwiftRuntimeException unable to get type metadata for String (device)")]
     public void TestLogRouterClearHandler()
     {
         LogRouter.LogHandler = msg => { };

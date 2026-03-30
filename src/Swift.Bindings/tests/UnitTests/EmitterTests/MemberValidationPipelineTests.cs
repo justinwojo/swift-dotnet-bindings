@@ -337,10 +337,11 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidateMethodEmission_VariadicMethod_ReturnsSkip()
+    public void ValidateMethodEmission_VariadicMethod_NotSuppressed()
     {
-        // Variadic methods (T...) cannot be bound — ABI JSON represents T... as Array<T>.
-        // Neither @_cdecl nor CallConvSwift can dispatch correctly.
+        // Variadic T... appears as Array<T> in ABI JSON — at the ABI level they're identical.
+        // CallConvSwift dispatches correctly using SwiftArray<T> as a single pointer.
+        // No gate needed; ArrayProjection handles the Array<T> parameter.
         var typeDatabase = CreateTypeDatabase();
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var method = CreateMethod("append", TupleTypeSpec.Empty);
@@ -349,9 +350,7 @@ public class MemberValidationPipelineTests
 
         var result = pipeline.ValidateMethodEmission(method, null!);
 
-        Assert.False(result.ShouldEmit);
-        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
-        Assert.Contains("Variadic", result.Details!);
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]

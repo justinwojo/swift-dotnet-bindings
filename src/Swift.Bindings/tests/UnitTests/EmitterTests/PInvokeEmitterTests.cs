@@ -907,18 +907,19 @@ public class PInvokeEmitterTests
         var typeDb = CreateBasicTypeDatabase("DataCache", testModule);
         var sig = GetPInvokeSignature(method, typeDb);
 
-        // Find errorPtr and name parameter indices
+        // Find errorPtr and name parameter indices.
+        // String params are decomposed into _w0/_w1 nint pairs for @_cdecl wrappers.
         var errorIdx = -1;
-        var nameIdx = -1;
+        var nameW0Idx = -1;
         for (int i = 0; i < sig.Parameters.Count; i++)
         {
             if (sig.Parameters[i].Name == "errorPtr") errorIdx = i;
-            if (sig.Parameters[i].Name == "name") nameIdx = i;
+            if (sig.Parameters[i].Name == "name_w0") nameW0Idx = i;
         }
 
         Assert.True(errorIdx >= 0, "errorPtr parameter should exist");
-        Assert.True(nameIdx >= 0, "name parameter should exist");
-        Assert.True(errorIdx < nameIdx, $"errorPtr (index {errorIdx}) should come before name (index {nameIdx})");
+        Assert.True(nameW0Idx >= 0, "name_w0 parameter should exist (SwiftString ABI decomposition)");
+        Assert.True(errorIdx < nameW0Idx, $"errorPtr (index {errorIdx}) should come before name_w0 (index {nameW0Idx})");
     }
 
     [Fact]
@@ -1042,6 +1043,93 @@ public class PInvokeEmitterTests
 
         // Should NOT have resultPtr (Cdecl-style) — uses SwiftIndirectResult instead
         Assert.DoesNotContain(sig.Parameters, p => p.Name == "resultPtr");
+    }
+
+    [Fact]
+    public void CdeclConstructor_StringParam_DecomposedIntoTwoNintWords()
+    {
+        // SwiftString.Buffer ABI decomposition: @_cdecl constructor wrappers receive
+        // Swift.String as two Int words. C# P/Invoke must emit two nint parameters
+        // (_w0, _w1) instead of one SwiftString.Buffer struct to match the Swift @_cdecl
+        // two-Int-word layout and avoid ARM64 AAPCS64 register ambiguity.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("init", classDecl, moduleDecl, isConstructor: true);
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("label", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // Should have two nint params (label_w0, label_w1), not one SwiftString.Buffer
+        Assert.Contains(sig.Parameters, p => p.Name == "label_w0" && p.Type is MarshalledType.Simple("nint"));
+        Assert.Contains(sig.Parameters, p => p.Name == "label_w1" && p.Type is MarshalledType.Simple("nint"));
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "label" && p.Type is MarshalledType.FrozenBuffer);
+    }
+
+    [Fact]
+    public void CdeclMethod_StringParam_DecomposedIntoTwoNintWords()
+    {
+        // Same decomposition applies to @_cdecl method wrappers, not just constructors.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("process", classDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.CSSignature.Add(CreateArg("text", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Contains(sig.Parameters, p => p.Name == "text_w0" && p.Type is MarshalledType.Simple("nint"));
+        Assert.Contains(sig.Parameters, p => p.Name == "text_w1" && p.Type is MarshalledType.Simple("nint"));
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "text" && p.Type is MarshalledType.FrozenBuffer);
+    }
+
+    [Fact]
+    public void NonCdeclMethod_StringParam_UsesFrozenBuffer()
+    {
+        // Non-@_cdecl methods retain FrozenBuffer (struct) passing — no decomposition.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("process", classDecl, moduleDecl);
+        // No UsesCdeclMethodWrapper
+        method.CSSignature.Add(CreateArg("text", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.FrozenBuffer);
+        Assert.DoesNotContain(sig.Parameters, p => p.Name == "text_w0");
+    }
+
+    [Fact]
+    public void CdeclConstructor_FourStringParams_EightNintWords()
+    {
+        // Regression test for the original bug: 4 SwiftString.Buffer structs (8 GPR slots)
+        // overflowed ARM64 registers. Decomposing into nint pairs makes register assignment
+        // explicit and avoids ABI ambiguity.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("init", classDecl, moduleDecl, isConstructor: true);
+        method.UsesCdeclConstructorWrapper = true;
+        method.CSSignature.Add(CreateArg("a", new NamedTypeSpec("Swift.String"), moduleDecl));
+        method.CSSignature.Add(CreateArg("b", new NamedTypeSpec("Swift.String"), moduleDecl));
+        method.CSSignature.Add(CreateArg("c", new NamedTypeSpec("Swift.String"), moduleDecl));
+        method.CSSignature.Add(CreateArg("d", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // 4 strings × 2 nint words = 8 word parameters (count _w0/_w1 suffixed only
+        // to avoid brittleness if constructors later gain unrelated nint params)
+        var wordParams = sig.Parameters.Where(p =>
+            p.Type is MarshalledType.Simple("nint") &&
+            (p.Name.EndsWith("_w0") || p.Name.EndsWith("_w1"))).ToList();
+        Assert.Equal(8, wordParams.Count);
+        Assert.Contains(wordParams, p => p.Name == "a_w0");
+        Assert.Contains(wordParams, p => p.Name == "a_w1");
+        Assert.Contains(wordParams, p => p.Name == "d_w0");
+        Assert.Contains(wordParams, p => p.Name == "d_w1");
     }
 
     #endregion

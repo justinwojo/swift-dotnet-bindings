@@ -575,6 +575,17 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // SwiftString ABI decomposition: @_cdecl wrappers receive String as two Int words.
+                // Decompose SwiftString.Buffer into two nint fields to match the Swift @_cdecl
+                // parameter layout, avoiding ARM64 AAPCS64 struct-to-register ambiguity when
+                // 4+ strings fill x0-x7. Non-@_cdecl paths retain FrozenBuffer (struct) passing.
+                if (MarshallingHelpers.ShouldDecomposeStringForCdecl(_env.MethodDecl, argument.SwiftTypeSpec))
+                {
+                    AddParameter("nint", csName + "_w0");
+                    AddParameter("nint", csName + "_w1");
+                    continue;
+                }
+
                 if (MarshallingHelpers.RequiresMemoryManagement(argumentTypeRecord))
                     AddParameter(new MarshalledType.FrozenBuffer(argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName, inoutModifier);
                 else

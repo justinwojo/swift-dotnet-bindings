@@ -80,7 +80,6 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info("MixedEmittability.Increment called without crash");
     }
 
-    [Skip("Opaque return marshalled as System.Object which has no MarshalFromSwift implementation")]
     public void TestMixedEmittabilityOpaqueReturn()
     {
         // asDescribable() -> some CustomStringConvertible — @_cdecl wrapper boxes to any Protocol
@@ -110,15 +109,20 @@ public class WrapperStrippingTests : TestBase
         TestLogger.Info($"VariadicHolder.Sum() = {sum}");
     }
 
-    public void TestVariadicMethodSuppressed()
+    public void TestVariadicMethodEmittedViaCallConvSwift()
     {
-        // Variadic methods (T...) cannot be bound — ABI JSON represents T... as Array<T>,
-        // and neither @_cdecl (can't spread array into variadic) nor CallConvSwift can dispatch.
-        // Verify the method is correctly suppressed from emission.
-        var type = typeof(VariadicHolder);
-        var appendMethod = type.GetMethod("Append");
-        AssertNull(appendMethod, "Variadic method Append should not be emitted");
-        TestLogger.Info("VariadicHolder.Append correctly suppressed");
+        // Variadic methods (T...) ARE emitted — ABI JSON represents T... as Array<T>,
+        // which is identical at the binary level. CallConvSwift dispatches correctly
+        // using SwiftArray<T> as a single pointer parameter.
+        var holder = new VariadicHolder(values: new[] { 10, 20, 30 });
+#pragma warning disable SB0001
+        var result = holder.Append(new[] { 40, 50 });
+#pragma warning restore SB0001
+        AssertEqual(5, result.Count, "Append returns combined array");
+        AssertEqual(10, result[0], "Original value preserved");
+        AssertEqual(40, result[3], "Appended value present");
+        AssertEqual(50, result[4], "Second appended value present");
+        TestLogger.Info($"VariadicHolder.Append returned {result.Count} items");
     }
 
     #endregion

@@ -1047,27 +1047,60 @@ public class EveryProtocolEmitter
             }
             else
             {
-                writer.WriteLines($$"""
-                    get {
-                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                        let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
-                            {{vtableInstanceName}}.csVTHandle, &selfProto)
-                        return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
-                    }
-                    """);
+                bool isObjCBridgeableGetter = IsObjCBridgeableParam(property.SwiftTypeSpec);
+                if (isObjCBridgeableGetter)
+                {
+                    writer.WriteLines($$"""
+                        get {
+                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                            let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
+                                {{vtableInstanceName}}.csVTHandle, &selfProto)
+                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                            resultPtr.deallocate()
+                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{swiftTypeNameForMetatype}}
+                        }
+                        """);
+                }
+                else
+                {
+                    writer.WriteLines($$"""
+                        get {
+                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                            let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
+                                {{vtableInstanceName}}.csVTHandle, &selfProto)
+                            return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
+                        }
+                        """);
+                }
             }
         }
 
         if (hasSetter)
         {
-            writer.WriteLines($$"""
-                set {
-                    var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                    var newValueCopy = newValue
-                    {{vtableInstanceName}}.func_{{property.Name}}_set!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueCopy)
-                }
-                """);
+            bool isObjCBridgeableSetter = IsObjCBridgeableParam(property.SwiftTypeSpec);
+            if (isObjCBridgeableSetter)
+            {
+                writer.WriteLines($$"""
+                    set {
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        let newValueNS = newValue as AnyObject
+                        var newValueRef = Unmanaged.passUnretained(newValueNS).toOpaque()
+                        {{vtableInstanceName}}.func_{{property.Name}}_set!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueRef)
+                    }
+                    """);
+            }
+            else
+            {
+                writer.WriteLines($$"""
+                    set {
+                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                        var newValueCopy = newValue
+                        {{vtableInstanceName}}.func_{{property.Name}}_set!(
+                            {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueCopy)
+                    }
+                    """);
+            }
         }
 
         writer.Indent--;
@@ -1478,18 +1511,29 @@ public class EveryProtocolEmitter
         writer.Indent++;
 
         // Build argument copies for passing to vtable function
+        // ObjC-bridgeable types (e.g., URL, URLRequest) need special handling:
+        // bridge to AnyObject and pass the ObjC pointer instead of the Swift struct bytes.
+        // The C# side uses GetNSObject<T>() which expects a valid ObjC pointer.
         var argPassList = new List<string>();
-        for (int i = 0; i < internalNames.Count; i++)
-        {
-            var paramName = internalNames[i];
-            argPassList.Add($"var {paramName}Copy = {paramName}");
-        }
-
         var argRefList = new List<string>();
         for (int i = 0; i < internalNames.Count; i++)
         {
             var paramName = internalNames[i];
-            argRefList.Add($"&{paramName}Copy");
+            var param = method.CSSignature[i + 1]; // +1 to skip return type
+            bool isObjCBridgeable = IsObjCBridgeableParam(param.SwiftTypeSpec);
+            if (isObjCBridgeable)
+            {
+                // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
+                // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
+                argPassList.Add($"let {paramName}NS = {paramName} as AnyObject");
+                argPassList.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argRefList.Add($"&{paramName}Ref");
+            }
+            else
+            {
+                argPassList.Add($"var {paramName}Copy = {paramName}");
+                argRefList.Add($"&{paramName}Copy");
+            }
         }
         var argRefs = argRefList.Count > 0 ? ", " + string.Join(", ", argRefList) : "";
 
@@ -1530,12 +1574,30 @@ public class EveryProtocolEmitter
             }
             else
             {
-                writer.WriteLines($$"""
-                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                        {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
-                            {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
-                        return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
-                    """);
+                // ObjC-bridgeable return types (e.g., URL): C# writes an ObjC pointer via
+                // MarshalToSwiftBuffer(result.Handle). We read the pointer and bridge back to
+                // the Swift value type via Unmanaged<AnyObject>.fromOpaque().
+                bool isObjCBridgeableReturn = returnType != null && IsObjCBridgeableParam(returnType);
+                if (isObjCBridgeableReturn)
+                {
+                    writer.WriteLines($$"""
+                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                            {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
+                                {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
+                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                            resultPtr.deallocate()
+                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{returnTypeNameForMetatype}}
+                        """);
+                }
+                else
+                {
+                    writer.WriteLines($$"""
+                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                            {{argPassCode}}let resultPtr = {{vtableInstanceName}}.{{fieldName}}!(
+                                {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}}){{writebackCode}}
+                            return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
+                        """);
+                }
             }
         }
         else
@@ -1748,6 +1810,20 @@ public class EveryProtocolEmitter
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Checks if a parameter's Swift type is ObjC-bridgeable (e.g., URL, URLRequest).
+    /// ObjC-bridgeable types need special vtable marshalling: bridge to AnyObject and pass
+    /// the ObjC pointer instead of the raw Swift struct bytes.
+    /// </summary>
+    private bool IsObjCBridgeableParam(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+        if (!_typeDatabase.TryGetTypeRecord(named, out var record))
+            return false;
+        return MarshallingHelpers.IsObjCBridgeable(record);
     }
 
     private string GetSwiftTypeName(TypeSpec? typeSpec) =>

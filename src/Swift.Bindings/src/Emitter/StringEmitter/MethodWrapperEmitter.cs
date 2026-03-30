@@ -83,9 +83,10 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
             return false;
 
-        // 11c. No variadic parameters — Swift variadic params (T...) appear as Array<T> in ABI JSON.
-        // The @_cdecl wrapper would pass [T] where T... is expected, causing compilation error:
-        // "cannot pass array of type '[T]' as variadic arguments of type 'T'"
+        // 11c. No variadic parameters for @_cdecl wrappers — Swift variadic params (T...) appear
+        // as Array<T> in ABI JSON. The @_cdecl wrapper would pass [T] where T... is expected,
+        // causing compilation error: "cannot pass array of type '[T]' as variadic arguments of type 'T'"
+        // These methods are still emitted — they fall back to CallConvSwift P/Invoke.
         if (env.MethodDecl.HasVariadicParameter)
             return false;
 

@@ -205,5 +205,13 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
             <typedeclaration kind="class" name="NSAttributedString.Key" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- ObjectiveC module types: The TypeSpecParser rewrites "ObjectiveC.*" → "Foundation.*",
+             so these must live in the Foundation database with module="Foundation" for lookup to work. -->
+        <entity managedNameSpace="" managedTypeName="nint">
+            <typedeclaration kind="struct" name="Selector" module="Foundation" mangledName="$s10ObjectiveC8SelectorV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <entity managedNameSpace="" managedTypeName="nint">
+            <typedeclaration kind="struct" name="ObjCBool" module="Foundation" mangledName="$s10ObjectiveC0A4BoolV" frozen="true" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>

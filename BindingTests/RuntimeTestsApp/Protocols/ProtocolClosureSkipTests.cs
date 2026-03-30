@@ -138,7 +138,6 @@ public class ProtocolClosureSkipTests : TestBase
     }
 #pragma warning restore CS0618, SB0003
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — vtable String callback in RouteEvent triggers !ji->async crash")]
     public void TestSetCSharpImplOnRouterAndRouteEvent()
     {
         var receivedEvents = new List<string>();
@@ -157,7 +156,6 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"RouteEvent(\"tap\") through C# delegate = {result}");
     }
 
-    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — vtable String callback in GetDelegateName triggers !ji->async crash")]
     public void TestSetCSharpImplOnRouterGetDelegateName()
     {
         var impl = new TestEventDelegate("CustomDelegate", _ => false);

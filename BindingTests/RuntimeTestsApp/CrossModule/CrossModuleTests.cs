@@ -199,7 +199,6 @@ public class CrossModuleTests : TestBase
         AssertEqual(7.0, capturedY, "Closure received correct Y");
     }
 
-    [Skip("Wrapper stripped: closure returning cross-module DependencyPoint fails wrapper compilation")]
     public void TestMapDependencyPoint()
     {
         var original = new DependencyPoint(2.0, 3.0);

@@ -11,7 +11,7 @@ namespace RuntimeTestsApp.Parameters;
 /// Tests for inout, default, and variadic parameters.
 /// Inout tests verify the P/Invoke call completes without crashing (CallConvSwift path).
 /// Default parameter tests verify correct return values with and without explicit args.
-/// Variadic tests remain skipped — generator does not emit variadic bindings.
+/// Variadic tests verify CallConvSwift dispatch with SwiftArray<T> (T... → Array<T> at ABI level).
 /// </summary>
 public class ParameterTests : TestBase
 {
@@ -111,23 +111,35 @@ public class ParameterTests : TestBase
 
     #region Variadic Parameters
 
-    [Skip("Variadic methods not generated — ABI JSON represents T... as Array<T>, neither @_cdecl nor CallConvSwift can dispatch correctly")]
+#pragma warning disable SB0001 // No @_cdecl wrapper — CallConvSwift direct call
     public void TestSumAll()
     {
-        // sumAll(_ values: Int32...) — variadic Int32, not emitted by generator
+        // sumAll(_ values: Int32...) — variadic Int32 via CallConvSwift + SwiftArray<int>
+        var result = TestLibFunctions.SumAll(new[] { 1, 2, 3, 4, 5 });
+        AssertEqual(15, result, "SumAll(1..5) = 15");
+
+        var empty = TestLibFunctions.SumAll(Array.Empty<int>());
+        AssertEqual(0, empty, "SumAll(empty) = 0");
     }
 
-    [Skip("Variadic methods not generated — ABI JSON represents T... as Array<T>, neither @_cdecl nor CallConvSwift can dispatch correctly")]
     public void TestJoinStrings()
     {
-        // joinStrings(_ strings: String...) — variadic String, not emitted by generator
+        // joinStrings(_ strings: String...) — variadic String via CallConvSwift
+        var result = TestLibFunctions.JoinStrings(new[] { "hello", "world" });
+        AssertEqual("hello world", result, "JoinStrings joins with space");
+
+        var single = TestLibFunctions.JoinStrings(new[] { "only" });
+        AssertEqual("only", single, "JoinStrings single element");
     }
 
-    [Skip("Variadic methods not generated — ABI JSON represents T... as Array<T>, neither @_cdecl nor CallConvSwift can dispatch correctly")]
     public void TestVariadicConsumer()
     {
-        // VariadicConsumer.sumWithPrefix — variadic on struct method, not emitted by generator
+        // VariadicConsumer.sumWithPrefix — variadic on struct method
+        using var consumer = new VariadicConsumer("Total: ");
+        var result = consumer.SumWithPrefix(new[] { 10, 20, 30 });
+        AssertEqual("Total: 60", result, "SumWithPrefix adds prefix to sum");
     }
+#pragma warning restore SB0001
 
     #endregion
 }

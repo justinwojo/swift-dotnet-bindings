@@ -2317,25 +2317,26 @@ public class ProtocolProxyEmitterTests
     #region P0 — Receiver ABI Type Marshalling (Codex review fix)
 
     [Fact]
-    public void EmitProxyClass_SetterReceiver_String_UsesAbiType()
+    public void EmitProxyClass_SetterReceiver_String_UsesRuntimeMarshal()
     {
-        // P0: MarshalFromSwift<T> in setter must use Swift ABI type (Swift.SwiftString),
-        // not idiomatic C# type (string). Reading Swift ABI memory as a C# string corrupts at runtime.
+        // String property setter: local MarshalFromSwift<SwiftString> uses Unsafe.Read which can't
+        // construct a managed SwiftString from raw Swift memory. Must use runtime's SwiftMarshal.
         RegisterSwiftString();
         var typeSpec = new NamedTypeSpec("Swift.String");
         var protocolDecl = CreateProtocolWithProperty("StringPropProto", "label", hasGetter: false, hasSetter: true, typeSpec);
         var output = EmitProxyClass(protocolDecl);
 
         Assert.Contains("Receive_label_set", output);
-        // Must use ABI type for MarshalFromSwift, not idiomatic "string"
-        Assert.Contains("MarshalFromSwift<SwiftString>", output);
+        // Must use runtime SwiftMarshal for String (not local helper which uses Unsafe.Read)
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
     [Fact]
-    public void EmitProxyClass_MethodReceiver_StringParam_UsesAbiType()
+    public void EmitProxyClass_MethodReceiver_StringParam_UsesRuntimeMarshal()
     {
-        // P0: Method param unmarshalling must use ABI type for MarshalFromSwift.
+        // String method params: local MarshalFromSwift<SwiftString> uses Unsafe.Read which can't
+        // construct a managed SwiftString from raw Swift memory. Must use runtime's SwiftMarshal.
         RegisterSwiftString();
         var protocol = CreateSimpleProtocol("MethodStringProto");
         var method = CreateMethodDecl("greet");
@@ -2354,8 +2355,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_greet_0", output);
-        // Must use ABI type for MarshalFromSwift
-        Assert.Contains("MarshalFromSwift<SwiftString>", output);
+        // Must use runtime SwiftMarshal for String (not local helper which uses Unsafe.Read)
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains(".ToString()", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
@@ -3194,9 +3196,9 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_MethodReceiver_StringParam_AbiTypeUnchangedByFix()
+    public void EmitProxyClass_MethodReceiver_StringParam_UsesRuntimeMarshalAfterExistentialFix()
     {
-        // Regression: ensure String params still use Swift.SwiftString ABI type, not broken by existential fix.
+        // Regression: ensure String params use runtime SwiftMarshal, not broken by existential fix.
         RegisterSwiftString();
         var protocol = CreateSimpleProtocol("StringCheckProto");
         var method = CreateMethodDecl("greet");
@@ -3211,7 +3213,7 @@ public class ProtocolProxyEmitterTests
         protocol.Methods.Add(method);
         var output = EmitProxyClass(protocol);
 
-        Assert.Contains("MarshalFromSwift<SwiftString>", output);
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 

@@ -93,4 +93,12 @@ public class SwiftStringTests : IClassFixture<SwiftStringTests.TestFixture>
             string _ = value!;
         });
     }
+
+    [Fact]
+    public void Buffer_SizeIsExactlyTwoNintWords()
+    {
+        // Guard invariant: SwiftString.Buffer ABI decomposition in PInvokeEmitter assumes
+        // Buffer is exactly two nint-sized words (matching Swift String's two-Int layout).
+        Assert.Equal(2 * IntPtr.Size, Marshal.SizeOf<SwiftString.Buffer>());
+    }
 }
