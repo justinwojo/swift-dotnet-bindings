@@ -29,6 +29,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -36,29 +39,9 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build solution
-        run: ./build.sh
-
-      - name: Run unit tests
-        run: >
-          dotnet test src/Swift.Bindings/tests/UnitTests
-          --no-build -c Debug
-          --logger "trx;LogFileName=unit-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run runtime library tests
-        run: >
-          dotnet test src/Swift.Runtime/tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=runtime-lib-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run analyzer tests
-        run: >
-          dotnet test src/Swift.Analyzers.Tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=analyzer-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+      - name: Build and run tests
+        timeout-minutes: 10
+        run: dotnet nuke test
 
       - name: Upload test results
         if: always()
@@ -84,6 +67,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -91,34 +77,35 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build and test
-        run: cd BindingTests && ./build-and-test.sh --strict
+      - name: Create and boot iOS Simulator (background)
+        run: |
+          # Create sim and kick off boot in background so it warms up during binding-tests
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID" &
+          echo "Boot started in background"
+
+      - name: Build and test bindings (strict + coverage + baselines)
+        run: dotnet nuke binding-tests --strict
 
       - name: Generate coverage report
-        run: cd BindingTests && ./generate-coverage-report.sh
+        working-directory: BindingTests
+        run: >
+          python3 ../scripts/coverage-report.py
+          --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
+          --binding-report output/binding-report.json
 
-      - name: Check baselines
-        run: cd BindingTests && ./check-baselines.sh
-
-      - name: Verify no degraded must-pass features
-        run: |
-          DEGRADED=$(python3 -c "
-          import json
-          with open('BindingTests/output/coverage-matrix.json') as f:
-              data = json.load(f)
-          mp = data.get('summary', {}).get('must_pass', {})
-          print(mp.get('degraded', 0))
-          ")
-          if [ "$DEGRADED" -gt 0 ]; then
-            echo "ERROR: $DEGRADED must-pass feature(s) are degraded."
-            exit 1
-          fi
-          echo "All must-pass features passing."
+      - name: Wait for simulator boot
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
         timeout-minutes: 20
         run: >
           python3 scripts/ci/ci_ios_test.py
+          --device-udid "$SIM_UDID" --skip-prepare --skip-build
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
@@ -147,6 +134,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -154,21 +144,12 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Pack SwiftBindings.Runtime
-        run: dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
-
-      - name: Publish generator
-        run: dotnet publish src/Swift.Bindings/src/ -c Release -o src/Swift.Bindings.Sdk/tools/net10.0/any/
-
-      - name: Pack SwiftBindings.Sdk
-        run: dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
-
-      - name: Pack SwiftBindings.Templates
-        run: dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
+      - name: Pack all NuGet packages
+        run: dotnet nuke pack --version 0.0.0-smoke --output-dir /tmp/swift-nuget
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
           name: packages
-          path: artifacts/*.nupkg
+          path: /tmp/swift-nuget/*.nupkg
           retention-days: 7

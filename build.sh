@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-set -e
-
-scriptroot="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-dotnet build "$scriptroot/SwiftBindings.sln" "$@"
+# Nuke Build entry point
+# This file is required by the Nuke CLI.
+set -eo pipefail
+dotnet tool restore >/dev/null 2>&1
+dotnet run --project build/_build.csproj -- "$@"

@@ -81,8 +81,8 @@ def is_infra_failure(error: Exception) -> bool:
 def run_build(test_framework_dir: str, skip_regen: bool = True) -> None:
     """Run the BindingTests build steps.
 
-    When used in the full CI pipeline, build-and-test.sh has already run
-    by this point. We just need to ensure the RuntimeTestsApp is built.
+    When used in the full CI pipeline, dotnet nuke binding-tests has already
+    run by this point. We just need to ensure the RuntimeTestsApp is built.
     """
     log.info("=== BUILD: Starting dotnet build ===")
     app_dir = os.path.join(test_framework_dir, "RuntimeTestsApp")
@@ -122,10 +122,7 @@ def run_tests(
     max_test_retries: int = 1,
     deadline: Optional[float] = None,
 ) -> int:
-    """Run runtime tests using the existing run-runtime-tests.sh script.
-
-    We delegate to the existing script to preserve all the nuanced crash
-    detection, Mono JIT tolerance, and result classification logic.
+    """Run runtime tests using dotnet nuke runtime-tests-simulator.
 
     Retries once on timeout/infrastructure failure (app hang, launch failure),
     but only if enough time remains before the deadline.
@@ -136,10 +133,10 @@ def run_tests(
                   timeouts on later attempts.
 
     Returns:
-        Exit code from run-runtime-tests.sh
+        Exit code from dotnet nuke runtime-tests-simulator
     """
     cmd = [
-        "./run-runtime-tests.sh",
+        "dotnet", "nuke", "runtime-tests-simulator",
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
@@ -157,8 +154,8 @@ def run_tests(
     for attempt in range(1, max_test_retries + 2):
         if attempt > 1:
             # Determine if we need a full rebuild or incremental
-            # If "Step 3" appeared in last output, build completed — artifacts are fine
-            build_completed = "Step 3: Run on iOS Simulator" in last_output
+            # If simulator launch message appeared, build completed — artifacts are fine
+            build_completed = "Running on iOS Simulator" in last_output
             retry_overhead = RETRY_OVERHEAD_CACHED if build_completed else RETRY_OVERHEAD_CLEAN
 
             # Check if we have enough time for a retry
@@ -212,9 +209,11 @@ def run_tests(
         log.info("Command: %s", " ".join(cmd))
 
         try:
+            # Nuke runs from repo root (parent of BindingTests/)
+            repo_root = os.path.dirname(os.path.abspath(test_framework_dir))
             result = subprocess.run(
                 cmd,
-                cwd=test_framework_dir,
+                cwd=repo_root,
                 capture_output=True,
                 text=True,
                 timeout=subprocess_timeout,
@@ -433,8 +432,8 @@ def run_pipeline(
                 return 0
 
             # Test failed — but is it infra or real?
-            # For now, test failures from run-runtime-tests.sh are considered real
-            # (that script already handles Mono JIT tolerance internally)
+            # For now, test failures from Nuke runtime-tests-simulator are considered real
+            # (Nuke already handles crash diagnostics and result classification internally)
             return exit_code
 
         except Exception as e:

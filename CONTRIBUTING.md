@@ -39,7 +39,8 @@ xcframework (dylib + ABI JSON + TBD + swiftinterface)
 | `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
 | `BindingTests/` | Integration test library + iOS Simulator runtime tests (~850 tests) |
 | `validation-libraries.json` | Library validation manifest (90 targets across 46 libraries) |
-| `scripts/` | Build helper scripts (`fetch-libraries.sh`, `lib.sh`) |
+| `build/` | Nuke Build targets (C#): compile, test, validate, pack |
+| `scripts/` | Coverage report, CI orchestrator scripts |
 | `src/docs/` | Internal design docs, status, known issues |
 
 ## Getting Started
@@ -56,22 +57,22 @@ xcframework (dylib + ABI JSON + TBD + swiftinterface)
 ### Building
 
 ```bash
-./build.sh
+nuke compile
 ```
 
 ### Running Tests
 
 ```bash
 # Unit tests (~9,000 tests, ~2 min)
-./run-tests.sh
+nuke test
 
 # Library validation (requires fetching libraries first)
-scripts/fetch-libraries.sh            # First time only (~30-60 min)
-./validate-libraries.sh               # Full validation (90 targets)
-./validate-libraries.sh --filter Nuke # Single library
+nuke fetch                     # First time only (~30-60 min)
+nuke validate                  # Full validation (90 targets)
+nuke validate --filter Nuke    # Single library
 
 # End-to-end integration tests (~5 min)
-cd BindingTests && ./build-and-test.sh
+nuke binding-tests
 ```
 
 ### Generator CLI
@@ -94,18 +95,18 @@ Run `dotnet run --project src/Swift.Bindings/src -- --help` for all CLI options.
 
 Follow this progression from fast to thorough:
 
-1. **Unit tests** (`./run-tests.sh`) — fast feedback on parser/marshaler/emitter logic
-2. **Library validation** (`./validate-libraries.sh`) — compile gate across 90 real-world library targets
-3. **BindingTests** (`cd BindingTests && ./build-and-test.sh`) — end-to-end: Swift source to generated binding to runtime execution on iOS Simulator
+1. **Unit tests** (`nuke test`) — fast feedback on parser/marshaler/emitter logic
+2. **Library validation** (`nuke validate`) — compile gate across 90 real-world library targets
+3. **BindingTests** (`nuke binding-tests`) — end-to-end: Swift source to generated binding to runtime execution on iOS Simulator
 
 Unit tests alone can't catch ABI mismatches, calling convention bugs, or marshalling crashes that only surface when running real bindings. Always run the full progression for generator/emitter changes.
 
 ### Adding a New Validation Library
 
 1. Add an entry to `validation-libraries.json` (repo URL, version, mode, tier)
-2. Fetch: `scripts/fetch-libraries.sh --filter NewLib`
-3. Validate: `./validate-libraries.sh --filter NewLib`
-4. Run full validation (`./validate-libraries.sh` with no flags) to update `.validation-baseline.json`
+2. Fetch: `nuke fetch --filter NewLib`
+3. Validate: `nuke validate --filter NewLib`
+4. Run full validation (`nuke validate`) to update `.validation-baseline.json`
 
 ### Where Tests Go
 
@@ -139,9 +140,9 @@ PRs are welcome, but **please open an issue first** to discuss the change — es
 ### PR Expectations
 
 - **All changes must have tests.** Unit tests at minimum; integration tests for new Swift patterns.
-- **Run `./run-tests.sh` before submitting.** All unit tests must pass.
-- **Run `./validate-libraries.sh`** if your change affects code generation. No regressions in the validation baseline.
-- **Run `cd BindingTests && ./build-and-test.sh`** if your change affects code generation or the runtime.
+- **Run `nuke test` before submitting.** All unit tests must pass.
+- **Run `nuke validate`** if your change affects code generation. No regressions in the validation baseline.
+- **Run `nuke binding-tests`** if your change affects code generation or the runtime.
 - **Keep PRs focused.** One logical change per PR. Don't bundle unrelated fixes.
 - **Don't refactor surrounding code.** Fix/add what's needed, nothing more.
 

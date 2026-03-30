@@ -29,6 +29,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -36,29 +39,8 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build solution
-        run: ./build.sh
-
-      - name: Run unit tests
-        run: >
-          dotnet test src/Swift.Bindings/tests/UnitTests
-          --no-build -c Debug
-          --logger "trx;LogFileName=unit-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run runtime library tests
-        run: >
-          dotnet test src/Swift.Runtime/tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=runtime-lib-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
-
-      - name: Run analyzer tests
-        run: >
-          dotnet test src/Swift.Analyzers.Tests
-          --no-build -c Debug
-          --logger "trx;LogFileName=analyzer-tests.trx"
-          -- RunConfiguration.DotNetHostPath="$(which dotnet)"
+      - name: Build and run tests
+        run: dotnet nuke test
 
       - name: Upload test results
         if: always()
@@ -84,6 +66,9 @@ jobs:
       - name: Install workloads
         run: dotnet workload restore
 
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -91,34 +76,34 @@ jobs:
           key: nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
 
-      - name: Build and test
-        run: cd BindingTests && ./build-and-test.sh --strict
+      - name: Create and boot iOS Simulator (background)
+        run: |
+          UDID=$(xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-16 2>/dev/null || \
+                 xcrun simctl create ci-sim com.apple.CoreSimulator.SimDeviceType.iPhone-15 2>/dev/null)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          echo "Created simulator: $UDID"
+          xcrun simctl boot "$UDID" &
+          echo "Boot started in background"
+
+      - name: Build and test bindings (strict + coverage + baselines)
+        run: dotnet nuke binding-tests --strict
 
       - name: Generate coverage report
-        run: cd BindingTests && ./generate-coverage-report.sh
+        working-directory: BindingTests
+        run: >
+          python3 ../scripts/coverage-report.py
+          --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
+          --binding-report output/binding-report.json
 
-      - name: Check baselines
-        run: cd BindingTests && ./check-baselines.sh
-
-      - name: Verify no degraded must-pass features
-        run: |
-          DEGRADED=$(python3 -c "
-          import json
-          with open('BindingTests/output/coverage-matrix.json') as f:
-              data = json.load(f)
-          mp = data.get('summary', {}).get('must_pass', {})
-          print(mp.get('degraded', 0))
-          ")
-          if [ "$DEGRADED" -gt 0 ]; then
-            echo "ERROR: $DEGRADED must-pass feature(s) are degraded."
-            exit 1
-          fi
-          echo "All must-pass features passing."
+      - name: Wait for simulator boot
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
 
       - name: Run iOS Simulator tests
         timeout-minutes: 20
         run: >
           python3 scripts/ci/ci_ios_test.py
+          --device-udid "$SIM_UDID" --skip-prepare --skip-build
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
@@ -151,6 +136,9 @@ jobs:
 
       - name: Install workloads
         run: dotnet workload restore
+
+      - name: Restore Nuke tool
+        run: dotnet tool restore
 
       - name: Extract version from branch
         id: version
@@ -201,63 +189,11 @@ jobs:
             echo "All packages available for publishing."
           fi
 
-      - name: Patch version references
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Sdk.props: _SwiftBindingSdkVersion and SwiftRuntimeVersion
-          sed -i '' \
-            "s|<_SwiftBindingSdkVersion>.*</_SwiftBindingSdkVersion>|<_SwiftBindingSdkVersion>${VERSION}</_SwiftBindingSdkVersion>|" \
-            src/Swift.Bindings.Sdk/Sdk/Sdk.props
-          sed -i '' \
-            "s|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">.*</SwiftRuntimeVersion>|<SwiftRuntimeVersion Condition=\"'\$(SwiftRuntimeVersion)' == ''\">${VERSION}</SwiftRuntimeVersion>|" \
-            src/Swift.Bindings.Sdk/Sdk/Sdk.props
-
-          # Template ProjectName.csproj: SDK version
-          sed -i '' \
-            "s|Sdk=\"SwiftBindings.Sdk/[^\"]*\"|Sdk=\"SwiftBindings.Sdk/${VERSION}\"|" \
-            src/Swift.Bindings.Templates/content/swift-binding/ProjectName.csproj
-
-          # Template template.json: patch only sdkVersion symbol (not platform/tfm)
-          python3 -c "
-          import json, sys
-          path = 'src/Swift.Bindings.Templates/content/swift-binding/.template.config/template.json'
-          with open(path) as f:
-              data = json.load(f)
-          sdk = data['symbols']['sdkVersion']
-          sdk['defaultValue'] = sys.argv[1]
-          sdk['replaces'] = sys.argv[1]
-          with open(path, 'w') as f:
-              json.dump(data, f, indent=2)
-              f.write('\n')
-          " "$VERSION"
-
-          # Generator: DefaultSwiftRuntimeVersion constant
-          sed -i '' \
-            "s|DefaultSwiftRuntimeVersion = \"[^\"]*\"|DefaultSwiftRuntimeVersion = \"${VERSION}\"|" \
-            src/Swift.Bindings/src/Emitter/BindingProjectEmitter.cs
-
-          echo "Patched version references to $VERSION"
-
-      - name: Pack Swift.Runtime
+      - name: Build and pack NuGet packages
         run: >
-          dotnet pack src/Swift.Runtime/src/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
-
-      - name: Publish generator
-        run: >
-          dotnet publish src/Swift.Bindings/src/ -c Release
-          -o src/Swift.Bindings.Sdk/tools/net10.0/any/
-
-      - name: Pack Swift.Bindings.Sdk
-        run: >
-          dotnet pack src/Swift.Bindings.Sdk/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
-
-      - name: Pack Swift.Bindings.Templates
-        run: >
-          dotnet pack src/Swift.Bindings.Templates/ -c Release -o artifacts/
-          -p:PackageVersion=${{ steps.version.outputs.version }}
+          dotnet nuke pack
+          --version ${{ steps.version.outputs.version }}
+          --output-dir artifacts
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
@@ -359,20 +295,28 @@ jobs:
           commits = os.environ["COMMITS"]
           api_key = os.environ["XAI_API_KEY"]
           prompt = textwrap.dedent(f"""
-              Generate release notes for v{version} of swift-dotnet-bindings,
+              Write release notes for v{version} of swift-dotnet-bindings,
               a Swift/.NET binding generator that creates C# bindings from compiled
               Swift libraries for .NET on Apple platforms.
 
-              Here are the commits since the last release:
+              Commits since the last release:
 
               {commits}
 
-              Write concise, professional markdown release notes. Format:
-              - First line: TITLE: <short release title, under 70 chars, no version prefix>
-              - Then a blank line, followed by markdown release notes body
-              - Group changes by category (e.g., Bug Fixes, Improvements, Infrastructure)
-              - Use the commit messages as the source of truth - do not invent changes
-              - Keep it factual and brief
+              Structure (in this exact order):
+              1. First line: TITLE: <short release title, under 70 chars, no version prefix>
+              2. A blank line, then 1-2 sentences capturing the theme of this release — what it means for users, not a list of changes. Write this like a human maintainer would, with confidence and personality.
+              3. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters.
+              4. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience", "## Test coverage"). Only include categories that have meaningful content.
+              5. End with a "## Packages" table listing SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates all at version {version}, followed by a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
+
+              Style guidelines:
+              - Write like a knowledgeable maintainer, not a bot. Vary sentence structure. Be direct.
+              - In the highlights, explain impact ("fixes a crash when..." not "fixed crash in X function")
+              - In detail sections, use concise bullet points. Bold the first few words of each bullet as a label.
+              - Do not use filler phrases like "This release includes" or "We are excited to announce"
+              - Use the commit messages as source of truth — do not invent changes
+              - Omit trivial changes (typo fixes, minor refactors) unless they're part of a larger story
           """).strip()
           data = json.dumps({
               "model": "grok-4-1-fast-reasoning",

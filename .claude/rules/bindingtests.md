@@ -5,15 +5,16 @@ paths:
 
 # BindingTests Guide
 
-## Scripts
-| Script | Purpose |
+## Nuke Targets
+| Target | Purpose |
 |--------|---------|
-| `build-xcframework.sh` | Build Swift test library as xcframework |
-| `regenerate-bindings.sh` | Generate C# bindings from xcframework |
-| `build-and-test.sh` | Full pipeline: xcframework + bindings + bridge |
-| `build-bridge.sh` | Compile generated SwiftUI bridge + test helpers |
-| `run-runtime-tests.sh` | Build + run runtime tests on iOS Simulator |
-| `generate-coverage-report.sh` | Generate `coverage-matrix.json` |
+| `nuke build-xcframework` | Build Swift test library as xcframework |
+| `nuke regenerate-bindings` | Generate C# bindings from xcframework |
+| `nuke binding-tests` | Full pipeline: xcframework + bindings + bridge |
+| `nuke binding-tests --strict` | Strict mode (fail on non-zero generator exit) |
+| `nuke runtime-tests-simulator` | Build + run runtime tests on iOS Simulator |
+| `nuke runtime-tests-device` | Build + run runtime tests on physical device |
+| `nuke runtime-tests-macos` | Build + run runtime tests on macOS |
 
 ## Output Files
 - `output/SwiftBindingsTestLib.cs` — Generated C# bindings
@@ -44,7 +45,7 @@ Investigate degraded features: check `binding-report.json`, search generated bin
   - **`[Slow]`** — stress tests, always runs
   - **`[MonoJitCrash]`** — DEPRECATED, do not use. All Mono crashes are our bugs. Use `[Skip]` with a specific reason instead.
 - Properties return `SwiftString` (call `.ToString()`); methods return `string` directly
-- `--class NAME` runs only the named test class (exact match, case-insensitive)
+- `--class-filter NAME` runs only the named test class (exact match, case-insensitive)
 - `--platform simulator|device` selects execution mode (default: simulator)
 - iOS args: use `NSProcessInfo.ProcessInfo.Arguments` (not `Main(string[] args)`)
 - Main-queue: use `NSRunLoop.Current.RunUntil(NSDate)` instead of `Thread.Sleep()`
@@ -71,11 +72,11 @@ When a runtime test crashes (SIGSEGV, SIGKILL, Mono JIT assertion):
 2. **Check generated code matches the wrapper** — verify C# P/Invoke calling convention, parameter count, and types match the Swift @_cdecl wrapper. Use `grep` on `output/SwiftBindingsTestLib.cs` and `output/SwiftBindingsTestLib.swift`.
 3. **Isolate constructor vs getter** — if a property reads wrong after construction, hardcode the Swift wrapper to pass `nil`/a known value and see if the getter still returns the wrong thing. This tells you which side is broken.
 4. **Check if the wrapper was stripped** — the build script silently strips Swift functions that fail compilation. After a build, `grep` the output `.swift` file for the @_cdecl symbol AND check `nm -g` on the compiled framework to confirm the symbol exists.
-5. **Run `validate-libraries.sh` after any generator change** — emission pipeline changes (especially to OptionalProjection, WrapperEmitter.Marshalling, PInvokeEmitter) can cause regressions on third-party libraries. Catch them early.
+5. **Run `nuke validate` after any generator change** — emission pipeline changes (especially to OptionalProjection, WrapperEmitter.Marshalling, PInvokeEmitter) can cause regressions on third-party libraries. Catch them early.
 6. **Don't iterate more than 3 times on the same approach** — if 3 attempts at the same strategy don't work, step back and question the hypothesis. The root cause is probably elsewhere.
 
 ## Emission Pipeline Dual-Path Hazard
-`EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `validate-libraries.sh --filter AMPopTip` as a canary — it has Optional<CGFloat> params that exercise both paths.
+`EmitBoundGenericArguments()` and `EmitTypeConversions()` (which calls `TryEmitParameterConversionViaProjection()`) BOTH run for the same parameters. They create variables with the `{name}Buffer` naming convention. If a new fast path in one creates `{name}Buffer`, verify the other path doesn't ALSO create it. Run `nuke validate --filter AMPopTip` as a canary — it has Optional<CGFloat> params that exercise both paths.
 
 ## Runtime Test Pre-Flight (saves 20+ min)
 Before writing runtime tests for a new batch:
