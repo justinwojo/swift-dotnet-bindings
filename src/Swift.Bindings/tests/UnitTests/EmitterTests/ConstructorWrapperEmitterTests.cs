@@ -3708,4 +3708,89 @@ public class ConstructorWrapperEmitterTests
     }
 
     #endregion
+
+    #region Protocol Existential Parameter Tests (Session 3)
+
+    /// <summary>
+    /// Verifies that CdeclParamMapper emits "any" prefix and parenthesized form
+    /// for protocol existential parameters identified via NamedTypeSpec + TypeRecord.
+    /// Without this fix, the generated Swift would use bare protocol names which
+    /// are invalid in Swift 6 and have incorrect metatype semantics.
+    /// </summary>
+    [Fact]
+    public void GetCdeclParamMapping_ProtocolExistentialNamedTypeSpec_EmitsAnyPrefix()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "Holder",
+            ("TestModule.MyProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
+
+        var protocolSpec = new NamedTypeSpec("TestModule.MyProtocol");
+        var parentDecl = CreateClassDecl("Holder", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = protocolSpec,
+            Name = "item",
+            PrivateName = "item",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "item", env);
+
+        // Swift @_cdecl param should be UnsafeRawPointer (existential container passed by pointer)
+        Assert.Equal("_ item: UnsafeRawPointer", cdeclParam);
+
+        // Reconstruction must include "any" prefix and parenthesized form for load(as:)
+        Assert.NotNull(reconstruction);
+        Assert.Contains("any TestModule.MyProtocol", reconstruction);
+        Assert.Contains("(any TestModule.MyProtocol)", reconstruction);
+        Assert.Contains(".load(as:", reconstruction);
+
+        // Call argument should use the reconstructed value
+        Assert.Contains("itemVal", callArg);
+    }
+
+    /// <summary>
+    /// Verifies that ProtocolListTypeSpec existential parameters (already rendered with "any")
+    /// go through the existential path and produce correct load(as:) code.
+    /// </summary>
+    [Fact]
+    public void GetCdeclParamMapping_ProtocolListTypeSpec_EmitsExistentialPath()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Holder");
+
+        var protocolListSpec = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("TestModule.Describable") });
+        var parentDecl = CreateClassDecl("Holder", moduleDecl);
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = protocolListSpec,
+            Name = "item",
+            PrivateName = "item",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "item", env);
+
+        // Should use UnsafeRawPointer for existential
+        Assert.Equal("_ item: UnsafeRawPointer", cdeclParam);
+
+        // ProtocolListTypeSpec already includes "any" from RenderSwiftTypeSpecCore
+        Assert.NotNull(reconstruction);
+        Assert.Contains("any", reconstruction);
+        Assert.Contains(".load(as:", reconstruction);
+    }
+
+    #endregion
 }

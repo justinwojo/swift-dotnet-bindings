@@ -511,12 +511,14 @@ public static class MethodClosureBridge
             {
                 var currentIndent = indent + indent;
 
-                // D1: Emit heap allocation for complex enum args (flat, before withUnsafePointer nesting)
+                // D1: Emit heap allocation for complex enum args (flat, before withUnsafePointer nesting).
+                // No defer — C# takes ownership of the heap memory via SwiftSafeHandle
+                // (VWT Destroy + NativeMemory.Free on disposal). Deallocating here would
+                // cause use-after-free because MarshalFromSwift wraps the pointer without copying.
                 foreach (var (idx, swiftType) in analysis.heapAllocArgs)
                 {
                     swiftWriter.WriteLine($"{currentIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
                     swiftWriter.WriteLine($"{currentIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
-                    swiftWriter.WriteLine($"{currentIndent}defer {{ __heap{ci.Index}_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap{ci.Index}_{idx}.deallocate() }}");
                 }
 
                 // withUnsafePointer nesting for bound generic struct args

@@ -101,6 +101,18 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     unsafe SwiftOptional(IntPtr handle)
     {
         IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(_payloadSize);
+
+        // Extra-inhabitant fast path for Bool and simple C# enums.
+        // VWT InitializeWithCopy may produce incorrect results on Mono iOS Simulator
+        // for these extra-inhabitant-encoded types. Direct memcpy is safe because
+        // these are POD types with no retained references.
+        if (typeof(T) == typeof(bool) || IsSimpleEnumType())
+        {
+            Buffer.MemoryCopy((void*)handle, (void*)bufferPtr, (long)_payloadSize, (long)_payloadSize);
+            _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
+            return;
+        }
+
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
         var tagOffset = GetTagByteOffset();
         if (tagOffset >= 0 && !metadata.ValueWitnessTable->IsNonPOD)
@@ -155,9 +167,37 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     {
         ThrowIfDisposed();
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-        if ((int)metadata.Size > swiftDestSpan.Length)
+        int size = (int)metadata.Size;
+
+        // Simple enum and Bool fast path: these use extra-inhabitant encoding and
+        // are POD types. Direct memcpy is both correct and avoids VWT issues on Mono.
+        if (IsSimpleEnumType() || typeof(T) == typeof(bool))
         {
-            throw new ArgumentException($"Span size does not match type size, Expected: {(int)metadata.Size}, Actual: {swiftDestSpan.Length}");
+            if (size > swiftDestSpan.Length)
+                throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
+            unsafe
+            {
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    bool success = false;
+                    _payload.DangerousAddRef(ref success);
+                    try
+                    {
+                        Buffer.MemoryCopy((void*)_payload.DangerousGetHandle(), swiftDest, size, size);
+                        return size;
+                    }
+                    finally
+                    {
+                        if (success)
+                            _payload.DangerousRelease();
+                    }
+                }
+            }
+        }
+
+        if (size > swiftDestSpan.Length)
+        {
+            throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
         }
         unsafe
         {
@@ -169,7 +209,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 try
                 {
                     metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
-                    return (int)metadata.Size;
+                    return size;
                 }
                 finally
                 {
@@ -203,8 +243,20 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         instance._payload.DangerousAddRef(ref success);
         try
         {
-            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             byte* payload = (byte*)instance._payload.DangerousGetHandle();
+
+            // Simple enum fast path: Swift simple enums use extra-inhabitant encoding.
+            // A Swift enum with N cases occupies 1 byte; values 0..N-1 are the case tags,
+            // and N is the None discriminator. C# enum : int is 4 bytes, so we can't use
+            // MarshalToSwift (which writes 4 bytes into a 1-byte span). Instead, write the
+            // enum's integer value directly as a single byte.
+            if (IsSimpleEnumType())
+            {
+                payload[0] = (byte)Convert.ToInt32(value);
+                return instance;
+            }
+
+            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             var innerSize = (int)TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
             int spanSize = ComputePayloadSpanSize((int)metadata.Size, innerSize);
             Span<byte> payloadSpan = new Span<byte>(payload, spanSize);
@@ -218,6 +270,15 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             if (tagOffset >= 0)
             {
                 // Tag byte is already 0 (Some) from AllocZeroed — no action needed.
+                return instance;
+            }
+
+            // Extra-inhabitant fast path for Bool.
+            // MarshalToSwift already wrote 0 (false) or 1 (true), which IS the correct
+            // Some encoding for Optional<Bool> (extra-inhabitant: 0=false, 1=true, 2+=None).
+            // Skip DestructiveInjectEnumTag which may corrupt the value on Mono.
+            if (typeof(T) == typeof(bool))
+            {
                 return instance;
             }
 
@@ -243,6 +304,14 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         {
             byte* payload = (byte*)instance._payload.DangerousGetHandle();
 
+            // Simple enum fast path: Swift simple enums use extra-inhabitant encoding.
+            // The None discriminator is the case count (e.g., 4 for a 4-case enum).
+            if (IsSimpleEnumType())
+            {
+                payload[0] = (byte)SimpleEnumCaseCount();
+                return instance;
+            }
+
             // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
             // write the None tag byte (1) directly at offset innerSize instead of using VWT
             // DestructiveInjectEnumTag, which produces incorrect results on some runtimes
@@ -251,6 +320,15 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             if (tagOffset >= 0)
             {
                 payload[tagOffset] = 1; // None
+                return instance;
+            }
+
+            // Extra-inhabitant fast path for Bool.
+            // Optional<Bool> uses 1-byte extra-inhabitant encoding: 2 = None.
+            // Write directly instead of using VWT DestructiveInjectEnumTag.
+            if (typeof(T) == typeof(bool))
+            {
+                payload[0] = 2; // None for Optional<Bool>
                 return instance;
             }
 
@@ -295,6 +373,14 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 byte* payload = (byte*)_payload.DangerousGetHandle();
 
+                // Simple enum fast path: Swift simple enums use extra-inhabitant encoding.
+                // Values 0..N-1 are Some(case), N+ is None. Read the single byte and compare
+                // against the case count.
+                if (IsSimpleEnumType())
+                {
+                    return payload[0] < SimpleEnumCaseCount() ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
+                }
+
                 // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
                 // read the tag byte directly at offset innerSize instead of going through VWT
                 // GetEnumTag, which returns incorrect values on some runtimes (Mono on iOS Simulator).
@@ -303,6 +389,15 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 if (tagOffset >= 0)
                 {
                     return payload[tagOffset] == 0 ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
+                }
+
+                // Extra-inhabitant fast path for Bool.
+                // Optional<Bool> uses 1-byte extra-inhabitant encoding:
+                // 0 = Some(false), 1 = Some(true), 2+ = None.
+                // Bypass VWT GetEnumTag which may return incorrect values on Mono.
+                if (typeof(T) == typeof(bool))
+                {
+                    return payload[0] > 1 ? SwiftOptionalCases.None : SwiftOptionalCases.Some;
                 }
 
                 var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
@@ -349,12 +444,22 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 throw new InvalidOperationException("Cannot get Some when case is None");
             }
-            var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
             bool success = false;
             _payload.DangerousAddRef(ref success);
             try
             {
                 byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+
+                // Simple enum fast path: read the single byte and convert to C# enum.
+                // Swift stores enum cases as a single UInt8 (0..N-1), but C# enum : int is 4 bytes.
+                // Can't use MarshalFromSwift which would read 4 bytes from a 1-byte payload.
+                if (IsSimpleEnumType())
+                {
+                    int caseValue = sourcePayload[0];
+                    return (T)Enum.ToObject(typeof(T), caseValue);
+                }
+
+                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
 
                 // For true Swift class types (SwiftClassHandle), the payload IS
                 // the class pointer (8 bytes). MarshalFromSwift/NewFromPayload for class
@@ -493,6 +598,45 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    /// <summary>
+    /// Cached case count for simple enums. Swift extra-inhabitant encoding uses a single byte,
+    /// so the fast path only applies to enums with fewer than 256 cases. Enums with 256+ cases
+    /// use multi-byte tags in Swift and must fall through to the VWT path.
+    /// </summary>
+    private static readonly int _simpleEnumCaseCount = IsSimpleEnumTypeUncached()
+        ? Enum.GetValuesAsUnderlyingType(typeof(T)).Length : 0;
+
+    /// <summary>
+    /// Returns true if T is a simple C# enum (not a complex enum implementing ISwiftObject)
+    /// AND has fewer than 256 cases (fits in single-byte extra-inhabitant encoding).
+    /// Enums with 256+ cases use multi-byte tags and must use the VWT path.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsSimpleEnumType()
+    {
+        return _simpleEnumCaseCount > 0 && _simpleEnumCaseCount < 256;
+    }
+
+    /// <summary>
+    /// Raw check for simple enum type without the case count guard.
+    /// Used only during static field initialization to avoid circular dependency.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsSimpleEnumTypeUncached()
+    {
+        return typeof(T).IsEnum && !typeof(ISwiftObject).IsAssignableFrom(typeof(T));
+    }
+
+    /// <summary>
+    /// Gets the cached number of cases in a simple C# enum.
+    /// Used as the None discriminator for extra-inhabitant encoding.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int SimpleEnumCaseCount()
+    {
+        return _simpleEnumCaseCount;
+    }
 }
 
 internal static class PInvokesForSwiftOptional

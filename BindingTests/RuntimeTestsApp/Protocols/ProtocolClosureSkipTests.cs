@@ -84,16 +84,6 @@ public class ProtocolClosureSkipTests : TestBase
 
     #region C# Implementation via EventDelegateProxy (Tier 2)
 
-    // Skip audit (Session 4): Unskipped and tested — still fails. The EveryProtocol
-    // conformance compiles in isolation, but build-bridge.sh strip/retry removes the
-    // witness table function (Get_EveryProtocol_EventDelegate_WitnessTable) because
-    // dependent wrapper functions that reference EventDelegate fail compilation and
-    // the stripping cascades to include the witness table accessor.
-    // Root cause: build-bridge.sh strips at function granularity, not conformance granularity.
-    private const string StripReason =
-        "EveryProtocol: EventDelegate witness table stripped by build-bridge.sh — strip cascades from dependent wrapper failures to witness table accessor";
-
-    [Skip(StripReason)]
     public void TestCSharpImplProxyConstruction()
     {
         var impl = new TestEventDelegate("TestProxy", _ => true);
@@ -102,7 +92,6 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info("EventDelegateProxy(IEventDelegate) construction passed");
     }
 
-    [Skip(StripReason)]
     public void TestCSharpImplDelegateName()
     {
         var impl = new TestEventDelegate("MyDelegate", _ => true);
@@ -112,7 +101,6 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"Proxy.DelegateName = \"{name}\"");
     }
 
-    [Skip(StripReason)]
     public void TestCSharpImplDidReceiveEventTrue()
     {
         var impl = new TestEventDelegate("Handler", name => name == "click");
@@ -122,7 +110,6 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"Proxy.DidReceiveEvent(\"click\") = {result}");
     }
 
-    [Skip(StripReason)]
     public void TestCSharpImplDidReceiveEventFalse()
     {
         var impl = new TestEventDelegate("Handler", name => name == "click");
@@ -133,7 +120,6 @@ public class ProtocolClosureSkipTests : TestBase
     }
 
 #pragma warning disable CS0618, SB0003 // Obsolete + SB0003 — testing that it throws
-    [Skip(StripReason)]
     public void TestCSharpImplOnCompleteThrowsNotSupported()
     {
         var impl = new TestEventDelegate("Handler", _ => true);
@@ -152,7 +138,7 @@ public class ProtocolClosureSkipTests : TestBase
     }
 #pragma warning restore CS0618, SB0003
 
-    [Skip(StripReason)]
+    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — vtable String callback in RouteEvent triggers !ji->async crash")]
     public void TestSetCSharpImplOnRouterAndRouteEvent()
     {
         var receivedEvents = new List<string>();
@@ -171,7 +157,7 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info($"RouteEvent(\"tap\") through C# delegate = {result}");
     }
 
-    [Skip(StripReason)]
+    [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — vtable String callback in GetDelegateName triggers !ji->async crash")]
     public void TestSetCSharpImplOnRouterGetDelegateName()
     {
         var impl = new TestEventDelegate("CustomDelegate", _ => false);

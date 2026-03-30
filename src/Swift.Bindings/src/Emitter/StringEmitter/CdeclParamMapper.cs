@@ -81,8 +81,28 @@ public static class CdeclParamMapper
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
         {
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+            // NamedTypeSpec protocol existentials need explicit "any" prefix for Swift 6.
+            // ProtocolListTypeSpec already includes "any" from RenderSwiftTypeSpecCore.
+            // Optional<Protocol> needs "any" on the INNER type: Optional<any Protocol>,
+            // NOT on the outer type (Swift rejects "any Optional<Protocol>").
+            if (swiftTypeSpec is NamedTypeSpec namedSpec && !swiftType.StartsWith("any "))
+            {
+                if (IsOptionalProtocolExistential(namedSpec, env.TypeDatabase))
+                {
+                    // Optional<Protocol> → Optional<any Protocol>
+                    var innerType = namedSpec.GenericParameters[0];
+                    var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
+                    swiftType = $"Swift.Optional<(any {innerSwiftType})>";
+                }
+                else
+                {
+                    swiftType = $"any {swiftType}";
+                }
+            }
+            // Existential types need parenthesization in metatype position: (any Protocol).self
+            var loadType = swiftType.StartsWith("any ") ? $"({swiftType})" : swiftType;
             return ($"_ {label}: UnsafeRawPointer",
-                    $"let {label}Val: {swiftType} = {label}.load(as: {swiftType}.self)",
+                    $"let {label}Val: {loadType} = {label}.load(as: {loadType}.self)",
                     $"{argLabel}{label}Val");
         }
 
@@ -434,22 +454,37 @@ public static class CdeclParamMapper
         if (typeSpec is ProtocolListTypeSpec)
             return true;
 
-        // Optional<Protocol>: NamedTypeSpec("Swift.Optional") wrapping a ProtocolListTypeSpec
-        if (typeSpec is NamedTypeSpec namedSpec && namedSpec.Name == "Swift.Optional" &&
-            namedSpec.GenericParameters.Count == 1 && namedSpec.GenericParameters[0] is ProtocolListTypeSpec)
-            return true;
-
         // Single protocol referenced by name: check TypeRecord
         if (typeSpec is NamedTypeSpec singleNamed &&
             typeDatabase.TryGetTypeRecord(singleNamed, out var record) &&
             (record.Kind == TypeRecordKind.Protocol || record.Kind == TypeRecordKind.Existential))
             return true;
 
-        // Optional<SingleProtocol> referenced by name
-        if (typeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
-            optNamed.GenericParameters.Count == 1 && optNamed.GenericParameters[0] is NamedTypeSpec innerNamed &&
-            typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
-            (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential))
+        // Optional<Protocol> — delegate to IsOptionalProtocolExistential
+        if (typeSpec is NamedTypeSpec namedSpec && IsOptionalProtocolExistential(namedSpec, typeDatabase))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a NamedTypeSpec is Optional wrapping a protocol existential.
+    /// Used to determine whether "any" should be inserted on the inner type
+    /// (Optional&lt;any Protocol&gt;) rather than the outer type.
+    /// </summary>
+    internal static bool IsOptionalProtocolExistential(NamedTypeSpec namedSpec, ITypeDatabase typeDatabase)
+    {
+        if (namedSpec.Name != "Swift.Optional" || namedSpec.GenericParameters.Count != 1)
+            return false;
+
+        var inner = namedSpec.GenericParameters[0];
+
+        if (inner is ProtocolListTypeSpec)
+            return true;
+
+        if (inner is NamedTypeSpec innerNamed &&
+            typeDatabase.TryGetTypeRecord(innerNamed, out var record) &&
+            (record.Kind == TypeRecordKind.Protocol || record.Kind == TypeRecordKind.Existential))
             return true;
 
         return false;

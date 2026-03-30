@@ -26,13 +26,25 @@ public static partial class ClosureEmitter
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName) + "_Start";
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnCSharpType = hasReturn
+
+        // Get the ABI type for the state — use projection's PInvokeType when it differs
+        // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
+        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Data)
+        // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
+        var returnAbiType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
+        if (hasReturn)
+        {
+            var projection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
+                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
+            if (projection?.PInvokeType != null && projection.PInvokeType != projection.PublicType)
+                returnAbiType = projection.PInvokeType;
+        }
 
         // Determine the state type based on return type
         var stateType = hasReturn
-            ? $"AsyncThrowingClosureState<{returnCSharpType}>"
+            ? $"AsyncThrowingClosureState<{returnAbiType}>"
             : "AsyncThrowingClosureStateVoid";
 
         // Check if return type is Data (special handling for byte arrays)
@@ -160,34 +172,46 @@ public static partial class ClosureEmitter
         var stateVar = $"{parameterName}State";
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnAbiType = hasReturn
+
+        // Get the ABI type for the state — use projection's PInvokeType when it differs
+        // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
+        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Data)
+        // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
+        var returnPublicType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
+        var returnAbiType = returnPublicType;
+        ITypeProjection? returnProjection = null;
+        if (hasReturn)
+        {
+            returnProjection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
+                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
+            if (returnProjection?.PInvokeType != null && returnProjection.PInvokeType != returnProjection.PublicType)
+                returnAbiType = returnProjection.PInvokeType;
+        }
 
         var stateType = hasReturn
             ? $"AsyncThrowingClosureState<{returnAbiType}>"
             : "AsyncThrowingClosureStateVoid";
 
         // Check if the public delegate return type differs from the ABI type.
-        // The delegate parameter uses projected types (e.g., string) from BuildDelegateType,
-        // but AsyncThrowingClosureState<T> uses ABI types (e.g., SwiftString) for MarshalToSwift.
+        // The delegate parameter uses projected types (e.g., byte[] for Data) from BuildDelegateType,
+        // but AsyncThrowingClosureState<T> uses ABI types (e.g., Swift.Data) for MarshalToSwift.
         // When they differ, wrap the user's delegate with ContinueWith to convert the result.
         // NOTE: Cannot use async/await here because this code may be inside an unsafe context (CS4004).
         string asyncFuncExpr = parameterName;
         if (hasReturn && returnAbiType != null)
         {
-            var projection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
-                new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
             // Only apply conversion when the public type differs from the ABI type AND
             // the conversion produces a value (not a handle extraction).
             // Classes/non-frozen structs have PublicType == ABI type — no conversion needed.
-            // String (public="string", ABI="SwiftString") needs new SwiftString(r).
-            var paramConversion = (projection != null && projection.PublicType != returnAbiType)
-                ? projection.GetParameterElementConversion("r")
+            // Data (public="byte[]", ABI="Swift.Data") needs Swift.Data.FromByteArray(r).
+            var paramConversion = (returnProjection != null && returnProjection.PublicType != returnAbiType)
+                ? returnProjection.GetParameterElementConversion("r")
                 : null;
             if (paramConversion != null)
             {
-                // e.g., string → new SwiftString(r): wrap Func<Task<string>> → Func<Task<SwiftString>>
+                // e.g., byte[] → Swift.Data.FromByteArray(r): wrap Func<Task<byte[]>> → Func<Task<Swift.Data>>
                 // Use ContinueWith + Unwrap to avoid async/await in unsafe context.
                 asyncFuncExpr = $"() => {parameterName}().ContinueWith(t => {{ var r = t.GetAwaiter().GetResult(); return {paramConversion}; }}, TaskContinuationOptions.ExecuteSynchronously)";
             }

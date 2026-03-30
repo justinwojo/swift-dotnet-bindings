@@ -16,7 +16,6 @@ public class AppleFrameworkTypeTests : TestBase
 
     #region Optional CoreGraphics Types
 
-    [Skip("CGPoint lacks MarshalToSwift implementation needed for Optional<CGPoint> Some path")]
     public void TestProcessOptionalPointSome()
     {
         var point = new Swift.CGPoint { X = 1.5, Y = 2.5 };
@@ -33,7 +32,6 @@ public class AppleFrameworkTypeTests : TestBase
         TestLogger.Info($"ProcessOptionalPoint(None) = \"{result}\"");
     }
 
-    [Skip("CGRect lacks MarshalToSwift implementation needed for Optional<CGRect> Some path")]
     public void TestProcessOptionalRectSome()
     {
         var rect = new Swift.CGRect

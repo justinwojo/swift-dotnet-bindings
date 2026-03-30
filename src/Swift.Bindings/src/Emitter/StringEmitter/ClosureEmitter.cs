@@ -442,6 +442,22 @@ public static partial class ClosureEmitter
             return $"return ({underlyingType}){resultExpr};";
         }
 
+        // String returns need special handling: System.String doesn't have Swift TypeMetadata,
+        // so the generic MarshalToSwift path fails. Convert to SwiftString first, which has
+        // proper Swift metadata, then marshal that.
+        if (callbackReturnType == "void*" && WitnessDispatchEmitter.IsStringType(returnType))
+        {
+            return $"""
+                    var _result = {resultExpr};
+                            using var _swiftStr = new Swift.SwiftString(_result);
+                            var _resultMetadata = Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata();
+                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
+                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
+                            ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref _resultSpan);
+                            return _resultBuffer;
+                """;
+        }
+
         if (callbackReturnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(returnType))
         {
             var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);

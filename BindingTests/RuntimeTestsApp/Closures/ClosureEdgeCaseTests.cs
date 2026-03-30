@@ -102,7 +102,6 @@ public class ClosureEdgeCaseTests : TestBase
 
     #region Closure Return Types — Direct Return
 
-    [Skip("Generator bug: @convention(c) cannot return Swift structs — wrapper stripped at compile time")]
     public void TestClosureReturningFrozenPoint()
     {
         // () -> FrozenPoint — frozen struct returned directly by value
@@ -112,7 +111,6 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallWithFrozenPointReturn = ({result.X}, {result.Y})");
     }
 
-    [Skip("Generator bug: unsafeBitCast between Int32 and Color crashes at runtime with size mismatch")]
     public void TestClosureReturningEnum()
     {
         // () -> Color — simple enum returned as underlying integer
@@ -121,7 +119,6 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallWithEnumReturn = {result}");
     }
 
-    [Skip("Generator bug: @convention(c) cannot return Swift structs — wrapper stripped at compile time")]
     public void TestClosureReturningFrozenPointWithParam()
     {
         // (Double) -> FrozenPoint — direct return with parameter
@@ -174,7 +171,6 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"CallThrowingClosure success = {result}");
     }
 
-    [Skip("Generator bug: throwing closure wrapper with String return assigns UnsafeMutableRawPointer to String — wrapper stripped")]
     public void TestThrowingWithParamSuccess()
     {
         // (Int32) throws -> String — use raw SwiftResult overload

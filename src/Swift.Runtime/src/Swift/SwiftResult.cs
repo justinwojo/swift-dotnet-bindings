@@ -31,9 +31,13 @@ public enum SwiftResultCase : uint
 /// </remarks>
 public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisposable
 {
-    static nuint _payloadSize = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata().Size;
+    // Lazy to avoid triggering Swift metadata resolution when the type is first accessed.
+    // C#-only subclasses (SuccessResult, FailureResult) never need Swift metadata.
+    static readonly Lazy<nuint> _payloadSizeLazy = new(() =>
+        SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata().Size);
+    static nuint PayloadSize => _payloadSizeLazy.Value;
 
-    private SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> _payload;
+    private SwiftSafeHandle<SwiftResult<TSuccess, TFailure>>? _payload;
     private bool _disposed;
 
     private static readonly Dictionary<Type, string> _protocolConformanceSymbols;
@@ -67,7 +71,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     public SwiftSafeHandle<SwiftResult<TSuccess, TFailure>> Payload
     {
-        get { ThrowIfDisposed(); return _payload; }
+        get { ThrowIfDisposed(); ThrowIfCSharpOnly(); return _payload!; }
     }
 
     /// <summary>
@@ -75,7 +79,18 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     public unsafe PayloadBuffer<IntPtr> PayloadBuffer
     {
-        get { ThrowIfDisposed(); return new PayloadBuffer<IntPtr>(_payload); }
+        get { ThrowIfDisposed(); ThrowIfCSharpOnly(); return new PayloadBuffer<IntPtr>(_payload!); }
+    }
+
+    /// <summary>
+    /// Constructs a C#-only SwiftResult without allocating native memory.
+    /// Used by SuccessResult/FailureResult which store values in C# fields
+    /// and never need Swift interop.
+    /// </summary>
+    private SwiftResult(bool csharpOnly)
+    {
+        // No native allocation — _payload stays null.
+        // Virtual property overrides in subclasses handle all access.
     }
 
     /// <summary>
@@ -83,7 +98,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     unsafe SwiftResult()
     {
-        IntPtr bufferPtr = (IntPtr)NativeMemory.AllocZeroed(_payloadSize);
+        IntPtr bufferPtr = (IntPtr)NativeMemory.AllocZeroed(PayloadSize);
         _payload = new SwiftSafeHandle<SwiftResult<TSuccess, TFailure>>(bufferPtr);
     }
 
@@ -92,7 +107,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     unsafe SwiftResult(IntPtr handle)
     {
-        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(_payloadSize);
+        IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(PayloadSize);
         var metadata = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
         metadata.ValueWitnessTable->InitializeWithCopy((void*)bufferPtr, (void*)handle, metadata);
         _payload = new SwiftSafeHandle<SwiftResult<TSuccess, TFailure>>(bufferPtr);
@@ -104,7 +119,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <returns>The TypeMetadata for this object</returns>
     IntPtr ISwiftObject.SwiftHandle
     {
-        get { ThrowIfDisposed(); return _payload.DangerousGetHandle(); }
+        get { ThrowIfDisposed(); ThrowIfCSharpOnly(); return _payload!.DangerousGetHandle(); }
     }
 
     static TypeMetadata ISwiftObject.GetTypeMetadata()
@@ -132,6 +147,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
         ThrowIfDisposed();
+        ThrowIfCSharpOnly();
         var metadata = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
         {
@@ -143,7 +159,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
             {
                 // Ensure the payload is valid before making copy
                 bool success = false;
-                _payload.DangerousAddRef(ref success);
+                _payload!.DangerousAddRef(ref success);
                 try
                 {
                     metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, (void*)_payload.DangerousGetHandle(), metadata);
@@ -181,13 +197,13 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// Note: This is a stub implementation. Full enum case detection requires understanding
     /// Swift's enum layout which varies based on the payload types.
     /// </remarks>
-    public unsafe SwiftResultCase Case
+    public virtual unsafe SwiftResultCase Case
     {
         get
         {
             ThrowIfDisposed();
             bool success = false;
-            _payload.DangerousAddRef(ref success);
+            _payload!.DangerousAddRef(ref success);
             try
             {
                 var metadata = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
@@ -205,7 +221,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <summary>
     /// Returns true if the result is a success case
     /// </summary>
-    public bool IsSuccess
+    public virtual bool IsSuccess
     {
         get { ThrowIfDisposed(); return Case == SwiftResultCase.Success; }
     }
@@ -213,7 +229,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <summary>
     /// Returns true if the result is a failure case
     /// </summary>
-    public bool IsFailure
+    public virtual bool IsFailure
     {
         get { ThrowIfDisposed(); return Case == SwiftResultCase.Failure; }
     }
@@ -221,7 +237,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <summary>
     /// Gets the success value. Throws if the result is a failure.
     /// </summary>
-    public unsafe TSuccess Success
+    public virtual unsafe TSuccess Success
     {
         get
         {
@@ -230,7 +246,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
                 throw new InvalidOperationException("Cannot get Success when case is Failure");
 
             bool success = false;
-            _payload.DangerousAddRef(ref success);
+            _payload!.DangerousAddRef(ref success);
             try
             {
                 return ExtractPayloadValue<TSuccess>();
@@ -246,7 +262,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// <summary>
     /// Gets the failure value. Throws if the result is a success.
     /// </summary>
-    public unsafe TFailure Failure
+    public virtual unsafe TFailure Failure
     {
         get
         {
@@ -255,7 +271,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
                 throw new InvalidOperationException("Cannot get Failure when case is Success");
 
             bool success = false;
-            _payload.DangerousAddRef(ref success);
+            _payload!.DangerousAddRef(ref success);
             try
             {
                 return ExtractPayloadValue<TFailure>();
@@ -278,7 +294,7 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     /// </summary>
     private unsafe T ExtractPayloadValue<T>()
     {
-        byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+        byte* sourcePayload = (byte*)_payload!.DangerousGetHandle();
 
         // True Swift classes: payload bytes contain the class pointer at offset 0.
         // Dereference and Arc.Retain for +1 ownership (SwiftClassHandle expects this).
@@ -297,9 +313,9 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
         // Non-class ISwiftObject types (complex enums, non-frozen structs) and
         // ISwiftStruct types: NewFromPayload takes ownership of the buffer pointer.
         // Must heap-allocate — stackalloc would be freed on return.
-        byte* heapCopy = (byte*)NativeMemory.Alloc(_payloadSize);
-        new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(
-            new Span<byte>(heapCopy, (int)_payloadSize));
+        byte* heapCopy = (byte*)NativeMemory.Alloc(PayloadSize);
+        new Span<byte>(sourcePayload, (int)PayloadSize).CopyTo(
+            new Span<byte>(heapCopy, (int)PayloadSize));
         try
         {
             return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(heapCopy));
@@ -402,6 +418,14 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
+    private void ThrowIfCSharpOnly()
+    {
+        if (_payload is null)
+            throw new InvalidOperationException(
+                "This SwiftResult was created from C# (via FromSuccess/FromFailure) and has no native Swift payload. " +
+                "It cannot be used for Swift interop operations.");
+    }
+
     /// <summary>
     /// Internal class representing a success result that doesn't require Swift interop.
     /// Used when creating results from C# code (e.g., for throwing closure callbacks).
@@ -410,16 +434,16 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         private readonly TSuccess _value;
 
-        public SuccessResult(TSuccess value) : base()
+        public SuccessResult(TSuccess value) : base(csharpOnly: true)
         {
             _value = value;
         }
 
-        public new SwiftResultCase Case => SwiftResultCase.Success;
-        public new bool IsSuccess => true;
-        public new bool IsFailure => false;
-        public new TSuccess Success => _value;
-        public new TFailure Failure => throw new InvalidOperationException("Cannot get Failure when case is Success");
+        public override SwiftResultCase Case => SwiftResultCase.Success;
+        public override bool IsSuccess => true;
+        public override bool IsFailure => false;
+        public override TSuccess Success => _value;
+        public override TFailure Failure => throw new InvalidOperationException("Cannot get Failure when case is Success");
     }
 
     /// <summary>
@@ -430,16 +454,16 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         private readonly TFailure _error;
 
-        public FailureResult(TFailure error) : base()
+        public FailureResult(TFailure error) : base(csharpOnly: true)
         {
             _error = error;
         }
 
-        public new SwiftResultCase Case => SwiftResultCase.Failure;
-        public new bool IsSuccess => false;
-        public new bool IsFailure => true;
-        public new TSuccess Success => throw new InvalidOperationException("Cannot get Success when case is Failure");
-        public new TFailure Failure => _error;
+        public override SwiftResultCase Case => SwiftResultCase.Failure;
+        public override bool IsSuccess => false;
+        public override bool IsFailure => true;
+        public override TSuccess Success => throw new InvalidOperationException("Cannot get Success when case is Failure");
+        public override TFailure Failure => _error;
     }
 }
 

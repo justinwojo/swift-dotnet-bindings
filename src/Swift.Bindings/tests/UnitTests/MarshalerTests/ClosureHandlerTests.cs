@@ -2360,6 +2360,18 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void GetSimpleEnumInfo_StringRawValueEnum_HasRawValueIsFalse()
+    {
+        // String-backed simple enums must use the tag-only pointer path (hasRawValue = false)
+        // because .rawValue returns String which doesn't match the Int32 callback ABI.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        var info = handler.GetSimpleEnumInfo(new NamedTypeSpec("TestModule.CSSProperty"));
+        Assert.NotNull(info);
+        Assert.False(info!.Value.hasRawValue, "String-backed enum should not use .rawValue path in closure ABI");
+    }
+
+    [Fact]
     public void TranslateTypeSpecToPInvokeType_SimpleEnum_ReturnsUnderlyingType()
     {
         var typeDatabase = new MockTypeDatabase();
@@ -2686,6 +2698,17 @@ public class ClosureHandlerTests
                     Flags = TypeRecordFlags.SimpleEnum,
                     Kind = TypeRecordKind.Enum,
                     RawValueTypeName = "Int32"
+                },
+                // String-backed simple enum for testing closure ABI (string raw values
+                // must use tag-only pointer path, not .rawValue/init(rawValue:))
+                ["TestModule.CSSProperty"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "CSSProperty"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.CSSProperty"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    RawValueTypeName = "String"
                 },
                 // ObjC-bridged class for testing closure parameter relaxation (Q3)
                 ["Foundation.NSError"] = new TypeRecord

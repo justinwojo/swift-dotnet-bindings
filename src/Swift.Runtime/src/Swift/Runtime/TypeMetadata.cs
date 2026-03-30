@@ -307,6 +307,20 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
+    /// Registers Swift type metadata for a C# type in the metadata cache.
+    /// Used by generated module initializers to register metadata for simple enum types
+    /// that cannot implement ISwiftObject (C# enum limitation). Without registration,
+    /// SwiftOptional&lt;T&gt; would get the wrong Optional layout (tag-byte vs extra-inhabitant).
+    /// </summary>
+    /// <param name="type">The C# type to register metadata for.</param>
+    /// <param name="metadata">The Swift type metadata obtained via P/Invoke.</param>
+    public static void RegisterMetadata(Type type, TypeMetadata metadata)
+    {
+        if (metadata.IsValid)
+            cache.GetOrAdd(type, _ => metadata);
+    }
+
+    /// <summary>
     /// Attempt to get the Swift type metadata but without accessing the cache
     /// </summary>
     /// <typeparam name="T">The type of the object</typeparam>
@@ -420,6 +434,12 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 return true;
             }
         }
+
+        // Simple C# enums: metadata is registered by the generated module initializer
+        // via TypeMetadata.RegisterMetadata() + P/Invoke to the @_cdecl metadata wrapper.
+        // If the enum was generated with the new pipeline, its metadata is already in the cache
+        // (registered during module initialization). No fallback to underlying type metadata —
+        // that produces wrong Optional<T> layout (tag-byte vs extra-inhabitant encoding).
 
         result = null;
         return false;

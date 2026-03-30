@@ -314,13 +314,18 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
-        // Non-existential, non-container — ToNullable() path
+        // Non-existential, non-container — HasValue/Some check.
+        // NOTE: .ToNullable() is broken for value types in unconstrained generic context
+        // (T? is T in IL, not Nullable<T>, so default returns zero-value instead of null).
+        // Use explicit HasValue/Some check in generated concrete code, where default(T?) IS null.
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
 
         if (innerRetConv != null)
         {
-            // Element conversion needed: MarshalFromSwift → ToNullable() → conditional convert
+            // Element conversion needed: MarshalFromSwift → HasValue check → conditional convert.
+            // Use null instead of default to avoid value-type zero-value bug (same as no-conversion path).
+            var convExpr = innerRetConv.Replace("rawVal", "_swiftOpt.Some");
             return strategy switch
             {
                 ReturnStrategy.Direct => new MarshalPlan
@@ -328,9 +333,9 @@ public class OptionalProjection : ITypeProjection
                     SetupStatements = new List<MarshalStatement>
                     {
                         new MarshalStatement.Line(
-                            $"var rawOpt = {marshalFromSwift}(new IntPtr(&{resultName})).ToNullable();")
+                            $"using var _swiftOpt = {marshalFromSwift}(new IntPtr(&{resultName}));")
                     },
-                    PInvokeExpression = $"rawOpt is {{ }} rawVal ? {innerRetConv} : null",
+                    PInvokeExpression = $"_swiftOpt.HasValue ? {convExpr} : null",
                     RequiresUnsafe = true
                 },
                 ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
@@ -338,38 +343,57 @@ public class OptionalProjection : ITypeProjection
                     SetupStatements = new List<MarshalStatement>
                     {
                         new MarshalStatement.Line(
-                            $"var rawOpt = {marshalFromSwift}({resultName}).ToNullable();")
+                            $"using var _swiftOpt = {marshalFromSwift}({resultName});")
                     },
-                    PInvokeExpression = $"rawOpt is {{ }} rawVal ? {innerRetConv} : null"
+                    PInvokeExpression = $"_swiftOpt.HasValue ? {convExpr} : null"
                 },
                 ReturnStrategy.AsyncCallback => new MarshalPlan
                 {
                     SetupStatements = new List<MarshalStatement>
                     {
                         new MarshalStatement.Line(
-                            $"var rawOpt = {marshalFromSwift}({resultName}).ToNullable();")
+                            $"using var _swiftOpt = {marshalFromSwift}({resultName});")
                     },
-                    PInvokeExpression = $"rawOpt is {{ }} rawVal ? {innerRetConv} : null"
+                    PInvokeExpression = $"_swiftOpt.HasValue ? {convExpr} : null"
                 },
                 _ => MarshalPlan.PassThrough(resultName)
             };
         }
 
-        // No element conversion — simple ToNullable()
+        // No element conversion — explicit HasValue/Some check.
+        // Cast Some to nullable type so the ternary expression has type T?, not T.
+        // Without the cast, `default` would be `default(T)` (zero value) not `default(T?)` (null).
+        var optInnerType = _innerProjection.PublicType;
+        var nullableExpr = $"_swiftOpt.HasValue ? ({optInnerType}?)_swiftOpt.Some : null";
         return strategy switch
         {
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"{marshalFromSwift}(new IntPtr(&{resultName})).ToNullable()",
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"using var _swiftOpt = {marshalFromSwift}(new IntPtr(&{resultName}));")
+                },
+                PInvokeExpression = nullableExpr,
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"{marshalFromSwift}({resultName}).ToNullable()"
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"using var _swiftOpt = {marshalFromSwift}({resultName});")
+                },
+                PInvokeExpression = nullableExpr
             },
             ReturnStrategy.AsyncCallback => new MarshalPlan
             {
-                PInvokeExpression = $"{marshalFromSwift}({resultName}).ToNullable()"
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"using var _swiftOpt = {marshalFromSwift}({resultName});")
+                },
+                PInvokeExpression = nullableExpr
             },
             _ => MarshalPlan.PassThrough(resultName)
         };

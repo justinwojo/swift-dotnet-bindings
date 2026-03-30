@@ -245,6 +245,26 @@ public static class SwiftMarshal
             }
         }
 
+        // Handle blittable value types: C# enums (simple enums) and frozen structs
+        // (CGPoint, CGRect, CGSize, etc.). These have no managed references and can be
+        // written directly as raw bytes. Primitives are already handled above.
+        if (type.IsValueType && !RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        {
+            unsafe
+            {
+                int size = Unsafe.SizeOf<T>();
+                if (size > swiftDestSpan.Length)
+                {
+                    throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
+                }
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    Unsafe.Write(swiftDest, value);
+                    return size;
+                }
+            }
+        }
+
         throw new NotSupportedException($"Cannot marshal type {type} to Swift");
     }
 
@@ -453,11 +473,11 @@ public static class SwiftMarshal
         }
 #endif
 
-        // Frozen blittable structs (e.g., Swift.CGSize, Swift.CGPoint, Swift.CGRect)
-        // are plain C# value types with sequential layout. Read directly from native memory.
-        // Gate: must be unmanaged (no managed references like string?, object fields) to avoid
-        // manufacturing invalid managed pointers from raw Swift memory.
-        if (type.IsValueType && !type.IsEnum && RuntimeHelpers.IsReferenceOrContainsReferences<T>() == false)
+        // Blittable value types: frozen structs (CGPoint, CGRect, CGSize) and simple enums
+        // (C# enums backed by integer types). Read directly from native memory.
+        // Complex enums implement ISwiftObject and are handled above.
+        // Gate: must be unmanaged (no managed references) to avoid invalid managed pointers.
+        if (type.IsValueType && RuntimeHelpers.IsReferenceOrContainsReferences<T>() == false)
         {
             unsafe { return Unsafe.Read<T>((void*)swiftSource); }
         }

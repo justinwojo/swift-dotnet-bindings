@@ -259,12 +259,15 @@ namespace BindingsGeneration
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
             var conformances = emissionCtx?.EmittedConformances ?? Array.Empty<(string, string)>();
+            var simpleEnumRegistrations = emissionCtx?.SimpleEnumMetadataRegistrations
+                ?? Array.Empty<(string, string, string)>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
             // 2. Pre-registers NewFromPayload factories for NativeAOT
             // 3. Pre-registers type metadata in the cache for NativeAOT (avoids trimmed reflection path)
             // 4. Pre-registers protocol conformance factories for NativeAOT
+            // 5. Registers simple enum metadata via P/Invoke (correct SwiftOptional<T> layout)
             // All in one initializer to guarantee ordering (framework resolver before any P/Invoke).
             csWriter.WriteLine();
             csWriter.WriteLine("#pragma warning disable CA2255 // ModuleInitializer is intentional in generated binding code");
@@ -299,8 +302,27 @@ namespace BindingsGeneration
                     csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>();");
                 }
             }
+            // Register simple enum metadata via P/Invoke to @_cdecl Swift wrappers.
+            // Simple C# enums can't implement ISwiftObject, so their Swift metadata must be
+            // registered explicitly. Without this, SwiftOptional<T> gets the wrong Optional
+            // layout (tag-byte encoding from the underlying integer type instead of
+            // extra-inhabitant encoding from the actual Swift enum).
+            foreach (var (typeName, _, _) in simpleEnumRegistrations)
+            {
+                var safeName = typeName.Replace(".", "_");
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
+            }
             csWriter.WriteLines($$"""
                     }
+                """);
+            // Emit DllImport P/Invoke declarations for simple enum metadata accessors.
+            foreach (var (typeName, metadataSymbol, wrapperLibName) in simpleEnumRegistrations)
+            {
+                var safeName = typeName.Replace(".", "_");
+                csWriter.WriteLines($"    [System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
+                csWriter.WriteLines($"    private static extern IntPtr __GetEnumMetadata_{safeName}();");
+            }
+            csWriter.WriteLines($$"""
                 }
                 """);
 

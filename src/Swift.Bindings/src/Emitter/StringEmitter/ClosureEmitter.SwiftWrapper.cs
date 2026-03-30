@@ -66,11 +66,10 @@ public static partial class ClosureEmitter
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
             return "Void";
 
-        // Frozen structs that C# returns directly (CanUseDirectCallbackReturn = true)
-        // must use the actual Swift type in the @convention(c) signature, not UnsafeMutableRawPointer.
-        // GetSwiftCdeclParamType maps all structs to UnsafeMutableRawPointer, which is correct for
-        // parameters (heap-allocated) but wrong for return types that C# returns by value.
-        // Exclude Bool — it uses special byte<->Bool marshalling (UInt8 in @convention(c), != 0 conversion).
+        // CanUseDirectCallbackReturn is now primitives-only (frozen structs go through
+        // indirect return because @convention(c) can't return Swift struct types).
+        // For primitives, use the actual Swift scalar type. Bool is excluded because it
+        // uses special byte<->Bool marshalling (UInt8 in @convention(c), != 0 conversion).
         if (!MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType) &&
             closureHandler.CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
             return ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
@@ -245,13 +244,15 @@ public static partial class ClosureEmitter
             ? $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType)}"
             : "";
 
-        // D1: Generate heap allocation lines for complex enum args
+        // D1: Generate heap allocation lines for complex enum args.
+        // No defer — C# takes ownership of the heap memory via SwiftSafeHandle
+        // (VWT Destroy + NativeMemory.Free on disposal). Deallocating here would
+        // cause use-after-free because MarshalFromSwift wraps the pointer without copying.
         var heapAllocLines = new List<string>();
         foreach (var (idx, swiftType) in heapAllocArgs)
         {
             heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
-            heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         // Nil-for-none allocation: unwrap Optional, pass inner value pointer or nil
         foreach (var (idx, innerType) in nilForNoneArgs)
@@ -272,7 +273,7 @@ public static partial class ClosureEmitter
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
             lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
-            lines.Add($"{indent}    let result = resultBuf.load(as: {returnSwiftType}.self)");
+            lines.Add($"{indent}    let result = resultBuf.assumingMemoryBound(to: {returnSwiftType}.self).move()");
             lines.Add($"{indent}    resultBuf.deallocate()");
             lines.Add($"{indent}    return result");
             lines.Add($"{indent}}}");
@@ -357,10 +358,20 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsObjCBridgedClass(named))
                     return $"Unmanaged.passUnretained({argExpr} as AnyObject).toOpaque()";
 
-                // Simple enums: bitcast to underlying integer type
+                // Simple enums: convert to underlying integer. unsafeBitCast is unsafe
+                // because Swift enums may have different MemoryLayout.size than their
+                // raw value type (e.g., a 4-case enum is 1 byte, Int32 is 4 bytes).
                 var enumInfo = closureHandler.GetSimpleEnumInfo(named);
                 if (enumInfo != null)
-                    return $"unsafeBitCast({argExpr}, to: {enumInfo.Value.swiftScalar}.self)";
+                {
+                    if (enumInfo.Value.hasRawValue)
+                        // Wrap in explicit swiftScalar cast: .rawValue may return a
+                        // different Swift type (e.g., Int) than the callback's scalar
+                        // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
+                        return $"{enumInfo.Value.swiftScalar}({argExpr}.rawValue)";
+                    // Tag-only enum: extract tag via safe memory load
+                    return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {argExpr}; withUnsafeMutablePointer(to: &__s) {{ dst in withUnsafePointer(to: &__e) {{ src in UnsafeMutableRawPointer(dst).copyMemory(from: UnsafeRawPointer(src), byteCount: MemoryLayout<{ExistentialBypassEmitter.RenderSwiftTypeSpec(named)}>.size) }} }}; return __s }}()";
+                }
 
                 // Optional<Class/ObjC>: map to Optional raw pointer, nil maps to nil
                 if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
@@ -408,12 +419,17 @@ public static partial class ClosureEmitter
                     return $"(Unmanaged<AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
                 }
 
-                // Simple enums: bitcast from underlying integer
+                // Simple enums: construct from underlying integer. unsafeBitCast is unsafe
+                // because Swift enums may have different MemoryLayout.size than their
+                // raw value type (e.g., a 4-case enum is 1 byte, Int32 is 4 bytes).
                 var enumInfo = closureHandler.GetSimpleEnumInfo(named);
                 if (enumInfo != null)
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"unsafeBitCast({expr}, to: {swiftType}.self)";
+                    if (enumInfo.Value.hasRawValue)
+                        return $"{swiftType}(rawValue: {expr})!";
+                    // Tag-only enum: load from low bytes via safe memory load
+                    return $"{{ var __raw = {expr}; return withUnsafeMutablePointer(to: &__raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
                 }
 
                 // Optional<Class/ObjC>: map raw pointer back to typed optional
@@ -431,6 +447,18 @@ public static partial class ClosureEmitter
                         return $"({expr}).map {{ (Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {innerType}) }}";
                     }
                     return $"({expr}).map {{ Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
+                }
+
+                // Non-primitive struct types (including String): the cdecl returns
+                // UnsafeMutableRawPointer (C# allocated via NativeMemory.Alloc).
+                // Load the value from the pointer and deallocate the buffer.
+                // This handles throwing closure returns where the indirect return buffer
+                // path is not available (RequiresIndirectReturnMarshalling excludes throwing closures).
+                if (!IsSwiftPrimitive(named.Name) && !named.Name.Contains("Pointer") &&
+                    named.Name != "Swift.OpaquePointer")
+                {
+                    var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(named);
+                    return $"{{ let __typed = {expr}.assumingMemoryBound(to: {swiftType}.self); let __val = __typed.move(); __typed.deallocate(); return __val }}()";
                 }
             }
         }

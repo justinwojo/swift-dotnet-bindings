@@ -877,10 +877,11 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
-    public void TryEmit_ComplexEnumClosure_EmitsHeapCleanup()
+    public void TryEmit_ComplexEnumClosure_EmitsHeapAllocationWithoutDefer()
     {
-        // Complex enum heap buffers must be destroyed (deinitialize) then freed (deallocate).
-        // Without deinitialize, enums with retained associated payloads leak.
+        // Complex enum heap buffers are allocated and initialized but NOT deallocated
+        // by the Swift wrapper — C# takes ownership via SwiftSafeHandle (VWT Destroy +
+        // NativeMemory.Free on disposal). Defer would cause use-after-free.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("MyClass", moduleDecl);
@@ -900,10 +901,11 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var swift = swiftOutput.ToString();
-        Assert.Contains("deinitialize(count: 1)", swift);
-        Assert.Contains("deallocate()", swift);
-        // deinitialize must come before deallocate in the same defer
-        Assert.Contains("deinitialize(count: 1); __heap", swift);
+        Assert.Contains("allocate(byteCount:", swift);
+        Assert.Contains("initializeMemory(as:", swift);
+        // No defer — C# takes ownership
+        Assert.DoesNotContain("defer", swift);
+        Assert.DoesNotContain("deallocate()", swift);
     }
 
     [Fact]

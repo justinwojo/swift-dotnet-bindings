@@ -142,6 +142,21 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            // Emit @_cdecl metadata wrapper for simple enums (needed for correct SwiftOptional<T> layout).
+            // Simple enums can't implement ISwiftObject, so metadata is registered via module initializer.
+            // Internal types are inaccessible by name in Swift — skip wrapper emission for them.
+            var metadataEmissionCtx = context.GetEmissionContext();
+            if (metadataEmissionCtx != null && !enumDecl.IsModuleInternal)
+            {
+                var moduleQualified = enumDecl.SwiftTypeName.ModuleQualifiedName;
+                var swiftModuleName = enumDecl.SwiftTypeName.Module;
+                var metadataSymbol = MetadataWrapperEmitter.GetMetadataSymbolName(swiftModuleName, moduleQualified);
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, swiftModuleName, moduleQualified, metadataSymbol, metadataEmissionCtx);
+
+                var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
+                metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName);
+            }
+
             // Determine if this enum is nested inside another type (not just a module).
             // C# extension methods must be in top-level static classes, so nested enums
             // need their extension classes deferred to namespace level.

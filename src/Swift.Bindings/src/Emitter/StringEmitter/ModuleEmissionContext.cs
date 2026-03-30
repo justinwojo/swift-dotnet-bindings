@@ -252,6 +252,27 @@ public sealed class ModuleEmissionContext
         return csharpTypeName;
     }
 
+    // ==================== Simple Enum Metadata Registration ====================
+
+    private readonly List<(string CSharpTypeName, string MetadataSymbol, string WrapperLibName)> _simpleEnumMetadataRegistrations = new();
+
+    /// <summary>
+    /// Simple enum types that need metadata P/Invoke registration in the module initializer.
+    /// Unlike ISwiftObject types (which self-register via GetTypeMetadata), simple C# enums
+    /// need explicit metadata registration so that SwiftOptional&lt;T&gt; gets the correct Swift
+    /// metadata (extra-inhabitant encoding) rather than falling back to the underlying integer type.
+    /// </summary>
+    public IReadOnlyList<(string CSharpTypeName, string MetadataSymbol, string WrapperLibName)> SimpleEnumMetadataRegistrations => _simpleEnumMetadataRegistrations;
+
+    /// <summary>
+    /// Records a simple enum type for metadata P/Invoke registration in the module initializer.
+    /// </summary>
+    public void RecordSimpleEnumMetadata(string csharpTypeName, string metadataSymbol, string wrapperLibName)
+    {
+        var qualifiedName = GetQualifiedTypeName(csharpTypeName);
+        _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
+    }
+
     // ==================== Protocol Proxy Sub-Namespace ====================
 
     private readonly List<string> _deferredProxyClasses = new();

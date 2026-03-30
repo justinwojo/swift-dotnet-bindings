@@ -118,6 +118,59 @@ public class ClosureEmitterAsyncTests
         Assert.Contains("IntPtr errorFuncPtr", result);
     }
 
+    [Fact]
+    public void AsyncCallback_DataReturn_StateUsesSwiftDataNotByteArray()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure returning Foundation.Data — projected as byte[] publicly,
+        // but AsyncThrowingClosureState<T> must use Swift.Data (ABI type)
+        // because AsyncClosureHelper.RunDataAsync expects it.
+        var closureTypeSpec = new ClosureTypeSpec(null, new NamedTypeSpec("Foundation.Data"))
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitAsyncThrowingClosureCallback(
+            csWriter, "fetchData", "handler", closureTypeSpec, closureHandler,
+            "$s10TestModule9fetchDatayyF");
+
+        var result = output.ToString();
+        // State type must use ABI type (Swift.Data), not projected type (byte[])
+        Assert.Contains("AsyncThrowingClosureState<Swift.Data>", result);
+        Assert.DoesNotContain("AsyncThrowingClosureState<byte[]>", result);
+    }
+
+    [Fact]
+    public void AsyncSetup_DataReturn_StateUsesSwiftDataWithConversion()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(null, new NamedTypeSpec("Foundation.Data"))
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
+            csWriter, "fetchData", "handler", closureTypeSpec, closureHandler,
+            "$s10TestModule9fetchDatayyF");
+
+        var result = output.ToString();
+        // State type must use Swift.Data, not byte[]
+        Assert.Contains("AsyncThrowingClosureState<Swift.Data>", result);
+        Assert.DoesNotContain("AsyncThrowingClosureState<byte[]>", result);
+        // Must convert Func<Task<byte[]>> to Func<Task<Swift.Data>>
+        Assert.Contains("Swift.Data.FromByteArray(r)", result);
+    }
+
     #endregion
 
     #region EmitAsyncThrowingClosureCallbackPointer

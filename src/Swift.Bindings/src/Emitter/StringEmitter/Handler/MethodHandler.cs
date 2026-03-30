@@ -804,8 +804,10 @@ namespace BindingsGeneration
             bool optPtrCdecl = false;
             // DynamicSelf returns can't be expressed in a free function (@_silgen_name / @_cdecl),
             // so skip the optional pointer wrapper path for those methods.
+            // Check at any depth: Optional<Self> also contains DynamicSelf and produces
+            // ObjC type names that may not be resolvable in standalone wrapper compilation.
             var returnSpec = methodEnv.MethodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-            bool hasDynamicSelfReturn = returnSpec?.IsDynamicSelf == true;
+            bool hasDynamicSelfReturn = returnSpec?.HasDynamicSelf == true;
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !methodEnv.MethodDecl.IsModuleInternal &&

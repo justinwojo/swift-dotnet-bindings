@@ -542,9 +542,12 @@ public class ComplexProjectionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("MarshalFromSwift", plan.PInvokeExpression);
-        Assert.Contains("SwiftOptional", plan.PInvokeExpression);
-        Assert.Contains("ToNullable()", plan.PInvokeExpression);
+        // Uses HasValue/Some pattern (setup line has MarshalFromSwift, expression has HasValue)
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("MarshalFromSwift", setupLine.Code);
+        Assert.Contains("SwiftOptional", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -555,7 +558,8 @@ public class ComplexProjectionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Contains("ToNullable()", plan.PInvokeExpression);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -565,10 +569,11 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(inner);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        // Two-step: ToNullable() first, then conditional conversion
+        // Two-step: HasValue check first, then conditional conversion
         Assert.NotEmpty(plan.SetupStatements);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("ToNullable()", setupLine.Code);
+        Assert.Contains("_swiftOpt", setupLine.Code);
+        Assert.DoesNotContain("ToNullable", setupLine.Code);
         Assert.Contains("ToString()", plan.PInvokeExpression);
     }
 

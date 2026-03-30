@@ -1165,12 +1165,14 @@ public static class NestedClosureBridge
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                 return paramName;
 
-            // Simple enum: unsafeBitCast from underlying type
+            // Simple enum: construct from underlying integer.
             var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
             if (enumInfo != null)
             {
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
-                return $"unsafeBitCast({paramName}, to: {swiftType}.self)";
+                if (enumInfo.Value.hasRawValue)
+                    return $"{swiftType}(rawValue: {paramName})!";
+                return $"{{ var __raw = {paramName}; return withUnsafeMutablePointer(to: &__raw) {{ UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
             }
 
             // ObjC / classes: Unmanaged.fromOpaque().takeUnretainedValue()
@@ -1205,11 +1207,17 @@ public static class NestedClosureBridge
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                 return paramName;
 
-            // Simple enum: unsafeBitCast to underlying
+            // Simple enum: convert to underlying integer.
             var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
             if (enumInfo != null)
             {
-                return $"unsafeBitCast({paramName}, to: {enumInfo.Value.swiftScalar}.self)";
+                if (enumInfo.Value.hasRawValue)
+                    // Wrap in explicit swiftScalar cast: .rawValue may return a
+                    // different Swift type (e.g., Int) than the callback's scalar
+                    // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
+                    return $"{enumInfo.Value.swiftScalar}({paramName}.rawValue)";
+                var enumSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
+                return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {paramName}; withUnsafeMutablePointer(to: &__s) {{ dst in withUnsafePointer(to: &__e) {{ src in UnsafeMutableRawPointer(dst).copyMemory(from: UnsafeRawPointer(src), byteCount: MemoryLayout<{enumSwiftType}>.size) }} }}; return __s }}()";
             }
 
             // ObjC / classes: Unmanaged.passUnretained().toOpaque()

@@ -292,6 +292,89 @@ public class TupleTests : IClassFixture<TupleTests.TestFixture>
 
     #endregion
 
+    #region MarshalToSwift Blittable Value Type Tests
+
+    [Fact]
+    public unsafe void MarshalToSwift_BlittableValueType_WritesCorrectly()
+    {
+        // Frozen blittable structs (like CGPoint, CGRect) should be writable via
+        // the Unsafe.Write path in MarshalToSwift.
+        var original = new TestSize { Width = 640.0, Height = 480.0 };
+        var size = sizeof(TestSize);
+        var buffer = stackalloc byte[size];
+        var span = new Span<byte>(buffer, size);
+
+        var written = SwiftMarshal.MarshalToSwift(original, ref span);
+
+        Assert.Equal(size, written);
+        var result = System.Runtime.CompilerServices.Unsafe.Read<TestSize>(buffer);
+        Assert.Equal(640.0, result.Width);
+        Assert.Equal(480.0, result.Height);
+    }
+
+    private enum TestColor : int
+    {
+        Red = 0,
+        Green = 1,
+        Blue = 2,
+    }
+
+    [Fact]
+    public unsafe void MarshalToSwift_CSharpEnum_WritesRawValue()
+    {
+        // Simple C# enums should be marshallable as their raw integer value.
+        var value = TestColor.Green;
+        var size = sizeof(TestColor);
+        var buffer = stackalloc byte[size];
+        var span = new Span<byte>(buffer, size);
+
+        var written = SwiftMarshal.MarshalToSwift(value, ref span);
+
+        Assert.Equal(size, written);
+        Assert.Equal(1, *(int*)buffer); // Green = 1
+    }
+
+    [Fact]
+    public unsafe void MarshalFromSwift_CSharpEnum_ReadsRawValue()
+    {
+        // Simple C# enums should be readable via the blittable value type path.
+        var buffer = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc(sizeof(int));
+        try
+        {
+            *(int*)buffer = 2; // Blue = 2
+            var result = SwiftMarshal.MarshalFromSwift<TestColor>((IntPtr)buffer);
+            Assert.Equal(TestColor.Blue, result);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(buffer);
+        }
+    }
+
+    [Fact]
+    public unsafe void MarshalToSwift_BlittableValueType_RoundTrip()
+    {
+        // Round-trip: MarshalToSwift then MarshalFromSwift for a blittable struct.
+        var original = new TestSize { Width = 1920.0, Height = 1080.0 };
+        var size = sizeof(TestSize);
+        var buffer = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)size);
+        try
+        {
+            var span = new Span<byte>(buffer, size);
+            SwiftMarshal.MarshalToSwift(original, ref span);
+            var result = SwiftMarshal.MarshalFromSwift<TestSize>((IntPtr)buffer);
+
+            Assert.Equal(1920.0, result.Width);
+            Assert.Equal(1080.0, result.Height);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(buffer);
+        }
+    }
+
+    #endregion
+
     #region MarshalFromSwift Value Type Fallback Tests
 
     /// <summary>

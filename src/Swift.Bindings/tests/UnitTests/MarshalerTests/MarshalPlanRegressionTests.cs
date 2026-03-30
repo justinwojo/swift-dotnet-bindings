@@ -446,24 +446,32 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Optional_Blittable_ReturnPlan_Direct_ToNullable()
+    public void Optional_Blittable_ReturnPlan_Direct_HasValueCheck()
     {
         var proj = new OptionalProjection(new BlittableProjection("Int64"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>", plan.PInvokeExpression);
-        Assert.Contains("ToNullable()", plan.PInvokeExpression);
+        // Should use HasValue/Some pattern instead of ToNullable() which is broken for value types
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.Contains("_swiftOpt.Some", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
-    public void Optional_Blittable_ReturnPlan_IndirectResult_ToNullable()
+    public void Optional_Blittable_ReturnPlan_IndirectResult_HasValueCheck()
     {
         var proj = new OptionalProjection(new BlittableProjection("Int64"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result).ToNullable()", plan.PInvokeExpression);
+        // Should use HasValue/Some pattern instead of ToNullable()
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result)", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -484,27 +492,33 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Optional_BlittablePrimitive_ReturnPlan_Direct_StillUsesOldPath()
+    public void Optional_BlittablePrimitive_ReturnPlan_Direct_HasValueCheck()
     {
-        // Direct return strategy still uses the old SwiftMarshal path
-        // (only IndirectResult/OutBuffer use the new direct byte-reading)
+        // Direct return strategy uses HasValue/Some pattern (not direct byte-reading, which
+        // is only for IndirectResult/OutBuffer)
         var proj = new OptionalProjection(new BlittableProjection("int"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>", plan.PInvokeExpression);
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
-    public void Optional_BlittableNonKeyword_ReturnPlan_IndirectResult_UsesOldPath()
+    public void Optional_BlittableNonKeyword_ReturnPlan_IndirectResult_HasValueCheck()
     {
         // Non-keyword type names (e.g., "Int64") don't match GetBlittablePrimitiveSize
-        // and still use the old SwiftMarshal path (known primitive, not frozen struct).
+        // and use HasValue/Some pattern via SwiftOptional.
         var proj = new OptionalProjection(new BlittableProjection("Int64"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result).ToNullable()", plan.PInvokeExpression);
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result)", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -523,16 +537,18 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Optional_FrozenStruct_ReturnPlan_Direct_StillUsesOldPath()
+    public void Optional_FrozenStruct_ReturnPlan_Direct_HasValueCheck()
     {
-        // Direct return strategy for frozen structs still uses the old SwiftMarshal path
-        // (only IndirectResult/OutBuffer use the Unsafe.SizeOf fast path).
+        // Direct return strategy for frozen structs uses HasValue/Some pattern
+        // (only IndirectResult/OutBuffer use the direct byte-reading fast path).
         var proj = new OptionalProjection(new BlittableProjection("CGPoint"));
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<CGPoint>>", plan.PInvokeExpression);
-        Assert.Contains("ToNullable()", plan.PInvokeExpression);
+        var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<CGPoint>>", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
 
     #endregion
@@ -558,11 +574,12 @@ public class MarshalPlanRegressionTests
         var proj = new OptionalProjection(new StringProjection());
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        // Should use rawOpt + conditional conversion
+        // Should use HasValue/Some + conditional conversion
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains("MarshalFromSwift<SwiftOptional<SwiftString>>", setupLine.Code);
-        Assert.Contains("ToNullable()", setupLine.Code);
-        Assert.Contains("rawVal.ToString()", plan.PInvokeExpression);
+        Assert.DoesNotContain("ToNullable", setupLine.Code);
+        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
+        Assert.Contains(".Some.ToString()", plan.PInvokeExpression);
     }
 
     #endregion

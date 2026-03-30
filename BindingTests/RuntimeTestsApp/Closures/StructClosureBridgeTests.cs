@@ -20,7 +20,6 @@ public class StructClosureBridgeTests : TestBase
 {
     public StructClosureBridgeTests(TestResults results) : base(results) { }
 
-    [Skip("MCB complex enum callback round-trip corrupts value during heap alloc → marshal cycle")]
     public void TestDataTransformerProcess()
     {
         // DataTransformer is a struct — MCB must use assumingMemoryBound for self
@@ -36,7 +35,6 @@ public class StructClosureBridgeTests : TestBase
         TestLogger.Info("DataTransformer.Process struct MCB test passed");
     }
 
-    [Skip("MCB complex enum callback round-trip corrupts value during heap alloc → marshal cycle")]
     public void TestDataTransformerProcessNegativeFactor()
     {
         var transformer = new DataTransformer(factor: -1);
@@ -50,7 +48,6 @@ public class StructClosureBridgeTests : TestBase
         TestLogger.Info("DataTransformer.Process negative factor test passed");
     }
 
-    [Skip("MCB complex enum callback round-trip corrupts value during heap alloc → marshal cycle")]
     public void TestClassTransformerProcess()
     {
         // ClassTransformer is a class — MCB uses Unmanaged for self (existing behavior)

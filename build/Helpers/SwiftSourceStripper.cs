@@ -29,6 +29,7 @@ public static class SwiftSourceStripper
         "TaskDescriptor", "StringProcessor",
         "StatusHandler", "PriorityHandler",
         "URLProcessorDelegate",
+        "EventDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

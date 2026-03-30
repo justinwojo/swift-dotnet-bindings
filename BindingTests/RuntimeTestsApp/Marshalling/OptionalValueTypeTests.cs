@@ -69,7 +69,6 @@ public class OptionalValueTypeTests : TestBase
 
     #region Optional Enum
 
-    [Skip("SwiftOptional<Color> type initializer fails: simple enum lacks metadata accessor for SwiftOptional static constructor")]
     public void TestAcceptOptionalColorSome()
     {
         var result = TestLibFunctions.AcceptOptionalColor(Color.Red);
@@ -77,7 +76,6 @@ public class OptionalValueTypeTests : TestBase
         TestLogger.Info($"AcceptOptionalColor(Red) = \"{result}\"");
     }
 
-    [Skip("SwiftOptional<Color> type initializer fails: simple enum lacks metadata accessor for SwiftOptional static constructor")]
     public void TestAcceptOptionalColorGreen()
     {
         var result = TestLibFunctions.AcceptOptionalColor(Color.Green);
@@ -85,7 +83,6 @@ public class OptionalValueTypeTests : TestBase
         TestLogger.Info($"AcceptOptionalColor(Green) = \"{result}\"");
     }
 
-    [Skip("SwiftOptional<Color> type initializer fails: simple enum lacks metadata accessor for SwiftOptional static constructor")]
     public void TestAcceptOptionalColorNone()
     {
         var result = TestLibFunctions.AcceptOptionalColor(null);
@@ -93,7 +90,6 @@ public class OptionalValueTypeTests : TestBase
         TestLogger.Info($"AcceptOptionalColor(None) = \"{result}\"");
     }
 
-    [Skip("SwiftOptional<Color> type initializer fails: simple enum lacks metadata accessor for SwiftOptional static constructor")]
     public void TestMakeOptionalColorSome()
     {
         var color = TestLibFunctions.MakeOptionalColor(0, false);
@@ -101,7 +97,6 @@ public class OptionalValueTypeTests : TestBase
         TestLogger.Info("MakeOptionalColor(Some) returned value");
     }
 
-    [Skip("SwiftOptional<Color> type initializer fails: simple enum lacks metadata accessor for SwiftOptional static constructor")]
     public void TestMakeOptionalColorNone()
     {
         var color = TestLibFunctions.MakeOptionalColor(0, true);
@@ -142,7 +137,6 @@ public class OptionalValueTypeTests : TestBase
         TestLogger.Info("MakeOptionalBool(Some true) returned true");
     }
 
-    [Skip("FullSwiftOptional path for Bool return: extra-inhabitant encoding causes None to read as HasValue=true")]
     public void TestMakeOptionalBoolNone()
     {
         var flag = TestLibFunctions.MakeOptionalBool(false, true);

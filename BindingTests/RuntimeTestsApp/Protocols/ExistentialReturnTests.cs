@@ -113,7 +113,6 @@ public class ExistentialReturnTests : TestBase
 
     #region Existential Round-Trip via Constructor (Tier 3 — RxSwift pattern)
 
-    [Skip("ERTestHolder init wrapper stripped — existential param in constructor (separate issue)")]
     public void TestERTestHolderConstruction()
     {
         var factory = new ERTestFactory();
@@ -123,7 +122,6 @@ public class ExistentialReturnTests : TestBase
         TestLogger.Info("ERTestHolder(IERTestProtocol) construction passed");
     }
 
-    [Skip("ERTestHolder init wrapper stripped — existential param in constructor (separate issue)")]
     public void TestERTestHolderHeldLabel()
     {
         var factory = new ERTestFactory();

@@ -279,6 +279,58 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         Assert.Null(result);
     }
 
+    // Tests for TypeMetadata.RegisterMetadata API (simple enum metadata registration)
+
+    private enum TestColor : int
+    {
+        Red = 0,
+        Green = 1,
+        Blue = 2,
+    }
+
+    private enum TestByteEnum : byte
+    {
+        Low = 0,
+        High = 1,
+    }
+
+    private enum UnregisteredEnum : int
+    {
+        A = 0,
+    }
+
+    [Fact]
+    public static void RegisterMetadata_EnumBecomesResolvable()
+    {
+        // RegisterMetadata allows simple C# enums to have Swift metadata in the cache.
+        // This is how generated module initializers register enum metadata at startup.
+        Assert.True(TypeMetadata.TryGetTypeMetadata<int>(out var intMd));
+        TypeMetadata.RegisterMetadata(typeof(TestColor), intMd!.Value);
+
+        Assert.True(TypeMetadata.TryGetTypeMetadata<TestColor>(out var enumMd));
+        Assert.True(enumMd!.Value.IsValid);
+    }
+
+    [Fact]
+    public static void RegisterMetadata_ByteEnumBecomesResolvable()
+    {
+        // Byte-backed enums should also be registrable via RegisterMetadata.
+        Assert.True(TypeMetadata.TryGetTypeMetadata<byte>(out var byteMd));
+        TypeMetadata.RegisterMetadata(typeof(TestByteEnum), byteMd!.Value);
+
+        Assert.True(TypeMetadata.TryGetTypeMetadata<TestByteEnum>(out var enumMd));
+        Assert.True(enumMd!.Value.IsValid);
+    }
+
+    [Fact]
+    public static void TryGetTypeMetadata_UnregisteredEnum_ReturnsFalse()
+    {
+        // Enums without explicit metadata registration should NOT resolve.
+        // The underlying-type fallback was removed because it produces wrong
+        // Optional<T> layout (tag-byte vs extra-inhabitant encoding).
+        Assert.False(TypeMetadata.TryGetTypeMetadata<UnregisteredEnum>(out _));
+    }
+
     [Fact]
     public static void ConformanceDispatcher_RegisterAndRetrieve()
     {

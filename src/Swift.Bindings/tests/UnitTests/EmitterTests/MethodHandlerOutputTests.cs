@@ -460,13 +460,14 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_MethodWithEscapingClosureReturningFrozenStruct_EmitsTypedCallbackReturn()
+    public void Emit_MethodWithEscapingClosureReturningFrozenStruct_UsesIndirectReturnCallback()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // Frozen struct return is now Cdecl-compatible — closure goes through @_cdecl path
+        // Frozen struct return uses indirect return (void*) because @convention(c) can't
+        // return Swift struct types — even frozen ones.
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
             new NamedTypeSpec("TestModule.Box"));
@@ -484,20 +485,21 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static unsafe TestModule.Box handle_callback_", csOutput);
-        Assert.Contains("return del(", csOutput);
-        // Frozen struct return in closure → now Cdecl-compatible, uses @_cdecl path
-        Assert.Contains("CallConvCdecl", csOutput);
+        // Frozen struct return → indirect return via void* (not direct struct return)
+        Assert.DoesNotContain("TestModule.Box handle_callback_", csOutput);
+        // Callback uses void* return with MarshalToSwift for indirect return
+        Assert.Contains("void*", csOutput);
     }
 
     [Fact]
-    public void Emit_MethodWithEscapingClosureReturningFrozenStructMappedToScalar_EmitsScalarReturnType()
+    public void Emit_MethodWithEscapingClosureReturningFrozenStructMappedToScalar_UsesIndirectReturn()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
-        // Scalar (frozen struct) return is now Cdecl-compatible
+        // Even scalar-mapped frozen structs (TestModule.Scalar → double) use indirect
+        // return because CanUseDirectCallbackReturn only allows Swift primitive names.
         var closureType = new ClosureTypeSpec(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Double") }),
             new NamedTypeSpec("TestModule.Scalar"));
@@ -515,10 +517,9 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("private static unsafe double sample_callback_", csOutput);
-        Assert.DoesNotContain("private static unsafe void* sample_callback_", csOutput);
-        // Scalar frozen struct return → now Cdecl-compatible, uses @_cdecl path
-        Assert.Contains("CallConvCdecl", csOutput);
+        // Frozen struct mapped to scalar → indirect return (not direct double return)
+        Assert.DoesNotContain("double sample_callback_", csOutput);
+        Assert.Contains("void*", csOutput);
     }
 
     [Fact]

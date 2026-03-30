@@ -497,10 +497,10 @@ public class ClosureEmitterDirectTests
     #region Complex enum heap deallocation (1.1 heap leak fix)
 
     [Fact]
-    public void SwiftClosureAdapter_ComplexEnumArg_EmitsDeferDeallocate()
+    public void SwiftClosureAdapter_ComplexEnumArg_EmitsHeapAllocWithoutDefer()
     {
-        // Complex enum closure args use heap allocation (__heap_N). Each allocation must
-        // have a matching defer { __heap_N.deallocate() } to prevent native heap leaks.
+        // Complex enum closure args use heap allocation (__heap_N). No defer —
+        // C# takes ownership via SwiftSafeHandle (VWT Destroy + NativeMemory.Free).
         var typeDatabase = CreateTypeDatabaseWithComplexEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -516,14 +516,14 @@ public class ClosureEmitterDirectTests
         var result = string.Join("\n", lines);
         Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
         Assert.Contains("__heap_0.initializeMemory", result);
-        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.DoesNotContain("defer", result);
+        Assert.DoesNotContain("deallocate()", result);
     }
 
     [Fact]
-    public void SwiftClosureAdapter_ComplexEnumArg_WithReturn_EmitsDeferDeallocate()
+    public void SwiftClosureAdapter_ComplexEnumArg_WithReturn_EmitsHeapAllocWithoutDefer()
     {
-        // Complex enum arg with a return value: defer ensures deallocation even when
-        // the closure body has a return statement.
+        // Complex enum arg with a return value: no defer (C# owns the heap memory).
         var typeDatabase = CreateTypeDatabaseWithComplexEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -537,14 +537,16 @@ public class ClosureEmitterDirectTests
             "transform", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.Contains("__heap_0", result);
+        Assert.Contains("initializeMemory", result);
+        Assert.DoesNotContain("defer", result);
         Assert.Contains("return", result);
     }
 
     [Fact]
-    public void SwiftClosureAdapter_MultipleComplexEnumArgs_EmitsDeferForEach()
+    public void SwiftClosureAdapter_MultipleComplexEnumArgs_EmitsHeapAllocWithoutDefer()
     {
-        // Multiple complex enum args: each __heap_N gets its own defer deallocate.
+        // Multiple complex enum args: each __heap_N allocated without defer.
         var typeDatabase = CreateTypeDatabaseWithComplexEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -562,15 +564,15 @@ public class ClosureEmitterDirectTests
             "handler", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
-        Assert.Contains("deinitialize(count: 1); __heap_1.deallocate()", result);
+        Assert.Contains("__heap_0", result);
+        Assert.Contains("__heap_1", result);
+        Assert.DoesNotContain("defer", result);
     }
 
     [Fact]
-    public void SwiftClosureAdapter_ThrowingWithComplexEnumArg_EmitsDeferDeallocate()
+    public void SwiftClosureAdapter_ThrowingWithComplexEnumArg_EmitsHeapAllocWithoutDefer()
     {
-        // Throwing closure with complex enum arg: defer ensures cleanup on both
-        // success and error paths.
+        // Throwing closure with complex enum arg: no defer (C# owns the heap memory).
         var typeDatabase = CreateTypeDatabaseWithComplexEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -584,7 +586,8 @@ public class ClosureEmitterDirectTests
             "callback", closureTypeSpec, closureHandler, isOptional: false);
 
         var result = string.Join("\n", lines);
-        Assert.Contains("deinitialize(count: 1); __heap_0.deallocate()", result);
+        Assert.Contains("__heap_0", result);
+        Assert.DoesNotContain("defer", result);
         Assert.Contains("errorPtr", result);
     }
 
@@ -645,6 +648,71 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
+    #region Enum rawValue Int/Int64 cast (StripePayments regression fix)
+
+    [Fact]
+    public void SwiftClosureAdapter_SimpleEnumArg_RawValueWrappedInScalarCast()
+    {
+        // Simple enum with rawValueType "Swift.Int" gets swiftScalar "Int64",
+        // but .rawValue returns Swift's Int type. The adapter must emit
+        // Int64(p0.rawValue) — not bare p0.rawValue — because Swift treats
+        // Int and Int64 as distinct types.
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (ActionStatus) -> Void — simple enum arg
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ActionStatus"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        // Must wrap .rawValue in scalar type cast — not bare .rawValue.
+        // "Int"-backed enums get swiftScalar "Int64" but .rawValue returns Swift.Int,
+        // which is a distinct type. The cast makes it explicit.
+        Assert.Contains("Int64(p0.rawValue)", result);
+        Assert.DoesNotContain(" p0.rawValue,", result); // No bare .rawValue without cast
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithSimpleEnum()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "nint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ActionStatus"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ActionStatus"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ActionStatus"),
+                MetadataAccessor = "$s10TestModule12ActionStatusOMa",
+                Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int"  // ABI JSON uses unqualified names
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
+
     #region ObjC-bridged struct closure parameter (IndexPath fix)
 
     [Fact]
@@ -693,7 +761,7 @@ public class ClosureEmitterDirectTests
         var result = string.Join("\n", lines);
         // Indirect return uses buffer-based marshalling, not Unmanaged
         Assert.Contains("resultBuf", result);
-        Assert.Contains("load(as: Foundation.IndexPath.self)", result);
+        Assert.Contains("assumingMemoryBound(to: Foundation.IndexPath.self).move()", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithObjCBridgedStruct()
@@ -749,11 +817,10 @@ public class ClosureEmitterDirectTests
     #region Frozen struct closure return (CGSize/CGPoint/CGFloat direct return fix)
 
     [Fact]
-    public void SwiftConventionCType_FrozenStructReturn_UsesActualSwiftType()
+    public void SwiftConventionCType_FrozenStructReturn_UsesIndirectReturn()
     {
-        // When a closure returns a frozen struct (e.g., CGSize), the @convention(c) return type
-        // must be the actual Swift type (CGSize), not UnsafeMutableRawPointer.
-        // C# returns the struct directly via CanUseDirectCallbackReturn, so the types must match.
+        // @convention(c) cannot return Swift struct types (even frozen ones).
+        // Frozen struct returns use the indirect return path: result buffer as first param, Void return.
         var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -765,16 +832,17 @@ public class ClosureEmitterDirectTests
 
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureTypeSpec, closureHandler);
 
-        // Return type should be CGSize, not UnsafeMutableRawPointer
-        Assert.Contains("-> CGSize", conventionCType);
-        Assert.DoesNotContain("-> UnsafeMutableRawPointer", conventionCType);
+        // Return type should be Void (indirect return via buffer param)
+        Assert.Contains("-> Void", conventionCType);
+        // First param should be the result buffer
+        Assert.Contains("UnsafeMutableRawPointer", conventionCType);
     }
 
     [Fact]
-    public void SwiftClosureAdapter_FrozenStructReturn_DirectlyReturnsValue()
+    public void SwiftClosureAdapter_FrozenStructReturn_UsesIndirectReturn()
     {
-        // The Swift adapter closure should directly return the cdecl call result
-        // for frozen struct returns (no pointer load/deallocate needed).
+        // The Swift adapter closure should use indirect return for frozen structs:
+        // allocate a result buffer, pass to cdecl, load result back.
         var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -789,19 +857,18 @@ public class ClosureEmitterDirectTests
 
         var result = string.Join("\n", lines);
 
-        // Should have -> CGSize return type in the adapted closure
-        Assert.Contains("-> CGSize", result);
-        // Should directly return the cdecl call (no .load or .deallocate)
-        Assert.Contains("return cdecl_block(", result);
-        Assert.DoesNotContain("load(as:", result);
-        Assert.DoesNotContain("resultBuf", result);
+        // Should have -> CGSize return type (module-qualified) in the adapted closure
+        Assert.Contains("-> CoreGraphics.CGSize", result);
+        // Should use indirect return (result buffer + move for proper ARC ownership transfer)
+        Assert.Contains("resultBuf", result);
+        Assert.Contains("assumingMemoryBound(to:", result);
     }
 
     [Fact]
     public void SwiftConventionCType_FrozenStructReturn_PrimitiveParamPassesDirectly()
     {
         // Frozen struct return with a primitive param: the param should pass through
-        // while the return type uses the actual Swift struct type.
+        // while the return type uses indirect return (Void).
         var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -814,14 +881,15 @@ public class ClosureEmitterDirectTests
         var conventionCType = ClosureEmitter.GetSwiftConventionCType(closureTypeSpec, closureHandler);
 
         Assert.Contains("Int32", conventionCType);
-        Assert.Contains("-> CGPoint", conventionCType);
+        // Frozen struct return uses indirect path (Void return, not CGPoint)
+        Assert.Contains("-> Void", conventionCType);
     }
 
     [Fact]
-    public void EmitEscapingClosureCallback_FrozenStructReturn_ReturnsByValue()
+    public void EmitEscapingClosureCallback_FrozenStructReturn_ReturnsViaPointer()
     {
-        // C# callback for a frozen struct return should return the struct directly,
-        // not void* with heap allocation.
+        // C# callback for a frozen struct return should use indirect return (void*)
+        // with MarshalToSwift, not return the struct directly.
         var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -838,11 +906,10 @@ public class ClosureEmitterDirectTests
             "$s6Lottie17SizeValueProviderCyAA_XCTF", useCdecl: true);
 
         var result = output.ToString();
-        // Return type should be CGSize, not void* with heap allocation
-        Assert.Contains("Swift.CGSize", result);
-        Assert.DoesNotContain("NativeMemory.Alloc", result);
-        // The callback method signature should return CGSize (not void*)
-        Assert.Matches(@"static unsafe Swift\.CGSize \w+_Callback\(", result);
+        // Return type should be void* (indirect return)
+        Assert.Contains("void*", result);
+        Assert.Contains("NativeMemory.Alloc", result);
+        Assert.Contains("MarshalToSwift", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithFrozenStruct()

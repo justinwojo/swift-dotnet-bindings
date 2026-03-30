@@ -309,10 +309,10 @@ public class ClosureHandler
     /// an UnmanagedCallersOnly callback method.
     /// </summary>
     /// <remarks>
-    /// Direct return is allowed for:
-    /// - blittable Swift primitives (Int/Double/etc.)
-    /// - frozen structs that do not require memory management.
-    /// Other complex types continue to use pointer-based return handling.
+    /// Direct return is allowed ONLY for blittable Swift primitives (Int/Double/etc.).
+    /// Frozen structs cannot be returned directly because Swift's @convention(c) does not
+    /// accept non-C-representable types as return values — the wrapper fails compilation
+    /// and gets silently stripped. All non-primitive types use pointer-based return handling.
     /// </remarks>
     public bool CanUseDirectCallbackReturn(TypeSpec returnTypeSpec)
     {
@@ -325,17 +325,9 @@ public class ClosureHandler
         if (namedType.ContainsGenericParameters)
             return false;
 
-        // Primitives are returned directly.
-        if (GetBlittablePrimitiveType(namedType.Name) != null)
-            return true;
-
-        var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-        if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
-            return false;
-
-        return typeRecord.Kind == TypeRecordKind.Struct &&
-               (typeRecord.Flags & TypeRecordFlags.Frozen) != 0 &&
-               (typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0;
+        // Only primitives are returned directly. Frozen structs go through indirect return
+        // (pointer-based) because @convention(c) cannot return Swift struct types.
+        return GetBlittablePrimitiveType(namedType.Name) != null;
     }
 
     /// <summary>
@@ -1417,7 +1409,7 @@ public class ClosureHandler
     /// Gets the C# underlying type and Swift scalar type for a simple enum.
     /// Returns null if the type is not a simple enum.
     /// </summary>
-    public (string csUnderlying, string swiftScalar)? GetSimpleEnumInfo(TypeSpec typeSpec)
+    public (string csUnderlying, string swiftScalar, bool hasRawValue)? GetSimpleEnumInfo(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType)
             return null;
@@ -1435,7 +1427,12 @@ public class ClosureHandler
 
         var csUnderlying = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
         var swiftScalar = EnumHandler.GetSwiftScalarType(csUnderlying);
-        return (csUnderlying, swiftScalar);
+        // hasRawValue is true only for numeric raw values where .rawValue/init(rawValue:)
+        // matches the integer callback ABI. String-backed enums use .rawValue -> String
+        // which doesn't match the Int32 ABI, so they must use the tag-only pointer path.
+        var hasRawValue = !string.IsNullOrEmpty(typeRecord.RawValueTypeName) &&
+                          typeRecord.RawValueTypeName != "String";
+        return (csUnderlying, swiftScalar, hasRawValue);
     }
 
     /// <summary>
