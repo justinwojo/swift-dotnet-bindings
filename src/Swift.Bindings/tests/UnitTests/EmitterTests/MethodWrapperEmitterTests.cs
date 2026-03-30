@@ -655,9 +655,8 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_InoutStringParam_ReturnsFalse()
     {
-        // S9: inout parameters can't be handled by @_cdecl wrappers — write-back
-        // semantics require post-call store-back through the pointer, which the wrapper
-        // doesn't support. Methods with inout params must fall back to CallConvSwift.
+        // Inout String blocked by Guard 5d: C# decomposes String to 2 nint words but
+        // MapInout produces a single UnsafeMutableRawPointer, creating ABI mismatch.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -705,10 +704,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_InoutPrimitiveParam_ReturnsFalse()
+    public void ShouldEmitWrapper_InoutPrimitiveParam_ReturnsTrue()
     {
-        // Primitive inout (e.g., inout Int) also gated — no reconstruction line
-        // means the parameter is an immutable function param, can't pass with &.
+        // Primitive inout uses UnsafeMutableRawPointer + var binding + &ref + write-back.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -752,7 +750,7 @@ public class MethodWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -874,9 +872,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void HasCdeclCompatibleFunctionShape_InoutParam_ReturnsFalse()
+    public void HasCdeclCompatibleFunctionShape_InoutParam_ReturnsTrue()
     {
-        // Async path gate: inout params also blocked for async @_cdecl wrappers.
+        // Inout params have a cdecl-compatible shape (UnsafeMutableRawPointer + write-back).
+        // Async is blocked separately by CanEmitMember, not by shape check.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -884,8 +883,8 @@ public class MethodWrapperEmitterTests
 
         var method = new MethodDecl
         {
-            Name = "asyncMutate",
-            MangledName = "$s10TestModule_asyncMutate",
+            Name = "mutateSync",
+            MangledName = "$s10TestModule_mutateSync",
             MethodType = MethodType.Instance,
             IsConstructor = false,
             CSSignature = new List<ArgumentDecl>
@@ -915,7 +914,113 @@ public class MethodWrapperEmitterTests
             ParentDecl = parentDecl,
             ModuleDecl = moduleDecl,
             Throws = false,
-            IsAsync = true,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
+    [Fact]
+    public void HasCdeclCompatibleFunctionShape_InoutOnGenericParent_ReturnsFalse()
+    {
+        // Guard 5c: inout params on generic parent types can't use the protocol dispatch
+        // pattern for write-back, so they must fall back to CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "mutate",
+            MangledName = "$s10TestModule_mutate",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = "value",
+                    PrivateName = "value",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
+    [Fact]
+    public void HasCdeclCompatibleFunctionShape_InoutString_ReturnsFalse()
+    {
+        // Guard 5d: inout String creates ABI mismatch — C# decomposes String to 2 nint words
+        // but MapInout produces a single UnsafeMutableRawPointer.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "updateName",
+            MangledName = "$s10TestModule_updateName",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    Name = "name",
+                    PrivateName = "name",
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
             Visibility = Visibility.Public
         };
 
@@ -2456,10 +2561,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void IsOptionalWithReferenceInner_ObjCBridgedStruct_ReturnsFalse()
+    public void IsOptionalWithReferenceInner_ObjCBridgedStruct_ReturnsTrue()
     {
-        // EC-4: ObjC-bridged structs like UIFont.Weight should NOT be treated as reference types.
-        // Unmanaged<T> requires T: AnyObject — UIFont.Weight is a struct.
+        // ObjC-bridged structs use nullable pointer ABI via Unmanaged<AnyObject> bridge.
+        // Getter: `as AnyObject` boxes the struct. Setter: `takeUnretainedValue() as! T` unboxes.
         var typeDb = new TypeDatabase();
         var uikitModule = new ModuleTypeDatabase("UIKit", "/usr/lib/libUIKit.dylib");
         uikitModule.RegisterType(
@@ -2477,7 +2582,7 @@ public class MethodWrapperEmitterTests
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
         optionalSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIFont.Weight"));
 
-        Assert.False(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
+        Assert.True(CdeclParamMapper.IsOptionalWithReferenceInner(optionalSpec, typeDb));
     }
 
     [Fact]

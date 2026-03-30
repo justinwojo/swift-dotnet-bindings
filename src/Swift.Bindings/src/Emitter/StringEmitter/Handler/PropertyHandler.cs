@@ -329,11 +329,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         }
 
-        // Detect and skip async properties (properties with async getters/setters are not yet supported)
+        // Async properties: emit as Task-returning methods (C# properties can't be async).
+        // Route the async getter through MethodHandler's async emission pipeline.
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
         {
-            _logger.LogWarning($"PropertyHandler: Skipping async property {propertyDecl.Name} - async properties are not yet supported.");
-            SkipProperty(SkipReason.AsyncProperty, "Property has async getter/setter.");
+            EmitAsyncPropertyAsMethods(csWriter, swiftWriter, propertyDecl, propertyEnv, conductor, context);
             return;
         }
 
@@ -1025,6 +1025,82 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     /// <param name="swiftWriter">The Swift code writer to emit to</param>
     /// <param name="propertyEnv">The property environment</param>
     /// <param name="propertyDecl">The property declaration</param>
+    /// <summary>
+    /// Emits async property getters as Task-returning methods.
+    /// C# properties cannot be async, so async property getters are emitted as methods
+    /// like <c>public Task&lt;T&gt; GetPropertyName(CancellationToken cancellationToken = default)</c>.
+    /// Routes through the standard async method emission pipeline (MethodHandler → WrapperEmitter.Async).
+    /// </summary>
+    private void EmitAsyncPropertyAsMethods(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        PropertyDecl propertyDecl,
+        PropertyEnvironment propertyEnv,
+        Conductor conductor,
+        TypeHandlerContext context)
+    {
+        void SkipProperty(SkipReason reason, string details)
+        {
+            ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, reason, details);
+        }
+
+        // Async methods require [UnmanagedCallersOnly] callbacks which are illegal inside
+        // generic types (CS8895). Same gate as AsyncStream properties.
+        if (context.PInvokeHelperContext != null)
+        {
+            SkipProperty(SkipReason.GenericTypeCallback,
+                "Async property requires [UnmanagedCallersOnly] callback inside generic type.");
+            return;
+        }
+
+        foreach (var accessor in propertyDecl.Accessors)
+        {
+            if (!accessor.Method.IsAsync)
+                continue; // Only emit async accessors as methods; sync accessors on async properties are skipped
+
+            // Only getters are supported — Swift has no async setters, but guard defensively.
+            if (accessor is not GetAccessorDecl)
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping non-getter async accessor on property {propertyDecl.Name}.");
+                continue;
+            }
+
+            if (!conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
+            {
+                _logger.LogWarning($"PropertyHandler: No handler for async property accessor {accessor.Method.Name}. Skipping property {propertyDecl.Name}.");
+                SkipProperty(SkipReason.MissingHandler, $"No method handler for async accessor '{accessor.Method.Name}'.");
+                return;
+            }
+
+            // Transform the accessor MethodDecl for method-style emission.
+            // Note: These mutations are persistent on the MethodDecl graph (same pattern as line 358),
+            // but safe because emission is single-pass and no downstream code re-reads these fields.
+            // - AsyncPropertyName carries the Swift property name for the wrapper call expression
+            // - Name becomes "get{PropertyName}" → PascalCase → "GetPropertyName" in C#
+            // - IsAccessor = false so WrapperEmitter emits a public method (not private accessor)
+            // - Visibility = Public so it appears in the public API
+            var propertyPascalName = NameProvider.ToPascalCase(propertyDecl.Name);
+            accessor.Method.AsyncPropertyName = propertyDecl.Name;
+            accessor.Method.Name = $"get{propertyPascalName}";
+            accessor.Method.IsAccessor = false;
+            accessor.Method.Visibility = Visibility.Public;
+
+            var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+            // Thread PInvokeHelperContext from parent type context
+            if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)
+            {
+                accessorEnv = new MethodEnvironment(accessorEnv.MethodDecl, accessorEnv.TypeDatabase, accessorEnv.SiblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+            }
+            if (context.CompositionCollector != null)
+                accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+
+            methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
+        }
+
+        propertyDecl.WasEmitted = true;
+        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+    }
+
     private void EmitAsyncStreamProperty(
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,

@@ -1,5 +1,5 @@
 {
-  "git_sha": "c37400bb",
+  "git_sha": "25a91e10",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52732,
+        "lines": 53059,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22671,
+        "lines": 23004,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22671,
+        "lines": 23004,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22671,
+        "lines": 23004,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -138,7 +138,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16335,
+        "lines": 16329,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

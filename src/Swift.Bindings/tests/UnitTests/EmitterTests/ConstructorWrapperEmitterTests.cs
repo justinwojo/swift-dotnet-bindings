@@ -3793,4 +3793,128 @@ public class ConstructorWrapperEmitterTests
     }
 
     #endregion
+
+    #region MapInout Tests
+
+    [Fact]
+    public void MapInout_PrimitiveInt_EmitsWriteBack()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            Name = "count",
+            PrivateName = "count",
+            IsInOut = true,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("increment", isConstructor: false, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "count", env);
+
+        Assert.Equal("_ count: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Contains("var count", reconstruction);
+        Assert.Contains("assumingMemoryBound(to: Swift.Int32.self).pointee", reconstruction);
+        Assert.Equal("count: &countVal", callArg);
+        Assert.Contains("assumingMemoryBound(to: Swift.Int32.self).pointee = countVal", writeBack);
+    }
+
+    [Fact]
+    public void MapInout_Bool_EmitsInt8Conversion()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+            Name = "flag",
+            PrivateName = "flag",
+            IsInOut = true,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("toggle", isConstructor: false, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "flag", env);
+
+        Assert.Equal("_ flag: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Contains("Int8", reconstruction);
+        Assert.Contains("!= 0", reconstruction);
+        Assert.Equal("flag: &flagVal", callArg);
+        Assert.Contains("Int8", writeBack);
+        Assert.Contains("? 1 : 0", writeBack);
+    }
+
+    [Theory]
+    [InlineData("Swift.String", "Swift.String")]
+    [InlineData("Swift.Double", "Swift.Double")]
+    public void MapInout_VariousTypes_UsesUnsafeMutableRawPointer(string swiftTypeName, string expectedTypeInReconstruction)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec(swiftTypeName),
+            Name = "value",
+            PrivateName = "value",
+            IsInOut = true,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("modify", isConstructor: false, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (cdeclParam, reconstruction, callArg, writeBack) = CdeclParamMapper.MapInout(arg, "value", env);
+
+        Assert.Equal("_ value: UnsafeMutableRawPointer", cdeclParam);
+        Assert.Contains("var value", reconstruction);
+        Assert.Contains(expectedTypeInReconstruction, reconstruction);
+        Assert.Contains("&valueVal", callArg);
+        Assert.Contains("= valueVal", writeBack);
+    }
+
+    [Fact]
+    public void MapInout_UnlabeledParam_OmitsArgLabel()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            Name = "_",
+            PrivateName = "value",
+            IsInOut = true,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var dummyMethod = CreateMethod("mutate", isConstructor: false, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(dummyMethod, typeDb);
+
+        var (_, _, callArg, _) = CdeclParamMapper.MapInout(arg, "value", env);
+
+        // Unlabeled param should not have a label prefix
+        Assert.Equal("&valueVal", callArg);
+    }
+
+    #endregion
 }

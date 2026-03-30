@@ -9,7 +9,7 @@ namespace RuntimeTestsApp.Parameters;
 
 /// <summary>
 /// Tests for inout, default, and variadic parameters.
-/// Inout tests verify the P/Invoke call completes without crashing (CallConvSwift path).
+/// Inout tests verify the @_cdecl wrapper path completes without crashing (UnsafeMutableRawPointer write-back).
 /// Default parameter tests verify correct return values with and without explicit args.
 /// Variadic tests verify CallConvSwift dispatch with SwiftArray<T> (T... → Array<T> at ABI level).
 /// </summary>
@@ -19,30 +19,27 @@ public class ParameterTests : TestBase
 
     #region Inout Parameters
 
-    // Note: The public API passes inout params by value (not ref), so mutations
-    // aren't observable to the caller. These tests verify the CallConvSwift P/Invoke
-    // path completes without crashing — the key validation for SB0001 methods.
+    // Inout parameters use @_cdecl wrappers with UnsafeMutableRawPointer + write-back semantics.
+    // The public API passes inout params by value (not ref), so mutations aren't observable
+    // to the caller. These tests verify the @_cdecl wrapper path completes without crashing.
 
-#pragma warning disable SB0001 // No @_cdecl wrapper — CallConvSwift direct call
     public void TestIncrementValue()
     {
-        // incrementValue(_ value: inout Int32) — CallConvSwift with ref int
-        // Public API takes int by value, so the increment isn't visible to us,
-        // but the call exercising the P/Invoke path must not crash.
+        // incrementValue(_ value: inout Int32) — @_cdecl wrapper with UnsafeMutableRawPointer
         TestLibFunctions.IncrementValue(42);
         TestLogger.Info("IncrementValue(42) completed without crash");
     }
 
     public void TestSwapValues()
     {
-        // swapValues(_ a: inout Int32, _ b: inout Int32) — two ref params
+        // swapValues(_ a: inout Int32, _ b: inout Int32) — two inout params with write-back
         TestLibFunctions.SwapValues(10, 20);
         TestLogger.Info("SwapValues(10, 20) completed without crash");
     }
 
     public void TestIncrementPoint()
     {
-        // incrementPoint(_ point: inout FrozenPoint) — ref on frozen struct
+        // incrementPoint(_ point: inout FrozenPoint) — inout frozen struct
         var point = new FrozenPoint(3.0, 4.0);
         TestLibFunctions.IncrementPoint(point);
         TestLogger.Info("IncrementPoint((3.0, 4.0)) completed without crash");
@@ -52,13 +49,10 @@ public class ParameterTests : TestBase
     {
         // doubleInPlace(_ value: inout Int32) -> Int32 — returns old value
         // The Swift function doubles value in-place and returns the original.
-        // Public API passes by value, so the doubled result is lost,
-        // but the return value (original) is observable.
         int result = TestLibFunctions.DoubleInPlace(7);
         AssertEqual(7, result, "DoubleInPlace should return original value");
         TestLogger.Info($"DoubleInPlace(7) returned {result}");
     }
-#pragma warning restore SB0001
 
     #endregion
 

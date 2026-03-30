@@ -58,6 +58,10 @@ public static class MethodWrapperEmitter
         {
             if (!CanEmitGenericWrapper(env, parentTypeDecl))
                 return false;
+            // Inout on generic parent: protocol dispatch can't express write-back through
+            // the protocol method boundary. Fall back to CallConvSwift.
+            if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+                return false;
         }
 
         // 6. No method-level generics (e.g., func pair<T,U>(...)).
@@ -77,10 +81,8 @@ public static class MethodWrapperEmitter
                 return false;
         }
 
-        // 11b. No inout parameters — @_cdecl wrappers can't handle write-back semantics.
-        // Primitive inout has no reconstruction line (can't make a mutable local), and non-primitive
-        // inout would need post-call store-back through the pointer. Fall back to CallConvSwift.
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+        // 11b. Inout params with types that have C# ABI mismatch (String → 2 words, class → Unmanaged, etc.)
+        if (WrapperValidation.HasInoutWithAbiMismatch(env))
             return false;
 
         // 11c. No variadic parameters for @_cdecl wrappers — Swift variadic params (T...) appear
@@ -229,6 +231,7 @@ public static class MethodWrapperEmitter
         var swiftParams = new List<string>();
         var reconstructionLines = new List<string>();
         var closureAdapterLines = new List<string>();
+        var writeBackLines = new List<string>();
         var callArgs = new List<string>();
         var keptArgs = methodDecl.CSSignature.Skip(1).ToList();
 
@@ -316,12 +319,26 @@ public static class MethodWrapperEmitter
                         var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
                         if (label == "_")
                             label = $"arg{i}";
-                        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels);
 
-                        swiftParams.Add(cdeclParam);
-                        if (reconstruction != null)
+                        // Inout parameters: use UnsafeMutableRawPointer with write-back semantics.
+                        // The wrapper creates a var binding, passes &ref, and writes back after the call.
+                        if (arg.IsInOut)
+                        {
+                            var (cdeclParam, reconstruction, callArg, writeBack) =
+                                CdeclParamMapper.MapInout(arg, label, env, omitLabels);
+                            swiftParams.Add(cdeclParam);
                             reconstructionLines.Add(reconstruction);
-                        callArgs.Add(callArg);
+                            callArgs.Add(callArg);
+                            writeBackLines.Add(writeBack);
+                        }
+                        else
+                        {
+                            var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels);
+                            swiftParams.Add(cdeclParam);
+                            if (reconstruction != null)
+                                reconstructionLines.Add(reconstruction);
+                            callArgs.Add(callArg);
+                        }
                     }
                     break;
 
@@ -439,6 +456,27 @@ public static class MethodWrapperEmitter
         foreach (var line in closureAdapterLines)
         {
             swiftWriter.WriteLine(line);
+        }
+
+        // Emit inout write-back via defer. Must run after call completes (or throws)
+        // but before function returns. defer ensures correct ordering even with early returns.
+        if (writeBackLines.Count > 0)
+        {
+            if (writeBackLines.Count == 1)
+            {
+                swiftWriter.WriteLine($"defer {{ {writeBackLines[0]} }}");
+            }
+            else
+            {
+                swiftWriter.WriteLine("defer {");
+                swiftWriter.Indent++;
+                foreach (var writeBack in writeBackLines)
+                {
+                    swiftWriter.WriteLine(writeBack);
+                }
+                swiftWriter.Indent--;
+                swiftWriter.WriteLine("}");
+            }
         }
 
         // Reconstruct self for instance methods

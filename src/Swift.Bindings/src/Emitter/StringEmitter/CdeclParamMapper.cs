@@ -675,4 +675,62 @@ public static class CdeclParamMapper
     /// </summary>
     internal static bool IsOptionalWithReferenceInner(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         => WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase);
+
+    /// <summary>
+    /// Maps an inout parameter to its @_cdecl-compatible representation with write-back semantics.
+    /// All inout params use UnsafeMutableRawPointer in the @_cdecl signature. The wrapper creates
+    /// a mutable local (var), passes it by reference (&amp;), and writes back the modified value.
+    /// </summary>
+    /// <returns>
+    /// A 4-tuple: (cdeclParam, reconstruction, callArg, writeBack) where writeBack is the
+    /// statement to store the modified value back through the pointer after the method call.
+    /// </returns>
+    internal static (string cdeclParam, string reconstruction, string callArg, string writeBack) MapInout(
+        ArgumentDecl arg, string label, MethodEnvironment env, bool omitLabels = false)
+    {
+        var swiftTypeSpec = arg.SwiftTypeSpec;
+
+        // Swift keywords and identifier sanitization (same as Map)
+        if (NameProvider.IsSwiftKeyword(label))
+            label = $"{label}Param";
+        label = SwiftBuilder.SanitizeIdentifier(label);
+
+        // Argument label (same as Map)
+        var argLabel = omitLabels ? "" : arg.Name switch
+        {
+            var n when n.StartsWith("arg") => "",
+            "_" => "",
+            var n when n.StartsWith("_") => $"{n.Substring(1)}: ",
+            var n when string.IsNullOrEmpty(n) => "",
+            var n => $"{n}: "
+        };
+
+        var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+
+        // Protocol existentials need "any" prefix in Swift 6
+        if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
+        {
+            if (swiftTypeSpec is NamedTypeSpec && !swiftType.StartsWith("any "))
+                swiftType = $"any {swiftType}";
+        }
+
+        // Bool: stored as Int8 in @_cdecl ABI, needs conversion
+        var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+        if (MarshallingHelpers.IsBoolType(renderedType) || renderedType == "Bool")
+        {
+            return ($"_ {label}: UnsafeMutableRawPointer",
+                    $"var {label}Val: Bool = {label}.assumingMemoryBound(to: Int8.self).pointee != 0",
+                    $"{argLabel}&{label}Val",
+                    $"{label}.assumingMemoryBound(to: Int8.self).pointee = {label}Val ? 1 : 0");
+        }
+
+        // All other types: UnsafeMutableRawPointer with typed pointer access.
+        // Uses assumingMemoryBound(to:).pointee for proper value semantics (not load(as:)
+        // which requires BitwiseCopyable). The var binding is mutable so it can be passed
+        // as &ref to the original Swift method, then written back through the pointer.
+        return ($"_ {label}: UnsafeMutableRawPointer",
+                $"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee",
+                $"{argLabel}&{label}Val",
+                $"{label}.assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val");
+    }
 }

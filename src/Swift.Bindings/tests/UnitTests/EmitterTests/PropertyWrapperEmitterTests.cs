@@ -1856,23 +1856,24 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_OptionalObjCBridgedStructReadWriteProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_OptionalObjCBridgedStructReadWriteProperty_ReturnsTrue()
     {
-        // ObjCBridged struct types (e.g., UIFont.Weight) — C# uses IntPtr alias, incompatible
-        // with UnsafeRawPointer.load(as:) reconstruction. Still blocked.
+        // ObjC-bridged structs (e.g., IndexPath) use nullable pointer ABI via
+        // Unmanaged<AnyObject> bridge — setter reconstructs via
+        // Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! T
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
-            ("TestModule.UIImage", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
+            ("TestModule.IndexPath", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var optionalSpec = new NamedTypeSpec("Swift.Optional");
-        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.UIImage"));
+        optionalSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.IndexPath"));
 
-        var getterMethod = CreateAccessorMethod("getter:image", isGetter: true, parentDecl, moduleDecl);
-        var setterMethod = CreateAccessorMethod("setter:image", isGetter: false, parentDecl, moduleDecl);
+        var getterMethod = CreateAccessorMethod("getter:indexPath", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:indexPath", isGetter: false, parentDecl, moduleDecl);
         var propertyDecl = new PropertyDecl
         {
-            Name = "image",
+            Name = "indexPath",
             SwiftTypeSpec = optionalSpec,
             HasStorage = true,
             IsStatic = false,
@@ -1886,7 +1887,7 @@ public class PropertyWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(getterMethod, typeDb);
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
@@ -2116,10 +2117,10 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void GetRejectionReason_OptionalObjCBridgedStructWithSetter_ReturnsRejection()
+    public void GetRejectionReason_OptionalObjCBridgedStructWithSetter_ReturnsNull()
     {
-        // ObjC-bridged struct Optional with setter IS rejected — CdeclParamMapper can't use
-        // nullable pointer ABI for struct types (Unmanaged<T> requires T: AnyObject).
+        // ObjC-bridged struct Optional with setter is NOT rejected — nullable pointer ABI
+        // uses Unmanaged<AnyObject> bridge for both getter and setter.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.UIFontWeight", TypeRecordFlags.ObjCBridged, TypeRecordKind.Struct));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -2146,7 +2147,7 @@ public class PropertyWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(getterMethod, typeDb);
-        Assert.Equal("objc_bridged_struct_optional_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
     }
 
     [Fact]

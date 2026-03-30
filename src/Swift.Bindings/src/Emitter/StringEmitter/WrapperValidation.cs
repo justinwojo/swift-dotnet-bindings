@@ -409,13 +409,21 @@ public static class WrapperValidation
             if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
                 return true;
 
-            // ObjC-bridged/ObjC-rooted structs (e.g., UIFont.Weight, PHPickerResult,
-            // CALayerContentsGravity) are flagged ObjCBridged/ObjCRooted in the type database
-            // but are Swift structs, not class instances. Unmanaged<T> requires T: AnyObject,
-            // so these must NOT be treated as reference types. Only true classes qualify.
-            // This generalizes the previous NSString-only guard to cover all ObjC-bridged structs.
+            // ObjC-bridged structs/enums: allow nullable pointer ABI for types that bridge
+            // to ObjC classes via _ObjectiveCBridgeable (e.g., IndexPath → NSIndexPath).
+            // The getter returns via `as AnyObject` and setter reconstructs via
+            // `Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! T`.
+            // Exclude NSString typedefs (e.g., CALayerContentsGravity) — they wrap NSString
+            // via RawRepresentable, not _ObjectiveCBridgeable. `as AnyObject` gives a boxed
+            // Swift struct, not NSString, so round-trip fails.
             if (typeRecord.Kind == TypeRecordKind.Struct || typeRecord.Kind == TypeRecordKind.Enum)
+            {
+                if (MarshallingHelpers.IsObjCBridged(typeRecord) &&
+                    !(AppleFrameworkRegistry.TryGetNetTypeName(innerNamed.Name, out var remapped) &&
+                      remapped == "Foundation.NSString"))
+                    return true;
                 return false;
+            }
 
             return typeRecord.Kind == TypeRecordKind.Class ||
                    MarshallingHelpers.IsObjCBridged(typeRecord) ||
@@ -561,9 +569,17 @@ public static class WrapperValidation
             if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
                 return false;
         }
-        // Guard 5c: No inout parameters — write-back semantics incompatible with @_cdecl wrappers.
-        // This is a function-level gate (not per-param) because no wrapper path can handle inout.
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+        // Guard 5c: inout parameters on generic parent types — the generic dispatch protocol
+        // pattern can't express inout write-back through the protocol method boundary.
+        // Non-generic parents handle inout via UnsafeMutableRawPointer in the direct @_cdecl wrapper.
+        if (parentTypeDecl?.IsGeneric == true && env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+            return false;
+        // Guard 5d: inout params with types that have C# ABI mismatch.
+        // MapInout produces a single UnsafeMutableRawPointer. Types with multi-word
+        // C# representation (String → 2 nint words), non-pointer C# representation
+        // (non-frozen → SafeHandle, classes → Unmanaged), or incompatible copy semantics
+        // (non-copyable) create param type/count mismatches with the PInvokeEmitter output.
+        if (HasInoutWithAbiMismatch(env))
             return false;
         // Guard 6: No method-level generics
         if (env.MethodDecl.IsGeneric)
@@ -601,6 +617,36 @@ public static class WrapperValidation
         if (CdeclParamMapper.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
             return false;
         return true;
+    }
+
+    /// <summary>
+    /// Returns true if any inout parameter has a type whose C# ABI representation
+    /// doesn't match MapInout's single UnsafeMutableRawPointer pattern.
+    /// Types with multi-word decomposition (String → 2 nint words), non-pointer
+    /// representation (non-frozen → SafeHandle, classes → Unmanaged), or
+    /// incompatible copy semantics (non-copyable) are rejected.
+    /// </summary>
+    public static bool HasInoutWithAbiMismatch(MethodEnvironment env)
+    {
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (!arg.IsInOut) continue;
+            if (arg.SwiftTypeSpec is NamedTypeSpec inoutNamed && inoutNamed.Name == "Swift.String")
+                return true;
+            if (env.TypeDatabase.TryGetTypeRecord(arg.SwiftTypeSpec, out var inoutTypeRec))
+            {
+                if (inoutTypeRec.Kind == TypeRecordKind.Class ||
+                    MarshallingHelpers.IsObjCBridged(inoutTypeRec) ||
+                    MarshallingHelpers.IsObjCRooted(inoutTypeRec) ||
+                    MarshallingHelpers.IsObjCBridgeable(inoutTypeRec) ||
+                    inoutTypeRec.Kind == TypeRecordKind.Protocol ||
+                    inoutTypeRec.Kind == TypeRecordKind.Existential ||
+                    inoutTypeRec.Flags.HasFlag(TypeRecordFlags.NonCopyable) ||
+                    (!MarshallingHelpers.IsTypeFrozen(inoutTypeRec) && inoutTypeRec.Kind != TypeRecordKind.Enum))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -796,9 +842,7 @@ public static class WrapperValidation
 
         // 11. (removed — noncopyable struct parents now use borrowing pointer semantics)
 
-        // 11b. No inout parameters
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
-            return "inout_params";
+        // 11b. (removed — inout parameters now use UnsafeMutableRawPointer with write-back semantics)
 
         // 11c. No variadic parameters
         if (env.MethodDecl.HasVariadicParameter)

@@ -60,7 +60,7 @@ public static class PropertyWrapperEmitter
             !ClosureEmitter.IsClosureCdeclCompatible(closureInner, accessorEnv.ClosureHandler))
             return false;
 
-        // 4. Skip async properties (own wrapper pattern)
+        // 4. Async properties use the async method wrapper path (@_silgen_name), not @_cdecl
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return false;
 
@@ -81,15 +81,9 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return false;
 
-        // 9b. ObjC-bridged Optional setter — narrowed guard: only block types where
-        //     CdeclParamMapper can't use nullable pointer ABI (ObjCBridged struct types like
-        //     UIFont.Weight). ObjCBridgeable types (URL, etc.) and ObjCBridged classes pass
-        //     through — CdeclParamMapper handles them via UnsafeMutableRawPointer? + Unmanaged.
-        if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
-            MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
-            !WrapperValidation.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
-            return false;
+        // 9b. ObjC-bridged Optional setter — resolved: IsOptionalWithReferenceInner now returns
+        //     true for ObjC-bridged structs (not NSString typedefs), enabling nullable pointer ABI
+        //     for their setters via Unmanaged<AnyObject> + cast. No guard needed.
 
         // 10. Skip properties with raw ABI generic type params (τ_0_0) in the property type,
         // UNLESS the parent is a generic type that supports static dispatch for T-typed properties.
@@ -143,11 +137,6 @@ public static class PropertyWrapperEmitter
         // Nested types are now allowed — see guard 8 comment in ShouldEmitWrapper()
         if (WrapperValidation.IsUnsupportedGenericContainer(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase))
             return "unsupported_generic_container";
-        if (WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec) &&
-            MarshallingHelpers.IsOptionalObjCBridged(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
-            !WrapperValidation.IsOptionalWithReferenceInner(propertyDecl.SwiftTypeSpec, accessorEnv.TypeDatabase) &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
-            return "objc_bridged_struct_optional_setter";
         if (propertyDecl.SwiftTypeSpec != null && WrapperValidation.ContainsRawGenericTypeParam(propertyDecl.SwiftTypeSpec))
         {
             if (!(accessorEnv.ParentDecl is TypeDecl rejGenTd && rejGenTd.IsGeneric))

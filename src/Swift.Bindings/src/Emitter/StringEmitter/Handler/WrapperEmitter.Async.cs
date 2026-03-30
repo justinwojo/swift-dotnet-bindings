@@ -1871,6 +1871,12 @@ namespace BindingsGeneration
             var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
             var annotation = _env.MethodDecl.UsesCdeclMethodWrapper ? "@_cdecl" : "@_silgen_name";
 
+            // Async property getters use property access syntax (no parens), not method call syntax.
+            var asyncPropertyName = _env.MethodDecl.AsyncPropertyName;
+            var callExpression = asyncPropertyName != null
+                ? $"{methodCallPrefix}{asyncPropertyName}"
+                : $"{methodCallPrefix}{_env.MethodDecl.Name}(\n{i}                {methodCallArgs}\n{i}            )";
+
             var funcBody = $$"""
             {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
@@ -1881,9 +1887,7 @@ namespace BindingsGeneration
             {{i}}            _sbwUnregisterTask(_sbwTask)
             {{i}}        }
             {{i}}        do {
-            {{i}}            {{resultAssign}}try await {{methodCallPrefix}}{{_env.MethodDecl.Name}}(
-            {{i}}                {{methodCallArgs}}
-            {{i}}            )
+            {{i}}            {{resultAssign}}try await {{callExpression}}
             {{i}}            {{stringMarshalCode}}
             {{i}}            callback({{callbackResultArgs}}_sbwTask)
             {{i}}        } catch {

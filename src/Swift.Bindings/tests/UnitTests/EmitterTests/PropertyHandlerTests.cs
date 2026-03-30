@@ -1851,4 +1851,170 @@ public class PropertyHandlerTests
     }
 
     #endregion
+
+    #region Async Property Emission Tests
+
+    [Fact]
+    public void Emit_AsyncPropertyGetter_EmitsTaskReturningMethod()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "count", "Swift.Int");
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // Should emit a Task-returning method, not a C# property
+        Assert.Contains("Task<", csOutput);
+        Assert.Contains("GetCount", csOutput);
+        Assert.Contains("CancellationToken", csOutput);
+        // Should NOT emit property syntax
+        Assert.DoesNotContain("get =>", csOutput);
+        Assert.DoesNotContain("get;", csOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncPropertyGetter_SwiftWrapper_UsesPropertyAccessSyntax()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "count", "Swift.Int");
+        var (_, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Swift wrapper should use property access (no parens), not method call
+        Assert.Contains("await", swiftOutput);
+        // Property access: instance.count (not instance.count())
+        Assert.Contains(".count", swiftOutput);
+        Assert.DoesNotContain(".count(", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncPropertyGetter_SetsAsyncPropertyNameOnMethodDecl()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "count", "Swift.Int");
+        EmitProperty(property, typeDatabase);
+
+        // After emission, the getter's MethodDecl should have AsyncPropertyName set
+        var getter = property.Accessors.OfType<GetAccessorDecl>().First();
+        Assert.Equal("count", getter.Method.AsyncPropertyName);
+    }
+
+    [Fact]
+    public void Emit_AsyncPropertyGetter_MarksPropertyAsEmitted()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "count", "Swift.Int");
+        EmitProperty(property, typeDatabase);
+
+        Assert.True(property.WasEmitted);
+    }
+
+    [Fact]
+    public void Emit_AsyncThrowingPropertyGetter_EmitsTaskReturningMethod()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "data", "Swift.Int", throws: true);
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Contains("Task<", csOutput);
+        Assert.Contains("GetData", csOutput);
+        // Swift wrapper should include error handling
+        Assert.Contains("catch", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncPropertyInGenericType_SkipsEmission()
+    {
+        // Async properties require [UnmanagedCallersOnly] callbacks which are illegal
+        // inside generic types (CS8895). Same gate as AsyncStream properties.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataTask", moduleDecl);
+        classDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "TValue",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "value", "Swift.Int");
+        var (csOutput, swiftOutput) = EmitPropertyInGenericContext(property, typeDatabase);
+
+        // Should skip — no C# or Swift output
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+        Assert.False(property.WasEmitted);
+    }
+
+    /// <summary>
+    /// Creates a PropertyDecl with an async getter accessor, suitable for emission tests.
+    /// </summary>
+    private static PropertyDecl CreateAsyncPropertyDecl(
+        ClassDecl classDecl,
+        ModuleDecl moduleDecl,
+        string name,
+        string propertyType,
+        bool throws = false)
+    {
+        var accessors = new List<AccessorDecl>();
+        var property = new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec(propertyType),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        accessors.Add(new GetAccessorDecl
+        {
+            Method = new MethodDecl
+            {
+                Name = $"{name}_Get",
+                MangledName = $"$s10TestModule11DataFetcherC{name.Length}{name}Sivg",
+                MethodType = MethodType.Instance,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    new ArgumentDecl
+                    {
+                        SwiftTypeSpec = new NamedTypeSpec(propertyType),
+                        Name = string.Empty,
+                        PrivateName = string.Empty,
+                        IsInOut = false,
+                        IsGeneric = false,
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl
+                    }
+                },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = classDecl,
+                ModuleDecl = moduleDecl,
+                Throws = throws,
+                IsAsync = true,
+                Visibility = Visibility.Public
+            }
+        });
+
+        classDecl.Properties.Add(property);
+        return property;
+    }
+
+    #endregion
 }

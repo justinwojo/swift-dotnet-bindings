@@ -319,6 +319,13 @@ namespace BindingsGeneration
         public bool ThunkAssemblyEmitted { get; set; } = false;
 
         /// <summary>
+        /// When set, this method was originally an async property getter routed through
+        /// method emission. Contains the original Swift property name for the async wrapper
+        /// call expression (e.g., "image" → "await instance.image" instead of "instance.getImage()").
+        /// </summary>
+        public string? AsyncPropertyName { get; set; }
+
+        /// <summary>
         /// Whether this method has closure parameters handled by the @_cdecl wrapper.
         /// Set by MethodHandler when UsesCdeclMethodWrapper/UsesCdeclConstructorWrapper is set
         /// on a method with closures.

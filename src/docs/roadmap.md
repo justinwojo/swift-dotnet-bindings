@@ -110,16 +110,15 @@ Additional fixes from code review: ARC leak in buffer return paths (`load(as:)` 
 |-----|------:|-------------|
 | Async optional class return marshalling | 9 | Async wrapper missing conditional retain + null-check for optional class returns. NativeAOT SIGBUS was caused by retaining nil pointer. Not upstream issue #5. |
 
-### Session 10: Generic Edge Cases
+### ~~Session 10: Generic Edge Cases~~ ✅ Complete (095e7fb6)
 
-**Target**: 3 skipped tests
-**Focus**: Fix generator bugs in generic type handling. The "multi-type-param generic SIGSEGV" is a confirmed upstream NativeAOT issue (#4), but the "unbound type parameters" test is a generator bug.
+**Result**: 2/3 skipped tests fixed. 1 confirmed upstream (issue #4). Zero validation regressions.
 
-| Bug | Tests | Root Cause |
-|-----|------:|-----------|
-| Unbound type parameter resolution | 1 | `BoundGenericEdgeCaseTests`: TestMakePairDescriptionSkipped — generator can't resolve unbound type parameters |
-| Multi-type-arg bound generic struct | 1 | `BoundGenericEdgeCaseTests`: TestMakeRefPair — investigate before assuming upstream issue #4 |
-| Method-level generic free function | 1 | `BasicGenericTests`: TestGetPairSameType — 2 type params; investigate wrapper generation before blaming NativeAOT |
+| Fix | Tests | What Changed |
+|-----|------:|-------------|
+| Bound generic struct indirect result | 1 | Non-frozen bound generic struct returns need @_cdecl wrapper with resultPtr (indirect result). NativeThunkEmitter now rejects non-frozen bound generic returns, PInvokeEmitter falls through to IndirectResult path |
+| Unbound type parameter resolution | 1 | TestMakePairDescriptionSkipped — generator fix for unbound type params |
+| Method-level generic (upstream #4) | 1 | TestGetPairSameType confirmed upstream: crashes both Mono+NativeAOT with 2+ type metadata params. Properly categorized as upstream issue #4 |
 
 ---
 
@@ -127,20 +126,17 @@ Additional fixes from code review: ARC leak in buffer return paths (`load(as:)` 
 
 These sessions target skip reasons across the 90 validation libraries, not BindingTests. Run `nuke validate` to measure impact. Skip counts are estimates from last full analysis — re-measure when starting each session.
 
-### Session 11: Async Properties
+### ~~Session 11: Async Properties~~ ✅ Complete (00d8587a)
 
-**Estimated skips**: ~14 across 5 libraries
-**Approach**: Async methods already work via `AsyncProjection`. Extend to property getters by emitting Task-returning methods (C# properties can't be async).
+**Result**: Async property getters now emit as Task-returning C# methods (e.g., `GetImageAsync()`). Routes through existing AsyncProjection/MethodHandler pipeline. 8+ validation members unskipped. Generic types gated via CS8895.
 
-### Session 12: ObjC-Bridged Optional Setters
+### ~~Session 12: ObjC-Bridged Optional Setters~~ ✅ Complete (d407d423)
 
-**Estimated skips**: ~90 across 11 libraries
-**Approach**: Setter paths for optional ObjC-bridged types. Likely needs nullable dispatch in property setter emission.
+**Result**: `IsOptionalWithReferenceInner` now covers ObjC-bridged structs/enums (excluding NSString typedefs). Enables nullable pointer ABI for Optional property setters via `Unmanaged<AnyObject>` bridge. Removed `objc_bridged_struct_optional_setter` guard.
 
-### Session 13: inout Parameters
+### ~~Session 13: inout Parameters~~ ✅ Complete (25a91e10)
 
-**Estimated skips**: ~14 across 2 libraries
-**Approach**: `inout` write-back semantics in @_cdecl wrappers. The wrapper needs to accept a pointer, call the method, then write back the modified value.
+**Result**: Inout parameter support via `UnsafeMutableRawPointer` write-back in @_cdecl wrappers. Type-safe ABI guards for String (2-word), class (Unmanaged), and non-frozen types. 8 new tests.
 
 ---
 

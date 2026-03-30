@@ -312,12 +312,8 @@ public static class MemberEmissionValidator
         // PInvokeEmitter handles them via SwiftIndirectResult (non-frozen) or IntPtr (frozen).
         // The .Buffer suffix at PInvokeEmitter:173 is never reached for enums.
 
-        // Check for async properties
-        if (property.Accessors.Any(a => a.Method.IsAsync))
-        {
-            skipDetails = "Property has async getter/setter.";
-            return SkipReason.AsyncProperty;
-        }
+        // NOTE: Async properties are now supported — emitted as Task-returning methods
+        // (e.g., GetPropertyNameAsync()) via PropertyHandler.EmitAsyncPropertyAsMethods().
 
         // Accessor preflight: Check each accessor method can be emitted
         // This mirrors PropertyHandler.Emit lines 261-323
