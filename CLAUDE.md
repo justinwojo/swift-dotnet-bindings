@@ -12,8 +12,8 @@ Experimental Swift/.NET interop project. Generates C# bindings from compiled Swi
 - `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
 - `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `SwiftBindings.Runtime`)
 - `BindingTests/` — Comprehensive test library + runtime tests (iOS Simulator)
-- `validation-libraries.json` — Library validation manifest (90 targets across 46 libraries)
-- `scripts/` — `coverage-report.py` (coverage matrix), `ci/` (CI orchestrator scripts)
+- `build/validation-libraries.json` — Library validation manifest (90 targets across 46 libraries)
+- `build/scripts/` — `coverage-report.py` (coverage matrix), `ci/` (CI orchestrator scripts)
 - `src/docs/` — Internal design docs, status, known issues
 - Public-facing documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) (separate repo)
 
@@ -99,7 +99,7 @@ dotnet run --project src/Swift.Bindings/src -- \
 
 ## Validating Third-Party Libraries
 
-Track binding errors in `src/docs/Completed/binding-errors.md`. All validation libraries are declared in `validation-libraries.json`.
+Track binding errors in `src/docs/Completed/binding-errors.md`. All validation libraries are declared in `build/validation-libraries.json`.
 
 ### Quick start
 
@@ -129,7 +129,7 @@ nuke validate --fetch-first --filter Nuke
 
 ### Adding a new library
 
-1. Add entry to `validation-libraries.json` (repo URL, version, mode, tier)
+1. Add entry to `build/validation-libraries.json` (repo URL, version, mode, tier)
 2. `nuke fetch --filter NewLib`
 3. `nuke validate --filter NewLib`
 4. Run full validation (`nuke validate`) to update `.validation-baseline.json`

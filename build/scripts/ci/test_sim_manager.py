@@ -5,8 +5,8 @@
 """
 Tests for sim_manager.py — validates simulator lifecycle management.
 
-Run: python3 -m pytest scripts/ci/test_sim_manager.py -v
-  or: python3 scripts/ci/test_sim_manager.py   (direct execution)
+Run: python3 -m pytest build/scripts/ci/test_sim_manager.py -v
+  or: python3 build/scripts/ci/test_sim_manager.py   (direct execution)
 
 Tests are split into:
   - Unit tests (mocked subprocess, no real simulator needed)

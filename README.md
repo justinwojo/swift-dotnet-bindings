@@ -251,7 +251,7 @@ Swift Bindings is under active development. The core generator, MSBuild SDK, and
 
 The best way to contribute right now is through [issue reports](https://github.com/justinwojo/swift-dotnet-bindings/issues) — binding errors, feature requests, and bug reports help prioritize the most impactful work. Pull requests are welcome too, but please open an issue first to discuss the change.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, PR guidelines, and details on the AI-assisted workflow used to build this project.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup, PR guidelines, and details on the AI-assisted workflow used to build this project.
 
 ---
 

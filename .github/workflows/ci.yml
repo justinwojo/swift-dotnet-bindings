@@ -93,7 +93,7 @@ jobs:
       - name: Generate coverage report
         working-directory: BindingTests
         run: >
-          python3 ../scripts/coverage-report.py
+          python3 ../build/scripts/coverage-report.py
           --abi-json "$(find .build -name '*.abi.json' 2>/dev/null | head -1)"
           --binding-report output/binding-report.json
 
@@ -104,7 +104,7 @@ jobs:
       - name: Run iOS Simulator tests
         timeout-minutes: 20
         run: >
-          python3 scripts/ci/ci_ios_test.py
+          python3 build/scripts/ci/ci_ios_test.py
           --device-udid "$SIM_UDID" --skip-prepare --skip-build
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140

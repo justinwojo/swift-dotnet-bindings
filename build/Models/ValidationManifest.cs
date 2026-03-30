@@ -10,8 +10,8 @@ using System.Text.Json.Serialization;
 using Nuke.Common.IO;
 
 /// <summary>
-/// Typed model for validation-libraries.json.
-/// Replaces all python3-based manifest parsing from scripts/lib.sh.
+/// Typed model for build/validation-libraries.json.
+/// Replaces all python3-based manifest parsing from the legacy scripts/lib.sh.
 /// </summary>
 public record ValidationManifest
 {

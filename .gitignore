@@ -220,6 +220,9 @@ BindingTests/SwiftBridge/device/
 src/Swift.Bindings.Sdk/tools/
 src/Swift.Bindings.Sdk/bin/
 
+# Nuke build temp artifacts
+.nuke/temp/
+
 # Claude Code local settings, worktrees, and runtime state
 .claude/settings.local.json
 .claude/worktrees/

@@ -6,7 +6,7 @@
 # parsing the ABI JSON and binding-report.json produced by the generator.
 #
 # Usage:
-#   python3 scripts/coverage-report.py --abi-json PATH --binding-report PATH [--output-dir DIR]
+#   python3 build/scripts/coverage-report.py --abi-json PATH --binding-report PATH [--output-dir DIR]
 #
 # Requires: generator to have been run first (binding-report.json must exist)
 

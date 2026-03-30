@@ -38,9 +38,9 @@ xcframework (dylib + ABI JSON + TBD + swiftinterface)
 | `src/Swift.Bindings.Sdk/` | MSBuild SDK package (`SwiftBindings.Sdk`) |
 | `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
 | `BindingTests/` | Integration test library + iOS Simulator runtime tests (~850 tests) |
-| `validation-libraries.json` | Library validation manifest (90 targets across 46 libraries) |
+| `build/validation-libraries.json` | Library validation manifest (90 targets across 46 libraries) |
 | `build/` | Nuke Build targets (C#): compile, test, validate, pack |
-| `scripts/` | Coverage report, CI orchestrator scripts |
+| `build/scripts/` | Coverage report, CI orchestrator scripts |
 | `src/docs/` | Internal design docs, status, known issues |
 
 ## Getting Started
@@ -103,7 +103,7 @@ Unit tests alone can't catch ABI mismatches, calling convention bugs, or marshal
 
 ### Adding a New Validation Library
 
-1. Add an entry to `validation-libraries.json` (repo URL, version, mode, tier)
+1. Add an entry to `build/validation-libraries.json` (repo URL, version, mode, tier)
 2. Fetch: `nuke fetch --filter NewLib`
 3. Validate: `nuke validate --filter NewLib`
 4. Run full validation (`nuke validate`) to update `.validation-baseline.json`

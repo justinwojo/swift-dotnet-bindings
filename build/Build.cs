@@ -75,7 +75,7 @@ partial class Build : NukeBuild
     AbsolutePath SourceDir => RootDirectory / "src";
     AbsolutePath BindingTestsDir => RootDirectory / "BindingTests";
     AbsolutePath LibrariesDir => RootDirectory / ".libraries";
-    AbsolutePath ManifestPath => RootDirectory / "validation-libraries.json";
+    AbsolutePath ManifestPath => RootDirectory / "build" / "validation-libraries.json";
     AbsolutePath BaselinePath => RootDirectory / ".validation-baseline.json";
 
     // --- Resolved platform ---
