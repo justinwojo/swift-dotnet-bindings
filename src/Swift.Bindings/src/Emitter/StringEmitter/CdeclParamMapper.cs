@@ -707,11 +707,24 @@ public static class CdeclParamMapper
 
         var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
 
-        // Protocol existentials need "any" prefix in Swift 6
+        // Protocol existentials need "any" prefix in Swift 6.
+        // Optional<Protocol> needs "any" on the INNER type: Optional<any Protocol>,
+        // NOT on the outer type (Swift rejects "any Optional<Protocol>").
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
         {
-            if (swiftTypeSpec is NamedTypeSpec && !swiftType.StartsWith("any "))
-                swiftType = $"any {swiftType}";
+            if (swiftTypeSpec is NamedTypeSpec namedSpec && !swiftType.StartsWith("any "))
+            {
+                if (IsOptionalProtocolExistential(namedSpec, env.TypeDatabase))
+                {
+                    var innerType = namedSpec.GenericParameters[0];
+                    var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
+                    swiftType = $"Swift.Optional<(any {innerSwiftType})>";
+                }
+                else
+                {
+                    swiftType = $"any {swiftType}";
+                }
+            }
         }
 
         // Bool: stored as Int8 in @_cdecl ABI, needs conversion

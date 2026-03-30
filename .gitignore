@@ -1,5 +1,8 @@
 syntax: glob
 
+# Swift build artifacts
+*.swiftmodule
+
 ### VisualStudio ###
 
 # Tool Runtime Dir

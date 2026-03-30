@@ -831,7 +831,7 @@ public static class MethodWrapperEmitter
                     extensionBodyLines.Add("return result ? 1 : 0");
                     break;
                 case CdeclReturnKind.SimpleEnum:
-                    // Tag-only enums have no rawValue — extract tag bits via pointer.
+                    // Tag-only enums have no rawValue — use safe widening copy.
                     // Matches EmitDirectGetterReturn in PropertyWrapperEmitter.
                     if (env.TypeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord) &&
                         !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
@@ -841,8 +841,10 @@ public static class MethodWrapperEmitter
                     }
                     else
                     {
-                        extensionBodyLines.Add($"var result = {callExpr}");
-                        extensionBodyLines.Add($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {returnMapping.CdeclReturnType}.self) }}");
+                        // Tag-only enum: zero-initialize and copyMemory to avoid reading past
+                        // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
+                        extensionBodyLines.AddRange(
+                            WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(callExpr, returnMapping.CdeclReturnType));
                     }
                     break;
                 case CdeclReturnKind.ClassPointer:
@@ -1111,8 +1113,9 @@ public static class MethodWrapperEmitter
                 }
                 else
                 {
-                    swiftWriter.WriteLine($"var result = {callExpr}");
-                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.CdeclReturnType}.self) }}");
+                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
+                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
+                    WrapperEmitterHelpers.EmitTagOnlyEnumReturn(swiftWriter, callExpr, mapping.CdeclReturnType);
                 }
                 break;
 

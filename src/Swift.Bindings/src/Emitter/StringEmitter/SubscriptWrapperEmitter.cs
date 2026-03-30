@@ -629,8 +629,9 @@ public static class SubscriptWrapperEmitter
                 }
                 else
                 {
-                    swiftWriter.WriteLine($"var result = {expr}");
-                    swiftWriter.WriteLine($"return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping.CdeclReturnType}.self) }}");
+                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
+                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
+                    WrapperEmitterHelpers.EmitTagOnlyEnumReturn(swiftWriter, expr, mapping.CdeclReturnType);
                 }
                 break;
 

@@ -253,6 +253,32 @@ public static class SwiftMarshal
             unsafe
             {
                 int size = Unsafe.SizeOf<T>();
+                // Simple enum size mismatch: C# enum : int is 4 bytes, but Swift simple enums
+                // use the minimum bytes needed for the discriminator (1 byte for ≤256 cases,
+                // 2 for ≤65536, 4 for larger). When the caller provides a Swift-sized span
+                // (e.g., SwiftArray ElementSize), narrow the C# int to the Swift width
+                // instead of throwing or overwriting adjacent memory.
+                if (size > swiftDestSpan.Length && type.IsEnum &&
+                    !typeof(ISwiftObject).IsAssignableFrom(type) && swiftDestSpan.Length >= 1)
+                {
+                    int enumValue = Convert.ToInt32(value);
+                    fixed (void* swiftDest = swiftDestSpan)
+                    {
+                        switch (swiftDestSpan.Length)
+                        {
+                            case 1:
+                                ((byte*)swiftDest)[0] = (byte)enumValue;
+                                break;
+                            case 2:
+                                *(short*)swiftDest = (short)enumValue;
+                                break;
+                            default:
+                                *(int*)swiftDest = enumValue;
+                                break;
+                        }
+                        return swiftDestSpan.Length;
+                    }
+                }
                 if (size > swiftDestSpan.Length)
                 {
                     throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
@@ -473,9 +499,37 @@ public static class SwiftMarshal
         }
 #endif
 
-        // Blittable value types: frozen structs (CGPoint, CGRect, CGSize) and simple enums
-        // (C# enums backed by integer types). Read directly from native memory.
-        // Complex enums implement ISwiftObject and are handled above.
+        // Simple enum fast path: Swift simple enums use the minimum bytes for the
+        // discriminator (1 for ≤256 cases, 2 for ≤65536, etc.), but C# enum : int is
+        // always 4 bytes. Read only the Swift-sized bytes to avoid overreading.
+        // With metadata: use exact Size. Without metadata: default to 1 byte (covers
+        // enums with ≤256 cases; enums with 256+ cases require metadata registration).
+        if (type.IsEnum && !typeof(ISwiftObject).IsAssignableFrom(type) &&
+            !RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+        {
+            int csharpSize = Unsafe.SizeOf<T>();
+            int swiftSize = TypeMetadata.TryGetTypeMetadata<T>(out var enumMeta)
+                ? (int)enumMeta.Value.Size
+                : 1; // Default to 1 byte for unregistered simple enums (≤256 cases)
+            if (swiftSize < csharpSize)
+            {
+                unsafe
+                {
+                    int caseValue = swiftSize switch
+                    {
+                        1 => ((byte*)swiftSource)[0],
+                        2 => *(short*)swiftSource,
+                        _ => *(int*)swiftSource,
+                    };
+                    return (T)Enum.ToObject(typeof(T), caseValue);
+                }
+            }
+            // If Swift size >= C# size, fall through to the blittable path below
+        }
+
+        // Blittable value types: frozen structs (CGPoint, CGRect, CGSize).
+        // Read directly from native memory. Complex enums implement ISwiftObject
+        // and are handled above. Simple enums are handled above.
         // Gate: must be unmanaged (no managed references) to avoid invalid managed pointers.
         if (type.IsValueType && RuntimeHelpers.IsReferenceOrContainsReferences<T>() == false)
         {

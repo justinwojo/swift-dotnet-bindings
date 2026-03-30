@@ -884,10 +884,10 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void MethodWrapper_TagOnlyEnumReturn_EmitsUnsafePointerConversion()
+    public void MethodWrapper_TagOnlyEnumReturn_EmitsSafeCopyMemoryPattern()
     {
-        // Regression test: tag-only enums (no raw value) use withUnsafePointer
-        // to extract the tag bits for the @_cdecl integer return.
+        // Regression test: tag-only enums (no raw value) must use safe copyMemory
+        // pattern instead of load(as: Int.self) which reads 8 bytes from a 1-byte value.
         // With frozen struct gate removed, method goes through standard @_cdecl method wrapper.
         var typeDatabase = CreateOptionalPointerTypeDatabaseWithEnum("Direction", rawValueType: null);
 
@@ -906,8 +906,12 @@ public class SilgenNameTrampolineTests
 
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.True(method.UsesCdeclMethodWrapper);
-        // Tag-only enum: must use withUnsafePointer to extract tag bits
-        Assert.Contains("withUnsafePointer", swiftOutput);
+        // Tag-only enum: must use safe copyMemory widening, not load(as: Int.self)
+        Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", swiftOutput);
+        Assert.Contains("var tag: Int = 0", swiftOutput);
+        Assert.Contains("copyMemory", swiftOutput);
+        Assert.Contains("byteCount: resultSize", swiftOutput);
+        Assert.DoesNotContain("load(as: Int.self)", swiftOutput);
     }
 
     #endregion

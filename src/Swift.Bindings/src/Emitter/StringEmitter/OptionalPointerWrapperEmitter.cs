@@ -554,8 +554,15 @@ public static class OptionalPointerWrapperEmitter
                 }
                 else
                 {
+                    // Tag-only enum: zero-initialize and copyMemory to avoid reading past
+                    // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
+                    // Compute size before closures to avoid Swift exclusivity checker error.
+                    // EmitTagOnlyEnumReturn doesn't support indent, so emit inline.
                     swiftWriter.WriteLine($"{indent}var result = {callExpr}");
-                    swiftWriter.WriteLine($"{indent}return withUnsafePointer(to: &result) {{ UnsafeRawPointer($0).load(as: {mapping!.CdeclReturnType}.self) }}");
+                    swiftWriter.WriteLine($"{indent}let resultSize = MemoryLayout.size(ofValue: result)");
+                    swiftWriter.WriteLine($"{indent}var tag: {mapping!.CdeclReturnType} = 0");
+                    swiftWriter.WriteLine($"{indent}withUnsafeMutablePointer(to: &tag) {{ tagPtr in withUnsafePointer(to: &result) {{ resultPtr in UnsafeMutableRawPointer(tagPtr).copyMemory(from: UnsafeRawPointer(resultPtr), byteCount: resultSize) }} }}");
+                    swiftWriter.WriteLine($"{indent}return tag");
                 }
                 break;
             case CdeclReturnKind.ClassPointer:

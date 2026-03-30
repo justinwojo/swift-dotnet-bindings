@@ -2941,10 +2941,10 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void GenericStaticDispatch_TagOnlySimpleEnum_EmitsWithUnsafePointer()
+    public void GenericStaticDispatch_TagOnlySimpleEnum_EmitsSafeCopyMemory()
     {
-        // Tag-only simple enums (no RawValueTypeName) must use withUnsafePointer
-        // tag extraction, not .rawValue which doesn't exist on tag-only enums.
+        // Tag-only simple enums (no RawValueTypeName) must use safe copyMemory
+        // widening, not load(as: Int.self) which reads 8 bytes from a 1-byte value.
         var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2975,9 +2975,13 @@ public class MethodWrapperEmitterTests
         MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
         var output = sw.ToString();
 
-        // Tag-only enum must use withUnsafePointer pattern, NOT .rawValue
-        Assert.Contains("withUnsafePointer", output);
+        // Tag-only enum must use safe copyMemory widening, NOT .rawValue or load(as: Int.self)
+        Assert.Contains("let resultSize = MemoryLayout.size(ofValue: result)", output);
+        Assert.Contains("var tag: Int = 0", output);
+        Assert.Contains("copyMemory", output);
+        Assert.Contains("byteCount: resultSize", output);
         Assert.DoesNotContain(".rawValue", output);
+        Assert.DoesNotContain("load(as: Int.self)", output);
     }
 
     [Fact]

@@ -62,7 +62,12 @@ public class BoundGenericEdgeCaseTests : TestBase
         // This test verifies the binding compiles and the method signature is correct.
         // Calling the method at runtime requires CallConvSwift with 2 type metadata
         // params, which is blocked by upstream NativeAOT issue #4.
-        AssertTrue(true, "makePairDescription emitted as C# generic (CallConvSwift fallback)");
+        //
+        // Compile-time check: reference the method so the test fails to build if removed.
+#pragma warning disable CS0618 // Obsolete (expected — method-level generics have [Obsolete] warning)
+        var method = typeof(TestLibFunctions).GetMethod(nameof(TestLibFunctions.MakePairDescription));
+#pragma warning restore CS0618
+        AssertNotNull(method, "MakePairDescription<A,B> method exists in generated bindings");
     }
 
     #endregion
