@@ -122,6 +122,44 @@ public class JsonlTestResults
     }
 
     /// <summary>
+    /// Identifies the class that was running when the process crashed.
+    /// This is the class with test records but no class_done marker.
+    /// Returns null if all classes completed (no crash mid-class).
+    /// </summary>
+    public string? FindCrashingClass()
+    {
+        var classesWithTests = Tests.Select(t => t.ClassName).Distinct().ToHashSet();
+        return classesWithTests.Except(CompletedClasses).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Synthesizes CRASHED entries for unfinished methods in the crashing class.
+    /// Uses the inventory to know which methods were expected but never reported.
+    /// </summary>
+    public void SynthesizeCrashEntries(string crashingClass, TestClassInventory inventory)
+    {
+        var reportedMethods = Tests
+            .Where(t => t.ClassName == crashingClass)
+            .Select(t => t.TestName)
+            .ToHashSet();
+
+        var allMethods = inventory.GetMethods(crashingClass);
+        foreach (var method in allMethods)
+        {
+            if (!reportedMethods.Contains(method))
+            {
+                Tests.Add(new TestEntry(crashingClass, method, "crash", "Process crashed", 0));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns all class names that have crash-status entries.
+    /// </summary>
+    public IReadOnlyList<string> CrashedClasses
+        => Tests.Where(t => t.Status == "crash").Select(t => t.ClassName).Distinct().ToList();
+
+    /// <summary>
     /// Returns a summary string for logging.
     /// </summary>
     public override string ToString()

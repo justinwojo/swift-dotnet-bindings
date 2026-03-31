@@ -18,6 +18,7 @@ public class Application
     internal static TestPlatform Platform { get; private set; } = TestPlatform.Device;
     internal static bool FlakeDetect { get; private set; }
     internal static string? ClassFilter { get; private set; }
+    internal static HashSet<string> ExcludeClasses { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
     static void Main(string[] args)
     {
@@ -40,6 +41,12 @@ public class Application
             else if (effectiveArgs[i] == "--class" && i + 1 < effectiveArgs.Length)
             {
                 ClassFilter = effectiveArgs[i + 1];
+                i++;
+            }
+            else if (effectiveArgs[i] == "--exclude-classes" && i + 1 < effectiveArgs.Length)
+            {
+                foreach (var name in effectiveArgs[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    ExcludeClasses.Add(name.Trim());
                 i++;
             }
         }
@@ -145,6 +152,8 @@ public class MainViewController : UIViewController
         TestLogger.Info($"Platform: {platform}");
         if (Application.ClassFilter != null)
             TestLogger.Info($"Class filter: {Application.ClassFilter}");
+        if (Application.ExcludeClasses.Count > 0)
+            TestLogger.Info($"Excluding {Application.ExcludeClasses.Count} classes: {string.Join(", ", Application.ExcludeClasses)}");
         TestLogger.Info($"Started at {DateTime.Now:HH:mm:ss}");
 
         var results = new TestResults();
@@ -191,6 +200,16 @@ public class MainViewController : UIViewController
                 }
 
                 allClasses = filtered;
+            }
+
+            // Apply --exclude-classes filter (resume-on-crash orchestration)
+            if (Application.ExcludeClasses.Count > 0)
+            {
+                var before = allClasses.Count;
+                allClasses = allClasses
+                    .Where(c => !Application.ExcludeClasses.Contains(c.Name))
+                    .ToList();
+                TestLogger.Info($"Excluded {before - allClasses.Count} classes, {allClasses.Count} remaining");
             }
 
             var flakeDetect = Application.FlakeDetect;

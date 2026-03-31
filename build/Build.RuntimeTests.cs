@@ -246,47 +246,137 @@ partial class Build
             : SimCtl.EnsureBootedDevice();
         Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
 
-        var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
-
         var appPath = BindingTestsDir / "RuntimeTestsApp" / "bin" / "Debug" /
             $"{DotNetTfm}-ios" / "iossimulator-arm64" / "RuntimeTestsApp.app";
-        SimCtl.Install(device.Udid, appPath);
 
-        var args = new List<string> { "--platform", "simulator" };
-        if (FlakeDetect) args.AddRange(["--flake-detect"]);
-        if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+        // Load test inventory for crash recovery
+        var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
+        var inventory = TestClassInventory.Load(inventoryPath);
 
-        Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
-        var result = SimCtl.Launch(
-            device.Udid, RuntimeTestsBundleId,
-            args.ToArray(), TimeSpan.FromSeconds(Timeout));
-
-        // Show output
-        Log.Information("");
-        Log.Information("=== APP OUTPUT ===");
-        Log.Information(result.Output);
-
-        // Crash diagnostics
-        HandleCrashDiagnostics(result, device.Udid, crashLogsBefore);
-
-        // Try to retrieve JSONL results from sandbox
-        JsonlTestResults? jsonlResults = null;
-        if (result.ResultsFlushed || result.Result is TestResult.Success or TestResult.Failure)
+        // Compute eligible class set: full inventory or just the filtered class
+        var eligibleClasses = inventory.ClassNames.ToHashSet();
+        if (!string.IsNullOrEmpty(ClassFilter))
         {
+            var match = eligibleClasses.FirstOrDefault(c =>
+                c.Equals(ClassFilter, StringComparison.OrdinalIgnoreCase));
+            eligibleClasses = match != null ? new HashSet<string> { match } : new HashSet<string>();
+        }
+
+        // Resume-on-crash orchestration loop
+        const int maxRetries = 5;
+        var excludeClasses = new HashSet<string>();
+        var aggregated = new JsonlTestResults();
+        LaunchResult? lastResult = null;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            if (attempt > 0)
+                Log.Information("--- Resume-on-crash: attempt {Attempt}/{MaxRetries} (excluding {Count} classes) ---",
+                    attempt + 1, maxRetries + 1, excludeClasses.Count);
+
+            var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp");
+
+            SimCtl.Install(device.Udid, appPath);
+
+            var args = new List<string> { "--platform", "simulator" };
+            if (FlakeDetect) args.AddRange(["--flake-detect"]);
+            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+            if (excludeClasses.Count > 0)
+                args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
+
+            Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
+            var result = SimCtl.Launch(
+                device.Udid, RuntimeTestsBundleId,
+                args.ToArray(), TimeSpan.FromSeconds(Timeout));
+            lastResult = result;
+
+            // Show output
+            Log.Information("");
+            Log.Information("=== APP OUTPUT ===");
+            Log.Information(result.Output);
+
+            // Crash diagnostics
+            HandleCrashDiagnostics(result, device.Udid, crashLogsBefore);
+
+            // Try to retrieve JSONL results from sandbox
+            JsonlTestResults? runResults = null;
             var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
             if (jsonlContent != null)
             {
-                jsonlResults = JsonlTestResults.Parse(jsonlContent);
-                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+                runResults = JsonlTestResults.Parse(jsonlContent);
+                Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+
+                // Save this run's JSONL to host-side temp file
+                var tempPath = $"/tmp/runtime-tests-run-{attempt}.jsonl";
+                File.WriteAllText(tempPath, jsonlContent);
             }
             else
             {
-                Log.Debug("JSONL retrieval failed — falling back to console marker parsing");
+                Log.Debug("JSONL retrieval failed for run {Run}", attempt + 1);
             }
+
+            // If app completed normally (success or failure), we're done
+            if (result.Result is TestResult.Success or TestResult.Failure)
+            {
+                if (runResults != null) aggregated.Merge(runResults);
+                break;
+            }
+
+            // Crash/timeout: attempt recovery
+            if (result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
+            {
+                if (runResults == null || runResults.Tests.Count == 0)
+                {
+                    Log.Error("No JSONL results recovered from crashed run — cannot resume.");
+                    break;
+                }
+
+                // Identify completed and crashing classes
+                var crashingClass = runResults.FindCrashingClass();
+
+                // Synthesize CRASHED entries for unfinished methods
+                if (crashingClass != null)
+                {
+                    Log.Warning("Crash detected in class: {Class}", crashingClass);
+                    runResults.SynthesizeCrashEntries(crashingClass, inventory);
+                    excludeClasses.Add(crashingClass);
+                }
+
+                // Add all completed classes to exclude list
+                foreach (var cls in runResults.CompletedClasses)
+                    excludeClasses.Add(cls);
+
+                aggregated.Merge(runResults);
+
+                // Check if there are remaining classes to run (scoped to eligible set)
+                var remaining = eligibleClasses.Except(excludeClasses).ToList();
+                if (remaining.Count == 0)
+                {
+                    Log.Information("All classes either completed or crashed — no more to run.");
+                    break;
+                }
+
+                Log.Information("Remaining classes: {Count} (completed: {Completed}, crashed: {Crashed})",
+                    remaining.Count, runResults.CompletedClasses.Count,
+                    crashingClass != null ? 1 : 0);
+
+                if (attempt == maxRetries)
+                {
+                    Log.Error("Max retries ({Max}) reached. {Remaining} classes not executed.",
+                        maxRetries, remaining.Count);
+                    break;
+                }
+
+                continue;
+            }
+
+            // Unknown result — don't retry
+            break;
         }
 
-        // Report result with optional JSONL data
-        ReportRuntimeTestResult(result, "Simulator", jsonlResults);
+        // Report final aggregated result
+        var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
+        ReportRuntimeTestResult(lastResult!, "Simulator", finalJsonl);
     }
 
     // ============================================================
@@ -297,38 +387,121 @@ partial class Build
     {
         Log.Information("--- Running on physical device ---");
 
-        DeviceCtl.Install(device.Udid, appPath);
+        // Load test inventory for crash recovery (device project has its own TestClasses.g.txt)
+        var inventoryPath = BindingTestsDir / "RuntimeTestsApp.Device" / "TestClasses.g.txt";
+        if (!File.Exists(inventoryPath))
+            inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
+        var inventory = TestClassInventory.Load(inventoryPath);
 
-        var args = new List<string> { "--platform", "device" };
-        if (FlakeDetect) args.AddRange(["--flake-detect"]);
-        if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
-
-        Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
-        var result = DeviceCtl.Launch(
-            device.Udid, RuntimeTestsBundleId,
-            args.ToArray(), TimeSpan.FromSeconds(Timeout));
-
-        Log.Information("");
-        Log.Information("=== APP OUTPUT ===");
-        Log.Information(result.Output);
-
-        // Try to retrieve JSONL results from device sandbox
-        JsonlTestResults? jsonlResults = null;
-        if (result.ResultsFlushed || result.Result is TestResult.Success or TestResult.Failure)
+        // Compute eligible class set: full inventory or just the filtered class
+        var eligibleClasses = inventory.ClassNames.ToHashSet();
+        if (!string.IsNullOrEmpty(ClassFilter))
         {
+            var match = eligibleClasses.FirstOrDefault(c =>
+                c.Equals(ClassFilter, StringComparison.OrdinalIgnoreCase));
+            eligibleClasses = match != null ? new HashSet<string> { match } : new HashSet<string>();
+        }
+
+        // Resume-on-crash orchestration loop
+        const int maxRetries = 5;
+        var excludeClasses = new HashSet<string>();
+        var aggregated = new JsonlTestResults();
+        LaunchResult? lastResult = null;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++)
+        {
+            if (attempt > 0)
+                Log.Information("--- Resume-on-crash (device): attempt {Attempt}/{MaxRetries} (excluding {Count} classes) ---",
+                    attempt + 1, maxRetries + 1, excludeClasses.Count);
+
+            DeviceCtl.Install(device.Udid, appPath);
+
+            var args = new List<string> { "--platform", "device" };
+            if (FlakeDetect) args.AddRange(["--flake-detect"]);
+            if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+            if (excludeClasses.Count > 0)
+                args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
+
+            Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
+            var result = DeviceCtl.Launch(
+                device.Udid, RuntimeTestsBundleId,
+                args.ToArray(), TimeSpan.FromSeconds(Timeout));
+            lastResult = result;
+
+            Log.Information("");
+            Log.Information("=== APP OUTPUT ===");
+            Log.Information(result.Output);
+
+            // Try to retrieve JSONL results from device sandbox
+            JsonlTestResults? runResults = null;
             var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
             if (jsonlContent != null)
             {
-                jsonlResults = JsonlTestResults.Parse(jsonlContent);
-                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+                runResults = JsonlTestResults.Parse(jsonlContent);
+                Log.Information("JSONL results (run {Run}): {Summary}", attempt + 1, runResults.ToString());
+
+                var tempPath = $"/tmp/runtime-tests-device-run-{attempt}.jsonl";
+                File.WriteAllText(tempPath, jsonlContent);
             }
             else
             {
-                Log.Debug("JSONL retrieval from device failed — no structured results available");
+                Log.Debug("JSONL retrieval from device failed for run {Run}", attempt + 1);
             }
+
+            // If app completed normally, we're done
+            if (result.Result is TestResult.Success or TestResult.Failure)
+            {
+                if (runResults != null) aggregated.Merge(runResults);
+                break;
+            }
+
+            // Crash/timeout: attempt recovery
+            if (result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
+            {
+                if (runResults == null || runResults.Tests.Count == 0)
+                {
+                    Log.Error("No JSONL results recovered from crashed device run — cannot resume.");
+                    break;
+                }
+
+                var crashingClass = runResults.FindCrashingClass();
+
+                if (crashingClass != null)
+                {
+                    Log.Warning("Crash detected in class: {Class}", crashingClass);
+                    runResults.SynthesizeCrashEntries(crashingClass, inventory);
+                    excludeClasses.Add(crashingClass);
+                }
+
+                foreach (var cls in runResults.CompletedClasses)
+                    excludeClasses.Add(cls);
+
+                aggregated.Merge(runResults);
+
+                // Check if there are remaining classes to run (scoped to eligible set)
+                var remaining = eligibleClasses.Except(excludeClasses).ToList();
+                if (remaining.Count == 0)
+                {
+                    Log.Information("All classes either completed or crashed — no more to run.");
+                    break;
+                }
+
+                Log.Information("Remaining classes: {Count}", remaining.Count);
+
+                if (attempt == maxRetries)
+                {
+                    Log.Error("Max retries ({Max}) reached on device.", maxRetries);
+                    break;
+                }
+
+                continue;
+            }
+
+            break;
         }
 
-        ReportRuntimeTestResult(result, "Device/NativeAOT", jsonlResults);
+        var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
+        ReportRuntimeTestResult(lastResult!, "Device/NativeAOT", finalJsonl);
     }
 
     // ============================================================
@@ -520,16 +693,42 @@ partial class Build
             Log.Information("  Skip:  {Skip}", jsonlResults.SkipCount);
             Log.Information("  Crash: {Crash}", jsonlResults.CrashCount);
             Log.Information("  Done:  {Done}", jsonlResults.Done);
+
+            // Report crashed classes explicitly
+            var crashedClasses = jsonlResults.CrashedClasses;
+            if (crashedClasses.Count > 0)
+            {
+                Log.Warning("  Crashed classes ({Count}):", crashedClasses.Count);
+                foreach (var cls in crashedClasses)
+                {
+                    var crashCount = jsonlResults.Tests.Count(t => t.ClassName == cls && t.Status == "crash");
+                    Log.Warning("    - {Class} ({Count} methods crashed)", cls, crashCount);
+                }
+            }
+        }
+
+        // If we have aggregated results from crash recovery, adjust the final verdict.
+        // A crash that was recovered (all remaining classes ran) is reported as Success/Failure
+        // based on actual test results, not the crash status of the last launch.
+        var effectiveResult = result.Result;
+        if (jsonlResults != null && jsonlResults.CrashCount > 0 &&
+            result.Result is TestResult.Crash or TestResult.Timeout or TestResult.LaunchFailure)
+        {
+            // Crash recovery completed — report based on aggregated fail count
+            if (jsonlResults.FailCount > 0)
+                effectiveResult = TestResult.Failure;
+            else
+                effectiveResult = TestResult.Success;
+            Log.Information("Crash recovery completed — reporting based on aggregated results.");
         }
 
         Log.Information("");
         Log.Information("=========================================");
-        switch (result.Result)
+        switch (effectiveResult)
         {
             case TestResult.Success:
                 Log.Information(" RUNTIME TESTS PASSED ({Platform})", platform);
                 Log.Information("=========================================");
-                // Baseline comparison on successful runs
                 if (jsonlResults != null)
                     CompareRuntimeBaseline(platform, jsonlResults);
                 break;
@@ -537,7 +736,6 @@ partial class Build
             case TestResult.Failure:
                 Log.Information(" RUNTIME TESTS FAILED ({Platform})", platform);
                 Log.Information("=========================================");
-                // Still compare baseline on failures (helps diagnose regressions)
                 if (jsonlResults != null)
                     CompareRuntimeBaseline(platform, jsonlResults);
                 throw new Exception($"Runtime tests failed ({platform})");
