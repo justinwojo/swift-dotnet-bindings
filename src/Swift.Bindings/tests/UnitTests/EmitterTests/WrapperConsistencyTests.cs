@@ -906,8 +906,9 @@ public class WrapperConsistencyTests
     #region Property/Subscript Rejection Reasons
 
     [Fact]
-    public void PropertyGetRejectionReason_ClosureProperty_ReturnsReason()
+    public void PropertyGetRejectionReason_ClosureProperty_ReturnsNull()
     {
+        // Direct closure properties are now supported via resultPtr + invoke thunk
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
@@ -915,7 +916,7 @@ public class WrapperConsistencyTests
         var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
         var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
 
-        Assert.Equal("closure_property", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
     }
 
     [Fact]

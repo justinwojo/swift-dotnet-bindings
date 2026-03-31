@@ -106,8 +106,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ClosureProperty_ReturnsFalse()
+    public void ShouldEmitWrapper_ClosureProperty_ReadOnly_ReturnsTrue()
     {
+        // Read-only direct closure properties are supported via resultPtr + invoke thunk pattern
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -119,6 +120,41 @@ public class PropertyWrapperEmitterTests
 
         var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
 
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_ClosureProperty_Writable_ReturnsFalse()
+    {
+        // Writable direct closure properties are rejected — CdeclParamMapper has no closure
+        // handling for the setter path (would fall through to invalid UnsafeRawPointer reconstruction)
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var getterMethod = CreateAccessorMethod("getter:handler", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:handler", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
@@ -163,9 +199,9 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void GetRejectionReason_DirectClosure_ReturnsClosureProperty()
+    public void GetRejectionReason_DirectClosure_ReadOnly_ReturnsNull()
     {
-        // Direct closure properties should still be rejected
+        // Read-only direct closure properties are supported — no rejection reason
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -176,7 +212,41 @@ public class PropertyWrapperEmitterTests
         closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
         var (propertyDecl, env) = CreatePropertyAndEnv("handler", closureType, parentDecl, moduleDecl, typeDb);
 
-        Assert.Equal("closure_property", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+        Assert.Null(PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_DirectClosure_Writable_ReturnsDirectClosureSetter()
+    {
+        // Writable direct closure properties are rejected — setter path has no closure handling
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var getterMethod = CreateAccessorMethod("getter:handler", isGetter: true, parentDecl, moduleDecl);
+        var setterMethod = CreateAccessorMethod("setter:handler", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closureType,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = getterMethod },
+                new SetAccessorDecl { Method = setterMethod }
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.Equal("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
     }
 
     [Fact]

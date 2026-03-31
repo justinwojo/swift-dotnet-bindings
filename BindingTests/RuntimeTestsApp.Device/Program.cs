@@ -215,6 +215,10 @@ public class MainViewController : UIViewController
             foreach (var testClass in testClasses)
             {
                 await RunTestClassAsync(testClass, results, platform, flakeDetect);
+                // Yield to the iOS run loop between test classes to reset the watchdog
+                // timer. Task.Delay alone may not yield to UIKit; NSRunLoop.RunUntil
+                // explicitly processes pending events and satisfies the watchdog.
+                NSRunLoop.Current.RunUntil(NSDate.FromTimeIntervalSinceNow(0.001));
             }
         }
         catch (Exception ex)

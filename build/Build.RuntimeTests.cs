@@ -912,8 +912,8 @@ partial class Build
         // Fix install_name to use @rpath
         try
         {
-            XcRunTool("install_name_tool -id \"@rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime\" " +
-                $"\"{runtimeFwDir / "SwiftBindingsRuntime"}\"");
+            XcRunTool($"install_name_tool -id @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime " +
+                $"{runtimeFwDir / "SwiftBindingsRuntime"}");
         }
         catch (Exception ex)
         {

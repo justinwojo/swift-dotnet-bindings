@@ -75,6 +75,10 @@ public abstract class TestBase
             {
                 await RunTestMethodAsync(method);
             }
+
+            // On device (NativeAOT), yield to the iOS run loop periodically.
+            if (platform == TestPlatform.Device)
+                Foundation.NSRunLoop.Current.RunUntil(Foundation.NSDate.FromTimeIntervalSinceNow(0.001));
         }
     }
 

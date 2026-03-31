@@ -45,9 +45,15 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return false;
 
-        // 3. Skip direct closure properties (callback thunks not supported in property wrappers).
-        // Optional<closure> getter allowed — routes through IndirectResult buffer with null check.
-        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
+        // 3. Direct closure properties: getters allowed — routed through IndirectResult (resultPtr buffer)
+        // with invoke thunk for closure invocation (same pattern as MethodWrapperEmitter).
+        // Optional<closure> getter also allowed — routes through IndirectResult buffer with null check.
+
+        // 3a. Direct closure setter: not supported — CdeclParamMapper has no closure handling,
+        //     so the setter would fall through to UnsafeRawPointer reconstruction which is invalid
+        //     for closures (they need funcPtr + context marshalling). Read-only closure properties are fine.
+        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return false;
 
         // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
@@ -121,8 +127,9 @@ public static class PropertyWrapperEmitter
             return "spi_protected";
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return "metatype_property";
-        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec)
-            return "closure_property";
+        if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
+            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
+            return "direct_closure_setter";
         if (propertyDecl.SwiftTypeSpec is NamedTypeSpec rejOptClosure &&
             rejOptClosure.Name == "Swift.Optional" && rejOptClosure.GenericParameters.Count == 1 &&
             rejOptClosure.GenericParameters[0] is ClosureTypeSpec rejClosureInner &&
@@ -383,7 +390,12 @@ public static class PropertyWrapperEmitter
                 // Strip @escaping/@Sendable — parameter attributes, not valid in metatype position.
                 // No-op for non-closure types.
                 qualifiedPropertyType = qualifiedPropertyType.Replace("@escaping ", "").Replace("@Sendable ", "");
-                var metatype = qualifiedPropertyType.StartsWith("any ") ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
+                // Closure types and existential types need parentheses before .self:
+                // () -> FinalCounter.self is parsed as () -> (FinalCounter.self) — invalid.
+                // (any Protocol).self prevents .self from binding to only the last protocol.
+                bool needsParens = qualifiedPropertyType.StartsWith("any ") ||
+                                   propertyDecl.SwiftTypeSpec is ClosureTypeSpec;
+                var metatype = needsParens ? $"({qualifiedPropertyType}).self" : $"{qualifiedPropertyType}.self";
                 swiftWriter.WriteLine($"let result = {propAccess}");
                 swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {metatype}, repeating: result, count: 1)");
             }
@@ -395,6 +407,9 @@ public static class PropertyWrapperEmitter
 
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+
+        // NOTE: Invoke thunk for closure property returns is emitted by PropertyHandler.EmitPropertyClosureInvokeThunkIfNeeded()
+        // after calling this method. Do NOT emit it here to avoid duplicate @_cdecl symbols.
     }
 
     /// <summary>

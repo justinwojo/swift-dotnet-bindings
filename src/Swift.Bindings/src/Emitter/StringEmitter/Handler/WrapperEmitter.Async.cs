@@ -1877,7 +1877,15 @@ namespace BindingsGeneration
                 ? $"{methodCallPrefix}{asyncPropertyName}"
                 : $"{methodCallPrefix}{_env.MethodDecl.Name}(\n{i}                {methodCallArgs}\n{i}            )";
 
-            var funcBody = $$"""
+            // Non-throwing async: use plain `await` without do/catch wrapper
+            // to avoid "no calls to throwing functions occur within 'try' expression" warning.
+            bool throws = _env.MethodDecl.Throws;
+            var awaitKeyword = throws ? "try await" : "await";
+
+            string funcBody;
+            if (throws)
+            {
+                funcBody = $$"""
             {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
@@ -1887,7 +1895,7 @@ namespace BindingsGeneration
             {{i}}            _sbwUnregisterTask(_sbwTask)
             {{i}}        }
             {{i}}        do {
-            {{i}}            {{resultAssign}}try await {{callExpression}}
+            {{i}}            {{resultAssign}}{{awaitKeyword}} {{callExpression}}
             {{i}}            {{stringMarshalCode}}
             {{i}}            callback({{callbackResultArgs}}_sbwTask)
             {{i}}        } catch {
@@ -1896,6 +1904,25 @@ namespace BindingsGeneration
             {{i}}    }
             {{i}}}
             """;
+            }
+            else
+            {
+                funcBody = $$"""
+            {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
+            {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
+            {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
+            {{i}}    _sbwRegisterTask(_sbwTask, _entry)
+            {{i}}    _entry.task = {{taskOpen}}
+            {{i}}        defer {
+            {{i}}            _sbwUnregisterTask(_sbwTask)
+            {{i}}        }
+            {{i}}        {{resultAssign}}{{awaitKeyword}} {{callExpression}}
+            {{i}}        {{stringMarshalCode}}
+            {{i}}        callback({{callbackResultArgs}}_sbwTask)
+            {{i}}    }
+            {{i}}}
+            """;
+            }
 
             if (isExtension)
             {

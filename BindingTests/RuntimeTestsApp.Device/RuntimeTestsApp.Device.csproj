@@ -21,7 +21,8 @@
     <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
 
     <!-- Suppress warnings -->
-    <NoWarn>CS0169;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>

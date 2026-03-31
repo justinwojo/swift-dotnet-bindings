@@ -204,6 +204,10 @@ public static partial class ClosureEmitter
             returnType = "byte";
         else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
             returnType = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType)?.csUnderlying ?? "int";
+        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+            // Class/ObjC: use IntPtr (not void*) to avoid requiring unsafe context at the DllImport declaration site.
+            returnType = "IntPtr";
         else
             returnType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
 
@@ -254,11 +258,11 @@ public static partial class ClosureEmitter
         else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
                  closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
         {
-            // Class/ObjC return: P/Invoke returns void* (retained pointer).
+            // Class/ObjC return: P/Invoke returns IntPtr (retained pointer).
             // Wrap in SwiftHandle → class constructor. The Swift thunk calls
             // Unmanaged.passRetained(), so the SwiftClassHandle takes ownership.
             csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            invokeBody = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){helperMethodName}({invokeCallArgsString})));";
+            invokeBody = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle({helperMethodName}({invokeCallArgsString})));";
         }
         else
         {
