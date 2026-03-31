@@ -364,6 +364,20 @@ partial class Build
                 Log.Information("Dependency wrapper: {Dir}", destWrapperXcf);
             }
 
+            // Preserve dependency wrapper Swift sources for device build (RunBuildDeviceWrappers).
+            // The generator compiles these for simulator; device needs a separate compilation.
+            var depSwiftFiles = Directory.GetFiles(depOutputDir, "*.swift");
+            if (depSwiftFiles.Length > 0)
+            {
+                var depSwiftDir = BtOutputDir / "dep-swift";
+                if (Directory.Exists(depSwiftDir))
+                    ((AbsolutePath)depSwiftDir).DeleteDirectory();
+                depSwiftDir.CreateDirectory();
+                foreach (var sf in depSwiftFiles)
+                    File.Copy(sf, depSwiftDir / Path.GetFileName(sf));
+                Log.Information("Preserved {Count} dependency wrapper Swift source file(s) for device build.", depSwiftFiles.Length);
+            }
+
             // Clean up dep temp directory
             ((AbsolutePath)depOutputDir).DeleteDirectory();
         }

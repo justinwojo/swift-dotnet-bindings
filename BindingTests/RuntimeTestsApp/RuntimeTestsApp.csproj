@@ -18,13 +18,34 @@
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
     <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
-    <!-- Disable trimming for test app -->
-    <MtouchLink>None</MtouchLink>
-    <!-- Source generator output persisted to obj/ for debugging -->
+    <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
+
+  <!-- Simulator (default): Mono JIT, no trimming -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'">
+    <MtouchLink>None</MtouchLink>
+  </PropertyGroup>
+
+  <!-- Device (NativeAOT): PublishAot + code signing.
+       Activated when publishing with -r ios-arm64 (Build.RuntimeTests.cs RuntimeTestsDevice target). -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <CodesignKey>Apple Development: Justin Wojciechowski (KBKS29A36Q)</CodesignKey>
+    <CodesignProvision>Wildcard Dev</CodesignProvision>
+    <TeamIdentifierPrefix>TL2K6QUQEH</TeamIdentifierPrefix>
+  </PropertyGroup>
+
+  <!-- TrimmerRoots: only needed for NativeAOT device builds.
+       Source generator eliminates reflection for test discovery, but Swift.Runtime types
+       still need preservation for NativeAOT reflection fallback paths. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
+    <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
+    <IlcArg Include="--descriptor:$(MSBuildProjectDirectory)/TrimmerRoots.xml" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="Info.plist" />
@@ -70,9 +91,31 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- Include SwiftBindings wrapper framework (async wrappers) -->
+  <!-- Include dependency wrapper framework (thunks + @_cdecl wrappers for dependency module) -->
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependencySwiftBindings.xcframework/ios-arm64')
+                         AND '$(RuntimeIdentifier)' == 'ios-arm64'">
+    <NativeReference Include="../output/SwiftBindingsTestLibDependencySwiftBindings.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Include SwiftBindings wrapper framework (async wrappers).
+       Check for the specific platform slice to avoid "No matching framework" when
+       a device-only xcframework is left over from a previous device build. -->
   <ItemGroup>
-    <NativeReference Include="../output/SwiftBindings.xcframework" Condition="Exists('../output/SwiftBindings.xcframework')">
+    <NativeReference Include="../output/SwiftBindings.xcframework"
+                     Condition="('$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('../output/SwiftBindings.xcframework/ios-arm64-simulator'))
+                                OR ('$(RuntimeIdentifier)' == 'ios-arm64' AND Exists('../output/SwiftBindings.xcframework/ios-arm64'))">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- SwiftBindingsRuntime framework (device only — simulator uses dylib injection).
+       Built from src/Swift.Runtime/swift/SwiftBindingsRuntime.swift, packaged as xcframework
+       so iOS can load it via @rpath/SwiftBindingsRuntime.framework/SwiftBindingsRuntime. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
+    <NativeReference Include="../.build/SwiftBindingsRuntime.xcframework"
+                     Condition="Exists('../.build/SwiftBindingsRuntime.xcframework/ios-arm64')">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
@@ -91,8 +134,17 @@
   <ItemGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
     <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs" />
   </ItemGroup>
-  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')">
+  <!-- Simulator bridge framework -->
+  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')
+                         AND '$(RuntimeIdentifier)' == 'iossimulator-arm64'">
     <NativeReference Include="../SwiftBridge/SwiftBindingsTestLibBridge.framework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+  <!-- Device bridge framework -->
+  <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
+                         AND '$(RuntimeIdentifier)' == 'ios-arm64'">
+    <NativeReference Include="../SwiftBridge/device/SwiftBindingsTestLibBridge.framework">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

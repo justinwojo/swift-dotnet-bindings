@@ -1,5 +1,5 @@
 <linker>
-  <assembly fullname="RuntimeTestsApp.Device">
+  <assembly fullname="RuntimeTestsApp">
     <type fullname="RuntimeTestsApp.Infrastructure.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Application" preserve="all" />
     <type fullname="RuntimeTestsApp.AppDelegate" preserve="all" />
@@ -15,10 +15,17 @@
     <type fullname="RuntimeTestsApp.Protocols.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Async.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Concurrency.*" preserve="all" />
-    <type fullname="RuntimeTestsApp.Spike.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Collections.*" preserve="all" />
     <type fullname="RuntimeTestsApp.Properties.*" preserve="all" />
     <type fullname="RuntimeTestsApp.SwiftUIBridge.*" preserve="all" />
+    <!-- Directories previously missing from the device project -->
+    <type fullname="RuntimeTestsApp.Collisions.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.CrossModule.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.EdgeCases.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Initializers.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.MemoryManagement.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.ObjCInterop.*" preserve="all" />
+    <type fullname="RuntimeTestsApp.Parameters.*" preserve="all" />
 
     <!-- NOTE: SwiftBindingsTestLib types cannot have preserve="methods" here because
          generated P/Invoke methods with CallConvSwift cause ILC Bus error.

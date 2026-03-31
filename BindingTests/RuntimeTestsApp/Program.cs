@@ -299,6 +299,9 @@ public class MainViewController : UIViewController
             {
                 results.BeginClass(descriptor.Name);
                 await RunTestClassAsync(descriptor, results, platform, flakeDetect);
+                // Yield to the iOS run loop between test classes to reset the watchdog
+                // timer. Required on device (NativeAOT) to prevent SIGKILL; harmless on simulator.
+                NSRunLoop.Current.RunUntil(NSDate.FromTimeIntervalSinceNow(0.001));
             }
             results.EndClass();
         }

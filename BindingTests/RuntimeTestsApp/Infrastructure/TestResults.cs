@@ -1,8 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Text.Json;
-
 namespace RuntimeTestsApp.Infrastructure;
 
 /// <summary>
@@ -82,7 +80,7 @@ public class TestResults
 
             if (_jsonlWriter != null)
             {
-                WriteJsonlLine(new { done = true, total = Total, passed = Passed, failed = Failed, skipped = Skipped });
+                WriteJsonlRaw($"{{\"done\":true,\"total\":{Total},\"passed\":{Passed},\"failed\":{Failed},\"skipped\":{Skipped}}}");
                 _jsonlWriter.Flush();
                 _jsonlWriter.Dispose();
                 _jsonlWriter = null;
@@ -92,15 +90,19 @@ public class TestResults
 
     private void WriteClassDone()
     {
-        WriteJsonlLine(new { class_done = _currentClassName, tests_run = _currentClassTestCount });
+        WriteJsonlRaw($"{{\"class_done\":{JsonEscape(_currentClassName)},\"tests_run\":{_currentClassTestCount}}}");
     }
 
-    private void WriteJsonlLine(object record)
+    /// <summary>
+    /// Writes a raw JSON string as a JSONL line. Uses manual string building instead of
+    /// JsonSerializer to avoid NativeAOT incompatibility (JsonSerializer.Serialize with
+    /// anonymous types requires runtime code generation which IL3050 prohibits).
+    /// </summary>
+    private void WriteJsonlRaw(string json)
     {
         if (_jsonlWriter == null) return;
         try
         {
-            var json = JsonSerializer.Serialize(record);
             _jsonlWriter.WriteLine(json);
             _jsonlWriter.Flush();
         }
@@ -108,6 +110,38 @@ public class TestResults
         {
             // Best-effort: don't let JSONL failures crash the test runner
         }
+    }
+
+    /// <summary>
+    /// JSON-escapes a string value (wraps in quotes, escapes special chars).
+    /// Handles all control characters below U+0020 per JSON spec (RFC 8259 §7).
+    /// </summary>
+    private static string JsonEscape(string? value)
+    {
+        if (value == null) return "null";
+        var sb = new System.Text.StringBuilder(value.Length + 2);
+        sb.Append('"');
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                case '\b': sb.Append("\\b"); break;
+                case '\f': sb.Append("\\f"); break;
+                default:
+                    if (c < '\u0020')
+                        sb.Append($"\\u{(int)c:X4}");
+                    else
+                        sb.Append(c);
+                    break;
+            }
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     /// <summary>
@@ -135,7 +169,7 @@ public class TestResults
 
             var (className, methodName) = SplitTestName(testName);
             var ms = duration.HasValue ? (int)duration.Value.TotalMilliseconds : 0;
-            WriteJsonlLine(new { @class = className, test = methodName, status = "pass", ms });
+            WriteJsonlRaw($"{{\"class\":{JsonEscape(className)},\"test\":{JsonEscape(methodName)},\"status\":\"pass\",\"ms\":{ms}}}");
         }
     }
 
@@ -155,7 +189,7 @@ public class TestResults
 
             var (className, methodName) = SplitTestName(testName);
             var ms = duration.HasValue ? (int)duration.Value.TotalMilliseconds : 0;
-            WriteJsonlLine(new { @class = className, test = methodName, status = "fail", error = reason, ms });
+            WriteJsonlRaw($"{{\"class\":{JsonEscape(className)},\"test\":{JsonEscape(methodName)},\"status\":\"fail\",\"error\":{JsonEscape(reason)},\"ms\":{ms}}}");
         }
     }
 
@@ -170,7 +204,7 @@ public class TestResults
             TestLogger.Warning($"SKIP: {msg}");
 
             var (className, methodName) = SplitTestName(testName);
-            WriteJsonlLine(new { @class = className, test = methodName, status = "skip", reason });
+            WriteJsonlRaw($"{{\"class\":{JsonEscape(className)},\"test\":{JsonEscape(methodName)},\"status\":\"skip\",\"reason\":{JsonEscape(reason)}}}");
         }
     }
 

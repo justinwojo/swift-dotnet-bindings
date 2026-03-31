@@ -634,9 +634,6 @@
       }
     }
   },
-  "runtime_tests": {
-    "simulator": { "pass": 1265, "fail": 0, "skip": 9, "crash": 0 }
-  },
   "skip_metrics": {
     "total_emitted_members": 9960,
     "total_skipped_members": 1913,
@@ -659,6 +656,20 @@
       "DuplicateSignature": 3,
       "UnderscorePrefixInternal": 2,
       "ActorIsolatedAsyncStream": 1
+    }
+  },
+  "runtime_tests": {
+    "simulator": {
+      "pass": 1265,
+      "fail": 0,
+      "skip": 9,
+      "crash": 0
+    },
+    "device": {
+      "pass": 1235,
+      "fail": 0,
+      "skip": 39,
+      "crash": 0
     }
   }
 }

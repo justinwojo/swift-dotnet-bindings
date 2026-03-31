@@ -161,18 +161,21 @@ partial class Build
             if (!SkipBuild)
             {
                 // Publish NativeAOT (takes several minutes)
-                Log.Information("--- Publishing RuntimeTestsApp.Device (NativeAOT, ios-arm64) ---");
+                // Uses the unified RuntimeTestsApp project with -r ios-arm64 (activates device conditionals)
+                Log.Information("--- Publishing RuntimeTestsApp (NativeAOT, ios-arm64) ---");
                 Log.Information("This may take several minutes (ILCompiler + code signing)...");
                 DotNetPublish(s => s
-                    .SetProject(BindingTestsDir / "RuntimeTestsApp.Device")
+                    .SetProject(BindingTestsDir / "RuntimeTestsApp")
                     .SetConfiguration("Release")
+                    .SetRuntime("ios-arm64")
                     .SetVerbosity(DotNetVerbosity.quiet));
             }
 
             // Locate app bundle
-            var appSearchDir = BindingTestsDir / "RuntimeTestsApp.Device" / "bin";
-            var appPath = Directory.GetDirectories(appSearchDir, "RuntimeTestsApp.Device.app",
+            var appSearchDir = BindingTestsDir / "RuntimeTestsApp" / "bin";
+            var appPath = Directory.GetDirectories(appSearchDir, "RuntimeTestsApp.app",
                     SearchOption.AllDirectories)
+                .Where(d => d.Contains("Release") && d.Contains("ios-arm64"))
                 .FirstOrDefault()
                 ?? throw new Exception("App bundle not found after publish");
             Log.Information("App bundle: {Path}", appPath);
@@ -387,10 +390,8 @@ partial class Build
     {
         Log.Information("--- Running on physical device ---");
 
-        // Load test inventory for crash recovery (device project has its own TestClasses.g.txt)
-        var inventoryPath = BindingTestsDir / "RuntimeTestsApp.Device" / "TestClasses.g.txt";
-        if (!File.Exists(inventoryPath))
-            inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
+        // Load test inventory for crash recovery (unified project — same manifest for sim + device)
+        var inventoryPath = BindingTestsDir / "RuntimeTestsApp" / "TestClasses.g.txt";
         var inventory = TestClassInventory.Load(inventoryPath);
 
         // Compute eligible class set: full inventory or just the filtered class
@@ -1229,8 +1230,97 @@ partial class Build
 
         Log.Information("{Module} device wrapper framework built successfully.", WrapperModule);
 
-        // --- Part 2: Build SwiftBindingsRuntime device xcframework ---
+        // --- Part 2: Build dependency wrapper device xcframework ---
+        BuildDependencyWrapperDevice(platform, deviceTarget, deviceSdkName, deviceSliceId, devicePlistPlatform);
+
+        // --- Part 3: Build SwiftBindingsRuntime device xcframework ---
         BuildRuntimeDeviceXcframework(platform);
+    }
+
+    /// <summary>
+    /// Builds the dependency module's Swift wrapper for device (ios-arm64).
+    /// Uses preserved Swift sources from RunRegenerateBindings (dep-swift/ directory).
+    /// </summary>
+    void BuildDependencyWrapperDevice(ApplePlatform platform, string deviceTarget, string deviceSdkName,
+        string deviceSliceId, string devicePlistPlatform)
+    {
+        var depWrapperName = $"{DepModuleName}SwiftBindings";
+        var depSwiftDir = BtOutputDir / "dep-swift";
+
+        if (!Directory.Exists(depSwiftDir))
+        {
+            Log.Information("No dependency wrapper Swift sources — skipping device dependency wrapper build.");
+            return;
+        }
+
+        var swiftFiles = Directory.GetFiles(depSwiftDir, "*.swift").ToList();
+        if (swiftFiles.Count == 0)
+        {
+            Log.Information("No dependency wrapper Swift files found.");
+            return;
+        }
+
+        Log.Information("=== Building {Module} (device) ===", depWrapperName);
+
+        var xcfwSliceDir = BtXcframeworkDir / deviceSliceId;
+        var depXcfwSliceDir = BtDepXcframeworkDir / deviceSliceId;
+        var sdkPath = XcRun.GetSdkPath(deviceSdkName);
+
+        var depWrapperXcf = BtOutputDir / $"{depWrapperName}.xcframework";
+        var outputFwDir = depWrapperXcf / deviceSliceId / $"{depWrapperName}.framework";
+        outputFwDir.CreateDirectory();
+
+        // Strip known-broken sections (same pattern as main wrapper)
+        var cleanedDir = BtOutputDir / ".dep-wrapper-build-device";
+        if (Directory.Exists(cleanedDir))
+            ((AbsolutePath)cleanedDir).DeleteDirectory();
+        cleanedDir.CreateDirectory();
+
+        foreach (var sf in swiftFiles)
+            SwiftSourceStripper.StripFile(sf, cleanedDir / Path.GetFileName(sf));
+
+        var cleanedFiles = Directory.GetFiles(cleanedDir, "*.swift").ToList();
+        if (cleanedFiles.Count == 0)
+        {
+            Log.Information("No cleaned dependency wrapper Swift files to compile.");
+            CleanupWrapperBuild(cleanedDir);
+            return;
+        }
+
+        var settings = new SwiftCompilerSettings()
+            .SetEmitLibrary()
+            .SetTarget(deviceTarget)
+            .SetSdk(sdkPath)
+            .AddFrameworkSearchPath(depXcfwSliceDir + "/")
+            .SetModuleName(depWrapperName)
+            .SetStrictConcurrency("minimal")
+            .SetInstallName($"@rpath/{depWrapperName}.framework/{depWrapperName}")
+            .SetOutputPath(outputFwDir / depWrapperName)
+            .AddSourceFiles(cleanedFiles);
+
+        // Also need main library search path for cross-module references
+        if (Directory.Exists(xcfwSliceDir))
+            settings.AddFrameworkSearchPath(xcfwSliceDir + "/");
+
+        var process = SwiftCompiler.Run(settings);
+        process.WaitForExit();
+
+        CleanupWrapperBuild(cleanedDir);
+
+        if (process.ExitCode != 0)
+        {
+            Log.Warning("Dependency wrapper device compilation failed. Cross-module tests will be skipped on device.");
+            return;
+        }
+
+        PlistGenerator.WriteFrameworkPlist(
+            outputFwDir / "Info.plist",
+            $"com.swiftbindings.{depWrapperName}", depWrapperName, depWrapperName,
+            platform.MinOsVersion, devicePlistPlatform);
+
+        WriteDeviceXcframeworkPlist(depWrapperXcf / "Info.plist", depWrapperName, platform);
+
+        Log.Information("{Module} device wrapper built successfully.", depWrapperName);
     }
 
     void BuildRuntimeDeviceXcframework(ApplePlatform platform)
