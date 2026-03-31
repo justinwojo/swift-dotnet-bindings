@@ -213,5 +213,20 @@
         <entity managedNameSpace="" managedTypeName="nint">
             <typedeclaration kind="struct" name="ObjCBool" module="Foundation" mangledName="$s10ObjectiveC0A4BoolV" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <!-- NSNotification.Name — String-backed typedef, bridges to NSString -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="NSNotification.Name" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- CharacterSet — bridges to NSCharacterSet -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSCharacterSet">
+            <typedeclaration kind="class" name="CharacterSet" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- Calendar — bridges to NSCalendar -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSCalendar">
+            <typedeclaration kind="class" name="Calendar" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

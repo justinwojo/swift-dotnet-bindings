@@ -156,11 +156,13 @@ public static class MemberEmissionValidator
                 return SkipReason.UnsupportedClosure;
             }
             // C12: Closure return types that map to void* in function pointers can't be marshalled
-            // back to managed types by the invoker. Only primitive types (and void) are safe.
+            // back to managed types by the invoker unless an invoke thunk can handle the conversion.
+            // Class/ObjC returns pass through the invoke thunk as retained pointers.
             if (!closureTypeSpec.ReturnType.IsEmptyTuple)
             {
                 var returnPInvokeType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
-                if (returnPInvokeType == "void*")
+                if (returnPInvokeType == "void*" &&
+                    !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
                 {
                     skipDetails = "Closure return type requires marshalling not supported by the closure invoker.";
                     return SkipReason.UnsupportedClosure;

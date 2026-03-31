@@ -53,7 +53,6 @@ namespace BindingsGeneration
                 m.Name == "init" &&
                 m.CSSignature.Count == 2 && // Return type + rawValue parameter
                 m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue"));
-
             if (initRawValueMethod == null)
             {
                 _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but init(rawValue:) constructor not found. Skipping simple case emission.");

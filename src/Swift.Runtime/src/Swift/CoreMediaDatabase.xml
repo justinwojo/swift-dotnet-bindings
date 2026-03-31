@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="CoreMedia" modulePath="/System/Library/Frameworks/CoreMedia.framework/CoreMedia">
+    <entities>
+        <!-- CMTime — opaque C struct, map to IntPtr for now -->
+        <entity managedNameSpace="System" managedTypeName="IntPtr">
+            <typedeclaration kind="struct" name="CMTime" module="CoreMedia"
+                             frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

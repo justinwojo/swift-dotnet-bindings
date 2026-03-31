@@ -651,13 +651,16 @@ public static class NameProvider
     {
         "for", "in", "is", "as", "if", "else", "do", "while", "return",
         "break", "continue", "switch", "case", "default", "try", "catch",
-        "throw", "new", "this", "base", "null", "true", "false", "class",
-        "struct", "enum", "interface", "public", "private", "protected",
+        "finally", "throw", "new", "this", "base", "null", "true", "false",
+        "class", "struct", "enum", "interface", "public", "private", "protected",
         "internal", "static", "readonly", "const", "override", "virtual",
         "abstract", "sealed", "async", "await", "var", "object", "string",
-        "int", "long", "float", "double", "bool", "void", "ref", "out",
+        "int", "uint", "long", "ulong", "short", "ushort", "byte", "sbyte",
+        "float", "double", "decimal", "bool", "char", "void", "ref", "out",
         "params", "event", "delegate", "operator", "implicit", "explicit",
-        "where", "get", "set", "value", "partial", "using", "namespace"
+        "where", "get", "set", "value", "partial", "using", "namespace",
+        "typeof", "sizeof", "checked", "unchecked", "foreach", "goto",
+        "lock", "fixed", "stackalloc", "volatile", "extern", "unsafe"
     };
 
     /// <summary>

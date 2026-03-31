@@ -697,7 +697,7 @@ namespace BindingsGeneration
                 // Derived private constructors chain to the base's protected sentinel constructor
                 var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
                 var text = $$"""
-                {{_constructorName}}(SwiftHandle handle){{baseChain}}
+                internal {{_constructorName}}(SwiftHandle handle){{baseChain}}
                 {
                     _handle = new SwiftClassHandle<{{handleType}}>(handle);
                 }

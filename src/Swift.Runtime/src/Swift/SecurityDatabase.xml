@@ -13,5 +13,10 @@
         <entity managedNameSpace="System" managedTypeName="IntPtr">
             <typedeclaration kind="struct" name="SecIdentity" module="Security" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <!-- SecTrustResultType — UInt32 typedef, map to uint -->
+        <entity managedNameSpace="System" managedTypeName="UInt32">
+            <typedeclaration kind="struct" name="SecTrustResultType" module="Security"
+                             frozen="true" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>

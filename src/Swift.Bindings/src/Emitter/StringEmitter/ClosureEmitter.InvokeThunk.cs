@@ -99,9 +99,20 @@ public static partial class ClosureEmitter
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             if (MarshallingHelpers.IsBoolType(arg))
+            {
                 callArgs.Add($"arg{argIndex} != 0");
+            }
+            else if (closureHandler.IsComplexEnum(arg))
+            {
+                // Complex enum: @_cdecl receives UnsafeMutableRawPointer, closure expects enum type.
+                // Load the enum value from the pointer using assumingMemoryBound.
+                var swiftTypeName = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
+                callArgs.Add($"arg{argIndex}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+            }
             else
+            {
                 callArgs.Add($"arg{argIndex}");
+            }
             argIndex++;
         }
         var callArgsString = string.Join(", ", callArgs);
@@ -110,6 +121,16 @@ public static partial class ClosureEmitter
         if (returnsVoid)
         {
             swiftWriter.WriteLine($"_closure({callArgsString})");
+        }
+        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        {
+            // Class/ObjC return: retain the result and return as opaque pointer.
+            // The caller (C#) wraps the IntPtr in SwiftClassHandle.
+            swiftWriter.WriteLines($$"""
+                let _result = _closure({{callArgsString}})
+                return Unmanaged.passRetained(_result).toOpaque()
+                """);
         }
         else
         {
@@ -159,11 +180,17 @@ public static partial class ClosureEmitter
         string libraryName)
     {
         // Build P/Invoke parameter list: funcPtr, ctx, then closure args (all P/Invoke types)
+        // Use nint instead of void* for complex enums to avoid requiring unsafe context
         var pinvokeParams = new List<string> { "nint funcPtr", "nint ctx" };
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var csType = closureHandler.TranslateTypeSpecToPInvokeType(arg);
+            // Complex enums: TranslateTypeSpecToPInvokeType returns void*, but the invoke
+            // thunk P/Invoke uses CallingConvention.Cdecl (not unmanaged[Swift]), so nint
+            // is safe and avoids CS0214 unsafe context requirement
+            if (csType == "void*" && closureHandler.IsComplexEnum(arg))
+                csType = "nint";
             pinvokeParams.Add($"{csType} arg{argIndex}");
             argIndex++;
         }
@@ -200,7 +227,7 @@ public static partial class ClosureEmitter
         {
             var csType = closureHandler.TranslateTypeSpecToCSharp(arg);
             invokeParams.Add($"{csType} _arg{invArgIndex}");
-            invokeCallArgs.Add(GetSwiftInvokeArgExpression(arg, invArgIndex, closureHandler));
+            invokeCallArgs.Add(GetSwiftInvokeArgExpression(arg, invArgIndex, closureHandler, useNintCast: true));
             invArgIndex++;
         }
         var invokeParamsString = string.Join(", ", invokeParams);
@@ -224,6 +251,15 @@ public static partial class ClosureEmitter
             csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             invokeBody = $"return ({csReturnType}){helperMethodName}({invokeCallArgsString});";
         }
+        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        {
+            // Class/ObjC return: P/Invoke returns void* (retained pointer).
+            // Wrap in SwiftHandle → class constructor. The Swift thunk calls
+            // Unmanaged.passRetained(), so the SwiftClassHandle takes ownership.
+            csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            invokeBody = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){helperMethodName}({invokeCallArgsString})));";
+        }
         else
         {
             csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
@@ -244,27 +280,20 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Determines whether a closure return type can use an invoke thunk.
-    /// Currently supports closures with primitive/enum args and primitive/enum/void returns.
-    /// Struct params and complex return types are not yet supported (would need type-specific
-    /// thunk code for load(as:) reconstruction).
+    /// Supports closures with primitive/enum/complex-enum args and primitive/enum/class/void returns.
     /// </summary>
     public static bool CanUseInvokeThunk(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
     {
-        // Whitelist approach: only allow primitives and simple enums.
-        // Anything else (structs, classes, existentials, tuples, bound generics) would cause
-        // ABI mismatches between the Swift thunk (which uses GetSwiftCdeclParamType → raw pointers)
-        // and the C# helper (which uses TranslateTypeSpecToPInvokeType → typed containers).
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            if (!CdeclParamMapper.IsCdeclPrimitive(arg) && !closureHandler.IsSimpleEnum(arg))
+            if (!IsInvokeThunkCompatibleArg(arg, closureHandler))
                 return false;
         }
 
-        // Check return type is primitive or simple enum (void is also fine)
+        // Check return type
         if (!closureTypeSpec.ReturnType.IsEmptyTuple)
         {
-            if (!CdeclParamMapper.IsCdeclPrimitive(closureTypeSpec.ReturnType) &&
-                !closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+            if (!IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
                 return false;
         }
 
@@ -273,5 +302,43 @@ public static partial class ClosureEmitter
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks if a type is compatible as an invoke thunk argument.
+    /// Primitives and simple enums pass directly. Complex enums pass via pointer.
+    /// </summary>
+    private static bool IsInvokeThunkCompatibleArg(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
+            return true;
+        if (closureHandler.IsSimpleEnum(typeSpec))
+            return true;
+        // Complex enums: C# extracts payload handle, Swift loads from pointer
+        if (closureHandler.IsComplexEnum(typeSpec))
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a type is compatible as an invoke thunk return type.
+    /// Primitives, simple enums, and class/ObjC types (returned as retained pointers) are supported.
+    /// </summary>
+    internal static bool IsInvokeThunkCompatibleReturn(TypeSpec returnType, ClosureHandler closureHandler)
+    {
+        if (CdeclParamMapper.IsCdeclPrimitive(returnType))
+            return true;
+        if (closureHandler.IsSimpleEnum(returnType))
+            return true;
+        if (returnType is NamedTypeSpec named)
+        {
+            // Class types: Swift returns Unmanaged.passRetained().toOpaque(),
+            // C# receives IntPtr and wraps in SwiftClassHandle
+            if (closureHandler.IsClassType(named))
+                return true;
+            if (closureHandler.IsObjCBridgedClass(named))
+                return true;
+        }
+        return false;
     }
 }

@@ -304,6 +304,15 @@ public static partial class ClosureEmitter
             var enumCsType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             returnExprFallback = $"return ({enumCsType}){invokeExprFallback};";
         }
+        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                 closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+        {
+            // Class/ObjC return: function pointer returns void* (opaque pointer).
+            // Wrap in SwiftHandle → class constructor. Swift calling convention returns
+            // an owned reference, so SwiftClassHandle takes ownership.
+            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            returnExprFallback = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){invokeExprFallback}));";
+        }
         else
         {
             returnExprFallback = $"return {invokeExprFallback};";
@@ -799,7 +808,9 @@ public static partial class ClosureEmitter
     /// <summary>
     /// Generates the expression to convert a C# argument to Swift-compatible form when invoking a Swift closure.
     /// </summary>
-    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null)
+    /// <param name="useNintCast">When true, casts to nint (safe context, invoke thunk P/Invoke).
+    /// When false, casts to void* (unsafe context, fallback lambda with function pointers).</param>
+    private static string GetSwiftInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler? closureHandler = null, bool useNintCast = false)
     {
         // Bool requires bool -> byte conversion
         if (MarshallingHelpers.IsBoolType(typeSpec))
@@ -810,6 +821,13 @@ public static partial class ClosureEmitter
         {
             var underlyingType = closureHandler.GetSimpleEnumInfo(typeSpec)?.csUnderlying ?? "int";
             return $"({underlyingType})_arg{argIndex}";
+        }
+
+        // Complex enum: extract payload handle for P/Invoke or function pointer
+        if (closureHandler != null && closureHandler.IsComplexEnum(typeSpec))
+        {
+            var castType = useNintCast ? "nint" : "void*";
+            return $"({castType})_arg{argIndex}.Payload.DangerousGetHandle()";
         }
 
         // Well-known protocol types: unwrap to ExistentialContainer for function pointer

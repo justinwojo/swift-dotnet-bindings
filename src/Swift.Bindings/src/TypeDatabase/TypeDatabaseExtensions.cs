@@ -130,6 +130,14 @@ public static class TypeDatabaseExtensions
             return IntPtrType;
         }
 
+        // Metatype types (Foundation.Decimal.Type) have no C# equivalent.
+        // Without this guard, the nested flattening in CreateObjCBridgedTypeRecord
+        // produces invalid names like "Foundation.DecimalType" (CS0234).
+        if (WrapperValidation.IsMetatypeType(typeSpec))
+        {
+            return AnyType;
+        }
+
         // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
         // get mapped to AnyType so members referencing them are gracefully suppressed.
         // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
@@ -234,6 +242,13 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
+        // Metatype types (Foundation.Decimal.Type) have no C# equivalent
+        if (WrapperValidation.IsMetatypeType(typeSpec))
+        {
+            record = AnyType;
+            return true;
+        }
+
         // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
         // get mapped to AnyType so members referencing them are gracefully suppressed.
         // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
@@ -284,6 +299,12 @@ public static class TypeDatabaseExtensions
 
         // Generic type parameters return AnyType (they can't be resolved to concrete types)
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            return AnyType;
+        }
+
+        // Metatype types (Foundation.Decimal.Type) have no C# equivalent.
+        if (WrapperValidation.IsMetatypeType(typeSpec))
         {
             return AnyType;
         }
@@ -392,6 +413,13 @@ public static class TypeDatabaseExtensions
 
         // Generic type parameters (T, τ_0_0, Element, etc.) are expected and should not be marked as unsupported.
         if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // Metatype types are intentionally mapped to AnyType, not a fallback
+        if (WrapperValidation.IsMetatypeType(typeSpec))
         {
             fallbackInfo = null;
             return false;

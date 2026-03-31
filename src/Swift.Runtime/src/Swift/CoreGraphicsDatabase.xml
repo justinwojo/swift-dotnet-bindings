@@ -39,5 +39,10 @@
         <entity managedNameSpace="System" managedTypeName="IntPtr">
             <typedeclaration kind="struct" name="CGContextRef" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <!-- CGBlendMode — integer enum -->
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGBlendMode">
+            <typedeclaration kind="enum" name="CGBlendMode" module="CoreGraphics"
+                             frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int32" />
+        </entity>
     </entities>
 </swifttypedatabase>

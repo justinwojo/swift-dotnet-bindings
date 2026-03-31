@@ -347,6 +347,8 @@ public static class WrapperValidation
     /// Returns true for metatype types (Any.Type, T.Type, etc.) which are not
     /// C-representable in @_cdecl wrappers. The generator renders them as bare "Type"
     /// which doesn't exist in Swift, causing compilation errors.
+    /// Handles both flat names ("Any.Type") and nested NamedTypeSpec chains
+    /// (Foundation → Decimal → Type) produced by TypeSpecParser for module-qualified metatypes.
     /// </summary>
     public static bool IsMetatypeType(TypeSpec typeSpec)
     {
@@ -355,6 +357,17 @@ public static class WrapperValidation
             // Metatypes appear as "Any.Type", "SomeModule.SomeType.Type", or bare "Type"
             if (named.Name == "Type" || named.Name.EndsWith(".Type"))
                 return true;
+
+            // TypeSpecParser produces nested InnerType chains for dotted names:
+            // "Foundation.Decimal.Type" → Foundation(Decimal(Type))
+            // Walk the chain to find the leaf — if it's "Type", this is a metatype.
+            var inner = named.InnerType;
+            while (inner != null)
+            {
+                if (inner.Name == "Type" && inner.InnerType == null)
+                    return true;
+                inner = inner.InnerType;
+            }
         }
         return false;
     }

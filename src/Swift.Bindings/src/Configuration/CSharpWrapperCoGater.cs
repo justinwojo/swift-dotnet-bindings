@@ -96,12 +96,18 @@ namespace BindingsGeneration
                 FindAndMarkCallers(lines, strippedCallerNames, _, removals);
             }
 
-            // Step D: Strip dangling ToString() expression-bodied methods.
-            // When the Description property is stripped (Steps B-C), the generated
+            // Step D: Strip orphaned lazy field accessors.
+            // When a _lazy_X field is stripped (Step B — it calls PInvoke_CaseByIndex),
+            // the expression-bodied property "Y => _lazy_X.Value;" becomes a dangling reference.
+            // FindAndMarkCallers can't catch these because expression-bodied properties have no braces.
+            StripOrphanedLazyAccessors(lines, removals);
+
+            // Step E: Strip dangling ToString() expression-bodied methods.
+            // When the Description property is stripped (Steps B-D), the generated
             // "public override string ToString() => Description;" becomes a dangling reference.
             StripDanglingToString(lines, removals);
 
-            // Step E: Strip orphaned narrowing overloads (int/uint → nint/nuint convenience wrappers)
+            // Step F: Strip orphaned narrowing overloads (int/uint → nint/nuint convenience wrappers)
             // whose delegate target was stripped. Handles single-line and multi-line indexers,
             // and expression-bodied method overloads.
             StripOrphanedNarrowingOverloads(lines, removals, lineToType);
@@ -744,6 +750,51 @@ namespace BindingsGeneration
                    "static" or "virtual" or "override" or "sealed" or
                    "unsafe" or "partial" or "async" or "new" or "readonly" or
                    "abstract" or "extern" or "void" or "class" or "struct";
+        }
+
+        /// <summary>
+        /// Strips expression-bodied properties that reference lazy fields removed by prior steps.
+        /// Pattern: when "_lazy_X" field is stripped (it calls PInvoke_CaseByIndex which was stripped),
+        /// "public static T Y => _lazy_X.Value;" becomes a dangling reference.
+        /// These are expression-bodied (no braces), so FindAndMarkCallers can't detect them.
+        /// </summary>
+        private static void StripOrphanedLazyAccessors(List<string> lines, HashSet<int> removals)
+        {
+            // Collect _lazy_ field names from removed lines
+            var strippedLazyNames = new HashSet<string>();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (!removals.Contains(i)) continue;
+                var trimmed = lines[i].TrimStart();
+                // Match lazy field declarations: "private static readonly Lazy<T> _lazy_fieldName = ..."
+                if (!trimmed.Contains("_lazy_")) continue;
+                var match = Regex.Match(trimmed, @"\b(_lazy_\w+)\b");
+                if (match.Success)
+                    strippedLazyNames.Add(match.Groups[1].Value);
+            }
+
+            if (strippedLazyNames.Count == 0)
+                return;
+
+            // Find expression-bodied members referencing stripped lazy fields
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (removals.Contains(i)) continue;
+                var line = lines[i];
+                // Quick check: must contain "=>" and a lazy field name
+                if (!line.Contains("=>")) continue;
+
+                foreach (var lazyName in strippedLazyNames)
+                {
+                    if (line.Contains($"{lazyName}.Value"))
+                    {
+                        int preambleStart = ScanBackwardForPreamble(lines, i);
+                        for (int j = preambleStart; j <= i; j++)
+                            removals.Add(j);
+                        break;
+                    }
+                }
+            }
         }
 
         /// <summary>

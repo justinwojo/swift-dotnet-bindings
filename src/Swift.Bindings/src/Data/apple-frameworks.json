@@ -159,7 +159,12 @@
     },
     {
       "module": "CoreMedia",
-      "optionalFallback": true
+      "optionalFallback": true,
+      "valueTypes": [
+        "CMTime",
+        "CMTimeRange",
+        "CMTimeMapping"
+      ]
     },
     {
       "module": "CoreMotion",
@@ -535,6 +540,12 @@
       "optionalFallback": true,
       "objcPrefixes": ["SF"],
       "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "Security",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["Sec"]
     },
     {
       "module": "SceneKit",

@@ -1259,7 +1259,7 @@ public class ClosureHandler
 
     /// <summary>
     /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
-    /// Supports primitive types, frozen structs, and non-frozen structs that can be marshalled.
+    /// Supports primitive types, frozen structs, non-frozen structs, enums, and reference types.
     /// </summary>
     private bool IsInvocableParameter(TypeSpec typeSpec)
     {
@@ -1288,6 +1288,14 @@ public class ClosureHandler
 
             // ObjC-bridged types are supported (via Handle patterns)
             if (IsObjCBridgedClass(namedType))
+                return true;
+
+            // Simple enums are supported (cast to underlying integer type)
+            if (IsSimpleEnum(namedType))
+                return true;
+
+            // Complex enums are supported (via payload handle extraction)
+            if (IsComplexEnum(namedType))
                 return true;
 
             return false;

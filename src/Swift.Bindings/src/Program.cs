@@ -62,7 +62,7 @@ namespace BindingsGeneration
             // Platform-aware database loading: skip databases for frameworks that are
             // entirely absent on the target platform. Unused entries are harmless (lookup-based),
             // but skipping them avoids spurious type resolution for unavailable frameworks.
-            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml" };
+            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml" };
             foreach (var database in builtInDatabases)
             {
                 typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database)).Wait();
