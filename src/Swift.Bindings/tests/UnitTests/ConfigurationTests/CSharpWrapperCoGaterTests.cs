@@ -1500,6 +1500,48 @@ namespace BindingsGeneration.Tests
             Assert.Contains("_lazy_good", result.Content);
             Assert.Contains("Good", result.Content);
         }
+        [Fact]
+        public void Process_TwoEnumsWithSameLazyName_OnlyStripsFromCorrectType()
+        {
+            // Two enums share _lazy_none field name. Only Enum1's PInvoke is stripped.
+            // Enum2's _lazy_none and None property must be preserved.
+            // Uses unique PInvoke method names per class to avoid the ambiguity guard.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Enum1 {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Enum1_CaseByIndex\")]\n" +
+                "    private static partial IntPtr PInvoke_Enum1CaseByIndex(nint index);\n" +
+                "\n" +
+                "    private static readonly Lazy<Enum1> _lazy_none = new(() =>\n" +
+                "    {\n" +
+                "        IntPtr ptr = PInvoke_Enum1CaseByIndex(0);\n" +
+                "        return new Enum1();\n" +
+                "    });\n" +
+                "    public static Enum1 None => _lazy_none.Value;\n" +
+                "}\n" +
+                "public partial class Enum2 {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Enum2_CaseByIndex\")]\n" +
+                "    private static partial IntPtr PInvoke_Enum2CaseByIndex(nint index);\n" +
+                "\n" +
+                "    private static readonly Lazy<Enum2> _lazy_none = new(() =>\n" +
+                "    {\n" +
+                "        IntPtr ptr = PInvoke_Enum2CaseByIndex(0);\n" +
+                "        return new Enum2();\n" +
+                "    });\n" +
+                "    public static Enum2 None => _lazy_none.Value;\n" +
+                "}\n" +
+                "}\n";
+            // Only Enum1's wrapper is stripped
+            var stripped = new HashSet<string> { "SBW_Enum1_CaseByIndex" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // Enum1's lazy field and property should be stripped
+            Assert.DoesNotContain("Enum1 None", result.Content);
+
+            // Enum2's lazy field and property must be preserved (different type scope)
+            Assert.Contains("Enum2 None", result.Content);
+            Assert.Contains("SBW_Enum2_CaseByIndex", result.Content);
+        }
     }
 
     #endregion

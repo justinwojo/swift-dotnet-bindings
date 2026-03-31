@@ -475,7 +475,7 @@ partial class Build
             }
 
             // Collect skip metrics from binding-report.json files
-            var skipMetrics = CollectSkipMetrics(outputBase);
+            var skipMetrics = CollectSkipMetrics(outputBase, displayTargets.Select(t => t.Name).ToHashSet());
 
             // Load previous baseline for comparison
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
@@ -1350,7 +1350,7 @@ $"""
     // Helper: Collect skip metrics from binding-report.json files
     // ============================================================
 
-    ValidationBaseline.SkipMetricsBaseline CollectSkipMetrics(AbsolutePath outputBase)
+    ValidationBaseline.SkipMetricsBaseline CollectSkipMetrics(AbsolutePath outputBase, IReadOnlySet<string> targetNames)
     {
         int totalEmitted = 0, totalSkipped = 0, failedReports = 0;
         var skipReasons = new Dictionary<string, int>();
@@ -1358,8 +1358,12 @@ $"""
         if (!Directory.Exists(outputBase))
             return new ValidationBaseline.SkipMetricsBaseline();
 
-        foreach (var reportFile in Directory.EnumerateFiles(outputBase, "binding-report.json",
-                     SearchOption.AllDirectories))
+        // Only aggregate reports from targets validated in this run, not stale cached outputs
+        var reportFiles = targetNames
+            .Select(name => Path.Combine(outputBase, name, "binding-report.json"))
+            .Where(File.Exists);
+
+        foreach (var reportFile in reportFiles)
         {
             try
             {

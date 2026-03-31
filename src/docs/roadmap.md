@@ -1,101 +1,22 @@
 # Roadmap
 
-**Updated**: March 30, 2026
+**Updated**: March 31, 2026
 
-**Current baseline**: 89/90 CS compile, 55/56 Swift compile (SkeletonView + GRDB: known non-binding failures).
+**Current baseline**: 90/90 CS compile, 55/56 Swift compile (GRDB: known non-binding failure).
+**Skip metrics**: 9,953 emitted members, 1,920 skipped (16.2% skip rate) across 90 validation targets. See `release-050-baseline.md`.
 **Downstream validation**: 630/630 sim tests passing across 20 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.5.0-dev packages.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug. Investigate generated C#/Swift wrapper signatures before ever labeling a failure as upstream.
 
-**Completed work**: Runtime test sessions 1-10 and validation coverage sessions 11-13 are archived in `Completed/roadmap-runtime-validation-sessions.md`.
+**Completed work**: Runtime test sessions 1-10, validation coverage sessions 11-13, and pre-release sessions 1-5 are archived in `Completed/`.
 
 ---
 
-## Pre-Release Sessions (0.5.0)
+## Remaining Small Items
 
-Data-driven from binding-report.json across 15 sim-validation libraries: 2,850 bound members, 806 skipped (22% skip rate). These sessions target the highest-impact skip reasons to maximize API coverage before the 0.5.0 release.
-
-### Session 1: Foundation TypeDatabase Expansion
-
-**Target**: UnsupportedType — 52 skips across 15 libraries (6.4% of all skips)
-
-The generator skips members when it can't resolve a type. Many are common Foundation/ObjC types with existing .NET counterparts that just need TypeDatabase entries.
-
-| Type | Skips | .NET Equivalent | Action |
-|------|------:|----------------|--------|
-| `Foundation.NSNotification.Name` | 8 | `Foundation.NSString` (ObjC typedef) | Add to FoundationDatabase.xml |
-| `Foundation.JSONEncoder` | 1 | `Foundation.NSObject` subclass | Add to FoundationDatabase.xml |
-| `Foundation.CharacterSet` | 1 | `Foundation.NSCharacterSet` (ObjC bridge) | Add to FoundationDatabase.xml |
-| `Foundation.Calendar` | 1 | `Foundation.NSCalendar` (ObjC bridge) | Add to FoundationDatabase.xml |
-| `Foundation.Decimal` | 1 | `Foundation.NSDecimalNumber` or C# `decimal` | Add to FoundationDatabase.xml |
-| `CoreMedia.CMTime` | 1 | Struct (8+4+4+4 bytes) | Add to CoreMediaDatabase.xml |
-| `CoreGraphics.CGBlendMode` | 1 | `nint` enum | Add to CoreGraphicsDatabase.xml |
-| `Security.SecTrustResultType` | 1 | `uint` enum | Add to SecurityDatabase.xml |
-
-**Scope**: Add XML type database entries for resolvable Foundation/system types. Each entry makes the type available for property emission and method parameter/return handling. Does not require runtime changes.
-
-**Validation**: `nuke validate` to confirm no regressions, re-run `binding-report.json` to measure skip reduction. Spot-check that newly-emitted members compile and have correct P/Invoke signatures.
-
-**Estimated impact**: ~15-20 UnsupportedType skips eliminated. Some types like NSNotification.Name appear in multiple libraries (Alamofire has 8 notification properties alone).
-
----
-
-### Session 2: Closure Handler Gap Analysis & Targeted Fixes — COMPLETE
-
-**Target**: UnsupportedClosure — 110 skips across 11 libraries (12.7% of all skips)
-
-**Investigation results** (110 closure-related skips classified from ABI JSON):
-
-| Root Cause | Count | Fixable? | Status |
-|-----------|------:|---------|--------|
-| Existential/Result params (`any Error`, `Result<T, any Error>`) | ~27 | Blocked | Documented in Hard/Deferred |
-| Generic type parameter closures (`τ_0_0 → τ_1_0`) | ~26 | Partial | GenericClosureBridge handles narrow pattern; broader needs monomorphization |
-| Class/struct return types | ~10 | **Fixed** | C12 gate + fallback lambda + invoke thunk expansion |
-| ArraySlice<T> with non-primitive T | ~9 | Blocked | No slice conversion in closure context |
-| Enum params not invokable | ~26 | **Fixed** | IsInvocableParameter expanded for simple+complex enums |
-| Existential/protocol return types | ~4 | Blocked | Abstract return type, no ABI |
-
-**Changes made**:
-1. **C12 gate expanded** (`MemberEmissionValidator.cs`): Allows closure properties with class/ObjC return types through when `IsInvokeThunkCompatibleReturn` confirms thunk support
-2. **Fallback lambda class returns** (`ClosureEmitter.cs`): `EmitClosureReturnMarshalling` now wraps `void*` in `new ClassName(new SwiftHandle((IntPtr)...))` for class/ObjC returns
-3. **Invoke thunk expansion** (`ClosureEmitter.InvokeThunk.cs`): `CanUseInvokeThunk` supports class/ObjC returns (Swift: `Unmanaged.passRetained().toOpaque()`, C#: SwiftHandle wrapping). Complex enum args via `assumingMemoryBound`
-4. **IsInvocableParameter expansion** (`ClosureHandler.cs`): Added simple enum + complex enum support
-5. **SwiftHandle constructor accessibility** (`ClassHandler.cs`): Made `internal` for cross-class closure return construction
-
-**Validation**: PhoneNumberKit (4 closure properties with class returns) now passes. Zero regressions.
-
----
-
-### Session 3: Foundation.Data Type Projection
-
-**Target**: Data type across all libraries — currently blocks 2 Starscream tests + unknown number of skipped members across validation libraries where `Foundation.Data` appears in API signatures.
-
-`Foundation.Data` is one of the most common types in Swift (networking, serialization, crypto, file I/O). In `@_cdecl` wrappers, `Data` gets ObjC-bridged to `NSData`, which the generator can handle as an ObjC class pointer. But the current projection pipeline doesn't have a `DataProjection` to convert between `byte[]`/`NSData`/`Swift.Data`.
-
-**Approach**:
-1. Add `Foundation.Data` → `Foundation.NSData` mapping to FoundationDatabase.xml (ObjC bridge)
-2. Implement `DataProjection` following the pattern of `DateProjection` (Data ↔ NSData ↔ byte[])
-3. Update closure handler to support Data params in closures (if applicable)
-4. Add BindingTests coverage: Swift functions taking/returning Data, Data in struct properties, optional Data
-
-**Key files**: `TypeProjectionFactory.cs`, `DateProjection.cs` (reference pattern), `FoundationDatabase.xml`, BindingTests Swift source.
-
-**Validation**: `nuke test`, `nuke validate`, unskip Starscream WebSocketEvent.Binary/Ping tests, re-run sim-validation.
-
-**Estimated impact**: Hard to quantify without grepping all ABI JSON for Data usage, but Data appears in nearly every networking/serialization library. Even if it only unlocks a handful of methods per library, the consumer value is high — Data is the Swift equivalent of `byte[]`.
-
----
-
-### Session 4: Skip Metrics Tooling & Release Baseline
-
-**Target**: Build tooling to measure binding coverage across all validation libraries, then establish the 0.5.0 release baseline.
-
-**Approach**:
-1. **Skip metrics script**: Aggregate `binding-report.json` across all `nuke validate` targets (not just sim-validation). Produce a summary: total bound/skipped by reason, per-library coverage percentages, comparison against previous baseline.
-2. **Release baseline**: Run full `nuke validate`, full sim-validation, full swift-dotnet-packages tests. Document final numbers as the 0.5.0 baseline.
-3. **Changelog**: Summarize what improved since 0.4.0 — runtime test fixes, validation coverage, new projections, skip reductions.
-
-**Deliverables**: `build/scripts/skip-metrics.py`, `.validation-baseline.json` updated, release notes draft.
+| Item | Effort | Notes |
+|------|--------|-------|
+| **Foundation.Decimal TypeDatabase entry** | Small | Deferred from pre-release Session 5 — adding it causes cascading EveryProtocolConformanceSkipped issues. Needs investigation into why. |
 
 ---
 
@@ -145,7 +66,6 @@ These are the **only** confirmed upstream issues. There are exactly 5 (reproduce
 |------|--------|-------|
 | **Performance benchmarks** | Medium | `Future/interop-performance-validation-plan.md` |
 | **API snapshot tooling** (detect API surface drift) | Medium | `Future/api-snapshot-tooling.md` |
-| **Skip metrics aggregation** | Small | Covered by Session 17 pre-release |
 
 ---
 

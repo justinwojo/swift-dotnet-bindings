@@ -228,5 +228,25 @@
             <typedeclaration kind="class" name="Calendar" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- JSONEncoder — Swift class, bridges to NSObject -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="JSONEncoder" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- JSONDecoder — Swift class, bridges to NSObject -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="JSONDecoder" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- Locale — bridges to NSLocale -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSLocale">
+            <typedeclaration kind="class" name="Locale" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- ComparisonResult — ObjC enum (NSComparisonResult) -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSComparisonResult">
+            <typedeclaration kind="enum" name="ComparisonResult" module="Foundation"
+                             frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
     </entities>
 </swifttypedatabase>

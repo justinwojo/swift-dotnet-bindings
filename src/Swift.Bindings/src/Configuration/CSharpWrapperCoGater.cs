@@ -100,7 +100,7 @@ namespace BindingsGeneration
             // When a _lazy_X field is stripped (Step B — it calls PInvoke_CaseByIndex),
             // the expression-bodied property "Y => _lazy_X.Value;" becomes a dangling reference.
             // FindAndMarkCallers can't catch these because expression-bodied properties have no braces.
-            StripOrphanedLazyAccessors(lines, removals);
+            StripOrphanedLazyAccessors(lines, removals, lineToType);
 
             // Step E: Strip dangling ToString() expression-bodied methods.
             // When the Description property is stripped (Steps B-D), the generated
@@ -758,10 +758,12 @@ namespace BindingsGeneration
         /// "public static T Y => _lazy_X.Value;" becomes a dangling reference.
         /// These are expression-bodied (no braces), so FindAndMarkCallers can't detect them.
         /// </summary>
-        private static void StripOrphanedLazyAccessors(List<string> lines, HashSet<int> removals)
+        private static void StripOrphanedLazyAccessors(List<string> lines, HashSet<int> removals, string?[] lineToType)
         {
-            // Collect _lazy_ field names from removed lines
-            var strippedLazyNames = new HashSet<string>();
+            // Collect _lazy_ field names from removed lines, scoped by containing type.
+            // Two enums in the same file can share _lazy_ field names (e.g., _lazy_none, _lazy_default),
+            // so we must only strip accessors within the same type that owns the stripped field.
+            var strippedLazyByType = new HashSet<(string type, string lazyName)>();
             for (int i = 0; i < lines.Count; i++)
             {
                 if (!removals.Contains(i)) continue;
@@ -770,13 +772,17 @@ namespace BindingsGeneration
                 if (!trimmed.Contains("_lazy_")) continue;
                 var match = Regex.Match(trimmed, @"\b(_lazy_\w+)\b");
                 if (match.Success)
-                    strippedLazyNames.Add(match.Groups[1].Value);
+                {
+                    var containingType = i < lineToType.Length ? lineToType[i] : null;
+                    if (containingType != null)
+                        strippedLazyByType.Add((containingType, match.Groups[1].Value));
+                }
             }
 
-            if (strippedLazyNames.Count == 0)
+            if (strippedLazyByType.Count == 0)
                 return;
 
-            // Find expression-bodied members referencing stripped lazy fields
+            // Find expression-bodied members referencing stripped lazy fields within the same type
             for (int i = 0; i < lines.Count; i++)
             {
                 if (removals.Contains(i)) continue;
@@ -784,9 +790,12 @@ namespace BindingsGeneration
                 // Quick check: must contain "=>" and a lazy field name
                 if (!line.Contains("=>")) continue;
 
-                foreach (var lazyName in strippedLazyNames)
+                var accessorType = i < lineToType.Length ? lineToType[i] : null;
+                if (accessorType == null) continue;
+
+                foreach (var (type, lazyName) in strippedLazyByType)
                 {
-                    if (line.Contains($"{lazyName}.Value"))
+                    if (type == accessorType && line.Contains($"{lazyName}.Value"))
                     {
                         int preambleStart = ScanBackwardForPreamble(lines, i);
                         for (int j = preambleStart; j <= i; j++)
