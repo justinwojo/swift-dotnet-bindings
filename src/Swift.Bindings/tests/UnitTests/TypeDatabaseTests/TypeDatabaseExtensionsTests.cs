@@ -1665,10 +1665,7 @@ public class TypeDatabaseExtensionsTests
     // --- Intentional AnyType types still return AnyType even with XML loaded ---
 
     [Theory]
-    [InlineData("Foundation.JSONEncoder")]
-    [InlineData("Foundation.JSONDecoder")]
     [InlineData("Foundation.XMLParser")]
-    [InlineData("Foundation.NSNotification.Name")]
     [InlineData("Foundation.objc_AssociationPolicy")]
     public async Task GetTypeRecordOrAnyType_IntentionalAnyType_StillReturnsAnyType(string swiftType)
     {
@@ -1679,6 +1676,247 @@ public class TypeDatabaseExtensionsTests
         var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
 
         Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    #endregion
+
+    #region Session1_FoundationTypeDatabaseExpansion
+
+    // --- NSNotification.Name resolves from FoundationDatabase.xml ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_NSNotificationName_ResolvesToNSString()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSNotification.Name");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSString", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- CharacterSet, Calendar, Decimal resolve from FoundationDatabase.xml ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_CharacterSet_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.CharacterSet");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSCharacterSet", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task LoadFoundationDatabase_Calendar_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Calendar");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSCalendar", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- CGBlendMode resolves as simple enum from CoreGraphicsDatabase.xml ---
+
+    [Fact]
+    public async Task LoadCoreGraphicsDatabase_CGBlendMode_ResolvesToSimpleEnum()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("CoreGraphicsDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreGraphics.CGBlendMode");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("CoreGraphics", record!.CSharpTypeName.Namespace);
+        Assert.Equal("CGBlendMode", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.Equal("Int32", record.RawValueTypeName);
+    }
+
+    // --- CMTime resolves from CoreMediaDatabase.xml ---
+
+    [Fact]
+    public async Task LoadCoreMediaDatabase_CMTime_ResolvesToIntPtr()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("CoreMediaDatabase.xml");
+
+        Assert.True(typeDatabase.IsModuleLoaded("CoreMedia"));
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreMedia.CMTime");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("System", record!.CSharpTypeName.Namespace);
+        Assert.Equal("IntPtr", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
+    // --- SecTrustResultType resolves as uint (System.UInt32 keyword alias) from SecurityDatabase.xml ---
+
+    [Fact]
+    public async Task LoadSecurityDatabase_SecTrustResultType_ResolvesToUInt32()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("SecurityDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Security.SecTrustResultType");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        // System.UInt32 is normalized to C# keyword "uint" (empty namespace)
+        Assert.Equal("", record!.CSharpTypeName.Namespace);
+        Assert.Equal("uint", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
+    // --- New XML entries don't conflict with existing synthetic ObjC bridge records ---
+
+    [Theory]
+    [InlineData("Foundation.NSNotification.Name", "Foundation", "NSString")]
+    [InlineData("Foundation.CharacterSet", "Foundation", "NSCharacterSet")]
+    [InlineData("Foundation.Calendar", "Foundation", "NSCalendar")]
+    [InlineData("Foundation.JSONEncoder", "Foundation", "NSObject")]
+    [InlineData("Foundation.JSONDecoder", "Foundation", "NSObject")]
+    [InlineData("Foundation.Locale", "Foundation", "NSLocale")]
+    public async Task LoadFoundationDatabase_NewEntries_ResolveViaGetTypeRecordOrAnyType(
+        string swiftType, string expectedNamespace, string expectedName)
+    {
+        // Verify GetTypeRecordOrAnyType returns the XML record, not AnyType or synthetic
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec(swiftType));
+
+        Assert.NotEqual(TypeDatabaseExtensions.AnyType, record);
+        Assert.Equal(expectedNamespace, record.CSharpTypeName.Namespace);
+        Assert.Equal(expectedName, record.CSharpTypeName.Name);
+    }
+
+    #endregion
+
+    #region Session5_FoundationTypeDatabaseSweep
+
+    // --- JSONEncoder resolves from FoundationDatabase.xml ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_JSONEncoder_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.JSONEncoder");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSObject", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task LoadFoundationDatabase_JSONDecoder_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.JSONDecoder");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSObject", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- Locale resolves as ObjC-bridged class (bridges to NSLocale) ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_Locale_ResolvesToNSLocale()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Locale");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSLocale", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    // --- Metatype types map to AnyType across all resolution entry points ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_MetatypeType_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        // Foundation.Decimal.Type → Foundation(InnerType: Decimal(InnerType: Type))
+        var metatypeSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal") { InnerType = new NamedTypeSpec("Type") }
+        };
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(metatypeSpec);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrThrow_MetatypeType_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        var metatypeSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal") { InnerType = new NamedTypeSpec("Type") }
+        };
+
+        var record = typeDatabase.GetTypeRecordOrThrow(metatypeSpec);
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void TryGetTypeRecord_MetatypeType_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+        var metatypeSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal") { InnerType = new NamedTypeSpec("Type") }
+        };
+
+        var found = typeDatabase.TryGetTypeRecord(metatypeSpec, out var record);
+
+        Assert.True(found);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void TryGetAnyTypeFallbackInfo_MetatypeType_ReturnsFalse()
+    {
+        var typeDatabase = new TypeDatabase();
+        var metatypeSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal") { InnerType = new NamedTypeSpec("Type") }
+        };
+
+        var isFallback = typeDatabase.TryGetAnyTypeFallbackInfo(metatypeSpec, out var fallbackInfo);
+
+        Assert.False(isFallback);
+        Assert.Null(fallbackInfo);
+    }
+
+    // --- ComparisonResult resolves as simple enum ---
+
+    [Fact]
+    public async Task LoadFoundationDatabase_ComparisonResult_ResolvesToSimpleEnum()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.ComparisonResult");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSComparisonResult", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Enum, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.Equal("Int", record.RawValueTypeName);
     }
 
     #endregion

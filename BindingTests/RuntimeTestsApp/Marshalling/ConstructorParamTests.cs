@@ -145,6 +145,40 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info($"TimestampedBlob.GetContentsSize() = {blob.GetContentsSize()}");
     }
 
+    public void TestDataRoundTrip()
+    {
+        // Verify byte[] → Swift.Data → byte[] round-trip via DataProjection.
+        // Constructor marshals byte[] to Swift.Data; Contents property marshals back to byte[].
+        var original = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE };
+        var timestamp = DateTimeOffset.UtcNow;
+        var blob = new TimestampedBlob(timestamp: timestamp, contents: original);
+
+        AssertEqual(original.Length, blob.GetContentsSize(), "Swift Data size matches input");
+
+        var retrieved = blob.Contents;
+        AssertNotNull(retrieved, "Contents returned non-null byte[]");
+        AssertEqual(original.Length, retrieved.Length, "Round-trip preserves length");
+
+        for (int i = 0; i < original.Length; i++)
+        {
+            AssertEqual(original[i], retrieved[i], $"Byte[{i}] matches");
+        }
+        TestLogger.Info($"Data round-trip: {original.Length} bytes preserved");
+    }
+
+    public void TestDataRoundTripEmpty()
+    {
+        // Edge case: empty byte array round-trip.
+        var empty = Array.Empty<byte>();
+        var blob = new TimestampedBlob(timestamp: DateTimeOffset.UtcNow, contents: empty);
+        AssertEqual(0, blob.GetContentsSize(), "Empty data has size 0");
+
+        var retrieved = blob.Contents;
+        AssertNotNull(retrieved, "Contents returned non-null for empty data");
+        AssertEqual(0, retrieved.Length, "Empty round-trip preserves zero length");
+        TestLogger.Info("Data round-trip: empty byte[] preserved");
+    }
+
     #endregion
 
     #region DirectionHolder — Tag-Only Enum Constructor Param

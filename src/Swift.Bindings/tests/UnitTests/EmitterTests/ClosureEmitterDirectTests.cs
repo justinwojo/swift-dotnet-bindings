@@ -1374,6 +1374,62 @@ public class ClosureEmitterDirectTests
         Assert.Equal("_ClosureInv_ABCD1234", className);
     }
 
+    [Fact]
+    public void CanUseInvokeThunk_ClassReturn_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> Class (TestModule.Loader)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.Loader"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_ObjCBridgedReturn_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // Closure: () -> NSError (ObjC-bridged)
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Foundation.NSError"));
+
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void IsInvokeThunkCompatibleReturn_ClassType_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var classType = new NamedTypeSpec("TestModule.Loader");
+
+        Assert.True(ClosureEmitter.IsInvokeThunkCompatibleReturn(classType, closureHandler));
+    }
+
+    [Fact]
+    public void IsInvokeThunkCompatibleReturn_ObjCBridgedType_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var objcType = new NamedTypeSpec("Foundation.NSError");
+
+        Assert.True(ClosureEmitter.IsInvokeThunkCompatibleReturn(objcType, closureHandler));
+    }
+
+    [Fact]
+    public void IsInvokeThunkCompatibleReturn_UnknownType_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var unknownType = new NamedTypeSpec("SomeModule.SomeStruct");
+
+        Assert.False(ClosureEmitter.IsInvokeThunkCompatibleReturn(unknownType, closureHandler));
+    }
+
     #endregion
 
     #region String callback marshalling

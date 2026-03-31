@@ -20,6 +20,32 @@ public func makeGreaterThan(_ threshold: Int32) -> (Int32) -> Bool {
     return { x in x > threshold }
 }
 
+// MARK: - Closure Properties Returning Class Types
+
+/// Holder with a closure property that returns a class.
+/// Tests the C12 gate fix: closure properties returning class types were previously blocked
+/// because the P/Invoke return type maps to void* but the C# delegate expects the class type.
+/// The fix wraps the void* result in `new ClassName(new SwiftHandle((IntPtr)...))`.
+public final class ClosureClassReturnHolder {
+    private let _count: Int32
+
+    public init(count: Int32) {
+        self._count = count
+    }
+
+    /// Closure property returning a class type (non-optional).
+    /// Exercises the fallback lambda class return wrapping path in EmitClosureReturnMarshalling.
+    public var counterFactory: () -> FinalCounter {
+        return { FinalCounter(count: self._count) }
+    }
+
+    /// Static closure property returning a class.
+    /// Same pattern as PhoneNumberKit's defaultUtility property.
+    public static var defaultCounter: () -> FinalCounter {
+        return { FinalCounter(count: 0) }
+    }
+}
+
 // MARK: - Struct Returning Closures
 
 /// A frozen struct with methods that return closures.

@@ -382,6 +382,32 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void IsMetatypeType_NestedInnerType_ReturnsTrue()
+    {
+        // TypeSpecParser produces nested NamedTypeSpec chains for module-qualified metatypes:
+        // "Foundation.Decimal.Type" → Foundation(InnerType: Decimal(InnerType: Type))
+        var outerSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal")
+            {
+                InnerType = new NamedTypeSpec("Type")
+            }
+        };
+        Assert.True(WrapperValidation.IsMetatypeType(outerSpec));
+    }
+
+    [Fact]
+    public void IsMetatypeType_NestedNonMetatype_ReturnsFalse()
+    {
+        // "Foundation.Decimal" → Foundation(InnerType: Decimal) — NOT a metatype
+        var outerSpec = new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal")
+        };
+        Assert.False(WrapperValidation.IsMetatypeType(outerSpec));
+    }
+
+    [Fact]
     public void IsNestedType_NestedSwiftType_ReturnsTrue()
     {
         // Uses AppleFrameworkRegistry.IsNestedType which checks for double dots after module

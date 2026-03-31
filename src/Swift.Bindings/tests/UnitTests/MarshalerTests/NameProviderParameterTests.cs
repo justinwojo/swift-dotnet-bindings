@@ -324,6 +324,11 @@ public class NameProviderParameterTests
     [InlineData("class", "@class")]
     [InlineData("object", "@object")]
     [InlineData("string", "@string")]
+    [InlineData("decimal", "@decimal")]
+    [InlineData("char", "@char")]
+    [InlineData("byte", "@byte")]
+    [InlineData("uint", "@uint")]
+    [InlineData("lock", "@lock")]
     public void EscapeForCSharpSignature_Keyword_AddsVerbatimPrefix(string input, string expected)
     {
         Assert.Equal(expected, NameProvider.EscapeForCSharpSignature(input));

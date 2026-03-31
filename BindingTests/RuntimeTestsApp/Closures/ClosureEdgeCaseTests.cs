@@ -159,6 +159,48 @@ public class ClosureEdgeCaseTests : TestBase
 
     #endregion
 
+    #region Closure Properties Returning Class Types
+
+    public void TestClosurePropertyReturningClass()
+    {
+        // Instance closure property returning FinalCounter — exercises the C12 gate fix
+        // and fallback lambda class return wrapping in EmitClosureReturnMarshalling.
+        var holder = new ClosureClassReturnHolder(count: 42);
+        var factory = holder.CounterFactory;
+        AssertNotNull(factory, "CounterFactory closure property is not null");
+        var counter = factory();
+        AssertEqual(42, counter.Count, "CounterFactory returns FinalCounter with count=42");
+        TestLogger.Info($"Closure property class return: count={counter.Count}");
+    }
+
+    public void TestStaticClosurePropertyReturningClass()
+    {
+        // Static closure property returning FinalCounter — same pattern as
+        // PhoneNumberKit's PhoneNumberDecodingUtils.defaultUtility.
+        var factory = ClosureClassReturnHolder.DefaultCounter;
+        AssertNotNull(factory, "DefaultCounter static closure property is not null");
+        var counter = factory();
+        AssertEqual(0, counter.Count, "DefaultCounter returns FinalCounter with count=0");
+        TestLogger.Info($"Static closure property class return: count={counter.Count}");
+    }
+
+    public void TestClosurePropertyMultipleInvocations()
+    {
+        // Invoke the returned closure multiple times to verify retain/ownership
+        // is correct — each invocation should produce an independent object.
+        var holder = new ClosureClassReturnHolder(count: 10);
+        var factory = holder.CounterFactory;
+        var c1 = factory();
+        var c2 = factory();
+        var c3 = factory();
+        AssertEqual(10, c1.Count, "First invocation count=10");
+        AssertEqual(10, c2.Count, "Second invocation count=10");
+        AssertEqual(10, c3.Count, "Third invocation count=10");
+        TestLogger.Info("Closure property multi-invoke ownership test passed");
+    }
+
+    #endregion
+
     #region Throwing Closures — Success Paths
 
     [SkipOnSimulator("Mono JIT async assertion (upstream Issue 1) — callback with SwiftError* triggers !ji->async assertion")]

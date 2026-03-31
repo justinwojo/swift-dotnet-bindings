@@ -1425,6 +1425,85 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region F. Orphaned Lazy Accessor Stripping
+
+    public class CoGaterOrphanedLazyAccessorTests
+    {
+        [Fact]
+        public void Process_StrippedLazyField_AlsoStripsExpressionBodiedProperty()
+        {
+            // Simulates the SkeletonView _lazy_debugMode pattern:
+            // PInvoke_CaseByIndex is stripped → _lazy_debugMode field is stripped →
+            // DebugMode property referencing _lazy_debugMode.Value must also be stripped.
+            var input =
+                "namespace Test {\n" +
+                "public partial class SkeletonEnvironmentKey {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_CaseByIndex\")]\n" +
+                "    private static partial IntPtr PInvoke_CaseByIndex(nint index);\n" +
+                "\n" +
+                "    private static readonly Lazy<SkeletonEnvironmentKey> _lazy_debugMode = new(() =>\n" +
+                "    {\n" +
+                "        IntPtr ptr = PInvoke_CaseByIndex(0);\n" +
+                "        var result = new SkeletonEnvironmentKey();\n" +
+                "        return result;\n" +
+                "    });\n" +
+                "    /// <summary>\n" +
+                "    /// Gets the 'debugMode' case.\n" +
+                "    /// </summary>\n" +
+                "    /// <remarks>Cached singleton instance.</remarks>\n" +
+                "    public static SkeletonEnvironmentKey DebugMode => _lazy_debugMode.Value;\n" +
+                "\n" +
+                "    private static readonly Lazy<SkeletonEnvironmentKey> _lazy_production = new(() =>\n" +
+                "    {\n" +
+                "        IntPtr ptr = PInvoke_CaseByIndex(1);\n" +
+                "        var result = new SkeletonEnvironmentKey();\n" +
+                "        return result;\n" +
+                "    });\n" +
+                "    /// <summary>\n" +
+                "    /// Gets the 'production' case.\n" +
+                "    /// </summary>\n" +
+                "    public static SkeletonEnvironmentKey Production => _lazy_production.Value;\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_CaseByIndex" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // Both lazy fields and their accessor properties should be stripped
+            Assert.DoesNotContain("_lazy_debugMode", result.Content);
+            Assert.DoesNotContain("DebugMode", result.Content);
+            Assert.DoesNotContain("_lazy_production", result.Content);
+            Assert.DoesNotContain("Production", result.Content);
+            Assert.DoesNotContain("PInvoke_CaseByIndex", result.Content);
+        }
+
+        [Fact]
+        public void Process_NonStrippedLazyField_PreservesProperty()
+        {
+            // A lazy field that does NOT call a stripped P/Invoke should be preserved.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Foo {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_broken\")]\n" +
+                "    private static partial IntPtr PInvoke_broken(nint index);\n" +
+                "\n" +
+                "    private static readonly Lazy<Foo> _lazy_good = new(() =>\n" +
+                "    {\n" +
+                "        return new Foo();\n" +
+                "    });\n" +
+                "    public static Foo Good => _lazy_good.Value;\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The lazy field and property are NOT calling the stripped P/Invoke, so preserved
+            Assert.Contains("_lazy_good", result.Content);
+            Assert.Contains("Good", result.Content);
+        }
+    }
+
+    #endregion
+
     #region F. CreateSwiftInstance Constructor Stripping
 
     public class CoGaterCreateSwiftInstanceTests
