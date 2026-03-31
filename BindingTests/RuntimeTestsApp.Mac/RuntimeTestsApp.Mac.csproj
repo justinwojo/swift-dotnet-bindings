@@ -9,6 +9,8 @@
     <!-- Same warning suppressions as RuntimeTestsApp -->
     <NoWarn>CS0169;SB0001;SB0002;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <!-- Source generator output persisted to obj/ for manifest extraction -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
 
   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
@@ -19,11 +21,15 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Shared test infrastructure (portable — no iOS dependencies) -->
   <ItemGroup>
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestBase.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestDescriptors.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
@@ -51,6 +57,12 @@
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
   </ItemGroup>
+
+  <!-- Extract test manifest from source generator output into a host-visible file. -->
+  <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
+          Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
+    <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
 
   <!-- Generated bindings (macOS-targeted) -->
   <ItemGroup>

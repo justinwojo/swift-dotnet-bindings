@@ -2,8 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
-using System.Reflection;
-using System.Runtime.InteropServices;
 
 namespace RuntimeTestsApp.Infrastructure;
 
@@ -22,48 +20,34 @@ public abstract class TestBase
     }
 
     /// <summary>
-    /// Runs all test methods in this class, filtering by platform and skip attributes.
-    /// When flakeDetect is true, each test runs 3 times and inconsistent results fail the suite.
+    /// Runs all test methods in this class using compile-time discovered descriptors.
+    /// Class-level skip is handled by the caller (Program.cs) before instantiation.
+    /// This method handles method-level skip attributes and invocation.
     /// </summary>
-    public async Task RunAllTestsAsync(TestPlatform platform = TestPlatform.Simulator, bool flakeDetect = false)
+    public async Task RunAllTestsAsync(TestClassDescriptor descriptor, TestPlatform platform = TestPlatform.Simulator, bool flakeDetect = false)
     {
-        var classSkip = GetType().GetCustomAttribute<SkipAttribute>();
-        var classSimSkip = GetType().GetCustomAttribute<SkipOnSimulatorAttribute>();
-        var classDevSkip = GetType().GetCustomAttribute<SkipOnDeviceAttribute>();
-
-        var methods = GetType()
-            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m.Name.StartsWith("Test") && m.GetParameters().Length == 0)
-            .ToList();
-
-        foreach (var method in methods)
+        foreach (var method in descriptor.Methods)
         {
             var testName = $"{TestClassName}.{method.Name}";
 
-            // Check [Skip] — always skipped (method-level overrides class-level)
-            var methodSkip = method.GetCustomAttribute<SkipAttribute>();
-            var effectiveSkip = methodSkip ?? classSkip;
-            if (effectiveSkip != null)
+            // Check method-level [Skip] — always skipped
+            if (method.Skip != null)
             {
-                Results.Skip(testName, effectiveSkip.Reason);
+                Results.Skip(testName, method.Skip);
                 continue;
             }
 
-            // Check [SkipOnSimulator] — skipped on simulator, runs on device
-            var methodSimSkip = method.GetCustomAttribute<SkipOnSimulatorAttribute>();
-            var effectiveSimSkip = methodSimSkip ?? classSimSkip;
-            if (effectiveSimSkip != null && platform == TestPlatform.Simulator)
+            // Check method-level [SkipOnSimulator] — skipped on simulator, runs on device
+            if (method.SkipOnSim != null && platform == TestPlatform.Simulator)
             {
-                Results.Skip(testName, $"Simulator: {effectiveSimSkip.Reason}");
+                Results.Skip(testName, $"Simulator: {method.SkipOnSim}");
                 continue;
             }
 
-            // Check [SkipOnDevice] — skipped on device, runs on simulator
-            var methodDevSkip = method.GetCustomAttribute<SkipOnDeviceAttribute>();
-            var effectiveDevSkip = methodDevSkip ?? classDevSkip;
-            if (effectiveDevSkip != null && platform == TestPlatform.Device)
+            // Check method-level [SkipOnDevice] — skipped on device, runs on simulator
+            if (method.SkipOnDevice != null && platform == TestPlatform.Device)
             {
-                Results.Skip(testName, $"Device: {effectiveDevSkip.Reason}");
+                Results.Skip(testName, $"Device: {method.SkipOnDevice}");
                 continue;
             }
 
@@ -82,7 +66,7 @@ public abstract class TestBase
         }
     }
 
-    private async Task RunTestMethodAsync(MethodInfo method)
+    private async Task RunTestMethodAsync(TestMethodDescriptor method)
     {
         var testName = $"{TestClassName}.{method.Name}";
         TestLogger.Test($"--- {testName} ---");
@@ -90,19 +74,9 @@ public abstract class TestBase
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var result = method.Invoke(this, null);
-            if (result is Task task)
-            {
-                await task;
-            }
+            await method.Invoker(this);
             stopwatch.Stop();
             Results.Pass(testName, stopwatch.Elapsed);
-        }
-        catch (TargetInvocationException tie) when (tie.InnerException != null)
-        {
-            stopwatch.Stop();
-            TestLogger.Exception(tie.InnerException, testName);
-            Results.Fail(testName, tie.InnerException.Message, stopwatch.Elapsed);
         }
         catch (Exception ex)
         {
@@ -116,7 +90,7 @@ public abstract class TestBase
     /// Runs a test method 3 times for flake detection. If results are inconsistent
     /// (some runs pass, some fail), the test is reported as FLAKY and fails the suite.
     /// </summary>
-    private async Task RunTestWithFlakeDetectionAsync(MethodInfo method)
+    private async Task RunTestWithFlakeDetectionAsync(TestMethodDescriptor method)
     {
         const int runs = 3;
         var testName = $"{TestClassName}.{method.Name}";
@@ -132,23 +106,11 @@ public abstract class TestBase
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                var result = method.Invoke(this, null);
-                if (result is Task task)
-                {
-                    await task;
-                }
+                await method.Invoker(this);
                 stopwatch.Stop();
                 totalElapsed += stopwatch.Elapsed;
                 passCount++;
                 TestLogger.Debug($"  Run {i + 1}/{runs}: PASS ({stopwatch.Elapsed.TotalMilliseconds:F0}ms)");
-            }
-            catch (TargetInvocationException tie) when (tie.InnerException != null)
-            {
-                stopwatch.Stop();
-                totalElapsed += stopwatch.Elapsed;
-                failCount++;
-                lastError = tie.InnerException.Message;
-                TestLogger.Debug($"  Run {i + 1}/{runs}: FAIL ({stopwatch.Elapsed.TotalMilliseconds:F0}ms) - {lastError}");
             }
             catch (Exception ex)
             {

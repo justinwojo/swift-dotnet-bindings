@@ -18,8 +18,10 @@
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
     <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
-    <!-- Disable trimming for test app (reflection-heavy) -->
+    <!-- Disable trimming for test app -->
     <MtouchLink>None</MtouchLink>
+    <!-- Source generator output persisted to obj/ for debugging -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
@@ -36,6 +38,9 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
@@ -71,6 +76,13 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+
+  <!-- Extract test manifest from source generator output into a host-visible file.
+       Used by crash recovery orchestration (Session 3) to know the full test inventory. -->
+  <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
+          Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
+    <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
 
   <!-- SwiftUI bridge (conditional on generated output) -->
   <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">

@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
@@ -163,58 +162,35 @@ public class MainViewController : UIViewController
                 TestLogger.Warning($"Failed to initialize Swift concurrency: {ex.Message}");
             }
 
-            // Diagnostic: log assembly info
-            var asm = Assembly.GetExecutingAssembly();
-            TestLogger.Info($"Assembly: {asm.FullName}");
-
-            Type[] allTypes;
-            try
-            {
-                allTypes = asm.GetTypes();
-            }
-            catch (ReflectionTypeLoadException rtle)
-            {
-                TestLogger.Warning($"ReflectionTypeLoadException: {rtle.LoaderExceptions.Length} loader errors");
-                foreach (var le in rtle.LoaderExceptions.Where(e => e != null).Take(10))
-                    TestLogger.Warning($"  Loader: {le!.Message}");
-                allTypes = rtle.Types.Where(t => t != null).ToArray()!;
-            }
-
-            TestLogger.Info($"Total types in assembly: {allTypes.Length}");
-
-            var testBaseType = typeof(TestBase);
-            TestLogger.Info($"TestBase type: {testBaseType.FullName} from {testBaseType.Assembly.FullName}");
-
-            var allClasses = allTypes
-                .Where(t => t.IsSubclassOf(testBaseType) && !t.IsAbstract)
-                .ToList();
-
-            TestLogger.Info($"Discovered {allClasses.Count} test classes");
-
-            if (allClasses.Count == 0)
-            {
-                // Extra diagnostics
-                var candidates = allTypes.Where(t => t.BaseType != null && t.BaseType.Name == "TestBase").ToList();
-                TestLogger.Warning($"Types with BaseType.Name=='TestBase': {candidates.Count}");
-                foreach (var c in candidates.Take(5))
-                    TestLogger.Warning($"  {c.FullName} base={c.BaseType?.FullName} asm={c.BaseType?.Assembly.FullName}");
-            }
+            // Use compile-time discovered test classes (source generator)
+            var allClasses = TestRegistry.Classes;
 
             // Apply --class filter if specified
             if (Application.ClassFilter != null)
             {
-                allClasses = allClasses
-                    .Where(t => t.Name.Equals(Application.ClassFilter, StringComparison.OrdinalIgnoreCase))
+                var filtered = allClasses
+                    .Where(c => c.Name.Equals(Application.ClassFilter, StringComparison.OrdinalIgnoreCase))
                     .ToList();
-            }
 
-            var testClasses = allClasses.OrderBy(t => t.Name).ToList();
+                if (filtered.Count == 0)
+                {
+                    TestLogger.Error($"No test class matches '{Application.ClassFilter}'");
+                    TestLogger.Error("Available classes:");
+                    foreach (var c in allClasses.OrderBy(c => c.Name))
+                        TestLogger.Error($"  - {c.Name}");
+                    Console.WriteLine("TEST FAILURE: No test class matches filter");
+                    UpdateResultLabel(TestLogger.GetFullLog());
+                    return;
+                }
+
+                allClasses = filtered;
+            }
 
             var flakeDetect = Application.FlakeDetect;
 
-            foreach (var testClass in testClasses)
+            foreach (var descriptor in allClasses)
             {
-                await RunTestClassAsync(testClass, results, platform, flakeDetect);
+                await RunTestClassAsync(descriptor, results, platform, flakeDetect);
                 // Yield to the iOS run loop between test classes to reset the watchdog
                 // timer. Task.Delay alone may not yield to UIKit; NSRunLoop.RunUntil
                 // explicitly processes pending events and satisfies the watchdog.
@@ -248,22 +224,59 @@ public class MainViewController : UIViewController
         UpdateResultLabel(TestLogger.GetFullLog());
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner")]
-    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner")]
-    private async Task RunTestClassAsync(Type testClassType, TestResults results, TestPlatform platform, bool flakeDetect = false)
+    // Classes that crash NativeAOT during instantiation (static field initialization).
+    private static readonly HashSet<string> _nativeAotCrashClasses = new()
+    {
+        "TupleMarshallingTests",  // SIGSEGV: ValueTuple method signatures not resolvable
+    };
+
+    private async Task RunTestClassAsync(TestClassDescriptor descriptor, TestResults results, TestPlatform platform, bool flakeDetect = false)
     {
         TestLogger.Info("");
-        TestLogger.Info($"=== {testClassType.Name} ===");
+        TestLogger.Info($"=== {descriptor.Name} ===");
+
+        // NativeAOT: Some classes crash during instantiation (static field initialization).
+        if (platform == TestPlatform.Device && _nativeAotCrashClasses.Contains(descriptor.Name))
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", "NativeAOT: class loading crashes process");
+            return;
+        }
+
+        // Check class-level [Skip] BEFORE instantiation — factory call triggers
+        // static field initialization which can SIGSEGV on NativeAOT.
+        if (descriptor.SkipReason != null)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", descriptor.SkipReason);
+            return;
+        }
+
+        // Check class-level [SkipOnSimulator] BEFORE instantiation
+        if (descriptor.SkipOnSimulator != null && platform == TestPlatform.Simulator)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", $"Simulator: {descriptor.SkipOnSimulator}");
+            return;
+        }
+
+        // Check class-level [SkipOnDevice] BEFORE instantiation
+        if (descriptor.SkipOnDevice != null && platform == TestPlatform.Device)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", $"Device: {descriptor.SkipOnDevice}");
+            return;
+        }
 
         try
         {
-            var testClass = (TestBase)Activator.CreateInstance(testClassType, results)!;
-            await testClass.RunAllTestsAsync(platform, flakeDetect);
+            var testClass = descriptor.Factory(results);
+            await testClass.RunAllTestsAsync(descriptor, platform, flakeDetect);
         }
         catch (Exception ex)
         {
-            TestLogger.Exception(ex, testClassType.Name);
-            results.Fail(testClassType.Name, ex.Message);
+            TestLogger.Exception(ex, descriptor.Name);
+            results.Fail(descriptor.Name, ex.Message);
         }
     }
 }

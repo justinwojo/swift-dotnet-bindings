@@ -25,15 +25,16 @@
     <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <!-- Source generator output persisted to obj/ for manifest extraction -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="Info.plist" />
   </ItemGroup>
 
-  <!-- Preserve all types for reflection-based test discovery.
-       TrimmerRootDescriptor tells the IL linker to keep types.
-       IlcArg passes the same file to ILC for NativeAOT reflection metadata. -->
+  <!-- TrimmerRoots.xml preserved for backwards compatibility until Session 4 (unified project)
+       removes this file entirely. Source generator eliminates the reflection that required it. -->
   <ItemGroup>
     <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
     <IlcArg Include="--descriptor:$(MSBuildProjectDirectory)/TrimmerRoots.xml" />
@@ -47,6 +48,9 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Shared source from RuntimeTestsApp (Program.cs excluded — device has its own) -->
@@ -73,6 +77,14 @@
     <Compile Include="../RuntimeTestsApp/Properties/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
   </ItemGroup>
+
+  <!-- Extract test manifest from source generator output into a host-visible file.
+       The device project compiles a different test subset than the simulator project,
+       so each project needs its own manifest for crash recovery orchestration. -->
+  <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
+          Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
+    <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
 
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace. -->
   <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">

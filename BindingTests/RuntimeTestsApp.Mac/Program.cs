@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
@@ -51,8 +50,6 @@ public class Program
         return await RunTestsAsync();
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
-    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
     static async Task<int> RunTestsAsync()
     {
         TestLogger.Clear();
@@ -70,24 +67,21 @@ public class Program
             // Initialize Swift concurrency runtime
             InitializeSwiftConcurrency();
 
-            // Discover all TestBase subclasses in the assembly
-            var allClasses = Assembly.GetExecutingAssembly()
-                .GetTypes()
-                .Where(t => t.IsSubclassOf(typeof(TestBase)) && !t.IsAbstract)
-                .ToList();
+            // Use compile-time discovered test classes (source generator)
+            var allClasses = TestRegistry.Classes;
 
             // Apply --class filter if specified
             if (ClassFilter != null)
             {
                 var filtered = allClasses
-                    .Where(t => t.Name.Equals(ClassFilter, StringComparison.OrdinalIgnoreCase))
+                    .Where(c => c.Name.Equals(ClassFilter, StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
                 if (filtered.Count == 0)
                 {
                     TestLogger.Error($"No test class matches '{ClassFilter}'");
                     TestLogger.Error("Available classes:");
-                    foreach (var c in allClasses.OrderBy(t => t.Name))
+                    foreach (var c in allClasses.OrderBy(c => c.Name))
                         TestLogger.Error($"  - {c.Name}");
                     Console.WriteLine("TEST FAILURE: No test class matches filter");
                     return 1;
@@ -96,18 +90,15 @@ public class Program
                 allClasses = filtered;
             }
 
-            // Sort all test classes alphabetically
-            var testClasses = allClasses.OrderBy(t => t.Name).ToList();
-
             var flakeDetect = FlakeDetect;
             if (flakeDetect)
             {
                 TestLogger.Info("Flake detection ENABLED: each test runs 3x");
             }
 
-            foreach (var testClass in testClasses)
+            foreach (var descriptor in allClasses)
             {
-                await RunTestClassAsync(testClass, results, Platform, flakeDetect);
+                await RunTestClassAsync(descriptor, results, Platform, flakeDetect);
             }
         }
         catch (Exception ex)
@@ -140,22 +131,42 @@ public class Program
         }
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Test runner discovers test classes by reflection")]
-    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Test runner discovers test classes by reflection")]
-    static async Task RunTestClassAsync(Type testClassType, TestResults results, TestPlatform platform, bool flakeDetect = false)
+    static async Task RunTestClassAsync(TestClassDescriptor descriptor, TestResults results, TestPlatform platform, bool flakeDetect = false)
     {
         TestLogger.Info("");
-        TestLogger.Info($"=== {testClassType.Name} ===");
+        TestLogger.Info($"=== {descriptor.Name} ===");
+
+        // Check class-level skip BEFORE instantiation
+        if (descriptor.SkipReason != null)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", descriptor.SkipReason);
+            return;
+        }
+
+        if (descriptor.SkipOnSimulator != null && platform == TestPlatform.Simulator)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", $"Simulator: {descriptor.SkipOnSimulator}");
+            return;
+        }
+
+        if (descriptor.SkipOnDevice != null && platform == TestPlatform.Device)
+        {
+            foreach (var m in descriptor.Methods)
+                results.Skip($"{descriptor.Name}.{m.Name}", $"Device: {descriptor.SkipOnDevice}");
+            return;
+        }
 
         try
         {
-            var testClass = (TestBase)Activator.CreateInstance(testClassType, results)!;
-            await testClass.RunAllTestsAsync(platform, flakeDetect);
+            var testClass = descriptor.Factory(results);
+            await testClass.RunAllTestsAsync(descriptor, platform, flakeDetect);
         }
         catch (Exception ex)
         {
-            TestLogger.Exception(ex, testClassType.Name);
-            results.Fail(testClassType.Name, ex.Message);
+            TestLogger.Exception(ex, descriptor.Name);
+            results.Fail(descriptor.Name, ex.Message);
         }
     }
 
