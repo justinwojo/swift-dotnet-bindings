@@ -474,6 +474,9 @@ partial class Build
                 };
             }
 
+            // Collect skip metrics from binding-report.json files
+            var skipMetrics = CollectSkipMetrics(outputBase);
+
             // Load previous baseline for comparison
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
 
@@ -483,13 +486,47 @@ partial class Build
                 var newBaseline = new ValidationBaseline
                 {
                     GitSha = GetGitShortSha(),
-                    Gate = new() { Libraries = currentResults }
+                    Gate = new() { Libraries = currentResults },
+                    SkipMetrics = skipMetrics
                 };
                 newBaseline.Save(BaselinePath);
             }
             else
             {
                 Log.Debug("Filtered run — baseline not updated");
+            }
+
+            // Log skip metrics summary
+            if (skipMetrics.TotalEmittedMembers > 0 || skipMetrics.TotalSkippedMembers > 0)
+            {
+                Log.Information("--- Skip Metrics ---");
+                Log.Information("  Emitted: {Emitted}  Skipped: {Skipped}  Rate: {Rate}%",
+                    skipMetrics.TotalEmittedMembers, skipMetrics.TotalSkippedMembers,
+                    skipMetrics.SkipRatePct);
+                if (skipMetrics.SkipReasons.Count > 0)
+                {
+                    foreach (var (reason, count) in skipMetrics.SkipReasons.OrderByDescending(kv => kv.Value).Take(5))
+                        Log.Debug("    {Count,5}  {Reason}", count, reason);
+                }
+
+                // Warn if skip count increased vs previous baseline
+                if (prevBaseline.SkipMetrics.TotalSkippedMembers > 0 &&
+                    skipMetrics.TotalSkippedMembers > prevBaseline.SkipMetrics.TotalSkippedMembers)
+                {
+                    Log.Warning("Skip count increased: {Prev} -> {Curr} (+{Delta})",
+                        prevBaseline.SkipMetrics.TotalSkippedMembers,
+                        skipMetrics.TotalSkippedMembers,
+                        skipMetrics.TotalSkippedMembers - prevBaseline.SkipMetrics.TotalSkippedMembers);
+                }
+                else if (prevBaseline.SkipMetrics.TotalSkippedMembers > 0 &&
+                         skipMetrics.TotalSkippedMembers < prevBaseline.SkipMetrics.TotalSkippedMembers)
+                {
+                    Log.Information("Skip count improved: {Prev} -> {Curr} (-{Delta})",
+                        prevBaseline.SkipMetrics.TotalSkippedMembers,
+                        skipMetrics.TotalSkippedMembers,
+                        prevBaseline.SkipMetrics.TotalSkippedMembers - skipMetrics.TotalSkippedMembers);
+                }
+                Log.Information("");
             }
 
             // === Phase 5: Regression Detection ===
@@ -1307,6 +1344,71 @@ $"""
         var match = Regex.Match(File.ReadAllText(emitterFile),
             @"DefaultSwiftRuntimeVersion\s*=\s*""([^""]*)""");
         return match.Success ? match.Groups[1].Value : "unknown";
+    }
+
+    // ============================================================
+    // Helper: Collect skip metrics from binding-report.json files
+    // ============================================================
+
+    ValidationBaseline.SkipMetricsBaseline CollectSkipMetrics(AbsolutePath outputBase)
+    {
+        int totalEmitted = 0, totalSkipped = 0, failedReports = 0;
+        var skipReasons = new Dictionary<string, int>();
+
+        if (!Directory.Exists(outputBase))
+            return new ValidationBaseline.SkipMetricsBaseline();
+
+        foreach (var reportFile in Directory.EnumerateFiles(outputBase, "binding-report.json",
+                     SearchOption.AllDirectories))
+        {
+            try
+            {
+                var json = File.ReadAllText(reportFile);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("EmittedMembers", out var em) &&
+                    em.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                    em.TryGetInt32(out var emVal))
+                    totalEmitted += emVal;
+                if (root.TryGetProperty("SkippedMembers", out var sm) &&
+                    sm.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                    sm.TryGetInt32(out var smVal))
+                    totalSkipped += smVal;
+
+                if (root.TryGetProperty("SkippedItems", out var items) &&
+                    items.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("Reason", out var reason))
+                        {
+                            var r = reason.GetString() ?? "Unknown";
+                            skipReasons[r] = skipReasons.GetValueOrDefault(r) + 1;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                failedReports++;
+                Log.Debug("Failed to parse {File}: {Message}", reportFile, ex.Message);
+            }
+        }
+
+        if (failedReports > 0)
+            Log.Warning("Skip metrics: {Count} binding-report.json file(s) could not be parsed",
+                failedReports);
+
+        var total = totalEmitted + totalSkipped;
+        return new ValidationBaseline.SkipMetricsBaseline
+        {
+            TotalEmittedMembers = totalEmitted,
+            TotalSkippedMembers = totalSkipped,
+            SkipRatePct = total > 0 ? Math.Round((double)totalSkipped / total * 100, 1) : 0,
+            SkipReasons = skipReasons.OrderByDescending(kv => kv.Value)
+                .ToDictionary(kv => kv.Key, kv => kv.Value)
+        };
     }
 
     // ============================================================

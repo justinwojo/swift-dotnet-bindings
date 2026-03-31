@@ -19,6 +19,9 @@ public record ValidationBaseline
     [JsonPropertyName("compile_gate")]
     public CompileGate Gate { get; init; } = new();
 
+    [JsonPropertyName("skip_metrics")]
+    public SkipMetricsBaseline SkipMetrics { get; init; } = new();
+
     public record CompileGate
     {
         [JsonPropertyName("libraries")]
@@ -33,6 +36,16 @@ public record ValidationBaseline
         [JsonPropertyName("lines")] public int Lines { get; init; }
         [JsonPropertyName("dep_compile")] public string DepCompile { get; init; } = "none";
         [JsonPropertyName("swift_compile")] public string SwiftCompile { get; init; } = "unknown";
+    }
+
+    public record SkipMetricsBaseline
+    {
+        [JsonPropertyName("total_emitted_members")] public int TotalEmittedMembers { get; init; }
+        [JsonPropertyName("total_skipped_members")] public int TotalSkippedMembers { get; init; }
+        [JsonPropertyName("skip_rate_pct")] public double SkipRatePct { get; init; }
+        [JsonPropertyName("skip_reasons")]
+        public IDictionary<string, int> SkipReasons { get; init; }
+            = new Dictionary<string, int>();
     }
 
     public static ValidationBaseline Load(AbsolutePath path)
