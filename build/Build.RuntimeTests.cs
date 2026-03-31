@@ -269,8 +269,24 @@ partial class Build
         // Crash diagnostics
         HandleCrashDiagnostics(result, device.Udid, crashLogsBefore);
 
-        // Report result
-        ReportRuntimeTestResult(result, "Simulator");
+        // Try to retrieve JSONL results from sandbox
+        JsonlTestResults? jsonlResults = null;
+        if (result.ResultsFlushed || result.Result is TestResult.Success or TestResult.Failure)
+        {
+            var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+            if (jsonlContent != null)
+            {
+                jsonlResults = JsonlTestResults.Parse(jsonlContent);
+                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+            }
+            else
+            {
+                Log.Debug("JSONL retrieval failed — falling back to console marker parsing");
+            }
+        }
+
+        // Report result with optional JSONL data
+        ReportRuntimeTestResult(result, "Simulator", jsonlResults);
     }
 
     // ============================================================
@@ -296,7 +312,23 @@ partial class Build
         Log.Information("=== APP OUTPUT ===");
         Log.Information(result.Output);
 
-        ReportRuntimeTestResult(result, "Device/NativeAOT");
+        // Try to retrieve JSONL results from device sandbox
+        JsonlTestResults? jsonlResults = null;
+        if (result.ResultsFlushed || result.Result is TestResult.Success or TestResult.Failure)
+        {
+            var jsonlContent = DeviceCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+            if (jsonlContent != null)
+            {
+                jsonlResults = JsonlTestResults.Parse(jsonlContent);
+                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+            }
+            else
+            {
+                Log.Debug("JSONL retrieval from device failed — no structured results available");
+            }
+        }
+
+        ReportRuntimeTestResult(result, "Device/NativeAOT", jsonlResults);
     }
 
     // ============================================================
@@ -335,6 +367,7 @@ partial class Build
 
         var sw = Stopwatch.StartNew();
         var testResult = TestResult.Timeout;
+        bool resultsFlushed = false;
 
         while (sw.Elapsed < TimeSpan.FromSeconds(Timeout))
         {
@@ -342,6 +375,7 @@ partial class Build
             {
                 Thread.Sleep(100);
                 var text = string.Join("\n", output);
+                resultsFlushed = text.Contains("RESULTS FLUSHED");
                 if (text.Contains("TEST SUCCESS")) testResult = TestResult.Success;
                 else if (text.Contains("TEST FAILURE")) testResult = TestResult.Failure;
                 else testResult = TestResult.LaunchFailure;
@@ -349,8 +383,12 @@ partial class Build
             }
 
             var currentText = string.Join("\n", output);
-            if (currentText.Contains("TEST SUCCESS")) { testResult = TestResult.Success; break; }
-            if (currentText.Contains("TEST FAILURE")) { testResult = TestResult.Failure; break; }
+            if (currentText.Contains("RESULTS FLUSHED"))
+            {
+                resultsFlushed = true;
+                if (currentText.Contains("TEST SUCCESS")) { testResult = TestResult.Success; break; }
+                if (currentText.Contains("TEST FAILURE")) { testResult = TestResult.Failure; break; }
+            }
 
             Thread.Sleep(250);
         }
@@ -365,13 +403,22 @@ partial class Build
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
-        var result = new LaunchResult(testResult, finalOutput, exitCode, null);
+        var result = new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
 
         Log.Information("");
         Log.Information("=== APP OUTPUT ===");
         Log.Information(result.Output);
 
-        ReportRuntimeTestResult(result, "macOS");
+        // macOS: try to read JSONL from working directory (dotnet run uses repo root as cwd)
+        JsonlTestResults? jsonlResults = null;
+        var macJsonlPath = RootDirectory / "test-results.jsonl";
+        if (File.Exists(macJsonlPath))
+        {
+            jsonlResults = JsonlTestResults.ParseFile(macJsonlPath);
+            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+        }
+
+        ReportRuntimeTestResult(result, "macOS", jsonlResults);
     }
 
     // ============================================================
@@ -461,8 +508,20 @@ partial class Build
     // Result Reporting
     // ============================================================
 
-    void ReportRuntimeTestResult(LaunchResult result, string platform)
+    void ReportRuntimeTestResult(LaunchResult result, string platform, JsonlTestResults? jsonlResults = null)
     {
+        // Log JSONL-derived counts if available
+        if (jsonlResults != null)
+        {
+            Log.Information("");
+            Log.Information("=== JSONL TEST COUNTS ({Platform}) ===", platform);
+            Log.Information("  Pass:  {Pass}", jsonlResults.PassCount);
+            Log.Information("  Fail:  {Fail}", jsonlResults.FailCount);
+            Log.Information("  Skip:  {Skip}", jsonlResults.SkipCount);
+            Log.Information("  Crash: {Crash}", jsonlResults.CrashCount);
+            Log.Information("  Done:  {Done}", jsonlResults.Done);
+        }
+
         Log.Information("");
         Log.Information("=========================================");
         switch (result.Result)
@@ -470,11 +529,17 @@ partial class Build
             case TestResult.Success:
                 Log.Information(" RUNTIME TESTS PASSED ({Platform})", platform);
                 Log.Information("=========================================");
+                // Baseline comparison on successful runs
+                if (jsonlResults != null)
+                    CompareRuntimeBaseline(platform, jsonlResults);
                 break;
 
             case TestResult.Failure:
                 Log.Information(" RUNTIME TESTS FAILED ({Platform})", platform);
                 Log.Information("=========================================");
+                // Still compare baseline on failures (helps diagnose regressions)
+                if (jsonlResults != null)
+                    CompareRuntimeBaseline(platform, jsonlResults);
                 throw new Exception($"Runtime tests failed ({platform})");
 
             case TestResult.Crash:
@@ -493,6 +558,86 @@ partial class Build
                 throw new Exception($"Runtime tests timed out ({platform})");
         }
     }
+
+    /// <summary>
+    /// Compares JSONL results against the runtime tests baseline.
+    /// Fails if pass count drops, warns + auto-updates if pass count increases.
+    /// </summary>
+    void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
+    {
+        var baseline = ValidationBaseline.Load(BaselinePath);
+        var runtimeBaseline = baseline.RuntimeTests;
+
+        // Determine which platform baseline to compare
+        var platformKey = platform.ToLowerInvariant() switch
+        {
+            "simulator" => "simulator",
+            "device/nativeaot" or "device" => "device",
+            _ => null // macOS — no baseline yet
+        };
+
+        if (platformKey == null || runtimeBaseline == null)
+        {
+            Log.Information("No runtime test baseline for {Platform} — skipping comparison", platform);
+            return;
+        }
+
+        var baselineCounts = platformKey == "simulator" ? runtimeBaseline.Simulator : runtimeBaseline.Device;
+        if (baselineCounts == null)
+        {
+            Log.Information("No runtime test baseline for {Platform} — skipping comparison", platform);
+            return;
+        }
+
+        var currentPass = jsonlResults.PassCount;
+        var baselinePass = baselineCounts.Pass;
+
+        Log.Information("");
+        Log.Information("=== RUNTIME BASELINE COMPARISON ({Platform}) ===", platform);
+        Log.Information("  Baseline pass: {Baseline}", baselinePass);
+        Log.Information("  Current pass:  {Current}", currentPass);
+
+        if (currentPass < baselinePass)
+        {
+            var delta = baselinePass - currentPass;
+            Log.Error("REGRESSION: {Platform} pass count dropped by {Delta} (baseline={Baseline}, current={Current})",
+                platform, delta, baselinePass, currentPass);
+            throw new Exception(
+                $"Runtime test regression on {platform}: pass count dropped from {baselinePass} to {currentPass} (-{delta})");
+        }
+
+        if (currentPass > baselinePass)
+        {
+            var delta = currentPass - baselinePass;
+            Log.Warning("IMPROVEMENT: {Platform} pass count increased by {Delta} (baseline={Baseline}, current={Current})",
+                platform, delta, baselinePass, currentPass);
+
+            // Auto-update baseline on unfiltered, no-crash successful runs
+            if (string.IsNullOrEmpty(ClassFilter) && jsonlResults.CrashCount == 0)
+            {
+                var newCounts = new ValidationBaseline.RuntimeTestsPlatformCounts
+                {
+                    Pass = currentPass,
+                    Fail = jsonlResults.FailCount,
+                    Skip = jsonlResults.SkipCount,
+                    Crash = 0
+                };
+
+                var newRuntimeBaseline = platformKey == "simulator"
+                    ? runtimeBaseline with { Simulator = newCounts }
+                    : runtimeBaseline with { Device = newCounts };
+
+                var newBaseline = baseline with { RuntimeTests = newRuntimeBaseline };
+                newBaseline.Save(BaselinePath);
+                Log.Information("Baseline auto-updated for {Platform}: pass={Pass}", platform, currentPass);
+            }
+        }
+        else
+        {
+            Log.Information("Baseline matches: {Platform} pass count = {Pass}", platform, currentPass);
+        }
+    }
+
 
     // ============================================================
     // Staleness Detection

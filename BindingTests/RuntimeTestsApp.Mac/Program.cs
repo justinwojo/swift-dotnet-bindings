@@ -62,6 +62,11 @@ public class Program
 
         var results = new TestResults();
 
+        // Initialize JSONL output for crash-safe structured results
+        var jsonlPath = Path.Combine(Directory.GetCurrentDirectory(), "test-results.jsonl");
+        TestLogger.Info($"JSONL output: {jsonlPath}");
+        results.InitializeJsonl(jsonlPath);
+
         try
         {
             // Initialize Swift concurrency runtime
@@ -83,6 +88,8 @@ public class Program
                     TestLogger.Error("Available classes:");
                     foreach (var c in allClasses.OrderBy(c => c.Name))
                         TestLogger.Error($"  - {c.Name}");
+                    results.FinalizeJsonl();
+                    Console.WriteLine("RESULTS FLUSHED");
                     Console.WriteLine("TEST FAILURE: No test class matches filter");
                     return 1;
                 }
@@ -98,8 +105,10 @@ public class Program
 
             foreach (var descriptor in allClasses)
             {
+                results.BeginClass(descriptor.Name);
                 await RunTestClassAsync(descriptor, results, Platform, flakeDetect);
             }
+            results.EndClass();
         }
         catch (Exception ex)
         {
@@ -107,11 +116,17 @@ public class Program
             results.Fail("Test Suite", ex.Message);
         }
 
+        // Finalize JSONL output (writes done record + flushes)
+        results.FinalizeJsonl();
+
         // Summary
         TestLogger.Info("");
         TestLogger.Info("=== TEST SUMMARY ===");
         TestLogger.Info(results.ToString());
         TestLogger.Info($"Total duration: {TestLogger.Elapsed.TotalSeconds:F1}s");
+
+        // Signal that JSONL is fully written before test markers
+        Console.WriteLine("RESULTS FLUSHED");
 
         if (results.AllPassed)
         {

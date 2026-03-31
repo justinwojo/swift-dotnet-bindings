@@ -634,6 +634,9 @@
       }
     }
   },
+  "runtime_tests": {
+    "simulator": { "pass": 1265, "fail": 0, "skip": 9, "crash": 0 }
+  },
   "skip_metrics": {
     "total_emitted_members": 9960,
     "total_skipped_members": 1913,

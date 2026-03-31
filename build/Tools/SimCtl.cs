@@ -118,8 +118,8 @@ public static class SimCtl
 
     /// <summary>
     /// Launches app on simulator, captures console output, and detects test completion or crash.
-    /// Uses 0.25s polling interval matching the shell script for fast response.
-    /// Replaces the 80-line poll-sleep-kill-grep pattern in run-runtime-tests.sh.
+    /// Waits for RESULTS FLUSHED marker before checking TEST SUCCESS/TEST FAILURE to ensure
+    /// JSONL results are fully written before the process is killed.
     /// </summary>
     public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout)
     {
@@ -146,6 +146,7 @@ public static class SimCtl
 
         var sw = Stopwatch.StartNew();
         var result = TestResult.Timeout;
+        bool resultsFlushed = false;
 
         while (sw.Elapsed < timeout)
         {
@@ -154,6 +155,7 @@ public static class SimCtl
                 // Let buffered output flush
                 Thread.Sleep(100);
                 var text = string.Join("\n", output);
+                resultsFlushed = text.Contains("RESULTS FLUSHED");
 
                 if (text.Contains("TEST SUCCESS"))
                     result = TestResult.Success;
@@ -167,12 +169,18 @@ public static class SimCtl
             }
 
             // Check for completion markers while still running.
+            // Wait for RESULTS FLUSHED before acting on TEST SUCCESS/FAILURE to ensure
+            // JSONL file is fully written before we kill the process.
             // NOTE: Do NOT check for crash signals during active polling.
             // Mono's malloc assertion fires during background cleanup but the app
             // continues running and produces the test summary.
             var currentText = string.Join("\n", output);
-            if (currentText.Contains("TEST SUCCESS")) { result = TestResult.Success; break; }
-            if (currentText.Contains("TEST FAILURE")) { result = TestResult.Failure; break; }
+            if (currentText.Contains("RESULTS FLUSHED"))
+            {
+                resultsFlushed = true;
+                if (currentText.Contains("TEST SUCCESS")) { result = TestResult.Success; break; }
+                if (currentText.Contains("TEST FAILURE")) { result = TestResult.Failure; break; }
+            }
 
             Thread.Sleep(250); // 0.25s polling interval matching shell script
         }
@@ -196,7 +204,42 @@ public static class SimCtl
         if (result is TestResult.Crash or TestResult.LaunchFailure or TestResult.Timeout)
             crashLog = FindLatestCrashLog("RuntimeTestsApp");
 
-        return new LaunchResult(result, finalOutput, exitCode, crashLog);
+        return new LaunchResult(result, finalOutput, exitCode, crashLog, resultsFlushed);
+    }
+
+    /// <summary>
+    /// Copies JSONL test results from the app's sandbox Documents directory on the simulator.
+    /// Returns the file contents, or null if retrieval failed.
+    /// </summary>
+    public static string? CopyResultsFromSandbox(string udid, string bundleId)
+    {
+        try
+        {
+            // Get the app's data container path
+            var containerProcess = ProcessTasks.StartProcess(
+                "xcrun", $"simctl get_app_container {udid} {bundleId} data",
+                logOutput: false, timeout: 10000);
+            containerProcess.AssertWaitForExit();
+            var containerPath = containerProcess.Output.StdToText().Trim();
+
+            if (string.IsNullOrEmpty(containerPath))
+                return null;
+
+            var jsonlPath = Path.Combine(containerPath, "Documents", "test-results.jsonl");
+            if (File.Exists(jsonlPath))
+            {
+                Log.Debug("Reading JSONL from sandbox: {Path}", jsonlPath);
+                return File.ReadAllText(jsonlPath);
+            }
+
+            Log.Debug("JSONL file not found in sandbox: {Path}", jsonlPath);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to copy JSONL from sandbox: {Message}", ex.Message);
+            return null;
+        }
     }
 
     /// <summary>

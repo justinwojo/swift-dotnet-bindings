@@ -149,6 +149,11 @@ public class MainViewController : UIViewController
 
         var results = new TestResults();
 
+        // Initialize JSONL output for crash-safe structured results
+        var jsonlPath = GetJsonlOutputPath();
+        TestLogger.Info($"JSONL output: {jsonlPath}");
+        results.InitializeJsonl(jsonlPath);
+
         try
         {
             // Initialize Swift concurrency runtime
@@ -178,6 +183,8 @@ public class MainViewController : UIViewController
                     TestLogger.Error("Available classes:");
                     foreach (var c in allClasses.OrderBy(c => c.Name))
                         TestLogger.Error($"  - {c.Name}");
+                    results.FinalizeJsonl();
+                    Console.WriteLine("RESULTS FLUSHED");
                     Console.WriteLine("TEST FAILURE: No test class matches filter");
                     UpdateResultLabel(TestLogger.GetFullLog());
                     return;
@@ -190,12 +197,14 @@ public class MainViewController : UIViewController
 
             foreach (var descriptor in allClasses)
             {
+                results.BeginClass(descriptor.Name);
                 await RunTestClassAsync(descriptor, results, platform, flakeDetect);
                 // Yield to the iOS run loop between test classes to reset the watchdog
                 // timer. Task.Delay alone may not yield to UIKit; NSRunLoop.RunUntil
                 // explicitly processes pending events and satisfies the watchdog.
                 NSRunLoop.Current.RunUntil(NSDate.FromTimeIntervalSinceNow(0.001));
             }
+            results.EndClass();
         }
         catch (Exception ex)
         {
@@ -203,10 +212,16 @@ public class MainViewController : UIViewController
             results.Fail("Test Suite", ex.Message);
         }
 
+        // Finalize JSONL output (writes done record + flushes)
+        results.FinalizeJsonl();
+
         TestLogger.Info("");
         TestLogger.Info("=== TEST SUMMARY ===");
         TestLogger.Info(results.ToString());
         TestLogger.Info($"Total duration: {TestLogger.Elapsed.TotalSeconds:F1}s");
+
+        // Signal that JSONL is fully written before test markers
+        Console.WriteLine("RESULTS FLUSHED");
 
         if (results.AllPassed)
         {
@@ -222,6 +237,17 @@ public class MainViewController : UIViewController
         }
 
         UpdateResultLabel(TestLogger.GetFullLog());
+    }
+
+    /// <summary>
+    /// Returns the JSONL output path: Documents directory on iOS.
+    /// </summary>
+    private static string GetJsonlOutputPath()
+    {
+        var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (!string.IsNullOrEmpty(documentsDir) && Directory.Exists(documentsDir))
+            return Path.Combine(documentsDir, "test-results.jsonl");
+        return Path.Combine(Directory.GetCurrentDirectory(), "test-results.jsonl");
     }
 
     // Classes that crash NativeAOT during instantiation (static field initialization).

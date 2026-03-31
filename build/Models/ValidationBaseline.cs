@@ -22,6 +22,9 @@ public record ValidationBaseline
     [JsonPropertyName("skip_metrics")]
     public SkipMetricsBaseline SkipMetrics { get; init; } = new();
 
+    [JsonPropertyName("runtime_tests")]
+    public RuntimeTestsBaseline? RuntimeTests { get; init; }
+
     public record CompileGate
     {
         [JsonPropertyName("libraries")]
@@ -36,6 +39,23 @@ public record ValidationBaseline
         [JsonPropertyName("lines")] public int Lines { get; init; }
         [JsonPropertyName("dep_compile")] public string DepCompile { get; init; } = "none";
         [JsonPropertyName("swift_compile")] public string SwiftCompile { get; init; } = "unknown";
+    }
+
+    public record RuntimeTestsBaseline
+    {
+        [JsonPropertyName("simulator")]
+        public RuntimeTestsPlatformCounts? Simulator { get; init; }
+
+        [JsonPropertyName("device")]
+        public RuntimeTestsPlatformCounts? Device { get; init; }
+    }
+
+    public record RuntimeTestsPlatformCounts
+    {
+        [JsonPropertyName("pass")] public int Pass { get; init; }
+        [JsonPropertyName("fail")] public int Fail { get; init; }
+        [JsonPropertyName("skip")] public int Skip { get; init; }
+        [JsonPropertyName("crash")] public int Crash { get; init; }
     }
 
     public record SkipMetricsBaseline

@@ -1,10 +1,13 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Text.Json;
+
 namespace RuntimeTestsApp.Infrastructure;
 
 /// <summary>
 /// Tracks test results for summary reporting.
+/// Optionally writes crash-safe JSONL output (one JSON object per line, flushed after each test).
 /// </summary>
 public class TestResults
 {
@@ -18,16 +21,121 @@ public class TestResults
 
     private readonly object _lock = new();
 
+    // JSONL output for crash-safe structured results
+    private StreamWriter? _jsonlWriter;
+    private string? _currentClassName;
+    private int _currentClassTestCount;
+
+    /// <summary>
+    /// Initializes JSONL output to the specified file path.
+    /// The file is created/overwritten and each test result is appended + flushed.
+    /// </summary>
+    public void InitializeJsonl(string filePath)
+    {
+        _jsonlWriter = new StreamWriter(filePath, append: false) { AutoFlush = false };
+    }
+
+    /// <summary>
+    /// Sets the current class being tested. Call before running each class's tests.
+    /// </summary>
+    public void BeginClass(string className)
+    {
+        lock (_lock)
+        {
+            // Emit class_done for previous class if there was one
+            if (_currentClassName != null)
+                WriteClassDone();
+
+            _currentClassName = className;
+            _currentClassTestCount = 0;
+        }
+    }
+
+    /// <summary>
+    /// Emits a class_done record for the current class. Called automatically by BeginClass
+    /// for the previous class, and must be called after the last class finishes.
+    /// </summary>
+    public void EndClass()
+    {
+        lock (_lock)
+        {
+            if (_currentClassName != null)
+            {
+                WriteClassDone();
+                _currentClassName = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the final summary record and flushes. Call after all tests complete.
+    /// Returns the path to the JSONL file, or null if JSONL was not initialized.
+    /// </summary>
+    public void FinalizeJsonl()
+    {
+        lock (_lock)
+        {
+            // Ensure last class is closed
+            if (_currentClassName != null)
+                WriteClassDone();
+            _currentClassName = null;
+
+            if (_jsonlWriter != null)
+            {
+                WriteJsonlLine(new { done = true, total = Total, passed = Passed, failed = Failed, skipped = Skipped });
+                _jsonlWriter.Flush();
+                _jsonlWriter.Dispose();
+                _jsonlWriter = null;
+            }
+        }
+    }
+
+    private void WriteClassDone()
+    {
+        WriteJsonlLine(new { class_done = _currentClassName, tests_run = _currentClassTestCount });
+    }
+
+    private void WriteJsonlLine(object record)
+    {
+        if (_jsonlWriter == null) return;
+        try
+        {
+            var json = JsonSerializer.Serialize(record);
+            _jsonlWriter.WriteLine(json);
+            _jsonlWriter.Flush();
+        }
+        catch
+        {
+            // Best-effort: don't let JSONL failures crash the test runner
+        }
+    }
+
+    /// <summary>
+    /// Extracts the class name and method name from a fully-qualified test name (ClassName.MethodName).
+    /// </summary>
+    private static (string className, string methodName) SplitTestName(string testName)
+    {
+        var dotIndex = testName.IndexOf('.');
+        if (dotIndex > 0 && dotIndex < testName.Length - 1)
+            return (testName[..dotIndex], testName[(dotIndex + 1)..]);
+        return ("", testName);
+    }
+
     public void Pass(string testName, TimeSpan? duration = null)
     {
         lock (_lock)
         {
             Passed++;
+            _currentClassTestCount++;
             if (duration.HasValue)
             {
                 TestDurations[testName] = duration.Value;
             }
             TestLogger.Success($"{testName}" + (duration.HasValue ? $" ({duration.Value.TotalMilliseconds:F0}ms)" : ""));
+
+            var (className, methodName) = SplitTestName(testName);
+            var ms = duration.HasValue ? (int)duration.Value.TotalMilliseconds : 0;
+            WriteJsonlLine(new { @class = className, test = methodName, status = "pass", ms });
         }
     }
 
@@ -36,6 +144,7 @@ public class TestResults
         lock (_lock)
         {
             Failed++;
+            _currentClassTestCount++;
             var msg = string.IsNullOrEmpty(reason) ? testName : $"{testName}: {reason}";
             FailedTests.Add(msg);
             if (duration.HasValue)
@@ -43,6 +152,10 @@ public class TestResults
                 TestDurations[testName] = duration.Value;
             }
             TestLogger.Error(msg + (duration.HasValue ? $" ({duration.Value.TotalMilliseconds:F0}ms)" : ""));
+
+            var (className, methodName) = SplitTestName(testName);
+            var ms = duration.HasValue ? (int)duration.Value.TotalMilliseconds : 0;
+            WriteJsonlLine(new { @class = className, test = methodName, status = "fail", error = reason, ms });
         }
     }
 
@@ -51,9 +164,13 @@ public class TestResults
         lock (_lock)
         {
             Skipped++;
+            _currentClassTestCount++;
             var msg = string.IsNullOrEmpty(reason) ? testName : $"{testName}: {reason}";
             SkippedTests.Add(msg);
             TestLogger.Warning($"SKIP: {msg}");
+
+            var (className, methodName) = SplitTestName(testName);
+            WriteJsonlLine(new { @class = className, test = methodName, status = "skip", reason });
         }
     }
 

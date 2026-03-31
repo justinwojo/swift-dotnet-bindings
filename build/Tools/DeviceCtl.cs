@@ -5,6 +5,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -68,7 +69,8 @@ public static class DeviceCtl
 
     /// <summary>
     /// Launches app on physical device, captures console output, detects test completion.
-    /// Same completion detection pattern as SimCtl.Launch.
+    /// Waits for RESULTS FLUSHED marker before checking TEST SUCCESS/TEST FAILURE to ensure
+    /// JSONL results are fully written before the process is killed.
     /// </summary>
     public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout)
     {
@@ -95,6 +97,7 @@ public static class DeviceCtl
 
         var sw = Stopwatch.StartNew();
         var result = TestResult.Timeout;
+        bool resultsFlushed = false;
 
         while (sw.Elapsed < timeout)
         {
@@ -102,6 +105,7 @@ public static class DeviceCtl
             {
                 Thread.Sleep(100);
                 var text = string.Join("\n", output);
+                resultsFlushed = text.Contains("RESULTS FLUSHED");
 
                 if (text.Contains("TEST SUCCESS"))
                     result = TestResult.Success;
@@ -112,9 +116,14 @@ public static class DeviceCtl
                 break;
             }
 
+            // Wait for RESULTS FLUSHED before acting on TEST SUCCESS/FAILURE
             var currentText = string.Join("\n", output);
-            if (currentText.Contains("TEST SUCCESS")) { result = TestResult.Success; break; }
-            if (currentText.Contains("TEST FAILURE")) { result = TestResult.Failure; break; }
+            if (currentText.Contains("RESULTS FLUSHED"))
+            {
+                resultsFlushed = true;
+                if (currentText.Contains("TEST SUCCESS")) { result = TestResult.Success; break; }
+                if (currentText.Contains("TEST FAILURE")) { result = TestResult.Failure; break; }
+            }
 
             Thread.Sleep(1000); // 1s polling for device (slower than simulator)
         }
@@ -131,7 +140,45 @@ public static class DeviceCtl
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
-        return new LaunchResult(result, finalOutput, exitCode, null);
+        return new LaunchResult(result, finalOutput, exitCode, null, resultsFlushed);
+    }
+
+    /// <summary>
+    /// Copies JSONL test results from the app's sandbox Documents directory on a physical device.
+    /// Uses xcrun devicectl to copy the file to a temp location, then reads it.
+    /// Returns the file contents, or null if retrieval failed.
+    /// </summary>
+    public static string? CopyResultsFromSandbox(string udid, string bundleId)
+    {
+        try
+        {
+            var tempDest = Path.Combine(Path.GetTempPath(), $"device-test-results-{Guid.NewGuid():N}.jsonl");
+
+            // devicectl device copy from: copies a file from the device app's data container
+            var process = ProcessTasks.StartProcess(
+                "xcrun",
+                $"devicectl device copy from --device {udid} --domain-type appDataContainer " +
+                $"--domain-identifier {bundleId} --source Documents/test-results.jsonl " +
+                $"--destination \"{tempDest}\"",
+                logOutput: false, timeout: 15000);
+            process.WaitForExit();
+
+            if (process.ExitCode == 0 && File.Exists(tempDest))
+            {
+                Log.Debug("Reading JSONL from device sandbox: {Path}", tempDest);
+                var content = File.ReadAllText(tempDest);
+                try { File.Delete(tempDest); } catch { }
+                return content;
+            }
+
+            Log.Debug("devicectl copy failed (exit code {ExitCode})", process.ExitCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to copy JSONL from device sandbox: {Message}", ex.Message);
+            return null;
+        }
     }
 
     public static void Terminate(string udid, string bundleId)
