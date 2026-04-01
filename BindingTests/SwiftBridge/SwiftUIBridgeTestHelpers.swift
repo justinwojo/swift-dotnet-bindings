@@ -515,3 +515,188 @@ public func SBW_TEST_UpdatableMixedView_FireOnTap(_ handle: UnsafeMutableRawPoin
         return 1
     }
 }
+
+// MARK: - Validation Pattern Views: Session extensions
+
+extension SBW_SwiftBindingsTestLib_FormatMenuView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_FormatMenuView_Wrapper { hostingController.rootView }
+}
+
+// MARK: - BindingToggleView helpers (Binding<Bool> param — Session 2 gate)
+
+/// Read the isOn Bool state from BindingToggleView (1=true, 0=false).
+@_cdecl("SBW_TEST_BindingToggleView_GetIsOn")
+public func SBW_TEST_BindingToggleView_GetIsOn(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_BindingToggleView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_BindingToggleView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.isOn ? 1 : 0
+    }
+}
+
+// MARK: - NumberListView helpers (Array<Int> param — Session 2 gate)
+
+/// Read the count of the numbers array from NumberListView.
+@_cdecl("SBW_TEST_NumberListView_GetCount")
+public func SBW_TEST_NumberListView_GetCount(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_NumberListView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_NumberListView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.hostingController.rootView.numbers.count)
+    }
+}
+
+/// Read a specific element from the numbers array.
+@_cdecl("SBW_TEST_NumberListView_GetElement")
+public func SBW_TEST_NumberListView_GetElement(_ handle: UnsafeMutableRawPointer?, _ index: Int32) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_NumberListView_liveHandles.contains(handle) else { return -999 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_NumberListView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let numbers = session.hostingController.rootView.numbers
+        guard index >= 0, index < numbers.count else { return -999 }
+        return numbers[Int(index)]
+    }
+}
+
+// MARK: - SymbolIconView helpers (SwiftUI.Image param — Session 2 gate)
+
+/// Read the icon string length from SymbolIconView's state.
+@_cdecl("SBW_TEST_SymbolIconView_GetIconLength")
+public func SBW_TEST_SymbolIconView_GetIconLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_SymbolIconView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_SymbolIconView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.icon.utf8.count)
+    }
+}
+
+// MARK: - TransformOutcome helpers (BoundStruct creation for C# tests)
+
+/// Create a TransformOutcome.completed(result:) and return an opaque pointer.
+/// C# passes this to FormatActionView_Create. Caller must free with SBW_TEST_FreeTransformOutcome.
+@_cdecl("SBW_TEST_CreateTransformOutcome_Completed")
+public func SBW_TEST_CreateTransformOutcome_Completed(_ result: Int32) -> UnsafeMutableRawPointer {
+    let outcome = TransformOutcome.completed(result: result)
+    let ptr = UnsafeMutableRawPointer.allocate(
+        byteCount: MemoryLayout<TransformOutcome>.size,
+        alignment: MemoryLayout<TransformOutcome>.alignment)
+    ptr.initializeMemory(as: TransformOutcome.self, repeating: outcome, count: 1)
+    return ptr
+}
+
+/// Create a TransformOutcome.failed(errorCode:) and return an opaque pointer.
+@_cdecl("SBW_TEST_CreateTransformOutcome_Failed")
+public func SBW_TEST_CreateTransformOutcome_Failed(_ errorCode: Int32) -> UnsafeMutableRawPointer {
+    let outcome = TransformOutcome.failed(errorCode: errorCode)
+    let ptr = UnsafeMutableRawPointer.allocate(
+        byteCount: MemoryLayout<TransformOutcome>.size,
+        alignment: MemoryLayout<TransformOutcome>.alignment)
+    ptr.initializeMemory(as: TransformOutcome.self, repeating: outcome, count: 1)
+    return ptr
+}
+
+/// Free a TransformOutcome pointer allocated by the above helpers.
+@_cdecl("SBW_TEST_FreeTransformOutcome")
+public func SBW_TEST_FreeTransformOutcome(_ ptr: UnsafeMutableRawPointer?) {
+    guard let ptr = ptr else { return }
+    ptr.assumingMemoryBound(to: TransformOutcome.self).deinitialize(count: 1)
+    ptr.deallocate()
+}
+
+// MARK: - FormatActionView helpers (non-raw-value enum / BoundStruct param)
+
+/// Read the stored TransformOutcome value from FormatActionView's state.
+/// Returns the associated Int32 value (result for .completed, errorCode for .failed).
+@_cdecl("SBW_TEST_FormatActionView_GetOutcomeValue")
+public func SBW_TEST_FormatActionView_GetOutcomeValue(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_FormatActionView_liveHandles.contains(handle) else { return -999 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_FormatActionView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return outcomeValue(session.state.action)
+    }
+}
+
+/// Check if FormatActionView's stored outcome is .completed (1) or .failed (0).
+@_cdecl("SBW_TEST_FormatActionView_IsCompleted")
+public func SBW_TEST_FormatActionView_IsCompleted(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_FormatActionView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_FormatActionView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return outcomeIsCompleted(session.state.action) ? 1 : 0
+    }
+}
+
+// MARK: - FormatMenuView helpers (closure with BoundStruct arg)
+
+/// Invoke FormatMenuView's onFormat closure with a constructed TransformOutcome.
+/// isCompleted=1 → .completed(result: value), isCompleted=0 → .failed(errorCode: value)
+@_cdecl("SBW_TEST_FormatMenuView_InvokeOnFormat")
+public func SBW_TEST_FormatMenuView_InvokeOnFormat(
+    _ handle: UnsafeMutableRawPointer?,
+    _ isCompleted: Int32,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_FormatMenuView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_FormatMenuView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let outcome: TransformOutcome = isCompleted != 0
+            ? .completed(result: value)
+            : .failed(errorCode: value)
+        session.rootView.onFormat(outcome)
+        return 1
+    }
+}
+
+// MARK: - PlayerStyleView helpers (class + string params)
+
+/// Read the player model's value from PlayerStyleView's state.
+@_cdecl("SBW_TEST_PlayerStyleView_GetPlayerValue")
+public func SBW_TEST_PlayerStyleView_GetPlayerValue(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_PlayerStyleView_liveHandles.contains(handle) else { return -999 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_PlayerStyleView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return session.state.player.getValue()
+    }
+}
+
+// MARK: - RichToolbarView helpers (dual string params)
+
+/// Read the title length from RichToolbarView's state.
+@_cdecl("SBW_TEST_RichToolbarView_GetTitleLength")
+public func SBW_TEST_RichToolbarView_GetTitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_RichToolbarView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_RichToolbarView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.title.utf8.count)
+    }
+}
+
+/// Read the subtitle length from RichToolbarView's state.
+@_cdecl("SBW_TEST_RichToolbarView_GetSubtitleLength")
+public func SBW_TEST_RichToolbarView_GetSubtitleLength(_ handle: UnsafeMutableRawPointer?) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_RichToolbarView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_RichToolbarView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        return Int32(session.state.subtitle.utf8.count)
+    }
+}

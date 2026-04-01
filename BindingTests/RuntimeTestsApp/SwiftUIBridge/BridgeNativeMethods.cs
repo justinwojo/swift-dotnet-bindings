@@ -402,6 +402,114 @@ internal static class BridgeNativeMethods
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassParamView_UpdateModel")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void ClassParamView_UpdateModel(IntPtr handle, IntPtr newValue);
+
+    // --- NoParamBlurView (AlertToast BlurView pattern) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NoParamBlurView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr NoParamBlurView_Create();
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NoParamBlurView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr NoParamBlurView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NoParamBlurView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void NoParamBlurView_Free(IntPtr handle);
+
+    // --- PlayerStyleView (YouTubePlayerKit pattern) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr PlayerStyleView_Create(IntPtr playerPtr, IntPtr titlePtr, int titleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr PlayerStyleView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void PlayerStyleView_Free(IntPtr handle);
+
+    // --- FormatActionView (RichTextKit ActionButton pattern — BoundStruct enum) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr FormatActionView_Create(IntPtr actionPtr);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr FormatActionView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void FormatActionView_Free(IntPtr handle);
+
+    // --- FormatMenuView (RichTextKit Menu pattern — closure with BoundStruct) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr FormatMenuView_Create(IntPtr onFormatCallback, IntPtr onFormatUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr FormatMenuView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void FormatMenuView_Free(IntPtr handle);
+
+    // --- RichToolbarView (RichTextKit toolbar pattern — dual string) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr RichToolbarView_Create(IntPtr titlePtr, int titleLen, IntPtr subtitlePtr, int subtitleLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr RichToolbarView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void RichToolbarView_Free(IntPtr handle);
+
+    // --- BindingToggleView (Session 2 gate: Binding<Bool>) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr BindingToggleView_Create(int isOn);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr BindingToggleView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void BindingToggleView_Free(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_UpdateIsOn")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void BindingToggleView_UpdateIsOn(IntPtr handle, int newValue);
+
+    // --- NumberListView (Session 2 gate: Array<Int>) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NumberListView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr NumberListView_Create(IntPtr numbersPtr, nint numbersCount);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NumberListView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr NumberListView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NumberListView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void NumberListView_Free(IntPtr handle);
+
+    // --- SymbolIconView (Session 2 gate: SwiftUI.Image) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr SymbolIconView_Create(IntPtr iconPtr, nint iconLen);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr SymbolIconView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void SymbolIconView_Free(IntPtr handle);
 }
 
 #endregion
@@ -572,6 +680,66 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_LifecycleTestView_FireOnDisappear")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int LifecycleTestView_FireOnDisappear(IntPtr handle);
+
+    // TransformOutcome helpers (BoundStruct creation)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_CreateTransformOutcome_Completed")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr CreateTransformOutcome_Completed(int result);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_CreateTransformOutcome_Failed")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr CreateTransformOutcome_Failed(int errorCode);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_FreeTransformOutcome")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void FreeTransformOutcome(IntPtr ptr);
+
+    // FormatActionView (BoundStruct param verification)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_FormatActionView_GetOutcomeValue")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int FormatActionView_GetOutcomeValue(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_FormatActionView_IsCompleted")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int FormatActionView_IsCompleted(IntPtr handle);
+
+    // FormatMenuView (closure with BoundStruct arg)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_FormatMenuView_InvokeOnFormat")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int FormatMenuView_InvokeOnFormat(IntPtr handle, int isCompleted, int value);
+
+    // PlayerStyleView (class + string)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_PlayerStyleView_GetPlayerValue")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int PlayerStyleView_GetPlayerValue(IntPtr handle);
+
+    // RichToolbarView (dual string)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_RichToolbarView_GetTitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int RichToolbarView_GetTitleLength(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_RichToolbarView_GetSubtitleLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int RichToolbarView_GetSubtitleLength(IntPtr handle);
+
+    // BindingToggleView (Session 2 gate: Binding<Bool>)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_BindingToggleView_GetIsOn")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int BindingToggleView_GetIsOn(IntPtr handle);
+
+    // NumberListView (Session 2 gate: Array<Int>)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_NumberListView_GetCount")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int NumberListView_GetCount(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_NumberListView_GetElement")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int NumberListView_GetElement(IntPtr handle, int index);
+
+    // SymbolIconView (Session 2 gate: SwiftUI.Image)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_SymbolIconView_GetIconLength")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int SymbolIconView_GetIconLength(IntPtr handle);
 }
 
 #endregion

@@ -245,6 +245,26 @@ internal static class ClassReturnCallbackState
     }
 }
 
+/// Callback state for FormatMenuView closure (receives BoundStruct pointer — TransformOutcome).
+internal static class FormatMenuCallbackState
+{
+    internal static volatile int CallCount;
+    internal static volatile IntPtr LastOutcomePtr;
+
+    internal static void Reset()
+    {
+        CallCount = 0;
+        LastOutcomePtr = IntPtr.Zero;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnFormatCallback(IntPtr outcomePtr, IntPtr userData)
+    {
+        LastOutcomePtr = outcomePtr;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
 internal static class AsyncCallbackState
 {
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]

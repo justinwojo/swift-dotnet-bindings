@@ -1841,4 +1841,57 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region H. Generic Where Clause Handling
+
+    public class CoGaterGenericWhereClauseTests
+    {
+        [Fact]
+        public void ProcessProxyReferences_GenericMethodWithWhereClause_ReplaceBody()
+        {
+            // Reproduces XMLCoder regression: Box<T>(T value) where T : ISwiftObject
+            // has opening brace past the where clause. Co-gater must handle the where
+            // clause between declaration and opening brace.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Encoder {\n" +
+                "    public virtual ISimpleBox Box<T>( T value)\n" +
+                "        where T : ISwiftObject\n" +
+                "    {\n" +
+                "        unsafe\n" +
+                "        {\n" +
+                "            var result = PInvoke_box(value);\n" +
+                "            return new SimpleBoxProxy(result);\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "SimpleBoxProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("new SimpleBoxProxy(", result.Content);
+            Assert.Contains("throw new NotSupportedException(", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_MultipleWhereConstraints_ReplaceBody()
+        {
+            var input =
+                "namespace Test {\n" +
+                "public partial class Encoder {\n" +
+                "    public virtual IFoo Bar<T, U>( T value, U other)\n" +
+                "        where T : ISwiftObject\n" +
+                "        where U : ISwiftObject\n" +
+                "    {\n" +
+                "        return new FooProxy(PInvoke(value, other));\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+            Assert.DoesNotContain("new FooProxy(", result.Content);
+            Assert.Contains("throw new NotSupportedException(", result.Content);
+        }
+    }
+
+    #endregion
+
 }
