@@ -1,11 +1,11 @@
 {
-  "git_sha": "e9011908",
+  "git_sha": "d7e9c865",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46659,
+        "lines": 46452,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11637,
+        "lines": 11430,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15112,
+        "lines": 14590,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,9 +649,9 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 37,
-        "lines": 23886,
+        "lines": 23357,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
@@ -665,20 +665,20 @@
         "errors": 2,
         "lines": 30905,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10720,
-    "total_skipped_members": 2036,
+    "total_emitted_members": 10713,
+    "total_skipped_members": 2037,
     "skip_rate_pct": 16,
     "skip_reasons": {
       "ModuleInternal": 722,
       "UnsupportedSignature": 357,
       "AnyTypeFallback": 315,
       "SynthesizedCodable": 178,
-      "EveryProtocolConformanceSkipped": 155,
+      "EveryProtocolConformanceSkipped": 156,
       "UnsupportedClosure": 153,
       "UnsatisfiedGenericConstraint": 126,
       "UnsupportedType": 68,

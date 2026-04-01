@@ -494,7 +494,7 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Async_GenericMethod_NoConversion()
+    public void Async_GenericMethod_NoAsyncWrapper()
     {
         var typeDatabase = CreateAsyncTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -510,8 +510,9 @@ public class SilgenNameTrampolineTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Generic method → remains @_silgen_name
-        Assert.Contains("@_silgen_name", swiftOutput);
+        // Method-own generic parameters can't be used in @convention(c) callbacks,
+        // so no async Swift wrapper is emitted (neither @_silgen_name nor @_cdecl).
+        Assert.DoesNotContain("@_silgen_name", swiftOutput);
         Assert.DoesNotContain("@_cdecl", swiftOutput);
     }
 

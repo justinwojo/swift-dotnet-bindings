@@ -2,7 +2,7 @@
 
 **Updated**: April 1, 2026
 
-**Current baseline**: 95/95 CS compile, 58/61 Swift compile (GRDB + RichTextKit + YouTubePlayerKit: pre-existing generator bugs now unmasked by wrapper filename fix).
+**Current baseline**: 95/95 CS compile, 60/61 Swift compile (GRDB: 236 errors remain — pre-existing generator bugs).
 **Skip metrics**: 10,718 emitted members, 2,038 skipped (16% skip rate) across 95 validation targets.
 **Downstream validation**: 630/630 sim tests passing across 20 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.5.0-dev packages.
 

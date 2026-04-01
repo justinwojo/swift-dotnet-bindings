@@ -1048,9 +1048,11 @@ namespace BindingsGeneration
 
             // Classes use Unmanaged<AnyObject>.fromOpaque to safely convert opaque pointers
             // back to class instances (NOT assumingMemoryBound which is for structs).
+            // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_classDecl, false);
+            _swiftWriter.WriteLine();
+            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor);
             _swiftWriter.WriteLines($$"""
-
-            @_cdecl("{{symbolName}}")
             public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
                 let l = Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
                 let r = Unmanaged<AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}

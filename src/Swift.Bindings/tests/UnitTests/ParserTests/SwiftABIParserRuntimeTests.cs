@@ -1029,6 +1029,56 @@ public class SwiftABIParserRuntimeTests
         Assert.Equal("CryptoOnrampView", type.Name);
     }
 
+    [Fact]
+    public void ParseModule_SystemModuleReExport_UsesCorrectModuleQualification()
+    {
+        // When a Swift stdlib type (e.g., KeyPath) appears in another module's ABI,
+        // its SwiftTypeName should use the type's actual module (Swift), not the
+        // containing module (e.g., RichTextKit). This prevents emitting
+        // "extension RichTextKit.KeyPath" which doesn't exist.
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var swiftKeyPathNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "KeyPath",
+            moduleName: "Swift",
+            mangledName: "$ss7KeyPathCyxq_G");
+
+        using var fixture = CreateParserWithNodes(importNode, swiftKeyPathNode);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("Swift.KeyPath", type.SwiftTypeName.ModuleQualifiedName);
+    }
+
+    [Fact]
+    public void ParseModule_DuplicateCrossModuleReExport_SkipsGracefully()
+    {
+        // When the same system type appears twice in a module's ABI (e.g., two extension
+        // blocks on Swift.KeyPath), the second occurrence should be skipped instead of
+        // throwing "Type already processed".
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+        var firstKeyPath = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "KeyPath",
+            moduleName: "Swift",
+            mangledName: "$ss7KeyPathCyxq_G");
+        var secondKeyPath = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "KeyPath",
+            moduleName: "Swift",
+            mangledName: "$ss7KeyPathCyxq_G_dup");
+
+        using var fixture = CreateParserWithNodes(importNode, firstKeyPath, secondKeyPath);
+        var result = fixture.Parser.ParseModule();
+
+        // Only the first occurrence should be kept
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("Swift.KeyPath", type.SwiftTypeName.ModuleQualifiedName);
+    }
+
     #endregion
 
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)

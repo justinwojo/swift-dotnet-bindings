@@ -281,7 +281,7 @@ public static class MethodClosureBridge
             !MarshallingHelpers.IsSwiftPrimitive(rts.Name);
         var swiftReturnType = !returnsValue ? ""
             : returnsClass ? " -> UnsafeMutableRawPointer"
-            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}";
+            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
 
         // Emit the wrapper as a @_cdecl free function (not extension method).
         // Using @_silgen_name on an extension method produces Swift calling convention

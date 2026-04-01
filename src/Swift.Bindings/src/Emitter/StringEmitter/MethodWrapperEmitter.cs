@@ -1352,7 +1352,7 @@ public static class MethodWrapperEmitter
         var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
         string returnClause = returnSpec.IsEmptyTuple
             ? ""
-            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}";
+            : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
 
         return $"func {baseName}({paramString}){throwsClause}{returnClause}";
     }

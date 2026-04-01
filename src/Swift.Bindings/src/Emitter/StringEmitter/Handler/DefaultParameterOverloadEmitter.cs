@@ -445,7 +445,7 @@ public static class DefaultParameterOverloadEmitter
 
         // Render return type from original method
         var returnTypeSpec = originalMethodDecl.CSSignature.First().SwiftTypeSpec;
-        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnTypeSpec);
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
         bool throws = originalMethodDecl.Throws;
 
@@ -759,7 +759,7 @@ public static class DefaultParameterOverloadEmitter
 
         // Return type
         var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
-        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec);
+        var returnType = ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnTypeSpec);
         bool isVoid = returnTypeSpec is TupleTypeSpec tupleTypeSpec && tupleTypeSpec == TupleTypeSpec.Empty;
         bool throws = methodDecl.Throws;
         var asyncKeyword = methodDecl.IsAsync ? " async" : "";

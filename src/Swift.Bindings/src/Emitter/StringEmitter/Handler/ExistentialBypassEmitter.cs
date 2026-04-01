@@ -1110,6 +1110,13 @@ public static class ExistentialBypassEmitter
         => RenderSwiftTypeSpecCore(typeSpec, moduleQualified: false);
 
     /// <summary>
+    /// Renders a TypeSpec for use in return type position.
+    /// Strips @escaping which is only valid in function parameter position.
+    /// </summary>
+    public static string RenderSwiftTypeSpecForReturnType(TypeSpec typeSpec)
+        => RenderSwiftTypeSpec(typeSpec).Replace("@escaping ", "");
+
+    /// <summary>
     /// Renders a TypeSpec with module-qualified names (e.g. "BonMot.StringStyle" instead of "StringStyle").
     /// Use this for .load(as:), .initializeMemory(as:), and .assumingMemoryBound(to:) expressions
     /// where unqualified names can be ambiguous (the wrapper imports the module, and the type name

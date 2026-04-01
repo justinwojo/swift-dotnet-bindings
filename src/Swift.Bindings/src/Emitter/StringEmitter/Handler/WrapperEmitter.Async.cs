@@ -923,6 +923,13 @@ namespace BindingsGeneration
             var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
+            // Skip Swift wrapper for methods with method-own generic parameters.
+            // Generic types can't be used in @convention(c) callbacks, and raw type
+            // parameter references (τ_0_0) leak into generated code as invalid identifiers.
+            // The C# async code above (handle, _tcs, callbacks) is still emitted correctly.
+            if (WrapperValidation.HasMethodOwnGenericParameters(_env.MethodDecl))
+                return;
+
             // Determine if wrapper needs @MainActor annotation (only for @MainActor, not custom actors)
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
                 _env.ParentDecl, _env.MethodDecl.IsMainActorIsolated, _env.MethodDecl.IsNonisolated);

@@ -2178,6 +2178,9 @@ public class EveryProtocolEmitter
         "AdditiveArithmetic",
         "Numeric",
         "IteratorProtocol",
+        "Hashable",
+        "Equatable",
+        "Comparable",
     };
 
     private static bool InheritsUnsatisfiedStdlibProtocolRecursive(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols, HashSet<string> visited)
@@ -2186,16 +2189,24 @@ public class EveryProtocolEmitter
         if (!visited.Add(qualifiedName))
             return false;
 
-        if (s_unsatisfiedStdlibProtocols.Contains(protocolDecl.Name))
+        if (s_unsatisfiedStdlibProtocols.Contains(protocolDecl.Name) && IsSwiftStdlibProtocol(protocolDecl))
             return true;
 
         foreach (var inherited in protocolDecl.InheritedProtocols)
         {
             var name = inherited.Name;
             var simpleName = GetSimpleName(name);
-            if (s_unsatisfiedStdlibProtocols.Contains(simpleName))
+
+            // Only short-circuit for explicitly Swift-module-qualified names.
+            // Unqualified names (no dot) must fall through to the allProtocols
+            // recursive lookup to disambiguate library-defined protocols with
+            // the same name (e.g., a library-local "Hashable" vs Swift.Hashable).
+            if (s_unsatisfiedStdlibProtocols.Contains(simpleName) &&
+                name.StartsWith("Swift.", StringComparison.Ordinal))
                 return true;
 
+            // For non-Swift-qualified names (including unqualified), resolve via
+            // the allProtocols list which has full ProtocolDecl with module info.
             if (allProtocols != null)
             {
                 var inheritedDecl = allProtocols.FirstOrDefault(p =>
@@ -2207,6 +2218,23 @@ public class EveryProtocolEmitter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if a protocol declaration is from the Swift standard library.
+    /// Prevents false positives where a library defines a protocol with a common
+    /// stdlib name (e.g., "Hashable").
+    /// </summary>
+    private static bool IsSwiftStdlibProtocol(ProtocolDecl protocolDecl)
+    {
+        // If we have module info, verify it's Swift
+        if (protocolDecl.SwiftTypeName != null)
+            return protocolDecl.SwiftTypeName.Module == "Swift";
+        // If no module info, check mangled name prefix ($ss = Swift stdlib)
+        if (!string.IsNullOrEmpty(protocolDecl.MangledName))
+            return protocolDecl.MangledName.StartsWith("$ss", StringComparison.Ordinal);
+        // No module info available — assume stdlib for backward compat
+        return true;
     }
 
     /// <summary>

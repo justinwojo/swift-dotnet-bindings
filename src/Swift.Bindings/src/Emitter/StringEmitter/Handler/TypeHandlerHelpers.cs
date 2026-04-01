@@ -630,9 +630,11 @@ namespace BindingsGeneration
 
             // Use symbolName as Swift func name (unique per type via hash) to avoid
             // redeclaration errors when multiple types share the same simple name.
+            // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_structDecl, false);
+            _swiftWriter.WriteLine();
+            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor);
             _swiftWriter.WriteLines($$"""
-
-            @_cdecl("{{symbolName}}")
             public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
                 let l = lhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
                 let r = rhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee

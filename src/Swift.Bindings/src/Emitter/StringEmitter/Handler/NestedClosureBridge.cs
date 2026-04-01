@@ -366,7 +366,7 @@ public static class NestedClosureBridge
             // Build return type
             var returnSpec = method.CSSignature[0].SwiftTypeSpec;
             bool returnsValue = !returnSpec.IsEmptyTuple;
-            var swiftReturnType = returnsValue ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnSpec)}" : "";
+            var swiftReturnType = returnsValue ? $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}" : "";
 
             if (j == 0)
             {

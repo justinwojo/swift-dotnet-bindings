@@ -660,7 +660,7 @@ namespace BindingsGeneration
 
             foreach (var type in moduleDecl.Types)
             {
-                _moduleTypes.Add(new NamedTypeSpec(type.SwiftTypeName.ModuleQualifiedName), type);
+                _moduleTypes.TryAdd(new NamedTypeSpec(type.SwiftTypeName.ModuleQualifiedName), type);
             }
 
             moduleDecl.ConformanceGraph = _conformanceGraph;
@@ -763,9 +763,25 @@ namespace BindingsGeneration
                 return null;
             }
 
-            var typeName = GetSwiftTypeName(parentDecl, node.Name);
-            if (_typeDatabase.IsTypeProcessed(typeName))
+            // When a system-module type appears in another module's ABI (e.g., Swift.KeyPath
+            // extended by RichTextKit), use the type's actual module for name qualification.
+            string? moduleNameOverride = null;
+            if (!string.IsNullOrEmpty(node.ModuleName) && parentDecl is ModuleDecl md2 && node.ModuleName != md2.Name)
             {
+                moduleNameOverride = node.ModuleName;
+            }
+
+            var typeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            var typeNameSpec = new NamedTypeSpec(typeName.ModuleQualifiedName);
+            if (_typeDatabase.IsTypeProcessed(typeName) || _moduleTypes.ContainsKey(typeNameSpec))
+            {
+                // Cross-module re-exports (moduleNameOverride set) may appear multiple times
+                // across ABI JSON entries. Skip silently — the first occurrence was already processed.
+                if (moduleNameOverride != null)
+                {
+                    _logger.LogDebug($"Skipping duplicate cross-module type '{typeName}' (already processed).");
+                    return null;
+                }
                 throw new InvalidOperationException($"Type '{node.Name}' already processed.");
             }
 
@@ -787,19 +803,19 @@ namespace BindingsGeneration
             switch (node.DeclKind)
             {
                 case "Struct":
-                    decl = CreateStructDecl(node, parentDecl, moduleDecl, genericParameters);
+                    decl = CreateStructDecl(node, parentDecl, moduleDecl, genericParameters, moduleNameOverride);
                     break;
 
                 case "Enum":
-                    decl = CreateEnumDecl(node, parentDecl, moduleDecl, genericParameters);
+                    decl = CreateEnumDecl(node, parentDecl, moduleDecl, genericParameters, moduleNameOverride);
                     break;
 
                 case "Class":
-                    decl = CreateClassDecl(node, parentDecl, moduleDecl, genericParameters);
+                    decl = CreateClassDecl(node, parentDecl, moduleDecl, genericParameters, moduleNameOverride);
                     break;
 
                 case "Protocol":
-                    decl = CreateProtocolDecl(node, parentDecl, moduleDecl);
+                    decl = CreateProtocolDecl(node, parentDecl, moduleDecl, moduleNameOverride);
                     break;
 
                 default:
@@ -809,6 +825,9 @@ namespace BindingsGeneration
 
             if (decl is not null)
             {
+                // Register immediately so duplicate cross-module re-exports are caught
+                _moduleTypes.TryAdd(new NamedTypeSpec(decl.SwiftTypeName.ModuleQualifiedName), decl);
+
                 var childDecls = CollectDeclarations(node.Children, decl, moduleDecl);
                 decl.Properties.AddRange(childDecls.OfType<PropertyDecl>());
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
@@ -843,7 +862,7 @@ namespace BindingsGeneration
 
                 foreach (var type in decl.Types)
                 {
-                    _moduleTypes.Add(new NamedTypeSpec(type.SwiftTypeName.ModuleQualifiedName), type);
+                    _moduleTypes.TryAdd(new NamedTypeSpec(type.SwiftTypeName.ModuleQualifiedName), type);
                 }
             }
 
@@ -902,9 +921,9 @@ namespace BindingsGeneration
         /// <param name="moduleDecl">The module declaration.</param>
         /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The struct declaration.</returns>
-        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
+        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
+            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
             var decl = new StructDecl
@@ -943,9 +962,9 @@ namespace BindingsGeneration
         /// <param name="moduleDecl">The module declaration.</param>
         /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The enum declaration.</returns>
-        private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
+        private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
+            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
             var decl = new EnumDecl
@@ -1143,9 +1162,9 @@ namespace BindingsGeneration
         /// <param name="moduleDecl">The module declaration.</param>
         /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The class declaration.</returns>
-        private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters)
+        private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name);
+            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
 
             // Detect actors by checking for conformance to the Swift Actor protocol.
             // Use the stable mangled name ($sScA) to avoid false positives from user-defined protocols named "Actor".
@@ -1190,7 +1209,7 @@ namespace BindingsGeneration
         /// <param name="parentDecl">The parent declaration.</param>
         /// <param name="moduleDecl">The module declaration.</param>
         /// <returns>The protocol declaration.</returns>
-        private ProtocolDecl CreateProtocolDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
+        private ProtocolDecl CreateProtocolDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, string? moduleNameOverride = null)
         {
             // Parse associated types from children
             var associatedTypes = new List<AssociatedTypeDecl>();
@@ -1250,7 +1269,7 @@ namespace BindingsGeneration
             var decl = new ProtocolDecl
             {
                 Name = ExtractUniqueName(node.Name),
-                SwiftTypeName = GetSwiftTypeName(parentDecl, node.Name),
+                SwiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride),
                 MangledName = node.MangledName,
                 Properties = new List<PropertyDecl>(),
                 Methods = new List<MethodDecl>(),
@@ -2305,10 +2324,10 @@ namespace BindingsGeneration
             }
         }
 
-        private static SwiftTypeName GetSwiftTypeName(BaseDecl parentDecl, string name)
+        private static SwiftTypeName GetSwiftTypeName(BaseDecl parentDecl, string name, string? moduleNameOverride = null)
             => parentDecl switch
             {
-                ModuleDecl moduleDecl => SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+                ModuleDecl moduleDecl => SwiftTypeName.FromModuleQualifiedName($"{moduleNameOverride ?? moduleDecl.Name}.{name}"),
                 TypeDecl typeDecl => SwiftTypeName.FromModuleQualifiedName($"{typeDecl.SwiftTypeName.ModuleQualifiedName}.{name}"),
                 _ => throw new InvalidOperationException("Parent declaration is not a module or type.")
             };

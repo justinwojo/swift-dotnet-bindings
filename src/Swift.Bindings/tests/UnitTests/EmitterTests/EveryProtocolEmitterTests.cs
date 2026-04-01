@@ -2350,4 +2350,101 @@ public class EveryProtocolEmitterTests
     }
 
     #endregion
+
+    #region Unsatisfied Stdlib Protocol Gate Tests
+
+    [Theory]
+    [InlineData("Hashable")]
+    [InlineData("Equatable")]
+    [InlineData("Comparable")]
+    public void InheritsUnsatisfiedStdlibProtocol_DirectInheritance_ReturnsTrue(string protocolName)
+    {
+        var protocol = CreateProtocolWithInheritance("MyProto", $"Swift.{protocolName}");
+
+        Assert.True(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(protocol));
+    }
+
+    [Fact]
+    public void InheritsUnsatisfiedStdlibProtocol_IndirectHashableViaCustomProtocol_ReturnsTrue()
+    {
+        // Protocol chain: RichTextInsertable -> Swift.Hashable (via allProtocols lookup)
+        var hashableProto = CreateSwiftStdlibProtocol("Hashable");
+        var customProto = CreateProtocolWithInheritance("RichTextInsertable", "Swift.Hashable");
+
+        var allProtocols = new List<ProtocolDecl> { hashableProto, customProto };
+
+        Assert.True(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(customProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsUnsatisfiedStdlibProtocol_NoUnsatisfiedInheritance_ReturnsFalse()
+    {
+        var protocol = CreateProtocolWithInheritance("MyProto", "Swift.Sendable");
+
+        Assert.False(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(protocol));
+    }
+
+    [Theory]
+    [InlineData("Hashable")]
+    [InlineData("Equatable")]
+    [InlineData("Comparable")]
+    public void InheritsUnsatisfiedStdlibProtocol_LibraryDefinedSameName_ReturnsFalse(string protocolName)
+    {
+        // A library-defined protocol named "Hashable" (module != Swift) should NOT
+        // be treated as an unsatisfied stdlib protocol.
+        var protocol = CreateProtocolWithInheritance(protocolName);
+
+        Assert.False(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(protocol));
+    }
+
+    [Fact]
+    public void InheritsUnsatisfiedStdlibProtocol_InheritsLibraryDefinedHashable_ReturnsFalse()
+    {
+        // A protocol that inherits from a library-local "Hashable" (not Swift.Hashable)
+        // should NOT be treated as inheriting an unsatisfied stdlib protocol.
+        // The unqualified name "Hashable" in InheritedProtocols must be resolved
+        // via allProtocols to check the actual module.
+        var libraryHashable = CreateProtocolWithInheritance("Hashable");
+        var myProto = CreateProtocolWithInheritance("MyProto", "Hashable");
+
+        var allProtocols = new List<ProtocolDecl> { libraryHashable, myProto };
+
+        Assert.False(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(myProto, allProtocols));
+    }
+
+    [Fact]
+    public void InheritsUnsatisfiedStdlibProtocol_InheritsSwiftQualifiedHashable_ReturnsTrue()
+    {
+        // A protocol that inherits from "Swift.Hashable" (explicitly qualified)
+        // should be correctly identified without needing allProtocols lookup.
+        var myProto = CreateProtocolWithInheritance("MyProto", "Swift.Hashable");
+
+        Assert.True(EveryProtocolEmitter.InheritsUnsatisfiedStdlibProtocol(myProto));
+    }
+
+    #endregion
+
+    /// <summary>
+    /// Creates a protocol declaration as if it's from the Swift standard library.
+    /// </summary>
+    private static ProtocolDecl CreateSwiftStdlibProtocol(string name)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Swift.{name}"),
+            MangledName = $"$ss{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
 }
