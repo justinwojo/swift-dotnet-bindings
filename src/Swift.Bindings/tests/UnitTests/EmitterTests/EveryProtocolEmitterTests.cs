@@ -2313,4 +2313,41 @@ public class EveryProtocolEmitterTests
     }
 
     #endregion
+
+    #region Swift Keyword Escaping Tests
+
+    [Theory]
+    [InlineData("extension")]
+    [InlineData("class")]
+    [InlineData("func")]
+    [InlineData("var")]
+    [InlineData("import")]
+    public void EmitMethodImplementation_SwiftKeywordParamName_EscapesWithBackticks(string keyword)
+    {
+        // A protocol method whose parameter name is a Swift keyword should
+        // generate backtick-escaped references in the function body.
+        var protocol = CreateSimpleProtocol("FileResolver");
+        protocol.Methods.Add(CreateMethodDeclWithParam("resolve", keyword, "Swift.String"));
+
+        var output = EmitConformance(protocol);
+
+        // The function body should use backtick escaping for the value reference
+        Assert.Contains($"var {keyword}Copy = `{keyword}`", output);
+        // The function signature should use the keyword as a parameter label (valid Swift)
+        Assert.Contains($"{keyword}: Swift.String", output);
+    }
+
+    [Fact]
+    public void EmitMethodImplementation_NonKeywordParamName_NoBackticks()
+    {
+        var protocol = CreateSimpleProtocol("TestProto");
+        protocol.Methods.Add(CreateMethodDeclWithParam("process", "fileName", "Swift.String"));
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("var fileNameCopy = fileName", output);
+        Assert.DoesNotContain("`fileName`", output);
+    }
+
+    #endregion
 }

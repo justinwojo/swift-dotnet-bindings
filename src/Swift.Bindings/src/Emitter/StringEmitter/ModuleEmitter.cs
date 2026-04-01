@@ -119,7 +119,7 @@ namespace BindingsGeneration
                 {
                     outputFile.Write(csOutput);
                 }
-                string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.swift");
+                string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.Wrapper.swift");
                 using (StreamWriter outputFile = new(swiftOutputPath))
                 {
                     outputFile.Write(swiftStringWriter.ToString());

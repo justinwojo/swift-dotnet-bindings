@@ -1525,13 +1525,14 @@ public class EveryProtocolEmitter
             {
                 // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
                 // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
-                argPassList.Add($"let {paramName}NS = {paramName} as AnyObject");
+                var escapedParam = NameProvider.EscapeSwiftKeyword(paramName);
+                argPassList.Add($"let {paramName}NS = {escapedParam} as AnyObject");
                 argPassList.Add($"var {paramName}Ref = Unmanaged.passUnretained({paramName}NS).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
             }
             else
             {
-                argPassList.Add($"var {paramName}Copy = {paramName}");
+                argPassList.Add($"var {paramName}Copy = {NameProvider.EscapeSwiftKeyword(paramName)}");
                 argRefList.Add($"&{paramName}Copy");
             }
         }
@@ -1546,7 +1547,7 @@ public class EveryProtocolEmitter
             var param = method.CSSignature[i + 1]; // +1 to skip return type
             if (param.IsInOut)
             {
-                writebackLines.Add($"{internalNames[i]} = {internalNames[i]}Copy");
+                writebackLines.Add($"{NameProvider.EscapeSwiftKeyword(internalNames[i])} = {internalNames[i]}Copy");
             }
         }
         var writebackCode = writebackLines.Count > 0 ? "\n        " + string.Join("\n        ", writebackLines) : "";
@@ -1839,7 +1840,7 @@ public class EveryProtocolEmitter
         {
             var param = parameters[i];
             var paramName = string.IsNullOrEmpty(param.Name) || param.Name == "_" ? $"arg{i}" : param.Name;
-            lines.Add($"var {paramName}Copy = {paramName}");
+            lines.Add($"var {paramName}Copy = {NameProvider.EscapeSwiftKeyword(paramName)}");
         }
         return lines.Count > 0 ? string.Join("\n        ", lines) : "";
     }

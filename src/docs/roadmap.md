@@ -2,7 +2,7 @@
 
 **Updated**: April 1, 2026
 
-**Current baseline**: 95/95 CS compile, 58/61 Swift compile (GRDB + RichTextKit + YouTubePlayerKit: known non-binding failures).
+**Current baseline**: 95/95 CS compile, 58/61 Swift compile (GRDB + RichTextKit + YouTubePlayerKit: pre-existing generator bugs now unmasked by wrapper filename fix).
 **Skip metrics**: 10,718 emitted members, 2,038 skipped (16% skip rate) across 95 validation targets.
 **Downstream validation**: 630/630 sim tests passing across 20 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.5.0-dev packages.
 
@@ -39,8 +39,7 @@ High skip counts but architecturally difficult. Not scheduled unless a specific 
 | **SwiftUI WritableKeyPath bridging** | — | RichTextKit (2 views) | Picker/Toggle use `WritableKeyPath<Binding<T>, T>` for two-way property access. No direct C# equivalent. |
 | **SwiftUI existential protocol params** | — | RichTextKit (1 view), WhatsNewKit (1 view) | `any Protocol` and protocol compositions in view init params or closure args. Needs witness table bridging. |
 | **SwiftUI generic type params on Views** | — | RichTextKit (1 view) | View itself has generic type parameter. Needs monomorphization or type erasure at ABI boundary. |
-| **SwiftUI Result<T,E> in closures** | — | CodeScanner (1 view) | `(Result<ScanResult, ScanError>) -> Void`. Needs result decomposition into success/error branches. |
-| **SwiftUI Optional<ExternalClass>** | — | CodeScanner (1 view) | `Optional<AVCaptureDevice>`. Needs optional handling for TypeDB-resolved BoundType params. |
+| **NativeAOT MCB callback SIGSEGV** | 3 tests | ClosureEdgeCaseTests | SIGSEGV in Swift cdecl call before C# entered. Specific to `Result<Class, Enum>` type params. Root cause unknown. See `Completed/nativeaot-skipped-tests-fixes.md`. |
 
 ---
 
