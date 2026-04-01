@@ -120,6 +120,16 @@ nuke validate --filter Nuke --verbose
 nuke validate --fetch-first --filter Nuke
 ```
 
+### Building xcframeworks from SPM packages
+
+For SPM-only libraries that don't distribute pre-built xcframeworks, use the standalone [`spm-to-xcframework`](https://github.com/justinwojo/spm-to-xcframework) tool:
+
+```bash
+spm-to-xcframework https://github.com/user/repo --version 1.0.0
+```
+
+This handles `xcodebuild archive` + `xcodebuild -create-xcframework` for all required platforms. Do NOT write custom xcframework build scripts — always use this tool.
+
 ### Validation tiers
 
 - **Tier 1** (34 targets): Established baseline libraries (Alamofire, Nuke, Kingfisher, RxSwift, Stripe, Realm, Stripe3DS2, etc.).

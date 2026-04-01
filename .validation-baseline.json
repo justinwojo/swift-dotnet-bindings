@@ -1,5 +1,5 @@
 {
-  "git_sha": "3eb19adf",
+  "git_sha": "34ecb89a",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17982,
+        "lines": 18057,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -631,29 +631,64 @@
         "lines": 201,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
+      },
+      "CodeScanner": {
+        "compile": "known_errors",
+        "errors": 2,
+        "lines": 924,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "AlertToast": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 159,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "RichTextKit": {
+        "compile": "known_errors",
+        "errors": 37,
+        "lines": 23886,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "WhatsNewKit": {
+        "compile": "known_errors",
+        "errors": 4,
+        "lines": 8049,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "YouTubePlayerKit": {
+        "compile": "known_errors",
+        "errors": 2,
+        "lines": 30905,
+        "dep_compile": "none",
+        "swift_compile": "fail"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 9960,
-    "total_skipped_members": 1913,
-    "skip_rate_pct": 16.1,
+    "total_emitted_members": 10720,
+    "total_skipped_members": 2036,
+    "skip_rate_pct": 16,
     "skip_reasons": {
-      "ModuleInternal": 709,
-      "UnsupportedSignature": 351,
-      "AnyTypeFallback": 310,
-      "SynthesizedCodable": 155,
-      "EveryProtocolConformanceSkipped": 149,
-      "UnsupportedClosure": 148,
-      "UnsatisfiedGenericConstraint": 97,
+      "ModuleInternal": 722,
+      "UnsupportedSignature": 357,
+      "AnyTypeFallback": 315,
+      "SynthesizedCodable": 178,
+      "EveryProtocolConformanceSkipped": 155,
+      "UnsupportedClosure": 153,
+      "UnsatisfiedGenericConstraint": 126,
+      "UnsupportedType": 68,
       "GenericProtocolConstraint": 67,
-      "UnsupportedType": 66,
+      "SwiftUIConstraint": 64,
+      "SwiftUIView": 54,
       "UnsupportedExistential": 41,
-      "SwiftUIConstraint": 33,
-      "StaticProtocolMember": 21,
-      "SwiftUIView": 19,
-      "GenericTypeCallback": 14,
-      "DuplicateSignature": 3,
+      "StaticProtocolMember": 22,
+      "GenericTypeCallback": 15,
+      "DuplicateSignature": 4,
       "UnderscorePrefixInternal": 2,
       "ActorIsolatedAsyncStream": 1
     }

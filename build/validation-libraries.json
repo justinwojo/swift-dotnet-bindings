@@ -766,6 +766,85 @@
       ],
       "note": "Firebase iOS SDK + Google SDKs — download xcframeworks from https://github.com/firebase/firebase-ios-sdk/releases and place in .libraries/Firebase/",
       "tier": 2
+    },
+    {
+      "name": "CodeScanner",
+      "repository": "https://github.com/twostraws/CodeScanner.git",
+      "version": "2.5.2",
+      "revision": "5e886430238944c7200fc9e10dbf2d9550dba865",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "CodeScanner",
+          "framework": "CodeScanner",
+          "knownErrors": 2
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "AlertToast",
+      "repository": "https://github.com/elai950/AlertToast.git",
+      "version": "1.3.9",
+      "revision": "b39252eacd159904afd7d718bba0afabb87f2f2f",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "AlertToast",
+          "framework": "AlertToast"
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "RichTextKit",
+      "repository": "https://github.com/danielsaidi/RichTextKit.git",
+      "version": "1.2",
+      "revision": "8aa44cfa645404ad84e52e3ab7723ecf4b82f92b",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "RichTextKit",
+          "framework": "RichTextKit",
+          "knownErrors": 37
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "WhatsNewKit",
+      "repository": "https://github.com/SvenTiigi/WhatsNewKit.git",
+      "version": "2.2.1",
+      "revision": "6157c77e8be9b3d2310bc680681b61a8d9e290ac",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "WhatsNewKit",
+          "framework": "WhatsNewKit",
+          "knownErrors": 4
+        }
+      ],
+      "tier": 2
+    },
+    {
+      "name": "YouTubePlayerKit",
+      "repository": "https://github.com/SvenTiigi/YouTubePlayerKit.git",
+      "version": "2.0.5",
+      "revision": "1ae827573024ab13dd6adea33b25d3eef6ff667c",
+      "mode": "source",
+      "minIOS": "15.0",
+      "products": [
+        {
+          "scheme": "YouTubePlayerKit",
+          "framework": "YouTubePlayerKit",
+          "knownErrors": 2
+        }
+      ],
+      "tier": 2
     }
   ]
 }
