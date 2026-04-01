@@ -135,4 +135,84 @@ public class MetadataWrapperEmitterTests
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.Contains("Nuke.ImagePipeline.self", swiftOutput);
     }
+
+    /// <summary>
+    /// Noncopyable (~Copyable) struct metadata wrappers must be skipped because
+    /// Swift 6 rejects `T.self as Any.Type` for noncopyable types (Any requires Copyable).
+    /// The handler routes noncopyable types through CallConvSwift fallback (same as internal types).
+    /// </summary>
+    [Fact]
+    public void NoncopyableType_SwiftWrapperSkipped()
+    {
+        // Simulate the decision logic from TypeHandlerHelpers:
+        // Noncopyable types should NOT call EmitIfNeeded.
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = MetadataWrapperEmitter.GetMetadataSymbolName("TestLib", "TestLib.UniqueResource");
+
+        // Create a noncopyable struct: has Escapable but NOT Copyable
+        var noncopyableStruct = new StructDecl
+        {
+            Name = "UniqueResource",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.UniqueResource"),
+            MangledName = "$s",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            GenericParameters = new(),
+            Conformances = new List<TypeConformance>
+            {
+                new(SwiftTypeName.FromModuleQualifiedName("TestLib.UniqueResource"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"), "")
+            },
+            ParentDecl = null!,
+            ModuleDecl = null!,
+            IsFrozen = true,
+            MetadataAccessor = ""
+        };
+
+        bool isNonCopyable = WrapperValidation.IsNonCopyableStructParent(noncopyableStruct);
+        Assert.True(isNonCopyable, "Struct with Escapable but not Copyable should be noncopyable");
+
+        // Gate: skip Swift wrapper for noncopyable types
+        if (!noncopyableStruct.IsModuleInternal && !isNonCopyable)
+            MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, "TestLib", "TestLib.UniqueResource", symbol, ctx);
+
+        var swiftOutput = sw.ToString();
+        Assert.DoesNotContain("@_cdecl", swiftOutput);
+        Assert.DoesNotContain("unsafeBitCast", swiftOutput);
+    }
+
+    [Fact]
+    public void CopyableType_NotSkipped()
+    {
+        // A normal (Copyable) struct should still get the metadata wrapper
+        var copyableStruct = new StructDecl
+        {
+            Name = "NormalType",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.NormalType"),
+            MangledName = "$s",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            GenericParameters = new(),
+            Conformances = new List<TypeConformance>
+            {
+                new(SwiftTypeName.FromModuleQualifiedName("TestLib.NormalType"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Copyable"), ""),
+                new(SwiftTypeName.FromModuleQualifiedName("TestLib.NormalType"),
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Escapable"), "")
+            },
+            ParentDecl = null!,
+            ModuleDecl = null!,
+            IsFrozen = true,
+            MetadataAccessor = ""
+        };
+
+        bool isNonCopyable = WrapperValidation.IsNonCopyableStructParent(copyableStruct);
+        Assert.False(isNonCopyable, "Struct with both Copyable and Escapable should NOT be noncopyable");
+    }
 }

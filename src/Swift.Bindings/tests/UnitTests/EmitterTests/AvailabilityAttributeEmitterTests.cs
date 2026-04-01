@@ -203,4 +203,185 @@ public class AvailabilityAttributeEmitterTests
         Assert.Contains("macos10.15", output);
         Assert.Contains("tvos13.0", output);
     }
+
+    // --- Swift @available propagation to @_cdecl wrappers ---
+
+    [Fact]
+    public void EmitCdeclAnnotation_WithAvailability_EmitsSwiftAvailable()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false, annotations);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 16.0, *)", output);
+        Assert.Contains("@_cdecl(\"SBW_Test_Symbol\")", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_NoAvailability_NoSwiftAvailable()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false);
+
+        var output = sw.ToString();
+        Assert.DoesNotContain("@available", output);
+        Assert.Contains("@_cdecl(\"SBW_Test_Symbol\")", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_MultiplePlatforms_EmitsMultipleAvailable()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null),
+            new("macOS", "13", null, null, false, false, null, null)
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false, annotations);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 16.0, *)", output);
+        Assert.Contains("@available(macOS 13, *)", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_AvailabilityBeforeCdecl()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", true, annotations);
+
+        var output = sw.ToString();
+        // @available should appear before @MainActor and @_cdecl
+        var availableIdx = output.IndexOf("@available");
+        var mainActorIdx = output.IndexOf("@MainActor");
+        var cdeclIdx = output.IndexOf("@_cdecl");
+        Assert.True(availableIdx < mainActorIdx, "@available should come before @MainActor");
+        Assert.True(mainActorIdx < cdeclIdx, "@MainActor should come before @_cdecl");
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_ParentTypeAvailability_Propagated()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        // Parent type has @available(iOS 16.0, *), member has no annotation
+        var parentDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        });
+        var merged = WrapperEmitterHelpers.MergeAvailability(null, parentDecl);
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test", false, merged);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 16.0, *)", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_ParentAndMemberAvailability_BothEmitted()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        // Parent type: iOS 15, member: macOS 13
+        var parentDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "15.0", null, null, false, false, null, null)
+        });
+        var memberAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("macOS", "13", null, null, false, false, null, null)
+        };
+        var merged = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, parentDecl);
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test", false, merged);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 15.0, *)", output);
+        Assert.Contains("@available(macOS 13, *)", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_DuplicatePlatform_Deduplicated()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        // Both parent and member have iOS 16.0
+        var parentDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        });
+        var memberAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+        var merged = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, parentDecl);
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test", false, merged);
+
+        var output = sw.ToString();
+        // Should only appear once despite being in both parent and member
+        var count = output.Split("@available(iOS 16.0, *)").Length - 1;
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void MergeAvailability_NoParentDecl_ReturnsMemberOnly()
+    {
+        var memberAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null)
+        };
+        var result = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, null);
+        Assert.Same(memberAnnotations, result);
+    }
+
+    [Fact]
+    public void MergeAvailability_NoMemberAnnotations_ReturnsParentOnly()
+    {
+        var parentDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "15.0", null, null, false, false, null, null)
+        });
+        var result = WrapperEmitterHelpers.MergeAvailability(null, parentDecl);
+        Assert.NotNull(result);
+        Assert.Single(result!);
+        Assert.Equal("iOS", result![0].Platform);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_DeprecationOnly_NoSwiftAvailable()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        // Unconditional deprecation without platform-specific introduced version
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new(null, null, null, null, true, false, "Use something else", null)
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false, annotations);
+
+        var output = sw.ToString();
+        // No @available emitted for deprecation-only annotations (no platform/version)
+        Assert.DoesNotContain("@available", output);
+    }
 }

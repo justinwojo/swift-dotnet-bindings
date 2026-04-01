@@ -17,8 +17,13 @@ public static class WrapperEmitterHelpers
     /// <param name="swiftWriter">The Swift writer for the wrapper .swift file.</param>
     /// <param name="symbolName">The @_cdecl symbol name string.</param>
     /// <param name="needsMainActor">Whether to prepend @MainActor before @_cdecl.</param>
-    public static void EmitCdeclAnnotation(SwiftWriter swiftWriter, string symbolName, bool needsMainActor)
+    public static void EmitCdeclAnnotation(SwiftWriter swiftWriter, string symbolName, bool needsMainActor,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
+        // Emit Swift @available annotations so the wrapper compiles on device SDKs
+        // where the wrapped API may have platform availability requirements.
+        EmitSwiftAvailability(swiftWriter, availabilityAnnotations);
+
         if (needsMainActor)
         {
             swiftWriter.WriteLine("@MainActor");
@@ -27,6 +32,50 @@ public static class WrapperEmitterHelpers
         swiftWriter.WriteLines($$"""
             @_cdecl("{{symbolName}}")
             """);
+    }
+
+    /// <summary>
+    /// Emits Swift @available annotations for a @_cdecl wrapper function.
+    /// Without these, the wrapper calls an API that requires a newer OS version
+    /// and fails to compile on device SDKs with stricter availability checking.
+    /// </summary>
+    private static void EmitSwiftAvailability(SwiftWriter swiftWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return;
+
+        var emitted = new HashSet<string>();
+        foreach (var annotation in annotations)
+        {
+            if (annotation.Platform != null && annotation.IntroducedVersion != null)
+            {
+                var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
+                if (emitted.Add(key))
+                    swiftWriter.WriteLine($"@available({key}, *)");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merges member-level and parent-type availability annotations for a @_cdecl wrapper.
+    /// @_cdecl wrappers are top-level Swift functions and do NOT inherit the enclosing
+    /// type's availability, so both must be explicitly applied to the wrapper.
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? MergeAvailability(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        BaseDecl? parentDecl)
+    {
+        var parentAnnotations = (parentDecl as TypeDecl)?.AvailabilityAnnotations;
+        if (parentAnnotations == null || parentAnnotations.Count == 0)
+            return memberAnnotations;
+        if (memberAnnotations == null || memberAnnotations.Count == 0)
+            return parentAnnotations;
+
+        // Merge both lists; EmitSwiftAvailability handles dedup
+        var merged = new List<AvailabilityAnnotation>(parentAnnotations.Count + memberAnnotations.Count);
+        merged.AddRange(parentAnnotations);
+        merged.AddRange(memberAnnotations);
+        return merged;
     }
 
     /// <summary>

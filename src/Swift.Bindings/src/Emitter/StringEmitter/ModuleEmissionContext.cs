@@ -219,6 +219,91 @@ public sealed class ModuleEmissionContext
         _emittedSwiftObjectTypes.Add(qualifiedName);
     }
 
+    /// <summary>
+    /// Records a closed generic ISwiftObject type (e.g., Pair&lt;CoordinateRef, LabelRef&gt;)
+    /// for NativeAOT factory registration. Unlike open generics, closed generics can be
+    /// instantiated in a module initializer. Called when emitting MarshalFromSwift&lt;T&gt;
+    /// for bound generic return types.
+    /// </summary>
+    public void RecordBoundGenericSwiftObjectType(string closedGenericTypeName)
+    {
+        if (!closedGenericTypeName.Contains('<'))
+            return; // Not a generic type — use RecordSwiftObjectType instead
+        if (!IsFullyResolvedGeneric(closedGenericTypeName))
+            return;
+        // SwiftOptional<T> is a runtime container type, not a user-defined type.
+        // Registering it in the module initializer causes eager metadata resolution
+        // of T before the wrapper DLL is fully loaded, crashing on NativeAOT device.
+        // SwiftOptional metadata is resolved lazily at first use, which is fine.
+        if (closedGenericTypeName.StartsWith("SwiftOptional<") ||
+            closedGenericTypeName.StartsWith("Swift.SwiftOptional<"))
+            return;
+        if (!_emittedSwiftObjectTypes.Contains(closedGenericTypeName))
+            _emittedSwiftObjectTypes.Add(closedGenericTypeName);
+    }
+
+    /// <summary>
+    /// Checks whether a generic type name is fully resolved (all type arguments at every
+    /// nesting level are namespace-qualified). Returns false for open generics like
+    /// Box&lt;T&gt; or nested cases like Outer&lt;Mod.Pair&lt;T, Mod.B&gt;, Mod.C&gt;.
+    /// </summary>
+    private static bool IsFullyResolvedGeneric(string typeName)
+    {
+        var args = SplitTopLevelTypeArgs(typeName);
+        foreach (var arg in args)
+        {
+            if (arg.Contains('<'))
+            {
+                // Nested generic: check the base type and recurse into its args
+                var baseName = arg.Substring(0, arg.IndexOf('<'));
+                if (!baseName.Contains('.'))
+                    return false;
+                if (!IsFullyResolvedGeneric(arg))
+                    return false;
+            }
+            else if (!arg.Contains('.'))
+            {
+                return false; // Unresolved type parameter (e.g., "T", "T1")
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Splits a generic type name into its top-level type arguments, respecting nested
+    /// angle bracket depth. For "A&lt;B.X&lt;C.Y, D.Z&gt;, E.W&gt;" returns ["B.X&lt;C.Y, D.Z&gt;", "E.W"].
+    /// Returns all fragments (including nested generics) at depth 0 for unresolved-param detection.
+    /// </summary>
+    internal static List<string> SplitTopLevelTypeArgs(string typeName)
+    {
+        var result = new List<string>();
+        var start = typeName.IndexOf('<');
+        if (start < 0)
+            return result;
+        int depth = 0;
+        int argStart = start + 1;
+        for (int i = argStart; i < typeName.Length; i++)
+        {
+            char c = typeName[i];
+            if (c == '<') depth++;
+            else if (c == '>')
+            {
+                if (depth == 0)
+                {
+                    result.Add(typeName.Substring(argStart, i - argStart).Trim());
+                    break;
+                }
+                depth--;
+            }
+            else if (c == ',' && depth == 0)
+            {
+                result.Add(typeName.Substring(argStart, i - argStart).Trim());
+                argStart = i + 1;
+            }
+        }
+        return result;
+    }
+
     private readonly List<(string TypeName, string ProtocolInterface)> _emittedConformances = new();
 
     /// <summary>

@@ -255,7 +255,9 @@ public static class OptionalMarshalClassifier
     {
         // Protocol existential metatypes need parentheses: (any Protocol).self, not any Protocol.self
         var metatype = innerSwiftType.StartsWith("any ") ? $"({innerSwiftType}).self" : $"{innerSwiftType}.self";
-        return $"let {resultVar}: {innerSwiftType}? = {hasValueVar} != 0 ? {payloadVar}.assumingMemoryBound(to: {metatype}).pointee : nil";
+        // Type annotations also need parenthesization: (any P1 & P2)? not any P1 & P2?
+        var typeAnnotation = innerSwiftType.StartsWith("any ") ? $"({innerSwiftType})?" : $"{innerSwiftType}?";
+        return $"let {resultVar}: {typeAnnotation} = {hasValueVar} != 0 ? {payloadVar}.assumingMemoryBound(to: {metatype}).pointee : nil";
     }
 
     /// <summary>

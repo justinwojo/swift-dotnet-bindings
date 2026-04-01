@@ -873,6 +873,88 @@ public class ModuleHandlerTests
         Assert.Equal(2, count);
     }
 
+    [Fact]
+    public void Emit_BoundGenericType_RegisteredInModuleInitializer()
+    {
+        // Fix F: Closed generic types (Pair<CoordinateRef, LabelRef>) must be pre-registered
+        // in the module initializer for NativeAOT. Without this, NativeAOT trims the explicit
+        // ISwiftObject.GetTypeMetadata() on closed generics, causing MarshalFromSwift<T> to fail.
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordSwiftObjectType("CoordinateRef");
+        emissionCtx.RecordBoundGenericSwiftObjectType("TestModule.Pair<TestModule.CoordinateRef, TestModule.LabelRef>");
+
+        var csOutput = EmitModuleWithEmissionContext("TestModule", emissionCtx);
+
+        // Both non-generic and closed generic types should appear in module initializer
+        Assert.Contains("RegisterSwiftObjectFactory<CoordinateRef>()", csOutput);
+        Assert.Contains("RegisterSwiftObjectFactory<TestModule.Pair<TestModule.CoordinateRef, TestModule.LabelRef>>()", csOutput);
+        Assert.Contains("GetTypeMetadata", csOutput);
+    }
+
+    [Fact]
+    public void RecordBoundGenericSwiftObjectType_SkipsNonGenericTypes()
+    {
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordBoundGenericSwiftObjectType("SimpleType");
+
+        // Non-generic types should not be recorded via this method
+        Assert.Empty(emissionCtx.EmittedSwiftObjectTypes);
+    }
+
+    [Fact]
+    public void RecordBoundGenericSwiftObjectType_DeduplicatesEntries()
+    {
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordBoundGenericSwiftObjectType("Mod.Pair<Mod.A, Mod.B>");
+        emissionCtx.RecordBoundGenericSwiftObjectType("Mod.Pair<Mod.A, Mod.B>");
+
+        Assert.Single(emissionCtx.EmittedSwiftObjectTypes);
+    }
+
+    [Fact]
+    public void RecordBoundGenericSwiftObjectType_SkipsOpenGenerics()
+    {
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordBoundGenericSwiftObjectType("Box<T>");
+        emissionCtx.RecordBoundGenericSwiftObjectType("Pair<T1, T2>");
+
+        // Open generics (unresolved type params) should not be recorded
+        Assert.Empty(emissionCtx.EmittedSwiftObjectTypes);
+    }
+
+    [Fact]
+    public void RecordBoundGenericSwiftObjectType_SkipsNestedOpenGenerics()
+    {
+        // P2: Nested generics like Outer<Mod.Pair<T, Mod.B>, Mod.C> must NOT be recorded.
+        // The naive Split(',') approach misclassifies this as closed because fragments
+        // contain dots from the outer type. The depth-aware parser catches it.
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordBoundGenericSwiftObjectType("Outer<Mod.Pair<T, Mod.B>, Mod.C>");
+
+        Assert.Empty(emissionCtx.EmittedSwiftObjectTypes);
+    }
+
+    [Fact]
+    public void RecordBoundGenericSwiftObjectType_AcceptsNestedClosedGenerics()
+    {
+        var emissionCtx = new ModuleEmissionContext();
+        emissionCtx.RecordBoundGenericSwiftObjectType("Outer<Mod.Pair<Mod.A, Mod.B>, Mod.C>");
+
+        // All top-level args are qualified: "Mod.Pair<Mod.A, Mod.B>" and "Mod.C"
+        Assert.Single(emissionCtx.EmittedSwiftObjectTypes);
+    }
+
+    [Theory]
+    [InlineData("A<B.X<C.Y, D.Z>, E.W>", new[] { "B.X<C.Y, D.Z>", "E.W" })]
+    [InlineData("Pair<Mod.A, Mod.B>", new[] { "Mod.A", "Mod.B" })]
+    [InlineData("Box<T>", new[] { "T" })]
+    [InlineData("Outer<Mod.Pair<T, Mod.B>, Mod.C>", new[] { "Mod.Pair<T, Mod.B>", "Mod.C" })]
+    public void SplitTopLevelTypeArgs_ParsesCorrectly(string typeName, string[] expected)
+    {
+        var result = ModuleEmissionContext.SplitTopLevelTypeArgs(typeName);
+        Assert.Equal(expected, result);
+    }
+
     /// <summary>
     /// Helper that emits a module with pre-populated emission context entries (factory types + conformances),
     /// bypassing the full type handler pipeline. This directly tests EmitFrameworkResolver output.
@@ -917,6 +999,45 @@ public class ModuleHandlerTests
         var conductor = new Conductor(loggerFactory);
 
         // Use a TypeHandlerContext with our custom emission context
+        var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+
+        return csStringWriter.ToString();
+    }
+
+    /// <summary>
+    /// Helper that emits a module with a pre-populated ModuleEmissionContext.
+    /// Used when tests need to call methods like RecordBoundGenericSwiftObjectType directly.
+    /// </summary>
+    private static string EmitModuleWithEmissionContext(string moduleName, ModuleEmissionContext emissionCtx)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = moduleName,
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase(moduleName, "/fake/path");
+        typeDatabase.AddModuleDatabase(module);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+
+        var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
         var context = new TypeHandlerContext(null, new(), null, EmissionContext: emissionCtx);
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 

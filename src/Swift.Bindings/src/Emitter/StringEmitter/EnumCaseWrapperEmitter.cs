@@ -238,7 +238,8 @@ public static class EnumCaseWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             enumDecl, memberIsMainActorIsolated: false);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(null, enumDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 

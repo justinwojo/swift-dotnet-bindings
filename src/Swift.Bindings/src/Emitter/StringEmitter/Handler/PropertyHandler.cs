@@ -435,13 +435,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 if (!thunkEligible)
                 {
                     cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, checkEnv) == WrapperDecision.WrapperRequired;
-                    // Optional<existential> setter: @_cdecl is only needed for the GETTER (return type
-                    // too large for CallConvSwift register return). The setter works fine with
-                    // CallConvSwift because parameters are passed by reference/indirect.
-                    if (cdeclEligible && accessor is SetAccessorDecl &&
-                        CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, checkEnv.TypeDatabase) &&
-                        WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
-                        cdeclEligible = false;
                     // Only check ObjC override if no accessor got @_cdecl or thunk
                     if (!cdeclEligible && !needsObjCOverrideWrapper)
                         needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
@@ -538,11 +531,6 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     {
                         var fallbackEnv = (MethodEnvironment)fallbackHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
                         cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, fallbackEnv) == WrapperDecision.WrapperRequired;
-                        // Optional<existential> setter: same guard as pre-check loop above
-                        if (cdeclEligible && accessor is SetAccessorDecl &&
-                            CdeclParamMapper.IsProtocolExistentialType(propertyDecl.SwiftTypeSpec, fallbackEnv.TypeDatabase) &&
-                            WrapperValidation.IsOptionalType(propertyDecl.SwiftTypeSpec))
-                            cdeclEligible = false;
                         if (cdeclEligible)
                             accessorCdeclFlags[accessor] = true; // Update for downstream bookkeeping (SBW_Free, etc.)
                     }
@@ -910,6 +898,47 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         bool isNarrowedNint = false, string? nativePropertyType = null)
     {
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
+
+        // @_cdecl optional existential setter: marshal value to existential container
+        // pointer + hasValue flag. The accessor method accepts (IntPtr, bool) matching
+        // the Swift @_cdecl wrapper's decomposed optional parameters.
+        if (isOptionalExistential && setter.Method.UsesCdeclPropertyWrapper)
+        {
+            var innerProtocolList = propertyEnv.ExistentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec);
+            if (innerProtocolList != null)
+            {
+                var containerType = propertyEnv.ExistentialHandler.GetPInvokeExistentialType(innerProtocolList);
+                var publicType = propertyEnv.ExistentialHandler.GetPublicExistentialType(innerProtocolList);
+                // EC1 uses factory method; EC2+ and well-known types use direct cast
+                bool useFactory = containerType == "Swift.Runtime.ExistentialContainer1" &&
+                    !propertyEnv.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out _);
+                var createExpr = useFactory
+                    ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v)"
+                    : $"((global::Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)__v).GetExistentialContainer()";
+
+                csWriter.WriteLines($$"""
+                    set {
+                        unsafe {
+                            void* __heap = null;
+                            try {
+                                IntPtr __ptr = IntPtr.Zero;
+                                bool __hasVal = value != null;
+                                if (value is { } __v) {
+                                    var __container = {{createExpr}};
+                                    __heap = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{{containerType}}>());
+                                    Unsafe.Copy(__heap, ref __container);
+                                    __ptr = (IntPtr)__heap;
+                                }
+                                {{methodName}}(__ptr, __hasVal);
+                            } finally {
+                                if (__heap != null) NativeMemory.Free(__heap);
+                            }
+                        }
+                    }
+                    """);
+                return;
+            }
+        }
 
         // Existential/optional-existential properties: accessor methods already handle
         // proxy wrapping/unwrapping — just delegate directly

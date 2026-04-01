@@ -1668,7 +1668,7 @@ namespace BindingsGeneration
                 GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                Throws = false,
+                Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
                 Visibility = Visibility.Private,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,

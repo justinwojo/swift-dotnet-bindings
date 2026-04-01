@@ -132,8 +132,7 @@ public class AppDelegate : UIApplicationDelegate
 
 public class MainViewController : UIViewController
 {
-    private UILabel? _resultLabel;
-    private UIScrollView? _scrollView;
+    private UITextView? _resultTextView;
 
     public override bool PrefersStatusBarHidden() => false;
 
@@ -150,12 +149,13 @@ public class MainViewController : UIViewController
         ExtendedLayoutIncludesOpaqueBars = true;
 
         var screenWidth = screenBounds.Width;
+        var screenHeight = screenBounds.Height;
         var safeTop = 60.0;
         var contentWidth = screenWidth - 40;
         var titleHeight = 30.0;
         var buttonHeight = 40.0;
         var spacing = 8.0;
-        var resultLabelHeight = 400.0;
+        var bottomMargin = 20.0;
 
         var currentY = safeTop;
 
@@ -181,24 +181,21 @@ public class MainViewController : UIViewController
         View.AddSubview(runButton);
         currentY += buttonHeight + spacing;
 
-        // Result label with scroll
-        _scrollView = new UIScrollView
+        // Result text view — fill remaining screen height, built-in scrolling
+        var textViewHeight = screenHeight - currentY - bottomMargin;
+        _resultTextView = new UITextView
         {
-            Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, resultLabelHeight),
-            BackgroundColor = UIColor.FromRGB(245, 245, 245),
+            Frame = new CoreGraphics.CGRect(20, currentY, contentWidth, textViewHeight),
+            BackgroundColor = UIColor.FromRGB(30, 30, 30),
+            TextColor = UIColor.FromRGB(220, 220, 220),
+            Font = UIFont.FromName("Menlo", 9) ?? UIFont.SystemFontOfSize(9),
+            Editable = false,
+            Text = "Ready to run tests...",
+            TextContainerInset = new UIEdgeInsets(8, 4, 8, 4),
             Layer = { CornerRadius = 8 }
         };
-
-        _resultLabel = new UILabel
-        {
-            Text = "Ready to run tests...",
-            TextAlignment = UITextAlignment.Left,
-            Lines = 0,
-            Font = UIFont.FromName("Menlo", 9) ?? UIFont.SystemFontOfSize(9),
-            Frame = new CoreGraphics.CGRect(8, 8, contentWidth - 16, resultLabelHeight - 16)
-        };
-        _scrollView.AddSubview(_resultLabel);
-        View.AddSubview(_scrollView);
+        _resultTextView.ClipsToBounds = true;
+        View.AddSubview(_resultTextView);
 
         // Auto-run tests on startup
         _ = RunTestsAsync();
@@ -208,17 +205,11 @@ public class MainViewController : UIViewController
     {
         InvokeOnMainThread(() =>
         {
-            _resultLabel!.Text = text;
-            _resultLabel.SizeToFit();
-            _resultLabel.Frame = new CoreGraphics.CGRect(
-                8, 8,
-                _scrollView!.Frame.Width - 16,
-                Math.Max(_resultLabel.Frame.Height, _scrollView.Frame.Height - 16)
-            );
-            _scrollView.ContentSize = new CoreGraphics.CGSize(
-                _scrollView.Frame.Width - 16,
-                _resultLabel.Frame.Height + 16
-            );
+            _resultTextView!.Text = text;
+            // Auto-scroll to bottom to follow live output
+            var bottom = _resultTextView.ContentSize.Height - _resultTextView.Bounds.Height;
+            if (bottom > 0)
+                _resultTextView.SetContentOffset(new CoreGraphics.CGPoint(0, bottom), false);
         });
     }
 

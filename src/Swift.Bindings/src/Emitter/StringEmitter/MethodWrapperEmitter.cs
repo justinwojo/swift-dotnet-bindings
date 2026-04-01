@@ -441,7 +441,8 @@ public static class MethodWrapperEmitter
         // constraint only (no ABI change). The C# consumer manages thread affinity.
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl ?? (BaseDecl?)parentModuleDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
@@ -918,7 +919,8 @@ public static class MethodWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;

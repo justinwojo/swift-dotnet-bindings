@@ -106,9 +106,13 @@ namespace BindingsGeneration
                 var moduleQualified = _structDecl.SwiftTypeName.ModuleQualifiedName;
                 var moduleName = _structDecl.SwiftTypeName.Module;
 
-                if (_structDecl.IsModuleInternal)
+                if (_structDecl.IsModuleInternal ||
+                    WrapperValidation.IsNonCopyableStructParent(_structDecl))
                 {
-                    // Fallback: use CallConvSwift P/Invoke targeting the dylib's metadata accessor
+                    // Fallback: use CallConvSwift P/Invoke targeting the dylib's metadata accessor.
+                    // Internal types are inaccessible by name in the wrapper.
+                    // Noncopyable (~Copyable) types can't use `T.self as Any.Type` in Swift 6
+                    // (Any requires Copyable conformance), so we skip the @_cdecl wrapper.
                     _writer.WriteLine("static TypeMetadata ISwiftObject.GetTypeMetadata() => PInvoke_getMetadata();");
                     _writer.WriteLine();
 

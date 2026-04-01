@@ -449,6 +449,10 @@ namespace BindingsGeneration
                 if (projection != null)
                 {
                     var marshalType = projection.ContainerTypeName;
+                    // Record closed generic for NativeAOT module initializer registration.
+                    // Without this, NativeAOT trims the explicit ISwiftObject.GetTypeMetadata()
+                    // on closed generic types, causing MarshalFromSwift<T> to fail.
+                    _emissionContext.RecordBoundGenericSwiftObjectType(marshalType);
                     csWriter.WriteLines($$"""
                         unsafe {
                             return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
@@ -463,6 +467,7 @@ namespace BindingsGeneration
                 // TranslateBoundGenericTypeToCSharp which produces fully-qualified C# type names
                 // (not AnyType). MarshalFromSwift<T> instantiates via ISwiftObject.NewFromPayload.
                 var fallbackType = _wrapperSignature.ReturnType;
+                _emissionContext.RecordBoundGenericSwiftObjectType(fallbackType);
                 csWriter.WriteLines($$"""
                     // Bound-generic fallback: factory cannot project {{fallbackType}}
                     unsafe {

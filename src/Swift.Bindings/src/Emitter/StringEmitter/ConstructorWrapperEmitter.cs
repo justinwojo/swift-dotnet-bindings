@@ -517,7 +517,8 @@ public static class ConstructorWrapperEmitter
         // Without this, calling a @MainActor init from a non-isolated @_cdecl function
         // causes a Swift 6 compile error. Safe for synchronous functions (no runtime dispatch).
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
-            needsMainActor: parentTypeDecl?.IsMainActorIsolated == true);
+            needsMainActor: parentTypeDecl?.IsMainActorIsolated == true,
+            availabilityAnnotations: WrapperEmitterHelpers.MergeAvailability(env.MethodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
@@ -1038,7 +1039,8 @@ public static class ConstructorWrapperEmitter
             """);
 
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName,
-            needsMainActor: parentTypeDecl.IsMainActorIsolated);
+            needsMainActor: parentTypeDecl.IsMainActorIsolated,
+            availabilityAnnotations: WrapperEmitterHelpers.MergeAvailability(env.MethodDecl.AvailabilityAnnotations, parentTypeDecl));
 
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;

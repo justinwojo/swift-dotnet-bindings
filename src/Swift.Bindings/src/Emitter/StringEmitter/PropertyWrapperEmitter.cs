@@ -301,7 +301,8 @@ public static class PropertyWrapperEmitter
         // Add @MainActor when wrapping @MainActor-isolated properties.
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
@@ -569,7 +570,8 @@ public static class PropertyWrapperEmitter
         // Add @MainActor when wrapping @MainActor-isolated properties.
         bool needsMainActorSetter = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActorSetter);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActorSetter,
+            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 
@@ -896,7 +898,8 @@ public static class PropertyWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}){cdeclReturnClause} {{");
         swiftWriter.Indent++;
         var getMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
@@ -1077,7 +1080,8 @@ public static class PropertyWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({cdeclParamString}) {{");
         swiftWriter.Indent++;
 

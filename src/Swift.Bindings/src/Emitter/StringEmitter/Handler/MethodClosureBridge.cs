@@ -295,7 +295,8 @@ public static class MethodClosureBridge
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, method.IsMainActorIsolated, method.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentDecl));
         swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
         swiftWriter.WriteLine($"){swiftReturnType} {{");

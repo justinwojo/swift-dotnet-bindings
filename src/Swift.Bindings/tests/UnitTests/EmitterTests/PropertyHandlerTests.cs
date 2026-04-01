@@ -1210,6 +1210,41 @@ public class PropertyHandlerTests
         Assert.DoesNotContain("ToNullable", csOutput);
     }
 
+    [Fact]
+    public void Emit_OptionalExistentialProperty_SetterGetsCdeclWrapper()
+    {
+        // Fix A: Optional<existential> setters must get @_cdecl wrappers, not CallConvSwift.
+        // NativeAOT can't lower Optional<ExistentialContainer> through Swift calling convention.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+        RegisterProtocol(typeDatabase, "TestModule.DataCaching");
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Processor", moduleDecl);
+
+        var optionalExistentialType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.DataCaching") }));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "dataCache", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalExistentialType;
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Both getter AND setter should get @_cdecl wrappers in Swift
+        Assert.Contains("SBW_Get_TestModule_Processor_dataCache", swiftOutput);
+        Assert.Contains("SBW_Set_TestModule_Processor_dataCache", swiftOutput);
+        // C# setter P/Invoke uses CallConvCdecl
+        Assert.Contains("CallConvCdecl", csOutput);
+        // Setter property body marshals value to (IntPtr, bool) via existential container
+        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v)", csOutput);
+        Assert.Contains("NativeMemory.Alloc", csOutput);
+        Assert.Contains("Unsafe.Copy(__heap, ref __container)", csOutput);
+        Assert.Contains("__hasVal", csOutput);
+        // Setter passes decomposed args — NOT simple pass-through
+        Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
+    }
+
     #endregion
 
     #region G1 — Generic Type Params in Properties Tests
@@ -1932,6 +1967,36 @@ public class PropertyHandlerTests
         Assert.Contains("GetData", csOutput);
         // Swift wrapper should include error handling
         Assert.Contains("catch", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncThrowingPropertyGetter_SwiftWrapperUsesTryAwait()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "data", "Swift.Int", throws: true);
+        var (_, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Async throwing property getter must use "try await" not bare "await"
+        Assert.Contains("try await", swiftOutput);
+        Assert.DoesNotContain("\n            await __self.data\n", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_AsyncNonThrowingPropertyGetter_SwiftWrapperUsesAwait()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("DataFetcher", moduleDecl);
+
+        var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "value", "Swift.Int", throws: false);
+        var (_, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Non-throwing async property getter should use "await" without "try"
+        Assert.Contains("await", swiftOutput);
+        Assert.DoesNotContain("try await", swiftOutput);
     }
 
     [Fact]

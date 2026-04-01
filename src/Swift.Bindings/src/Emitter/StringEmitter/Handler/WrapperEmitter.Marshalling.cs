@@ -383,12 +383,14 @@ namespace BindingsGeneration
         {
             // Skip type conversions for property accessors — property wrapper handles conversion
             // EXCEPT Optional-existential parameters which need container extraction here
+            // (but NOT for @_cdecl setters — PropertyHandler.EmitSetter handles marshalling)
             if (_env.MethodDecl.IsAccessor)
             {
                 foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
                 {
                     if (_env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec) &&
-                        !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec))
+                        !_env.ClosureHandler.IsOptionalClosure(argumentDecl.SwiftTypeSpec) &&
+                        !_env.MethodDecl.UsesCdeclPropertyWrapper)
                         TryEmitParameterConversionViaProjection(csWriter, argumentDecl);
                 }
                 return;
