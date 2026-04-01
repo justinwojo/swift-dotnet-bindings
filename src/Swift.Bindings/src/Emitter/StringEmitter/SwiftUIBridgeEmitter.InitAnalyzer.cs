@@ -195,6 +195,22 @@ public static partial class SwiftUIBridgeEmitter
                 HasUserData: true);
         }
 
+        // Result<T,E> closure: (Result<Success, Failure>) -> Void
+        // Decomposed into two callbacks: onSuccess(T) and onError(E)
+        if (hasArgs && !hasReturn && closureSpec.ArgumentCount() == 1)
+        {
+            var singleArg = closureSpec.EachArgument().First();
+            if (singleArg is NamedTypeSpec resultSpec &&
+                resultSpec.Name == "Swift.Result" &&
+                resultSpec.GenericParameters.Count == 2)
+            {
+                var resultParam = MapResultClosureType(paramName, resultSpec, context);
+                if (resultParam != null)
+                    return resultParam;
+                // Fall through to typed closure handling if Result inner types unsupported
+            }
+        }
+
         // Typed closure: max 4 parameters
         if (hasArgs && closureSpec.ArgumentCount() > 4)
             return null;
@@ -267,6 +283,56 @@ public static partial class SwiftUIBridgeEmitter
             HasUserData: true,
             ClosureArguments: closureArgs,
             ClosureReturn: closureReturn);
+    }
+
+    /// <summary>
+    /// Maps a (Result&lt;Success, Failure&gt;) -> Void closure to a ResultClosure bridge parameter.
+    /// Decomposes the Result into two separate callbacks: onSuccess(T) and onError(E).
+    /// T and E must individually resolve to bridge-supported types.
+    /// </summary>
+    private static BridgeParameter? MapResultClosureType(string paramName, NamedTypeSpec resultSpec, BridgeContext? context)
+    {
+        var successTypeSpec = resultSpec.GenericParameters[0];
+        var errorTypeSpec = resultSpec.GenericParameters[1];
+
+        // Map success type — must be a NamedTypeSpec resolvable to Primitive, String, BoundType, or BoundStruct
+        BridgeParameter? successParam = null;
+        if (successTypeSpec is NamedTypeSpec successNamed)
+        {
+            successParam = MapPrimitiveOrString("success", successNamed);
+            if (successParam == null && context?.TypeDatabase != null)
+            {
+                successParam = MapDatabaseType("success", successNamed, context);
+                if (successParam != null && successParam.Kind is not BridgeParameterKind.BoundType
+                                                              and not BridgeParameterKind.BoundStruct)
+                    successParam = null;
+            }
+        }
+        if (successParam == null) return null;
+
+        // Map error type — same constraints as success
+        BridgeParameter? errorParam = null;
+        if (errorTypeSpec is NamedTypeSpec errorNamed)
+        {
+            errorParam = MapPrimitiveOrString("error", errorNamed);
+            if (errorParam == null && context?.TypeDatabase != null)
+            {
+                errorParam = MapDatabaseType("error", errorNamed, context);
+                if (errorParam != null && errorParam.Kind is not BridgeParameterKind.BoundType
+                                                            and not BridgeParameterKind.BoundStruct)
+                    errorParam = null;
+            }
+        }
+        if (errorParam == null) return null;
+
+        return new BridgeParameter(
+            paramName,
+            BridgeParameterKind.ResultClosure,
+            SwiftAbiType: "ResultClosure", // Not used directly — emitter handles 4-param expansion
+            CSharpPInvokeType: "IntPtr",
+            HasUserData: true,
+            ResultSuccessParam: successParam,
+            ResultErrorParam: errorParam);
     }
 
     private static BridgeParameter? MapNamedType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
@@ -409,11 +475,13 @@ public static partial class SwiftUIBridgeEmitter
         if (record.Kind == TypeRecordKind.Class)
         {
             // Class parameters cross the ABI as UnsafeMutableRawPointer.
-            // C# passes IntPtr via SafeHandle.DangerousGetHandle().
+            // C# passes IntPtr via SafeHandle.DangerousGetHandle() (Swift classes)
+            // or .Handle (ObjC-bridgeable classes like AVCaptureDevice).
             var dotIndex = namedSpec.Name.IndexOf('.');
             var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
             // Use fully-qualified C# name for cross-module type safety
             var csharpName = record.CSharpTypeName.FullyQualifiedName;
+            var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record);
 
             return new BridgeParameter(
                 paramName,
@@ -421,7 +489,8 @@ public static partial class SwiftUIBridgeEmitter
                 SwiftAbiType: "UnsafeMutableRawPointer",
                 CSharpPInvokeType: "IntPtr",
                 BridgeTypeName: swiftSimpleName,
-                CSharpTypeName: csharpName);
+                CSharpTypeName: csharpName,
+                IsObjCBridgeable: isObjCBridgeable);
         }
 
         if (record.Kind == TypeRecordKind.Struct)
@@ -741,6 +810,9 @@ public enum BridgeParameterKind
     OptionalWrapped,
     /// <summary>Array&lt;T&gt; where T is a bridgeable type (Primitive, BoundEnum). Crosses ABI as pointer + count.</summary>
     BridgeArray,
+    /// <summary>Closure taking Result&lt;Success, Failure&gt; and returning Void.
+    /// Decomposed at the ABI into two separate callbacks (onSuccess + onError).</summary>
+    ResultClosure,
 }
 
 /// <summary>
@@ -792,7 +864,11 @@ public record BridgeParameter(
     bool IsBinding = false,
     /// <summary>True when the original Swift type is SwiftUI.Image. Bridges as String (SF Symbol name),
     /// but the Wrapper constructs Image(systemName:) from the stored string.</summary>
-    bool IsSwiftUIImage = false)
+    bool IsSwiftUIImage = false,
+    /// <summary>Mapped success type for ResultClosure (e.g., BoundType for ScanResult).</summary>
+    BridgeParameter? ResultSuccessParam = null,
+    /// <summary>Mapped error type for ResultClosure (e.g., BoundType for ScanError).</summary>
+    BridgeParameter? ResultErrorParam = null)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).
@@ -801,5 +877,6 @@ public record BridgeParameter(
     /// </summary>
     public bool IsUpdatable => Kind is not BridgeParameterKind.VoidClosure
                                     and not BridgeParameterKind.TypedClosure
+                                    and not BridgeParameterKind.ResultClosure
                                     and not BridgeParameterKind.BridgeArray;
 }

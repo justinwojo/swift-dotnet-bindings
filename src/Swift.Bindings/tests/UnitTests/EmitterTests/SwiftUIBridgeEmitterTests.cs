@@ -9397,4 +9397,452 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Optional<ExternalClass> Init Param Gate
+
+    [Fact]
+    public void MapOptionalBoundType_ReturnsOptionalWrapped_WhenClassInTypeDatabase()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("device", "TestModule.LottieAnimation");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.Equal("device", result[0].Name);
+        Assert.NotNull(result[0].InnerParameter);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].InnerParameter!.Kind);
+        Assert.Equal("LottieAnimation", result[0].InnerParameter!.BridgeTypeName);
+    }
+
+    [Fact]
+    public void MapOptionalBoundType_SetsObjCBridgeable_WhenRecordHasFlag()
+    {
+        var typeDb = CreateObjCBridgeableClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("device", "TestModule.AVCaptureDevice");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result[0].Kind);
+        Assert.True(result[0].InnerParameter!.IsObjCBridgeable);
+    }
+
+    [Fact]
+    public void MapOptionalBoundType_EmitsNullablePointerSwiftAbi()
+    {
+        var typeDb = CreateClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithOptionalType("device", "TestModule.LottieAnimation");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Equal("UnsafeMutableRawPointer?", result![0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+    }
+
+    [Fact]
+    public void MapBoundType_SetsObjCBridgeable_OnClassParameter()
+    {
+        var typeDb = CreateObjCBridgeableClassTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("device", "TestModule.AVCaptureDevice");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundType, result[0].Kind);
+        Assert.True(result[0].IsObjCBridgeable);
+    }
+
+    private static ITypeDatabase CreateObjCBridgeableClassTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.AVCaptureDevice"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("AVFoundation", "AVCaptureDevice"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AVCaptureDevice"),
+                MetadataAccessor = "$s10TestModule15AVCaptureDeviceCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+    }
+
+    #endregion
+
+    #region Result<T,E> Closure Param Gate
+
+    [Fact]
+    public void MapResultClosure_ReturnsResultClosure_WithTwoBoundTypes()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.ResultClosure, result[0].Kind);
+        Assert.Equal("completion", result[0].Name);
+    }
+
+    [Fact]
+    public void MapResultClosure_SetsSuccessAndErrorParams()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        var param = result![0];
+        Assert.NotNull(param.ResultSuccessParam);
+        Assert.NotNull(param.ResultErrorParam);
+        Assert.Equal(BridgeParameterKind.BoundType, param.ResultSuccessParam!.Kind);
+        Assert.Equal(BridgeParameterKind.BoundType, param.ResultErrorParam!.Kind);
+        Assert.Equal("ScanResult", param.ResultSuccessParam.BridgeTypeName);
+        Assert.Equal("ScanError", param.ResultErrorParam.BridgeTypeName);
+    }
+
+    [Fact]
+    public void MapResultClosure_WithPrimitiveSuccessAndClassError()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        // (Result<Int, ScanError>) -> Void
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "Swift.Int", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        var param = result![0];
+        Assert.Equal(BridgeParameterKind.ResultClosure, param.Kind);
+        Assert.Equal(BridgeParameterKind.Primitive, param.ResultSuccessParam!.Kind);
+        Assert.Equal(BridgeParameterKind.BoundType, param.ResultErrorParam!.Kind);
+    }
+
+    [Fact]
+    public void MapResultClosure_WithStringSuccess()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "Swift.String", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        var param = result![0];
+        Assert.Equal(BridgeParameterKind.ResultClosure, param.Kind);
+        Assert.Equal(BridgeParameterKind.String, param.ResultSuccessParam!.Kind);
+    }
+
+    [Fact]
+    public void MapResultClosure_ReturnsNull_WhenSuccessTypeUnsupported()
+    {
+        // No type database — Swift.Result<UnsupportedType, ScanError> can't resolve
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.Unknown", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void MapResultClosure_ReturnsNull_WhenErrorTypeUnsupported()
+    {
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.ScanResult"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanResult"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.Unknown");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void MapResultClosure_IsNotUpdatable()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.False(result![0].IsUpdatable);
+    }
+
+    [Fact]
+    public void EmitResultClosure_SwiftContainsSwitchStatement()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var view = CreateSimpleViewStruct("ScannerView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("case .success(let value):", swiftContent);
+        Assert.Contains("case .failure(let error):", swiftContent);
+        Assert.Contains("cb_completionSuccess?", swiftContent);
+        Assert.Contains("cb_completionError?", swiftContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_SwiftHasFourCallbackParams()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var view = CreateSimpleViewStruct("ScannerView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("completionSuccessCallback", swiftContent);
+        Assert.Contains("completionSuccessUserData", swiftContent);
+        Assert.Contains("completionErrorCallback", swiftContent);
+        Assert.Contains("completionErrorUserData", swiftContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_CSharpHasTwoActionParams()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var view = CreateSimpleViewStruct("ScannerView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Action<TestModule.ScanResult>? completionSuccess = null", csContent);
+        Assert.Contains("Action<TestModule.ScanError>? completionError = null", csContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_CSharpHasTwoTrampolines()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var view = CreateSimpleViewStruct("ScannerView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("CompletionSuccessTrampoline", csContent);
+        Assert.Contains("CompletionErrorTrampoline", csContent);
+        Assert.Contains("[UnmanagedCallersOnly", csContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_WrapperHasResultClosureProperty()
+    {
+        var typeDb = CreateResultClosureTypeDatabase();
+        var view = CreateSimpleViewStruct("ScannerView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("let completion: (Result<ScanResult, ScanError>) -> Void", swiftContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_ObjCBranch_UsesGetNSObject()
+    {
+        // Result<ObjCClass, SwiftClass> — ObjC success branch should use GetNSObject, not MarshalFromSwift
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.ObjCResult"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("AVFoundation", "AVCaptureDevice"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ObjCResult"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Class,
+            },
+            ["TestModule.ScanError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanError"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var view = CreateSimpleViewStruct("ObjCResultView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ObjCResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // ObjC branch uses GetNSObject, not MarshalFromSwift
+        Assert.Contains("GetNSObject", csContent);
+        // Non-ObjC error branch still uses MarshalFromSwift
+        Assert.Contains("MarshalFromSwift", csContent);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // ObjC branch uses passUnretained (no ownership transfer)
+        Assert.Contains("passUnretained", swiftContent);
+        // Non-ObjC error branch uses passRetained (ownership transfer to C#)
+        Assert.Contains("passRetained", swiftContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_ObjCBridgeableStruct_UsesPassUnretainedAndGetNSObject()
+    {
+        // Result<ObjCBridgeableStruct, SwiftClass> — ObjC struct success branch (e.g., URL → NSUrl)
+        // must use passUnretained on Swift side and GetNSObject on C# side, NOT heap-allocate.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.URL"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.URL"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+                Kind = TypeRecordKind.Struct,
+            },
+            ["TestModule.ScanError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanError"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var view = CreateSimpleViewStruct("UrlResultView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.URL", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // ObjC-bridgeable struct branch uses GetNSObject, not MarshalFromSwift
+        Assert.Contains("GetNSObject", csContent);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // ObjC-bridgeable struct uses passUnretained (as AnyObject), not heap-allocate
+        Assert.Contains("passUnretained", swiftContent);
+        Assert.Contains("as AnyObject", swiftContent);
+        // Should NOT contain allocate for the success branch (only non-ObjC BoundStruct would)
+        Assert.DoesNotContain("UnsafeMutableRawPointer.allocate", swiftContent);
+    }
+
+    [Fact]
+    public void EmitResultClosure_BoundStructBranch_HasNilGuard()
+    {
+        // Result with BoundStruct error — should guard against nil callback before allocation
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.ScanResult"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanResult"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+            ["TestModule.ScanError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanError"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null, // Non-raw-value enum → BoundStruct
+            },
+        });
+        var view = CreateSimpleViewStruct("StructResultView");
+        view.Methods.Add(CreateConstructorWithResultClosure("completion",
+            "TestModule.ScanResult", "TestModule.ScanError"));
+        var views = new List<TypeDecl> { view };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // BoundStruct branch must have nil guard before allocation
+        Assert.Contains("guard cb_completionError != nil else { return }", swiftContent);
+    }
+
+    private static ITypeDatabase CreateResultClosureTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.ScanResult"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanResult"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanResult"),
+                MetadataAccessor = "$s10TestModule10ScanResultCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+            ["TestModule.ScanError"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ScanError"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanError"),
+                MetadataAccessor = "$s10TestModule9ScanErrorCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+    }
+
+    private static MethodDecl CreateConstructorWithResultClosure(string paramName,
+        string successType, string errorType)
+    {
+        // Build (Result<Success, Failure>) -> Void closure spec
+        var resultTypeSpec = new NamedTypeSpec("Swift.Result");
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec(successType));
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec(errorType));
+
+        var closureSpec = new ClosureTypeSpec(
+            resultTypeSpec,  // argument: Result<T, E>
+            TupleTypeSpec.Empty);  // return: Void
+
+        return CreateConstructorWithClosureSpec(paramName, closureSpec);
+    }
+
+    #endregion
 }

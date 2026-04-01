@@ -675,6 +675,88 @@ public func SBW_TEST_PlayerStyleView_GetPlayerValue(_ handle: UnsafeMutableRawPo
     }
 }
 
+// MARK: - ResultCompletionView helpers (Result<T,E> closure param)
+
+extension SBW_SwiftBindingsTestLib_ResultCompletionView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_ResultCompletionView_Wrapper { hostingController.rootView }
+}
+
+/// Invoke the completion closure with .success(SimpleModel(value:)).
+/// Returns 1 on success, -1 if handle invalid.
+@_cdecl("SBW_TEST_ResultCompletionView_InvokeSuccess")
+public func SBW_TEST_ResultCompletionView_InvokeSuccess(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ResultCompletionView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ResultCompletionView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let model = SimpleModel(value: value)
+        session.rootView.completion(.success(model))
+        return 1
+    }
+}
+
+/// Invoke the completion closure with .failure(ScanError(code:)).
+/// Returns 1 on success, -1 if handle invalid.
+@_cdecl("SBW_TEST_ResultCompletionView_InvokeError")
+public func SBW_TEST_ResultCompletionView_InvokeError(
+    _ handle: UnsafeMutableRawPointer?,
+    _ errorCode: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ResultCompletionView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ResultCompletionView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let error = ScanError(code: errorCode)
+        session.rootView.completion(.failure(error))
+        return 1
+    }
+}
+
+// MARK: - ResultWithStructView helpers (Result<BoundType, BoundStruct> closure)
+
+extension SBW_SwiftBindingsTestLib_ResultWithStructView_Session {
+    var rootView: SBW_SwiftBindingsTestLib_ResultWithStructView_Wrapper { hostingController.rootView }
+}
+
+/// Invoke completion with .success(SimpleModel(value:)).
+@_cdecl("SBW_TEST_ResultWithStructView_InvokeSuccess")
+public func SBW_TEST_ResultWithStructView_InvokeSuccess(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ResultWithStructView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ResultWithStructView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let model = SimpleModel(value: value)
+        session.rootView.completion(.success(model))
+        return 1
+    }
+}
+
+/// Invoke completion with .failure(DetailedError.validation(code:)).
+@_cdecl("SBW_TEST_ResultWithStructView_InvokeError")
+public func SBW_TEST_ResultWithStructView_InvokeError(
+    _ handle: UnsafeMutableRawPointer?,
+    _ value: Int32
+) -> Int32 {
+    return SBW_onMainThread {
+        guard let handle = handle,
+              SBW_SwiftBindingsTestLib_ResultWithStructView_liveHandles.contains(handle) else { return -1 }
+        let session = Unmanaged<SBW_SwiftBindingsTestLib_ResultWithStructView_Session>
+            .fromOpaque(handle).takeUnretainedValue()
+        let error = DetailedError.validation(code: value)
+        session.rootView.completion(.failure(error))
+        return 1
+    }
+}
+
 // MARK: - RichToolbarView helpers (dual string params)
 
 /// Read the title length from RichToolbarView's state.

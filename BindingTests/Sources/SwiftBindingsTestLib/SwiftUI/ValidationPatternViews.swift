@@ -144,3 +144,47 @@ public struct SymbolIconView: View {
         icon
     }
 }
+
+// MARK: - Result<T,E> Closure Param (CodeScanner pattern)
+
+/// Custom error type for Result closure testing (conforms to Error).
+public class ScanError: Error {
+    public let code: Int32
+    public init(code: Int32) { self.code = code }
+}
+
+/// Replicates CodeScanner's `(Result<ScanResult, ScanError>) -> Void` callback pattern.
+/// The bridge decomposes the Result into two C callbacks: onSuccess + onError.
+/// Tests that the Swift wrapper switch dispatches correctly.
+public struct ResultCompletionView: View {
+    let completion: (Result<SimpleModel, ScanError>) -> Void
+
+    public init(completion: @escaping (Result<SimpleModel, ScanError>) -> Void) {
+        self.completion = completion
+    }
+
+    public var body: some View {
+        Text("ResultCompletion")
+    }
+}
+
+/// Non-raw-value enum conforming to Error for BoundStruct Result testing.
+/// Associated values make it non-RawRepresentable → BoundStruct in the bridge.
+public enum DetailedError: Error {
+    case validation(code: Int32)
+    case network(code: Int32)
+}
+
+/// Tests Result<BoundType, BoundStruct> — the error branch uses heap-allocate + initializeMemory
+/// (non-raw-value enum as BoundStruct). Exercises the P2 nil-guard fix and BoundStruct ABI path.
+public struct ResultWithStructView: View {
+    let completion: (Result<SimpleModel, DetailedError>) -> Void
+
+    public init(completion: @escaping (Result<SimpleModel, DetailedError>) -> Void) {
+        self.completion = completion
+    }
+
+    public var body: some View {
+        Text("ResultWithStruct")
+    }
+}

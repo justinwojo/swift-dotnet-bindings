@@ -711,6 +711,15 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"    let {param.Name}Callback: ({param.SwiftAbiType.TrimEnd('?')})?");
                 sb.AppendLine($"    let {param.Name}UserData: UnsafeMutableRawPointer?");
             }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
+                var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
+                sb.AppendLine($"    let {param.Name}SuccessCallback: ({successAbi.TrimEnd('?')})?");
+                sb.AppendLine($"    let {param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                sb.AppendLine($"    let {param.Name}ErrorCallback: ({errorAbi.TrimEnd('?')})?");
+                sb.AppendLine($"    let {param.Name}ErrorUserData: UnsafeMutableRawPointer?");
+            }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 sb.AppendLine($"    let {param.Name}: {GetSwiftNativeType(param)}");
@@ -727,6 +736,15 @@ public static partial class SwiftUIBridgeEmitter
             {
                 initParams.Add($"{param.Name}Callback: {param.SwiftAbiType}");
                 initParams.Add($"{param.Name}UserData: UnsafeMutableRawPointer?");
+            }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
+                var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
+                initParams.Add($"{param.Name}SuccessCallback: {successAbi}");
+                initParams.Add($"{param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                initParams.Add($"{param.Name}ErrorCallback: {errorAbi}");
+                initParams.Add($"{param.Name}ErrorUserData: UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
@@ -772,6 +790,13 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"        self.{param.Name}Callback = {param.Name}Callback");
                 sb.AppendLine($"        self.{param.Name}UserData = {param.Name}UserData");
             }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                sb.AppendLine($"        self.{param.Name}SuccessCallback = {param.Name}SuccessCallback");
+                sb.AppendLine($"        self.{param.Name}SuccessUserData = {param.Name}SuccessUserData");
+                sb.AppendLine($"        self.{param.Name}ErrorCallback = {param.Name}ErrorCallback");
+                sb.AppendLine($"        self.{param.Name}ErrorUserData = {param.Name}ErrorUserData");
+            }
             else if (!hasUpdatableParams && param.Kind == BridgeParameterKind.BoundStruct)
             {
                 sb.AppendLine($"        self.{param.Name} = {param.Name}Ptr.assumingMemoryBound(to: {param.BridgeTypeName}.self).pointee");
@@ -797,6 +822,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sb.AppendLine($"        let cb_{param.Name} = {param.Name}Callback; let ud_{param.Name} = {param.Name}UserData");
             }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                sb.AppendLine($"        let cb_{param.Name}Success = {param.Name}SuccessCallback; let ud_{param.Name}Success = {param.Name}SuccessUserData");
+                sb.AppendLine($"        let cb_{param.Name}Error = {param.Name}ErrorCallback; let ud_{param.Name}Error = {param.Name}ErrorUserData");
+            }
         }
 
         // Always use Wrapper pattern (Session 5: lifecycle + universal modifiers)
@@ -817,6 +847,8 @@ public static partial class SwiftUIBridgeEmitter
                 wrapperArgs.Add($"{param.Name}: {{\n            DispatchQueue.main.async {{ cb_{param.Name}?(ud_{param.Name}) }}\n        }}");
             else if (param.Kind == BridgeParameterKind.TypedClosure)
                 wrapperArgs.Add(BuildTypedClosureViewInitArg(param));
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+                wrapperArgs.Add(BuildResultClosureViewInitArg(param));
             else if (param.Kind == BridgeParameterKind.BridgeArray)
                 wrapperArgs.Add($"{param.Name}: {param.Name}");
         }
@@ -841,6 +873,15 @@ public static partial class SwiftUIBridgeEmitter
             {
                 createParams.Add($"_ {param.Name}Callback: {param.SwiftAbiType}");
                 createParams.Add($"_ {param.Name}UserData: UnsafeMutableRawPointer?");
+            }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                var successAbi = BuildResultBranchSwiftAbiType(param.ResultSuccessParam!);
+                var errorAbi = BuildResultBranchSwiftAbiType(param.ResultErrorParam!);
+                createParams.Add($"_ {param.Name}SuccessCallback: {successAbi}");
+                createParams.Add($"_ {param.Name}SuccessUserData: UnsafeMutableRawPointer?");
+                createParams.Add($"_ {param.Name}ErrorCallback: {errorAbi}");
+                createParams.Add($"_ {param.Name}ErrorUserData: UnsafeMutableRawPointer?");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
@@ -887,6 +928,13 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sessionArgs.Add($"{param.Name}Callback: {param.Name}Callback");
                 sessionArgs.Add($"{param.Name}UserData: {param.Name}UserData");
+            }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                sessionArgs.Add($"{param.Name}SuccessCallback: {param.Name}SuccessCallback");
+                sessionArgs.Add($"{param.Name}SuccessUserData: {param.Name}SuccessUserData");
+                sessionArgs.Add($"{param.Name}ErrorCallback: {param.Name}ErrorCallback");
+                sessionArgs.Add($"{param.Name}ErrorUserData: {param.Name}ErrorUserData");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
@@ -1054,6 +1102,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 var swiftClosureType = GetSwiftClosureType(param);
                 sb.AppendLine($"    let {param.Name}: {swiftClosureType}");
+            }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                var resultType = GetSwiftResultType(param);
+                sb.AppendLine($"    let {param.Name}: ({resultType}) -> Void");
             }
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
@@ -1929,7 +1982,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
-        var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure);
+        var hasClosures = bridgeParams.Any(p => p.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure or BridgeParameterKind.ResultClosure);
         var hasStrings = bridgeParams.Any(p => p.Kind == BridgeParameterKind.String ||
             (p.Kind == BridgeParameterKind.OptionalWrapped && p.InnerParameter?.Kind == BridgeParameterKind.String));
         var hasModifiers = modifiers != null && modifiers.Count > 0;
@@ -1949,6 +2002,13 @@ public static partial class SwiftUIBridgeEmitter
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Callback");
                 createPInvokeParams.Add($"IntPtr {param.Name}UserData");
+            }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                createPInvokeParams.Add($"IntPtr {param.Name}SuccessCallback");
+                createPInvokeParams.Add($"IntPtr {param.Name}SuccessUserData");
+                createPInvokeParams.Add($"IntPtr {param.Name}ErrorCallback");
+                createPInvokeParams.Add($"IntPtr {param.Name}ErrorUserData");
             }
             else if (param.Kind == BridgeParameterKind.String)
             {
@@ -2094,6 +2154,15 @@ public static partial class SwiftUIBridgeEmitter
             EmitTypedClosureTrampoline(sb, param);
         }
 
+        // Result closure trampolines (two per ResultClosure: success + error)
+        foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.ResultClosure))
+        {
+            var successTrampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "SuccessTrampoline";
+            var errorTrampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + "ErrorTrampoline";
+            EmitResultBranchTrampoline(sb, successTrampolineName, param.ResultSuccessParam!);
+            EmitResultBranchTrampoline(sb, errorTrampolineName, param.ResultErrorParam!);
+        }
+
         // Lifecycle trampolines (Session 5)
         EmitCSharpLifecycleTrampolines(sb);
 
@@ -2155,6 +2224,15 @@ public static partial class SwiftUIBridgeEmitter
         var optionalParams = new List<string>();
         foreach (var param in bridgeParams)
         {
+            // ResultClosure expands into two factory params: onSuccess + onError
+            if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                var successCsharp = GetClosureArgCSharpType(param.ResultSuccessParam!);
+                var errorCsharp = GetClosureArgCSharpType(param.ResultErrorParam!);
+                optionalParams.Add($"Action<{successCsharp}>? {param.Name}Success = null");
+                optionalParams.Add($"Action<{errorCsharp}>? {param.Name}Error = null");
+                continue;
+            }
             var type = GetFactoryParamType(param);
             var isOptionalString = param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String;
             var defaultVal = param.Kind is BridgeParameterKind.VoidClosure or BridgeParameterKind.TypedClosure ? " = null"
@@ -2209,6 +2287,29 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}    {param.Name}Callback = (IntPtr)fn;");
                 sb.AppendLine($"{indent}}}");
                 sb.AppendLine();
+            }
+
+            // Setup ResultClosure parameters (two callbacks per param: success + error)
+            foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.ResultClosure))
+            {
+                foreach (var branch in new[] { "Success", "Error" })
+                {
+                    var branchParam = branch == "Success" ? param.ResultSuccessParam! : param.ResultErrorParam!;
+                    var factoryName = $"{param.Name}{branch}";
+                    var trampolineName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..] + $"{branch}Trampoline";
+                    sb.AppendLine($"{indent}IntPtr {factoryName}Callback = IntPtr.Zero;");
+                    sb.AppendLine($"{indent}IntPtr {factoryName}UserData = IntPtr.Zero;");
+                    sb.AppendLine($"{indent}if ({factoryName} != null)");
+                    sb.AppendLine($"{indent}{{");
+                    sb.AppendLine($"{indent}    var h = GCHandle.Alloc({factoryName});");
+                    sb.AppendLine($"{indent}    closureHandles.Add(h);");
+                    sb.AppendLine($"{indent}    {factoryName}UserData = GCHandle.ToIntPtr(h);");
+                    var fnPtrType = BuildResultBranchFnPtrType(branchParam);
+                    sb.AppendLine($"{indent}    {fnPtrType} fn = &{trampolineName};");
+                    sb.AppendLine($"{indent}    {factoryName}Callback = (IntPtr)fn;");
+                    sb.AppendLine($"{indent}}}");
+                    sb.AppendLine();
+                }
             }
 
             // String encoding (includes Optional<String> params)
@@ -2393,6 +2494,13 @@ public static partial class SwiftUIBridgeEmitter
                 args.Add($"{param.Name}Callback");
                 args.Add($"{param.Name}UserData");
             }
+            else if (param.Kind == BridgeParameterKind.ResultClosure)
+            {
+                args.Add($"{param.Name}SuccessCallback");
+                args.Add($"{param.Name}SuccessUserData");
+                args.Add($"{param.Name}ErrorCallback");
+                args.Add($"{param.Name}ErrorUserData");
+            }
             else if (param.Kind == BridgeParameterKind.String)
             {
                 args.Add($"(IntPtr){param.Name}Ptr");
@@ -2476,6 +2584,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         BridgeParameterKind.VoidClosure => "Action?",
         BridgeParameterKind.TypedClosure => GetTypedClosureFactoryType(param),
+        BridgeParameterKind.ResultClosure => "Action?", // Not used directly — ResultClosure expands to 2 params in factory
         BridgeParameterKind.String => "string?",
         BridgeParameterKind.Primitive when param.CSharpConversion != null => "bool",
         BridgeParameterKind.BoundEnum => param.CSharpTypeName!,
@@ -3139,6 +3248,212 @@ public static partial class SwiftUIBridgeEmitter
         fnPtrTypes.Add("IntPtr"); // userData
         fnPtrTypes.Add(closureReturn?.CSharpPInvokeType ?? "void"); // return type
         return $"delegate* unmanaged[Cdecl]<{string.Join(", ", fnPtrTypes)}>";
+    }
+
+    /// <summary>
+    /// Builds the Swift @convention(c) ABI type for one branch of a ResultClosure callback.
+    /// </summary>
+    private static string BuildResultBranchSwiftAbiType(BridgeParameter branchParam)
+    {
+        var abiArgs = new List<string>();
+        if (branchParam.Kind == BridgeParameterKind.String)
+        {
+            abiArgs.Add("UnsafePointer<UInt8>?");
+            abiArgs.Add("Int"); // length
+        }
+        else
+        {
+            abiArgs.Add(branchParam.SwiftAbiType);
+        }
+        abiArgs.Add("UnsafeMutableRawPointer?"); // userData
+        return $"(@convention(c) ({string.Join(", ", abiArgs)}) -> Void)?";
+    }
+
+    /// <summary>
+    /// Builds the C# delegate* unmanaged function pointer type for one branch of a ResultClosure.
+    /// </summary>
+    private static string BuildResultBranchFnPtrType(BridgeParameter branchParam)
+    {
+        var fnPtrTypes = new List<string>();
+        if (branchParam.Kind == BridgeParameterKind.String)
+        {
+            fnPtrTypes.Add("IntPtr"); // ptr
+            fnPtrTypes.Add("nint");   // len
+        }
+        else
+        {
+            fnPtrTypes.Add(branchParam.CSharpPInvokeType);
+        }
+        fnPtrTypes.Add("IntPtr"); // userData
+        fnPtrTypes.Add("void");   // return
+        return $"delegate* unmanaged[Cdecl]<{string.Join(", ", fnPtrTypes)}>";
+    }
+
+    /// <summary>
+    /// Gets the Swift native Result type string for a ResultClosure parameter.
+    /// e.g., "Result&lt;ScanResult, ScanError&gt;" for two BoundType branches.
+    /// </summary>
+    private static string GetSwiftResultType(BridgeParameter param)
+    {
+        var successType = GetSwiftTypeFromAbi(param.ResultSuccessParam!);
+        var errorType = GetSwiftTypeFromAbi(param.ResultErrorParam!);
+        return $"Result<{successType}, {errorType}>";
+    }
+
+    /// <summary>
+    /// Emits the ResultClosure [UnmanagedCallersOnly] trampoline for one branch (success or error).
+    /// </summary>
+    private static void EmitResultBranchTrampoline(StringBuilder sb, string trampolineName, BridgeParameter branchParam)
+    {
+        var trampolineParams = new List<string>();
+        if (branchParam.Kind == BridgeParameterKind.String)
+        {
+            trampolineParams.Add("IntPtr valuePtr");
+            trampolineParams.Add("nint valueLen");
+        }
+        else
+        {
+            trampolineParams.Add($"{branchParam.CSharpPInvokeType} value");
+        }
+        trampolineParams.Add("IntPtr userData");
+
+        sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
+        sb.AppendLine($"        private static void {trampolineName}({string.Join(", ", trampolineParams)})");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (userData != IntPtr.Zero)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var h = GCHandle.FromIntPtr(userData);");
+
+        var csharpType = GetClosureArgCSharpType(branchParam);
+        if (branchParam.Kind == BridgeParameterKind.String)
+        {
+            sb.AppendLine($"                if (h.Target is Action<{csharpType}> action)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var str = \"\";");
+            sb.AppendLine("                    if (valuePtr != IntPtr.Zero && valueLen > 0)");
+            sb.AppendLine("                        unsafe { str = Encoding.UTF8.GetString((byte*)valuePtr, (int)valueLen); }");
+            sb.AppendLine("                    action(str);");
+            sb.AppendLine("                }");
+        }
+        else if (branchParam.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
+        {
+            sb.AppendLine($"                if (h.Target is Action<{csharpType}> action)");
+            sb.AppendLine("                {");
+            if (branchParam.IsObjCBridgeable)
+            {
+                // ObjC class: value IS the raw object handle (from Unmanaged.passUnretained).
+                // GetNSObject wraps it without ownership transfer — safe because the Swift
+                // Result case binding keeps the object alive for the callback duration.
+                sb.AppendLine($"                    var obj = ObjCRuntime.Runtime.GetNSObject<{branchParam.CSharpTypeName}>(value)!;");
+            }
+            else
+            {
+                sb.AppendLine($"                    var obj = ({branchParam.CSharpTypeName})Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{branchParam.CSharpTypeName}>(value);");
+            }
+            sb.AppendLine("                    action(obj);");
+            sb.AppendLine("                }");
+        }
+        else
+        {
+            // Primitive
+            var delegateArg = branchParam.SwiftConversion != null ? $"value {branchParam.SwiftConversion}" : "value";
+            sb.AppendLine($"                if (h.Target is Action<{csharpType}> action)");
+            sb.AppendLine($"                    action({delegateArg});");
+        }
+
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Builds the Swift closure body for the wrapper init arg of a ResultClosure parameter.
+    /// The closure switches on .success/.failure and calls the appropriate C callback.
+    /// </summary>
+    private static string BuildResultClosureViewInitArg(BridgeParameter param)
+    {
+        var sb = new StringBuilder();
+        var resultType = GetSwiftResultType(param);
+        var successParam = param.ResultSuccessParam!;
+        var errorParam = param.ResultErrorParam!;
+
+        sb.Append($"{param.Name}: {{ (result: {resultType}) in\n");
+
+        // Guard against nil callbacks — if C# didn't provide either callback, skip
+        sb.Append($"            switch result {{\n");
+
+        // .success branch
+        sb.Append($"            case .success(let value):\n");
+        sb.Append(BuildResultBranchCallbackInvocation("Success", successParam, param.Name));
+
+        // .failure branch
+        sb.Append($"            case .failure(let error):\n");
+        sb.Append(BuildResultBranchCallbackInvocation("Error", errorParam, param.Name));
+
+        sb.Append($"            }}\n");
+        sb.Append($"        }}");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds the Swift callback invocation for one branch of a Result closure.
+    /// </summary>
+    private static string BuildResultBranchCallbackInvocation(string branch, BridgeParameter branchParam, string closureName)
+    {
+        var sb = new StringBuilder();
+        var varName = branch == "Success" ? "value" : "error";
+        var cbName = $"cb_{closureName}{branch}";
+        var udName = $"ud_{closureName}{branch}";
+
+        if (branchParam.Kind == BridgeParameterKind.String)
+        {
+            sb.Append($"                let {varName}Bytes = Array({varName}.utf8)\n");
+            sb.Append($"                {varName}Bytes.withUnsafeBufferPointer {{ buf in\n");
+            sb.Append($"                    {cbName}?(buf.baseAddress, Int(buf.count), {udName})\n");
+            sb.Append($"                }}\n");
+        }
+        else if (branchParam.Kind == BridgeParameterKind.BoundType)
+        {
+            if (branchParam.IsObjCBridgeable)
+            {
+                // ObjC class: passUnretained is safe because the Swift Result case
+                // binding keeps the object alive for the callback duration. C# uses
+                // GetNSObject to wrap without ownership transfer.
+                sb.Append($"                {cbName}?(Unmanaged.passUnretained({varName}).toOpaque(), {udName})\n");
+            }
+            else
+            {
+                sb.Append($"                {cbName}?(Unmanaged.passRetained({varName}).toOpaque(), {udName})\n");
+            }
+        }
+        else if (branchParam.Kind == BridgeParameterKind.BoundStruct)
+        {
+            if (branchParam.IsObjCBridgeable)
+            {
+                // ObjC-bridgeable struct (e.g., URL → NSUrl): crosses ABI as ObjC object
+                // pointer, not heap-allocated Swift struct buffer. passUnretained is safe
+                // because the Swift Result case binding keeps the value alive.
+                sb.Append($"                {cbName}?(Unmanaged.passUnretained({varName} as AnyObject).toOpaque(), {udName})\n");
+            }
+            else
+            {
+                var typeName = branchParam.BridgeTypeName;
+                // Guard against nil callback to avoid leaking heap-allocated BoundStruct values.
+                // Same pattern as BuildComplexClosureViewInitArg's nil guard.
+                sb.Append($"                guard {cbName} != nil else {{ return }}\n");
+                sb.Append($"                let {varName}Ptr = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{typeName}>.size, alignment: MemoryLayout<{typeName}>.alignment)\n");
+                sb.Append($"                {varName}Ptr.initializeMemory(as: {typeName}.self, repeating: {varName}, count: 1)\n");
+                sb.Append($"                {cbName}?({varName}Ptr, {udName})\n");
+            }
+        }
+        else
+        {
+            // Primitive
+            var conversion = branchParam.CSharpConversion != null ? $"{varName} {branchParam.CSharpConversion}" : varName;
+            sb.Append($"                {cbName}?({conversion}, {udName})\n");
+        }
+
+        return sb.ToString();
     }
 
     private static string GetInitDescription(ViewBridgeInfo info)

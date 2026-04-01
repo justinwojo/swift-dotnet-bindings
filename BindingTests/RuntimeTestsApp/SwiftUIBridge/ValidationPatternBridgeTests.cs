@@ -342,6 +342,131 @@ public class ValidationPatternBridgeTests : TestBase
         }
         TestLogger.Info("SymbolIconView: different symbol passed");
     }
+    // ────────────────────────────────────────────────────────────────
+    // ResultCompletionView — CodeScanner pattern (Result<T,E> closure)
+    // Tests the Result closure decomposition: .success → onSuccess,
+    // .failure → onError callback dispatch.
+    // ────────────────────────────────────────────────────────────────
+
+    // ────────────────────────────────────────────────────────────────
+    // ResultWithStructView — Result<BoundType, BoundStruct> closure
+    // Tests the BoundStruct error branch: heap-allocate + nil guard.
+    // ────────────────────────────────────────────────────────────────
+
+    public unsafe void TestResultWithStructView_SuccessCallbackFires()
+    {
+        ResultSuccessCallbackState.Reset();
+        ResultStructErrorCallbackState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> successCb = &ResultSuccessCallbackState.OnSuccess;
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCb = &ResultStructErrorCallbackState.OnStructError;
+        var handle = BridgeNativeMethods.ResultWithStructView_Create(
+            (IntPtr)successCb, IntPtr.Zero, (IntPtr)errorCb, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ResultWithStructView handle != 0");
+
+        var invokeResult = BridgeTestHelpers.ResultWithStructView_InvokeSuccess(handle, 77);
+        AssertEqual(1, invokeResult, "ResultWithStructView invoke success succeeded");
+        AssertEqual(1, ResultSuccessCallbackState.CallCount, "success callback fired once");
+        AssertTrue(ResultSuccessCallbackState.LastModelPtr != IntPtr.Zero, "success model ptr != 0");
+        AssertEqual(0, ResultStructErrorCallbackState.CallCount, "error callback not fired");
+
+        BridgeNativeMethods.ResultWithStructView_Free(handle);
+        TestLogger.Info("ResultWithStructView: success (BoundType) callback passed");
+    }
+
+    public unsafe void TestResultWithStructView_ErrorCallbackFiresWithBoundStruct()
+    {
+        ResultSuccessCallbackState.Reset();
+        ResultStructErrorCallbackState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> successCb = &ResultSuccessCallbackState.OnSuccess;
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCb = &ResultStructErrorCallbackState.OnStructError;
+        var handle = BridgeNativeMethods.ResultWithStructView_Create(
+            (IntPtr)successCb, IntPtr.Zero, (IntPtr)errorCb, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ResultWithStructView handle != 0");
+
+        // Invoke .failure(TransformOutcome.completed(result: 55))
+        var invokeResult = BridgeTestHelpers.ResultWithStructView_InvokeError(handle, 55);
+        AssertEqual(1, invokeResult, "ResultWithStructView invoke error succeeded");
+        AssertEqual(0, ResultSuccessCallbackState.CallCount, "success callback not fired");
+        AssertEqual(1, ResultStructErrorCallbackState.CallCount, "error callback fired once");
+        AssertTrue(ResultStructErrorCallbackState.LastOutcomePtr != IntPtr.Zero, "outcome ptr != 0");
+
+        // The heap-allocated BoundStruct is owned by C# — just deallocate the raw memory.
+        // In production, SwiftSafeHandle<T> handles this via VWT Destroy + NativeMemory.Free.
+        System.Runtime.InteropServices.NativeMemory.Free((void*)ResultStructErrorCallbackState.LastOutcomePtr);
+
+        BridgeNativeMethods.ResultWithStructView_Free(handle);
+        TestLogger.Info("ResultWithStructView: error (BoundStruct) callback passed");
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // ResultCompletionView — CodeScanner pattern (Result<T,E> closure)
+    // Tests the Result closure decomposition: .success → onSuccess,
+    // .failure → onError callback dispatch.
+    // ────────────────────────────────────────────────────────────────
+
+    public unsafe void TestResultCompletionView_CreateAndGetVC()
+    {
+        ResultSuccessCallbackState.Reset();
+        ResultErrorCallbackState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> successCb = &ResultSuccessCallbackState.OnSuccess;
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCb = &ResultErrorCallbackState.OnError;
+        var handle = BridgeNativeMethods.ResultCompletionView_Create(
+            (IntPtr)successCb, IntPtr.Zero, (IntPtr)errorCb, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ResultCompletionView handle != 0");
+
+        var vcPtr = BridgeNativeMethods.ResultCompletionView_GetViewController(handle);
+        AssertTrue(vcPtr != IntPtr.Zero, "ResultCompletionView GetVC != 0");
+
+        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        TestLogger.Info("ResultCompletionView: create/getVC/free cycle passed");
+    }
+
+    public unsafe void TestResultCompletionView_SuccessCallbackFires()
+    {
+        ResultSuccessCallbackState.Reset();
+        ResultErrorCallbackState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> successCb = &ResultSuccessCallbackState.OnSuccess;
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCb = &ResultErrorCallbackState.OnError;
+        var handle = BridgeNativeMethods.ResultCompletionView_Create(
+            (IntPtr)successCb, IntPtr.Zero, (IntPtr)errorCb, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ResultCompletionView handle != 0");
+
+        // Invoke .success(SimpleModel(value: 42)) from Swift
+        var invokeResult = BridgeTestHelpers.ResultCompletionView_InvokeSuccess(handle, 42);
+        AssertEqual(1, invokeResult, "ResultCompletionView invoke success succeeded");
+        AssertEqual(1, ResultSuccessCallbackState.CallCount, "success callback fired once");
+        AssertTrue(ResultSuccessCallbackState.LastModelPtr != IntPtr.Zero, "success model ptr != 0");
+        AssertEqual(0, ResultErrorCallbackState.CallCount, "error callback not fired");
+
+        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        TestLogger.Info("ResultCompletionView: success callback fire passed");
+    }
+
+    public unsafe void TestResultCompletionView_ErrorCallbackFires()
+    {
+        ResultSuccessCallbackState.Reset();
+        ResultErrorCallbackState.Reset();
+
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> successCb = &ResultSuccessCallbackState.OnSuccess;
+        delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCb = &ResultErrorCallbackState.OnError;
+        var handle = BridgeNativeMethods.ResultCompletionView_Create(
+            (IntPtr)successCb, IntPtr.Zero, (IntPtr)errorCb, IntPtr.Zero);
+        AssertTrue(handle != IntPtr.Zero, "ResultCompletionView handle != 0");
+
+        // Invoke .failure(ScanError(code: -99)) from Swift
+        var invokeResult = BridgeTestHelpers.ResultCompletionView_InvokeError(handle, -99);
+        AssertEqual(1, invokeResult, "ResultCompletionView invoke error succeeded");
+        AssertEqual(0, ResultSuccessCallbackState.CallCount, "success callback not fired");
+        AssertEqual(1, ResultErrorCallbackState.CallCount, "error callback fired once");
+        AssertTrue(ResultErrorCallbackState.LastErrorPtr != IntPtr.Zero, "error ptr != 0");
+
+        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        TestLogger.Info("ResultCompletionView: error callback fire passed");
+    }
 }
 
 #endif

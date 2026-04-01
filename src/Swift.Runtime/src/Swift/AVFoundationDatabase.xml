@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="AVFoundation" modulePath="/System/Library/Frameworks/AVFoundation.framework/AVFoundation">
     <entities>
+        <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureDevice">
+            <typedeclaration kind="class" name="AVCaptureDevice" module="AVFoundation" mangledName="$sSo17AVCaptureDeviceC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureSession">
+            <typedeclaration kind="class" name="AVCaptureSession" module="AVFoundation" mangledName="$sSo16AVCaptureSessionC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureVideoOrientation">
             <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" />
         </entity>

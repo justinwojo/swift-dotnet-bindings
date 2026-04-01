@@ -510,6 +510,36 @@ internal static class BridgeNativeMethods
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void SymbolIconView_Free(IntPtr handle);
+
+    // --- ResultWithStructView (Result<BoundType, BoundStruct> closure gate) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultWithStructView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ResultWithStructView_Create(
+        IntPtr completionSuccessCallback, IntPtr completionSuccessUserData,
+        IntPtr completionErrorCallback, IntPtr completionErrorUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultWithStructView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ResultWithStructView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultWithStructView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ResultWithStructView_Free(IntPtr handle);
+
+    // --- ResultCompletionView (Result<T,E> closure gate) ---
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultCompletionView_Create")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ResultCompletionView_Create(
+        IntPtr completionSuccessCallback, IntPtr completionSuccessUserData,
+        IntPtr completionErrorCallback, IntPtr completionErrorUserData);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultCompletionView_GetViewController")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern IntPtr ResultCompletionView_GetViewController(IntPtr handle);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultCompletionView_Free")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern void ResultCompletionView_Free(IntPtr handle);
 }
 
 #endregion
@@ -740,6 +770,24 @@ internal static class BridgeTestHelpers
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_SymbolIconView_GetIconLength")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int SymbolIconView_GetIconLength(IntPtr handle);
+
+    // ResultWithStructView (Result<BoundType, BoundStruct> closure gate)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ResultWithStructView_InvokeSuccess")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ResultWithStructView_InvokeSuccess(IntPtr handle, int value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ResultWithStructView_InvokeError")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ResultWithStructView_InvokeError(IntPtr handle, int value);
+
+    // ResultCompletionView (Result<T,E> closure gate)
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ResultCompletionView_InvokeSuccess")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ResultCompletionView_InvokeSuccess(IntPtr handle, int value);
+
+    [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ResultCompletionView_InvokeError")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static extern int ResultCompletionView_InvokeError(IntPtr handle, int errorCode);
 }
 
 #endregion

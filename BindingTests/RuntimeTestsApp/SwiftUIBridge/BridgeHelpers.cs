@@ -299,6 +299,67 @@ internal static class AsyncCallbackState
 
 #endregion
 
+#region Result Closure Callback State
+
+internal static class ResultSuccessCallbackState
+{
+    internal static volatile IntPtr LastModelPtr;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastModelPtr = IntPtr.Zero;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnSuccess(IntPtr modelPtr, IntPtr userData)
+    {
+        LastModelPtr = modelPtr;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
+internal static class ResultErrorCallbackState
+{
+    internal static volatile IntPtr LastErrorPtr;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastErrorPtr = IntPtr.Zero;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnError(IntPtr errorPtr, IntPtr userData)
+    {
+        LastErrorPtr = errorPtr;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
+internal static class ResultStructErrorCallbackState
+{
+    internal static volatile IntPtr LastOutcomePtr;
+    internal static volatile int CallCount;
+
+    internal static void Reset()
+    {
+        LastOutcomePtr = IntPtr.Zero;
+        CallCount = 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    internal static void OnStructError(IntPtr outcomePtr, IntPtr userData)
+    {
+        LastOutcomePtr = outcomePtr;
+        Interlocked.Increment(ref CallCount);
+    }
+}
+
+#endregion
+
 #region Async View Helper
 
 internal static class AsyncViewHelper

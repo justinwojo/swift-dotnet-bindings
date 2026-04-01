@@ -208,9 +208,9 @@ For every view that fell back to template, the specific blocking parameter was i
 | **Enum with associated values** | 1 | 8% | Yes (targeted) | `AlertToast.DisplayMode`, `AlertToast.AlertType` in AlertToast |
 | **Optional<Enum> param** | 1 | 8% | Yes (targeted) | `Optional<AlertToast.AlertStyle>` in AlertToast |
 | **SwiftUI.Image param** | 3 | 25% | Yes (targeted) | `SwiftUI.Image` in RichTextKit Menu, ExportMenu, ShareMenu |
-| **Closure with complex param** | 2 | 17% | Partially | `(Result<ScanResult, ScanError>) -> ()` in CodeScanner, `(RichTextViewComponent) -> ()` in RichTextKit |
+| **Closure with complex param** | 2 | 17% | Partially | `(Result<ScanResult, ScanError>) -> ()` in CodeScanner **(fixed — Session 6)**, `(RichTextViewComponent) -> ()` in RichTextKit |
 | **Generic type param on View** | 1 | 8% | No (architectural) | `NSMutableParagraphStyleValueLabel` in RichTextKit |
-| **Optional<external class>** | 1 | 8% | Yes (targeted) | `Optional<AVCaptureDevice>` in CodeScanner |
+| **Optional<external class>** | 1 | 8% | Yes (targeted) | `Optional<AVCaptureDevice>` in CodeScanner **(fixed — Session 6)** |
 
 *Note: Many views are blocked by multiple gates simultaneously. The count shows how many views each gate blocks.*
 
@@ -499,6 +499,39 @@ Added 3 more synthetic views exercising Session 2 parameter gates that had zero 
 16 runtime tests across 8 synthetic views, all passing on iOS Simulator:
 - 5 views from Session 4 (zero-param, class+string, BoundStruct enum, BoundStruct closure, dual-string)
 - 3 views added post-session (Binding<Bool>, Array<Int>, SwiftUI.Image)
+
+---
+
+## Session 6: Result<T,E> Closures + Optional<ExternalClass> — COMPLETE
+
+**Date**: April 2026
+
+### Implementation Summary
+
+Two new parameter gates added to `SwiftUIBridgeEmitter.InitAnalyzer.cs`:
+
+1. **Result<T,E> closure params**: Detects `(Result<Success, Failure>) -> Void` closures and decomposes them into two C callbacks: `onSuccess(T)` and `onError(E)`. The Swift wrapper switches on `.success`/`.failure` and invokes the appropriate callback. T and E must individually resolve to Primitive, String, BoundType, or BoundStruct. C# consumers get two separate `Action<T>?` factory params.
+
+2. **Optional<ExternalClass> init params**: Added `AVCaptureDevice` and `AVCaptureSession` to `AVFoundationDatabase.xml`. Also propagated `IsObjCBridgeable` flag on Class BridgeParameters in `MapDatabaseType` so the C# factory uses `.Handle` (ObjC classes) vs `.Payload.DangerousGetHandle()` (Swift classes).
+
+### Bridge Rate
+
+No new views fully unblocked — CodeScannerView still has `Array<AVMetadataObject.ObjectType>` blocker. But blocking param count reduced from 4 → 1.
+
+### Tests Added
+
+19 new unit tests (9283 total, 0 failures):
+- 4 Optional<BoundType> tests (OptionalWrapped mapping, ObjCBridgeable flag, nullable pointer ABI, class ObjCBridgeable)
+- 8 Result<T,E> closure tests (BoundType success/error, mixed primitive+class, String success, unsupported fallback, IsNotUpdatable)
+- 4 Result<T,E> emission tests (Swift switch/callback, 4-param ABI, C# factory params, trampolines)
+- 2 ObjC/BoundStruct ABI correctness tests (ObjC-bridgeable struct uses passUnretained+GetNSObject, BoundStruct has nil guard)
+- 1 ObjC-bridgeable class emission test (passUnretained on Swift side, GetNSObject on C# side)
+
+5 new runtime tests across 2 synthetic views:
+- ResultCompletionView (Result<BoundType, BoundType>): create/getVC/free, success callback, error callback
+- ResultWithStructView (Result<BoundType, BoundStruct>): success callback (BoundType), error callback (BoundStruct heap-allocate path)
+
+Validation: 95/95 targets, 9283 unit tests, 1285 runtime tests.
 
 ---
 
