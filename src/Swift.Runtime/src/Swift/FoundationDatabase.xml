@@ -218,6 +218,13 @@
             <typedeclaration kind="class" name="NSNotification.Name" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- Decimal — Swift value type bridging to NSDecimalNumber (ObjC class).
+             Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSDecimalNumber">
+            <typedeclaration kind="struct" name="Decimal" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true"
+                             nativeType="Foundation.NSDecimalNumber" objcBridgeable="true" />
+        </entity>
         <!-- CharacterSet — bridges to NSCharacterSet -->
         <entity managedNameSpace="Foundation" managedTypeName="NSCharacterSet">
             <typedeclaration kind="class" name="CharacterSet" module="Foundation"

@@ -199,7 +199,7 @@ public static partial class SwiftUIBridgeEmitter
         if (hasArgs && closureSpec.ArgumentCount() > 4)
             return null;
 
-        // Map each closure argument to a bridge-compatible type (primitives, String, classes)
+        // Map each closure argument to a bridge-compatible type (primitives, String, classes, opaque enums/structs)
         var closureArgs = new List<BridgeParameter>();
         int argIndex = 0;
         foreach (var arg in closureSpec.EachArgument())
@@ -210,8 +210,11 @@ public static partial class SwiftUIBridgeEmitter
             if (mapped == null && context?.TypeDatabase != null)
             {
                 mapped = MapDatabaseType($"arg{argIndex}", namedArg, context);
-                if (mapped != null && mapped.Kind != BridgeParameterKind.BoundType)
-                    mapped = null; // Only classes via TypeDB in closures, not enums/structs
+                // Classes cross ABI as Unmanaged pointer; BoundStruct (non-frozen enums/structs)
+                // cross ABI as allocated buffer pointer — both are IntPtr-compatible for @convention(c).
+                if (mapped != null && mapped.Kind is not BridgeParameterKind.BoundType
+                                                  and not BridgeParameterKind.BoundStruct)
+                    mapped = null;
             }
             if (mapped == null)
                 return null;
@@ -272,6 +275,34 @@ public static partial class SwiftUIBridgeEmitter
         if (namedSpec.Name == "Swift.Optional" && namedSpec.GenericParameters.Count == 1)
         {
             return MapOptionalType(paramName, namedSpec, context);
+        }
+
+        // Binding<T>: unwrap to inner type, bridge as normal value with Binding projection in Wrapper.
+        // Only intercept when the inner type IS supported; otherwise fall through to MapDatabaseType
+        // so Binding<UnsupportedType> still gets the generic BoundType treatment it had before.
+        if (namedSpec.Name is "SwiftUI.Binding" or "SwiftUICore.Binding" && namedSpec.GenericParameters.Count == 1)
+        {
+            var bindingResult = MapBindingType(paramName, namedSpec, context);
+            if (bindingResult != null)
+                return bindingResult;
+            // Unsupported inner type — fall through to MapDatabaseType
+        }
+
+        // Array<T>: bridge as pointer + count across ABI.
+        // Only intercept when the element type IS supported; otherwise fall through to MapDatabaseType
+        // so Array<UnsupportedType> still gets the generic BoundType treatment it had before.
+        if (namedSpec.Name == "Swift.Array" && namedSpec.GenericParameters.Count == 1)
+        {
+            var arrayResult = MapArrayType(paramName, namedSpec, context);
+            if (arrayResult != null)
+                return arrayResult;
+            // Unsupported element type — fall through to MapDatabaseType
+        }
+
+        // SwiftUI.Image: bridge as String (SF Symbol name), construct Image in wrapper
+        if (namedSpec.Name is "SwiftUI.Image" or "SwiftUICore.Image")
+        {
+            return MapSwiftUIImageType(paramName);
         }
 
         // Existing primitives and String
@@ -335,26 +366,44 @@ public static partial class SwiftUIBridgeEmitter
 
         if (record.Kind == TypeRecordKind.Enum)
         {
-            // Only support integer raw-representable enums.
-            // Non-RawRepresentable enums and String raw-value enums fall back to template.
+            // Integer raw-representable enums: bridge as BoundEnum (raw value ABI).
             var abiMapping = MapEnumRawValueType(record.RawValueTypeName);
-            if (abiMapping == null)
-                return null;
+            if (abiMapping != null)
+            {
+                // Strip module prefix for Swift emission (module is already imported)
+                var dotIndex = namedSpec.Name.IndexOf('.');
+                var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+                // Use fully-qualified C# name for cross-module type safety
+                var csharpName = record.CSharpTypeName.FullyQualifiedName;
 
-            // Strip module prefix for Swift emission (module is already imported)
-            var dotIndex = namedSpec.Name.IndexOf('.');
-            var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
-            // Use fully-qualified C# name for cross-module type safety
-            var csharpName = record.CSharpTypeName.FullyQualifiedName;
+                return new BridgeParameter(
+                    paramName,
+                    BridgeParameterKind.BoundEnum,
+                    SwiftAbiType: abiMapping.Value.SwiftType,
+                    CSharpPInvokeType: abiMapping.Value.CSharpType,
+                    BridgeTypeName: swiftSimpleName,
+                    CSharpTypeName: csharpName,
+                    IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+            }
 
-            return new BridgeParameter(
-                paramName,
-                BridgeParameterKind.BoundEnum,
-                SwiftAbiType: abiMapping.Value.SwiftType,
-                CSharpPInvokeType: abiMapping.Value.CSharpType,
-                BridgeTypeName: swiftSimpleName,
-                CSharpTypeName: csharpName,
-                IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+            // Non-raw-value enums (associated values, no RawRepresentable conformance):
+            // Bridge as opaque pointer (same ABI as non-frozen structs) when the C# binding
+            // is a class with SafeHandle (requiresMemoryManagement).
+            if (MarshallingHelpers.RequiresMemoryManagement(record))
+            {
+                var dotIndex = namedSpec.Name.IndexOf('.');
+                var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+                var csharpName = record.CSharpTypeName.FullyQualifiedName;
+
+                return new BridgeParameter(
+                    paramName, BridgeParameterKind.BoundStruct,
+                    SwiftAbiType: "UnsafeMutableRawPointer", CSharpPInvokeType: "IntPtr",
+                    BridgeTypeName: swiftSimpleName, CSharpTypeName: csharpName,
+                    StructProjection: StructProjectionKind.NonFrozen);
+            }
+
+            // Enums without raw values and without memory management are unsupported
+            return null;
         }
 
         if (record.Kind == TypeRecordKind.Class)
@@ -593,6 +642,78 @@ public static partial class SwiftUIBridgeEmitter
             CSharpPInvokeType: "int",       // hasValue flag P/Invoke type
             InnerParameter: innerParam);
     }
+
+    /// <summary>
+    /// Maps Binding&lt;T&gt; by unwrapping the inner type and marking the result as a Binding parameter.
+    /// The inner type is bridged normally (same ABI), but the Wrapper passes $state.name (Binding projection).
+    /// Supports Binding&lt;Primitive&gt;, Binding&lt;String&gt;, Binding&lt;BoundEnum&gt;.
+    /// </summary>
+    private static BridgeParameter? MapBindingType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
+    {
+        var innerTypeSpec = namedSpec.GenericParameters[0];
+        if (innerTypeSpec is not NamedTypeSpec innerNamedSpec)
+            return null;
+
+        var innerParam = MapNamedType(paramName, innerNamedSpec, context);
+        if (innerParam == null)
+            return null;
+
+        // Only support Binding<Primitive>, Binding<String>, Binding<BoundEnum>
+        // Binding<BoundType> and Binding<BoundStruct> need more complex two-way lifetime management
+        if (innerParam.Kind is not BridgeParameterKind.Primitive
+            and not BridgeParameterKind.String
+            and not BridgeParameterKind.BoundEnum)
+            return null;
+
+        // Reject Binding<SwiftUI.Image> — Image maps as Kind=String with IsSwiftUIImage=true,
+        // but Binding projection ($state.name) is incompatible with Image(systemName:) reconstruction.
+        if (innerParam.IsSwiftUIImage)
+            return null;
+
+        return innerParam with { IsBinding = true };
+    }
+
+    /// <summary>
+    /// Maps Array&lt;T&gt; where T is a bridgeable element type (Primitive, BoundEnum).
+    /// Crosses the ABI as a pointer to packed element values + count.
+    /// </summary>
+    private static BridgeParameter? MapArrayType(string paramName, NamedTypeSpec namedSpec, BridgeContext? context)
+    {
+        var innerTypeSpec = namedSpec.GenericParameters[0];
+        if (innerTypeSpec is not NamedTypeSpec innerNamedSpec)
+            return null;
+
+        // Map the element type
+        var elementParam = MapNamedType($"{paramName}_elem", innerNamedSpec, context);
+        if (elementParam == null)
+            return null;
+
+        // Support arrays of Primitives and BoundEnum (integer raw-value) for now
+        if (elementParam.Kind is not BridgeParameterKind.Primitive
+            and not BridgeParameterKind.BoundEnum)
+            return null;
+
+        return new BridgeParameter(
+            paramName, BridgeParameterKind.BridgeArray,
+            SwiftAbiType: $"UnsafePointer<{elementParam.SwiftAbiType}>?",
+            CSharpPInvokeType: "IntPtr",
+            HasLength: true,
+            InnerParameter: elementParam);
+    }
+
+    /// <summary>
+    /// Maps SwiftUI.Image as a String parameter (SF Symbol name).
+    /// The Swift wrapper constructs Image(systemName:) from the string value.
+    /// </summary>
+    private static BridgeParameter MapSwiftUIImageType(string paramName)
+    {
+        return new BridgeParameter(
+            paramName, BridgeParameterKind.String,
+            SwiftAbiType: "UnsafePointer<UInt8>?",
+            CSharpPInvokeType: "IntPtr",
+            HasLength: true,
+            IsSwiftUIImage: true);
+    }
 }
 
 /// <summary>
@@ -618,6 +739,8 @@ public enum BridgeParameterKind
     BoundType,
     BoundStruct,
     OptionalWrapped,
+    /// <summary>Array&lt;T&gt; where T is a bridgeable type (Primitive, BoundEnum). Crosses ABI as pointer + count.</summary>
+    BridgeArray,
 }
 
 /// <summary>
@@ -663,12 +786,20 @@ public record BridgeParameter(
     BridgeParameter? ClosureReturn = null,
     bool IsSimpleEnum = false,
     StructProjectionKind? StructProjection = null,
-    bool IsObjCBridgeable = false)
+    bool IsObjCBridgeable = false,
+    /// <summary>True when the original Swift type is Binding&lt;T&gt;. The inner T is bridged normally,
+    /// but the Wrapper passes $state.name (Binding projection) instead of state.name.</summary>
+    bool IsBinding = false,
+    /// <summary>True when the original Swift type is SwiftUI.Image. Bridges as String (SF Symbol name),
+    /// but the Wrapper constructs Image(systemName:) from the stored string.</summary>
+    bool IsSwiftUIImage = false)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).
-    /// Closures are excluded because their GCHandle lifecycle is tied to session creation/disposal.
+    /// Closures and arrays are excluded — closures because of GCHandle lifecycle,
+    /// arrays because full-array replacement is complex and deferred.
     /// </summary>
     public bool IsUpdatable => Kind is not BridgeParameterKind.VoidClosure
-                                    and not BridgeParameterKind.TypedClosure;
+                                    and not BridgeParameterKind.TypedClosure
+                                    and not BridgeParameterKind.BridgeArray;
 }

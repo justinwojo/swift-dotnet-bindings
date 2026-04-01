@@ -421,7 +421,7 @@ namespace BindingsGeneration
                 if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
 
                 int braceOpenLine = FindOpeningBrace(lines, i);
-                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
 
                 int blockEnd = FindBlockEnd(lines, braceOpenLine);
                 if (blockEnd < braceOpenLine) { i++; continue; }
@@ -582,7 +582,7 @@ namespace BindingsGeneration
 
                 // Find the opening brace (same line or next non-blank line)
                 int braceOpenLine = FindOpeningBrace(lines, i);
-                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
 
                 // Find the matching closing brace
                 int blockEnd = FindBlockEnd(lines, braceOpenLine);
@@ -685,12 +685,13 @@ namespace BindingsGeneration
             if (lines[fromLine].Contains('{'))
                 return fromLine;
 
-            for (int j = fromLine + 1; j < Math.Min(fromLine + 4, lines.Count); j++)
+            for (int j = fromLine + 1; j < Math.Min(fromLine + 6, lines.Count); j++)
             {
                 var trimmed = lines[j].TrimStart();
                 if (trimmed.StartsWith("{", StringComparison.Ordinal))
                     return j;
-                if (!string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith("[", StringComparison.Ordinal))
+                if (!string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith("[", StringComparison.Ordinal)
+                    && !trimmed.StartsWith("where ", StringComparison.Ordinal))
                     break;
             }
 
@@ -1075,7 +1076,7 @@ namespace BindingsGeneration
                 if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
 
                 int braceOpenLine = FindOpeningBrace(lines, i);
-                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
 
                 int blockEnd = FindBlockEnd(lines, braceOpenLine);
                 if (blockEnd < braceOpenLine) { i++; continue; }
@@ -1140,7 +1141,7 @@ namespace BindingsGeneration
                     else if (!trimmed.Contains("=>"))
                     {
                         int braceOpenLine = FindOpeningBrace(lines, i);
-                        if (braceOpenLine >= 0 && braceOpenLine <= i + 3)
+                        if (braceOpenLine >= 0 && braceOpenLine <= i + 5)
                         {
                             blockEnd = FindBlockEnd(lines, braceOpenLine);
                             for (int j = i + 1; j <= blockEnd; j++)
@@ -1310,7 +1311,7 @@ namespace BindingsGeneration
                 if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
 
                 int braceOpenLine = FindOpeningBrace(lines, i);
-                if (braceOpenLine < 0 || braceOpenLine > i + 3) { i++; continue; }
+                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
 
                 int blockEnd = FindBlockEnd(lines, braceOpenLine);
                 if (blockEnd < braceOpenLine) { i++; continue; }

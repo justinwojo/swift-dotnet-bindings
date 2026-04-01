@@ -1782,6 +1782,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.JSONEncoder", "Foundation", "NSObject")]
     [InlineData("Foundation.JSONDecoder", "Foundation", "NSObject")]
     [InlineData("Foundation.Locale", "Foundation", "NSLocale")]
+    [InlineData("Foundation.Decimal", "Foundation", "NSDecimalNumber")]
     public async Task LoadFoundationDatabase_NewEntries_ResolveViaGetTypeRecordOrAnyType(
         string swiftType, string expectedNamespace, string expectedName)
     {
@@ -1840,6 +1841,23 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("NSLocale", record.CSharpTypeName.Name);
         Assert.Equal(TypeRecordKind.Class, record.Kind);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task LoadFoundationDatabase_Decimal_ResolvesToObjCBridgeableStruct()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSDecimalNumber", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable));
+        Assert.Equal("Foundation.NSDecimalNumber", record.NativeTypeName!.FullyQualifiedName);
     }
 
     // --- Metatype types map to AnyType across all resolution entry points ---

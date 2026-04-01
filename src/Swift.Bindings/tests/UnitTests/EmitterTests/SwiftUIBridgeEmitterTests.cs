@@ -8428,4 +8428,973 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Gate Improvements — Binding<T>, SwiftUI.Image, Array<T>
+
+    // --- Binding<T> Tests ---
+
+    [Fact]
+    public void BindingBool_MapParameterType_ReturnsPrimitiveWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "isOn",
+            PrivateName = "isOn",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec("Swift.Bool")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.Primitive, result.Kind);
+        Assert.True(result.IsBinding);
+        Assert.Equal("Int32", result.SwiftAbiType);
+        Assert.Equal("!= 0", result.SwiftConversion);
+    }
+
+    [Fact]
+    public void BindingString_MapParameterType_ReturnsStringWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "text",
+            PrivateName = "text",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUICore.Binding", new NamedTypeSpec("Swift.String")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.String, result.Kind);
+        Assert.True(result.IsBinding);
+    }
+
+    [Fact]
+    public void BindingBool_Wrapper_UsesBindingProjection()
+    {
+        var view = CreateSimpleViewStruct("ToggleView");
+        view.Methods.Add(CreateConstructorWithBindingParam("isOn", "Swift.Bool"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The Wrapper should use $state.isOn (Binding projection), not state.isOn
+        Assert.Contains("$state.isOn", swiftContent);
+    }
+
+    [Fact]
+    public void BindingInt_MapParameterType_ReturnsPrimitiveWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "count",
+            PrivateName = "count",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec("Swift.Int")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.Primitive, result.Kind);
+        Assert.True(result.IsBinding);
+        Assert.Equal("Int", result.SwiftAbiType);
+    }
+
+    [Fact]
+    public void BindingUnsupportedType_MapParameterType_ReturnsNull()
+    {
+        // Binding<SomeCustomClass> is not supported — complex lifetime management
+        var param = new ArgumentDecl
+        {
+            Name = "model",
+            PrivateName = "model",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("TestModule.SomeClass")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BindingBoundEnum_MapParameterType_ReturnsEnumWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "style",
+            PrivateName = "style",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("TestModule.AlertStyle")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var context = new BridgeContext(CreateEnumTypeDatabase());
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BoundEnum, result.Kind);
+        Assert.True(result.IsBinding);
+    }
+
+    // --- SwiftUI.Image Tests ---
+
+    [Fact]
+    public void SwiftUIImage_MapParameterType_ReturnsStringWithIsImage()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "icon",
+            PrivateName = "icon",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Image"),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.String, result.Kind);
+        Assert.True(result.IsSwiftUIImage);
+        Assert.True(result.HasLength);
+    }
+
+    [Fact]
+    public void SwiftUIImage_SwiftUICore_MapParameterType_ReturnsStringWithIsImage()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "icon",
+            PrivateName = "icon",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUICore.Image"),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.String, result.Kind);
+        Assert.True(result.IsSwiftUIImage);
+    }
+
+    [Fact]
+    public void SwiftUIImage_Wrapper_ConstructsImageFromSystemName()
+    {
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithNamedType("icon", "SwiftUI.Image"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The Wrapper should construct Image(systemName:) from the stored string
+        Assert.Contains("Image(systemName: state.icon)", swiftContent);
+    }
+
+    [Fact]
+    public void SwiftUIImage_CSharp_FactoryAcceptsString()
+    {
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithNamedType("icon", "SwiftUI.Image"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("string? icon", csContent);
+    }
+
+    // --- Array<T> Tests ---
+
+    [Fact]
+    public void ArrayOfInt_MapParameterType_ReturnsBridgeArray()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "values",
+            PrivateName = "values",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BridgeArray, result.Kind);
+        Assert.NotNull(result.InnerParameter);
+        Assert.Equal(BridgeParameterKind.Primitive, result.InnerParameter.Kind);
+        Assert.True(result.HasLength);
+        Assert.Contains("UnsafePointer<Int>?", result.SwiftAbiType);
+    }
+
+    [Fact]
+    public void ArrayOfBoundEnum_MapParameterType_ReturnsBridgeArray()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "styles",
+            PrivateName = "styles",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array",
+                new NamedTypeSpec("TestModule.AlertStyle")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var context = new BridgeContext(CreateEnumTypeDatabase());
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BridgeArray, result.Kind);
+        Assert.NotNull(result.InnerParameter);
+        Assert.Equal(BridgeParameterKind.BoundEnum, result.InnerParameter.Kind);
+    }
+
+    [Fact]
+    public void ArrayOfUnsupportedType_MapParameterType_ReturnsNull()
+    {
+        // Array<String> is not supported (complex element serialization)
+        var param = new ArgumentDecl
+        {
+            Name = "names",
+            PrivateName = "names",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BridgeArray_IsNotUpdatable()
+    {
+        var arrayParam = new BridgeParameter(
+            "items", BridgeParameterKind.BridgeArray,
+            "UnsafePointer<Int>?", "IntPtr",
+            HasLength: true,
+            InnerParameter: new BridgeParameter("items_elem", BridgeParameterKind.Primitive,
+                "Int", "nint"));
+
+        Assert.False(arrayParam.IsUpdatable);
+    }
+
+    [Fact]
+    public void ArrayOfInt_Swift_EmitsLetPropertyOnWrapper()
+    {
+        var view = CreateSimpleViewStruct("ListView");
+        view.Methods.Add(CreateConstructorWithArray("items", "Swift.Int"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Array stored as let property on Wrapper
+        Assert.Contains("let items: [Int]", swiftContent);
+        // Array reconstructed from buffer pointer in Session init
+        Assert.Contains("UnsafeBufferPointer(start: ptr, count: itemsCount)", swiftContent);
+    }
+
+    [Fact]
+    public void ArrayOfBoundEnum_Swift_EmitsArrayReconstruction()
+    {
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithArray("formats", "TestModule.AlertStyle"));
+
+        var typeDb = CreateEnumTypeDatabase();
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("let formats: [AlertStyle]", swiftContent);
+        Assert.Contains("AlertStyle(rawValue: $0)!", swiftContent);
+    }
+
+    [Fact]
+    public void ArrayOfInt_CSharp_EmitsArrayFactoryParam()
+    {
+        var view = CreateSimpleViewStruct("ListView");
+        view.Methods.Add(CreateConstructorWithArray("items", "Swift.Int"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("nint[] items", csContent);
+        Assert.Contains("GCHandle.Alloc(items, GCHandleType.Pinned)", csContent);
+    }
+
+    [Fact]
+    public void ArrayOfBoundEnum_CSharp_EmitsRawValueExtraction()
+    {
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithArray("formats", "TestModule.AlertStyle"));
+
+        var typeDb = CreateEnumTypeDatabase();
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Should extract raw values into an array and pin it
+        Assert.Contains("formats[i].RawValue", csContent);
+        Assert.Contains("GCHandle.Alloc(formatsRaw, GCHandleType.Pinned)", csContent);
+    }
+
+    [Theory]
+    [InlineData("Swift.Bool")]
+    [InlineData("Swift.Double")]
+    [InlineData("Swift.Float")]
+    [InlineData("Swift.Int32")]
+    public void ArrayOfPrimitive_MapParameterType_SupportedVariants(string primitiveType)
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "values",
+            PrivateName = "values",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec(primitiveType)),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BridgeArray, result.Kind);
+    }
+
+    // --- Combined: Binding + Image on same view ---
+
+    [Fact]
+    public void BindingAndImage_SameView_BothBridged()
+    {
+        var view = CreateSimpleViewStruct("RichView");
+        var ctor = CreateConstructorWithTwoNamedParams("isOn", "SwiftUI.Binding",
+            "icon", "SwiftUI.Image");
+        view.Methods.Add(ctor);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("$state.isOn", swiftContent);
+        Assert.Contains("Image(systemName: state.icon)", swiftContent);
+        Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
+    }
+
+    // --- Regression: unsupported inner types must fall through to MapDatabaseType ---
+
+    [Fact]
+    public void ArrayOfUnsupportedType_WithTypeDatabase_FallsThrough_ToBoundStruct()
+    {
+        // Regression test: Array<UnsupportedStruct> must fall through to MapDatabaseType
+        // so Swift.Array resolves as BoundStruct (from SwiftDatabase.xml), not return null.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["Swift.Array"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Kind = TypeRecordKind.Struct,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb);
+
+        var param = new ArgumentDecl
+        {
+            Name = "actions",
+            PrivateName = "actions",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("SomeModule.SomeStruct")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result.Kind);
+    }
+
+    [Fact]
+    public void BindingOfUnsupportedType_WithTypeDatabase_FallsThrough_ToBoundStruct()
+    {
+        // Regression test: Binding<UnsupportedType> must fall through to MapDatabaseType
+        // so SwiftUI.Binding resolves as BoundStruct (from SwiftUIDatabase.xml), not return null.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["SwiftUI.Binding"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("SwiftUI", "Binding"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("SwiftUI.Binding"),
+                MetadataAccessor = "$s7SwiftUI7BindingVMa",
+                Kind = TypeRecordKind.Struct,
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+            },
+        });
+        var context = new BridgeContext(TypeDatabase: typeDb);
+
+        var param = new ArgumentDecl
+        {
+            Name = "selection",
+            PrivateName = "selection",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec("CoreGraphics.CGFloat")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result.Kind);
+    }
+
+    // --- Non-Raw-Value Enum as Init Param Tests ---
+
+    [Fact]
+    public void NonRawValueEnum_WithMemoryManagement_MapsToBoundStruct()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("format", "TestModule.DataFormat");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result[0].Kind);
+        Assert.Equal("UnsafeMutableRawPointer", result[0].SwiftAbiType);
+        Assert.Equal("IntPtr", result[0].CSharpPInvokeType);
+        Assert.Equal("DataFormat", result[0].BridgeTypeName);
+        Assert.Equal("TestModule.DataFormat", result[0].CSharpTypeName);
+        Assert.Equal(StructProjectionKind.NonFrozen, result[0].StructProjection);
+    }
+
+    [Fact]
+    public void NonRawValueEnum_WithoutMemoryManagement_StillReturnsNull()
+    {
+        // Frozen non-raw-value enum without memory management (no SafeHandle) → unsupported
+        var typeDb = CreateNonRawEnumTypeDatabase(); // Existing helper: Frozen, no memory management
+        var context = new BridgeContext(typeDb);
+        var ctor = CreateConstructorWithNamedType("direction", "TestModule.Direction");
+        var result = SwiftUIBridgeEmitter.AnalyzeInitParameters(ctor, context);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void NonRawValueEnum_Wrapper_UsesAssumingMemoryBound()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithNamedType("format", "TestModule.DataFormat"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("assumingMemoryBound(to: DataFormat.self).pointee", swiftContent);
+    }
+
+    [Fact]
+    public void NonRawValueEnum_CSharp_UsesPayloadDangerousGetHandle()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateSimpleViewStruct("MenuView");
+        view.Methods.Add(CreateConstructorWithNamedType("format", "TestModule.DataFormat"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("Payload.DangerousGetHandle()", csContent);
+    }
+
+    [Fact]
+    public void NonRawValueEnum_ViewGets_FunctionalBridge()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateSimpleViewStruct("ActionButton");
+        view.Methods.Add(CreateConstructorWithNamedType("action", "TestModule.DataFormat"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Functional bridge should contain the @_cdecl create function, not a template
+        Assert.Contains("@_cdecl", swiftContent);
+        Assert.Contains("ActionButton(", swiftContent);
+    }
+
+    // --- BoundStruct in Closure Arg Tests ---
+
+    [Fact]
+    public void ClosureWithNonRawValueEnumArg_MapParameterType_ReturnsTypedClosure()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var context = new BridgeContext(typeDb);
+        var param = new ArgumentDecl
+        {
+            Name = "onFormat",
+            PrivateName = "onFormat",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("TestModule.DataFormat"), null),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.TypedClosure, result.Kind);
+        Assert.NotNull(result.ClosureArguments);
+        Assert.Single(result.ClosureArguments);
+        Assert.Equal(BridgeParameterKind.BoundStruct, result.ClosureArguments[0].Kind);
+    }
+
+    [Fact]
+    public void ClosureWithNonRawValueEnumArg_Swift_UsesAllocateAndInitializeMemory()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateViewWithTypedClosureInit("MenuView", "onFormat",
+            new NamedTypeSpec("TestModule.DataFormat"), TupleTypeSpec.Empty);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // Must use allocate + initializeMemory pattern (not Unmanaged for the closure arg)
+        Assert.Contains("UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<DataFormat>.size", swiftContent);
+        Assert.Contains("initializeMemory(as: DataFormat.self", swiftContent);
+        // The closure callback should NOT use Unmanaged for the BoundStruct arg
+        // (Unmanaged.passRetained elsewhere is fine — it's used for session handle management)
+        Assert.DoesNotContain("Unmanaged.passRetained(arg0)", swiftContent);
+    }
+
+    [Fact]
+    public void ClosureWithNonRawValueEnumArg_CSharp_UsesMarshalFromSwift()
+    {
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateViewWithTypedClosureInit("MenuView", "onFormat",
+            new NamedTypeSpec("TestModule.DataFormat"), TupleTypeSpec.Empty);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
+        Assert.Contains("Action<TestModule.DataFormat>", csContent);
+    }
+
+    [Fact]
+    public void ClosureWithNonRawValueEnumArg_FullView_GetsFunctionalBridge()
+    {
+        // Simulate RichTextKit.Menu pattern: String + Image + Array<Enum> + Closure<Enum> + Optional<VoidClosure>
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateViewWithTypedClosureInit("DataFormatMenu", "formatAction",
+            new NamedTypeSpec("TestModule.DataFormat"), TupleTypeSpec.Empty);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("@_cdecl", swiftContent);
+        Assert.Contains("DataFormatMenu(", swiftContent);
+    }
+
+    // --- Multi-String Fixed Statement Bug Fix ---
+
+    [Fact]
+    public void DualStringInit_CSharp_FixedStatement_DoesNotRepeatBytePointerType()
+    {
+        // Regression: views with two string init params generated invalid C#:
+        //   fixed (byte* titlePtr = titleBytes, byte* subtitlePtr = subtitleBytes)
+        // Correct syntax requires the type specifier only once:
+        //   fixed (byte* titlePtr = titleBytes, subtitlePtr = subtitleBytes)
+        var view = CreateViewWithDualStringInit("ToolbarView", "title", "subtitle");
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Verify the correct fixed statement pattern (single byte* prefix)
+        Assert.Contains("fixed (byte* titlePtr = titleBytes, subtitlePtr = subtitleBytes)", csContent);
+        // Ensure the invalid pattern with repeated byte* is NOT present
+        Assert.DoesNotContain("byte* titlePtr = titleBytes, byte* subtitlePtr", csContent);
+    }
+
+    [Fact]
+    public void DualStringInit_Swift_GeneratesBothStringParams()
+    {
+        var view = CreateViewWithDualStringInit("ToolbarView", "title", "subtitle");
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("_ titlePtr: UnsafePointer<UInt8>", swiftContent);
+        Assert.Contains("_ subtitlePtr: UnsafePointer<UInt8>", swiftContent);
+        Assert.Contains("_ titleLen: Int", swiftContent);
+        Assert.Contains("_ subtitleLen: Int", swiftContent);
+    }
+
+    // --- Finding 1: BoundStruct closure arg nil-guard ---
+
+    [Fact]
+    public void ClosureWithBoundStructArg_Swift_GuardsNilCallbackBeforeAllocation()
+    {
+        // When a typed closure has a BoundStruct arg, the heap allocation must be guarded
+        // by a nil check on the callback pointer. Otherwise, if cb_ is nil, the allocation leaks.
+        var typeDb = CreateNonRawValueEnumWithMemoryTypeDatabase();
+        var view = CreateViewWithTypedClosureInit("FormatView", "onFormat",
+            new NamedTypeSpec("TestModule.DataFormat"), TupleTypeSpec.Empty);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The guard must appear BEFORE any UnsafeMutableRawPointer.allocate calls
+        var guardIndex = swiftContent.IndexOf("guard cb_onFormat != nil");
+        var allocateIndex = swiftContent.IndexOf("UnsafeMutableRawPointer.allocate");
+        Assert.True(guardIndex >= 0, "Expected guard cb_ != nil check in emitted Swift");
+        Assert.True(allocateIndex >= 0, "Expected UnsafeMutableRawPointer.allocate in emitted Swift");
+        Assert.True(guardIndex < allocateIndex,
+            "guard cb_ != nil must appear BEFORE UnsafeMutableRawPointer.allocate to prevent leaks");
+    }
+
+    [Fact]
+    public void ClosureWithBoundStructArgAndClassReturn_Swift_GuardEmitsFatalError()
+    {
+        // When a typed closure has BoundStruct args AND a BoundType (class) return,
+        // the nil-guard cannot use "return 0" (invalid Swift for a class return).
+        // It must emit fatalError instead.
+        var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.DataFormat"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataFormat"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataFormat"),
+                MetadataAccessor = "$s10TestModule10DataFormatOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null,
+            },
+            ["TestModule.ResultModel"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "ResultModel"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ResultModel"),
+                MetadataAccessor = "$s10TestModule11ResultModelCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+        });
+        var view = CreateViewWithTypedClosureInit("TransformView", "onTransform",
+            new NamedTypeSpec("TestModule.DataFormat"), new NamedTypeSpec("TestModule.ResultModel"));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, typeDb);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        // The guard must use fatalError for class returns, not "return 0"
+        Assert.Contains("guard cb_onTransform != nil", swiftContent);
+        Assert.Contains("fatalError", swiftContent);
+        Assert.DoesNotContain("guard cb_onTransform != nil else { return 0", swiftContent);
+    }
+
+    // --- Finding 3: Binding<SwiftUI.Image> rejection ---
+
+    [Fact]
+    public void BindingSwiftUIImage_MapParameterType_ReturnsNull()
+    {
+        // Binding<SwiftUI.Image> should be rejected: Image maps as Kind=String with
+        // IsSwiftUIImage=true, but Binding projection is incompatible with Image reconstruction.
+        var param = new ArgumentDecl
+        {
+            Name = "icon",
+            PrivateName = "icon",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec("SwiftUI.Image")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void BindingSwiftUICoreImage_MapParameterType_ReturnsNull()
+    {
+        // Same rejection for SwiftUICore.Binding<SwiftUICore.Image>
+        var param = new ArgumentDecl
+        {
+            Name = "icon",
+            PrivateName = "icon",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUICore.Binding", new NamedTypeSpec("SwiftUICore.Image")),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.Null(result);
+    }
+
+    // --- Test Helpers ---
+
+    private static StructDecl CreateViewWithDualStringInit(string viewName, string str1Name, string str2Name)
+    {
+        var view = CreateSimpleViewStruct(viewName);
+        view.Methods.Add(new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec($"TestModule.{viewName}"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = str1Name,
+                    PrivateName = str1Name,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = str2Name,
+                    PrivateName = str2Name,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        });
+        return view;
+    }
+
+    private static ITypeDatabase CreateNonRawValueEnumWithMemoryTypeDatabase()
+    {
+        return new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.DataFormat"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "DataFormat"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DataFormat"),
+                MetadataAccessor = "$s10TestModule10DataFormatOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = null, // Associated values, no RawRepresentable
+            },
+        });
+    }
+
+    private static MethodDecl CreateConstructorWithBindingParam(string paramName, string innerType)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec(innerType)),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateConstructorWithArray(string paramName, string elementType)
+    {
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+                new ArgumentDecl
+                {
+                    Name = paramName,
+                    PrivateName = paramName,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec(elementType)),
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                },
+            },
+        };
+    }
+
+    private static MethodDecl CreateConstructorWithTwoNamedParams(
+        string param1Name, string param1Type, string param2Name, string param2Type)
+    {
+        var args = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                Name = "",
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.TestView"),
+                ParentDecl = null,
+                ModuleDecl = null,
+            },
+        };
+
+        // Binding<Bool> for param1
+        if (param1Type == "SwiftUI.Binding")
+        {
+            args.Add(new ArgumentDecl
+            {
+                Name = param1Name,
+                PrivateName = param1Name,
+                IsInOut = false,
+                IsGeneric = false,
+                SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding", new NamedTypeSpec("Swift.Bool")),
+                ParentDecl = null,
+                ModuleDecl = null,
+            });
+        }
+
+        // SwiftUI.Image for param2
+        if (param2Type == "SwiftUI.Image")
+        {
+            args.Add(new ArgumentDecl
+            {
+                Name = param2Name,
+                PrivateName = param2Name,
+                IsInOut = false,
+                IsGeneric = false,
+                SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Image"),
+                ParentDecl = null,
+                ModuleDecl = null,
+            });
+        }
+
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = null,
+            ModuleDecl = null,
+            CSSignature = args,
+        };
+    }
+
+    #endregion
 }
