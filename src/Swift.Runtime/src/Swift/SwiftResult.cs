@@ -52,7 +52,36 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
         if (SwiftRuntimeInfo.IsNativeAotRuntime)
         {
             NativeAotRegisterConformances();
+            TryEagerInitialize();
         }
+    }
+
+    /// <summary>
+    /// Attempts eager initialization of metadata and factory registration for NativeAOT.
+    /// Same pattern as SwiftArray — registers NewFromPayload factory via direct dispatch
+    /// so MarshalFromSwift can find it without reflection.
+    /// </summary>
+    internal static bool TryEagerInitialize()
+    {
+        try
+        {
+            NativeAotInitialize();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Type parameter metadata may be unavailable during type init.
+            // Fall back to lazy initialization.
+            System.Diagnostics.Debug.WriteLine(
+                $"SwiftResult<{typeof(TSuccess).Name}, {typeof(TFailure).Name}>: NativeAotInitialize skipped, using lazy init");
+            return false;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotInitialize()
+    {
+        var _ = SwiftObjectHelper<SwiftResult<TSuccess, TFailure>>.GetTypeMetadata();
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

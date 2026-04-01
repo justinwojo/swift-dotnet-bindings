@@ -155,6 +155,17 @@ public class RuntimeLimitationsTests
             "on the current runtime");
     }
 
+    /// <summary>
+    /// Verifies that SwiftResult&lt;nint, nint&gt;.TryEagerInitialize() completes
+    /// without throwing, matching the SwiftArray pattern for NativeAOT factory registration.
+    /// </summary>
+    [Fact]
+    public void SwiftResult_TryEagerInitialize_ReturnsGracefully()
+    {
+        var result = SwiftResult<nint, nint>.TryEagerInitialize();
+        Assert.True(result, "TryEagerInitialize should succeed for SwiftResult<nint, nint>");
+    }
+
     [Fact]
     public void SwiftArray_CachedMetadata_IsThreadSafe()
     {

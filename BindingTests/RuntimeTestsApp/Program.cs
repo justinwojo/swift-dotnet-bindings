@@ -337,7 +337,6 @@ public class MainViewController : UIViewController
     // static field initialization that crashes on NativeAOT.
     private static readonly HashSet<string> _nativeAotCrashClasses = new()
     {
-        "TupleMarshallingTests",  // SIGSEGV: ValueTuple method signatures not resolvable
     };
 
     private async Task RunTestClassAsync(TestClassDescriptor descriptor, TestResults results, TestPlatform platform, bool flakeDetect = false)
