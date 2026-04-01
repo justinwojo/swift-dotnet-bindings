@@ -26,7 +26,6 @@ public class ConstructorParamTests : TestBase
 
     #region DescriptionPrinter — Protocol Existential Constructor Param
 
-    [SkipOnDevice("Non-trivial struct existential boxing SIGKILL under NativeAOT — MarshalPayload/swift_allocBox crash")]
     public void TestProtocolExistentialParamConstruction()
     {
         // DescriptionPrinter(source: any Describable) — exercises IsProtocolExistentialType branch.
@@ -37,7 +36,6 @@ public class ConstructorParamTests : TestBase
         TestLogger.Info("DescriptionPrinter(IDescribable) construction passed");
     }
 
-    [SkipOnDevice("Non-trivial struct existential boxing SIGKILL under NativeAOT — MarshalPayload/swift_allocBox crash")]
     public void TestProtocolExistentialParamGetText()
     {
         var item = new SimpleItem(id: "ex-1", label: "Existential test");

@@ -231,15 +231,35 @@ public sealed class ModuleEmissionContext
             return; // Not a generic type — use RecordSwiftObjectType instead
         if (!IsFullyResolvedGeneric(closedGenericTypeName))
             return;
-        // SwiftOptional<T> is a runtime container type, not a user-defined type.
-        // Registering it in the module initializer causes eager metadata resolution
-        // of T before the wrapper DLL is fully loaded, crashing on NativeAOT device.
-        // SwiftOptional metadata is resolved lazily at first use, which is fine.
-        if (closedGenericTypeName.StartsWith("SwiftOptional<") ||
-            closedGenericTypeName.StartsWith("Swift.SwiftOptional<"))
+        // Runtime container types (SwiftOptional, SwiftArray, SwiftDictionary, SwiftSet)
+        // have their own lazy metadata resolution. Registering them in the module
+        // initializer causes eager element-metadata resolution before dependencies
+        // are registered, crashing on NativeAOT device (e.g., SwiftArray<CycleTreeNode>
+        // tries to resolve CycleTreeNode metadata before CycleTreeNode is registered).
+        if (IsRuntimeContainerType(closedGenericTypeName))
             return;
         if (!_emittedSwiftObjectTypes.Contains(closedGenericTypeName))
             _emittedSwiftObjectTypes.Add(closedGenericTypeName);
+    }
+
+    /// <summary>
+    /// Returns true if the type name is a runtime container type that has its own
+    /// lazy metadata resolution. These must NOT be registered in the module initializer
+    /// because they eagerly resolve generic argument metadata during GetTypeMetadata(),
+    /// which can fail if the argument types haven't been registered yet.
+    /// </summary>
+    private static bool IsRuntimeContainerType(string typeName)
+    {
+        // Extract the base type name (before '<')
+        var angleIdx = typeName.IndexOf('<');
+        if (angleIdx < 0) return false;
+        var baseName = typeName.Substring(0, angleIdx);
+
+        return baseName is "SwiftOptional" or "Swift.SwiftOptional"
+            or "SwiftArray" or "Swift.SwiftArray"
+            or "SwiftDictionary" or "Swift.SwiftDictionary"
+            or "SwiftSet" or "Swift.SwiftSet"
+            or "SwiftResult" or "Swift.SwiftResult";
     }
 
     /// <summary>

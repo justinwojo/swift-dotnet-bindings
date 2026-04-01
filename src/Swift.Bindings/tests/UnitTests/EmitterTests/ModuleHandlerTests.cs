@@ -827,15 +827,16 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_DoesNotEmitRegisterWitnessTableForNonHashableConformance()
+    public void Emit_EmitsRegisterWitnessTableForAllConformances()
     {
-        // IEquatable and other non-ISwiftHashable conformances should NOT emit RegisterWitnessTable.
+        // All protocol conformances should emit RegisterWitnessTable (not just ISwiftHashable).
+        // Pre-registering witness tables during module init avoids runtime SIGKILL on NativeAOT device.
         var csOutput = EmitModuleWithPrePopulatedConformances(
             "TestModule",
             swiftObjectTypes: new[] { "MyStruct" },
             conformances: new[] { ("MyStruct", "IEquatable<MyStruct>") });
 
-        Assert.DoesNotContain("RegisterWitnessTable", csOutput);
+        Assert.Contains("RegisterWitnessTable<MyStruct, IEquatable<MyStruct>>()", csOutput);
     }
 
     [Fact]
@@ -853,9 +854,9 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_EmitsRegisterWitnessTableForMultipleHashableTypes()
+    public void Emit_EmitsRegisterWitnessTableForAllConformanceTypes()
     {
-        // Multiple types conforming to ISwiftHashable should each get a RegisterWitnessTable call.
+        // All conformances should get RegisterWitnessTable calls (not just ISwiftHashable).
         var csOutput = EmitModuleWithPrePopulatedConformances(
             "TestModule",
             swiftObjectTypes: new[] { "TypeA", "TypeB" },
@@ -868,9 +869,10 @@ public class ModuleHandlerTests
 
         Assert.Contains("RegisterWitnessTable<TypeA, ISwiftHashable>()", csOutput);
         Assert.Contains("RegisterWitnessTable<TypeB, ISwiftHashable>()", csOutput);
-        // Only 2 RegisterWitnessTable calls (one per Hashable conformance, not per Equatable)
+        Assert.Contains("RegisterWitnessTable<TypeA, IEquatable<TypeA>>()", csOutput);
+        // 3 RegisterWitnessTable calls (one per conformance)
         var count = csOutput.Split("RegisterWitnessTable").Length - 1;
-        Assert.Equal(2, count);
+        Assert.Equal(3, count);
     }
 
     [Fact]

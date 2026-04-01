@@ -292,15 +292,15 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
             }
-            // Pre-register witness tables for types conforming to ISwiftHashable.
-            // This eliminates reflection-based MakeGenericType in ProtocolWitnessTable.GetOrThrow
-            // for SwiftDictionary/SwiftSet operations on NativeAOT where TKey/Element lacks ISwiftObject constraint.
+            // Pre-register witness tables for ALL protocol conformances.
+            // This eagerly computes and caches the witness table during module initialization
+            // via GetOrThrowDirect (static virtual dispatch). On NativeAOT device,
+            // LoadFromSymbol → swift_getWitnessTable can crash when called later at runtime
+            // (likely due to library handle lifecycle issues). Pre-registering during init
+            // ensures the witness table is cached and the runtime path uses the cache.
             foreach (var (typeName, protocolName) in conformances)
             {
-                if (protocolName == "ISwiftHashable")
-                {
-                    csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>();");
-                }
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>(); }} catch {{ }}");
             }
             // Register simple enum metadata via P/Invoke to @_cdecl Swift wrappers.
             // Simple C# enums can't implement ISwiftObject, so their Swift metadata must be

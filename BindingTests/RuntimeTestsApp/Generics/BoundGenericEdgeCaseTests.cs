@@ -38,7 +38,6 @@ public class BoundGenericEdgeCaseTests : TestBase
 
     #region MakeRefPair — Multi-Type-Arg Bound Generic (Tier 1)
 
-    [SkipOnDevice("NativeAOT generic type metadata: Pair<CoordinateRef, LabelRef> metadata resolution fails despite module init registration")]
     public void TestMakeRefPair()
     {
         // makeRefPair returns Pair<CoordinateRef, LabelRef> — two different class type args.

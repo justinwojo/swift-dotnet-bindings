@@ -161,6 +161,12 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
         where TType : ISwiftObject
         where TProtocol : class
     {
+        // Check pre-registered witness table first (populated during module initialization).
+        // This avoids LoadFromSymbol → swift_getWitnessTable at runtime, which can crash
+        // on NativeAOT device due to library handle lifecycle issues.
+        if (InteropServices.WitnessTableDispatcher.TryGet(typeof(TType), typeof(TProtocol), out var cached))
+            return cached;
+
         if (!TypeMetadata.TryGetTypeMetadata<TType>(out var metadata))
         {
             throw new SwiftRuntimeException($"Unable to get type metadata for {typeof(TType)}");

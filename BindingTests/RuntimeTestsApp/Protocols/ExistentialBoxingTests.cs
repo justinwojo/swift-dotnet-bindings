@@ -246,7 +246,6 @@ public class ExistentialBoxingTests : TestBase
 
     #region Pass 2 — N2: Protocol with Existential Parameters (ModeConsumer)
 
-    [SkipOnDevice("IExistentialBoxable.BoxAsExistential1 SIGKILL in full suite — passes in isolation, state corruption from earlier tests")]
     public void TestRunModeConsumerWithSimpleMode()
     {
         var consumer = new SimpleModeConsumer();
@@ -256,7 +255,6 @@ public class ExistentialBoxingTests : TestBase
         TestLogger.Info($"RunModeConsumer(SimpleModeConsumer, SimpleMode) = {result}");
     }
 
-    [SkipOnDevice("IExistentialBoxable.BoxAsExistential1 SIGKILL in full suite — passes in isolation, state corruption from earlier tests")]
     public void TestRunModeConsumerWithStrictMode()
     {
         var consumer = new SimpleModeConsumer();

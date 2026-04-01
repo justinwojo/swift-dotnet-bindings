@@ -132,7 +132,6 @@ public class OptionalExistentialPropertyTests : TestBase
     // which is blittable and works on Mono. Verify via GetPrimaryDescription() which also
     // goes through a working @_cdecl wrapper.
 
-    [SkipOnDevice("Optional<existential> @_cdecl setter crashes on NativeAOT — needs runtime diagnosis")]
     public void TestPrimarySetterAssignRenderable()
     {
         var holder = new RenderableHolder();
@@ -150,7 +149,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"After Primary setter: GetPrimaryDescription() = \"{after}\"");
     }
 
-    [SkipOnDevice("Optional<existential> @_cdecl setter crashes on NativeAOT — needs runtime diagnosis")]
     public void TestPrimarySetterThenGetterRoundTrip()
     {
         var holder = new RenderableHolder();
@@ -164,7 +162,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"Set→Get round-trip: Primary.Render() = \"{rendered}\"");
     }
 
-    [SkipOnDevice("Optional<existential> @_cdecl setter crashes on NativeAOT — needs runtime diagnosis")]
     public void TestPrimarySetterClearToNull()
     {
         var holder = TestLibFunctions.MakeRenderableHolder("to-clear");
@@ -286,7 +283,6 @@ public class OptionalExistentialPropertyTests : TestBase
     // use the getter-from-factory pattern: get ILabelableAndRenderable from one
     // holder's getter, then set it on another holder.
 
-    [SkipOnDevice("Optional<existential> @_cdecl setter crashes on NativeAOT — needs runtime diagnosis")]
     public void TestItemSetterFromSwiftExistential()
     {
         // Get an ILabelableAndRenderable from a factory-created holder
@@ -303,7 +299,6 @@ public class OptionalExistentialPropertyTests : TestBase
         TestLogger.Info($"After Item setter from existential: GetItemDescription() = \"{desc}\"");
     }
 
-    [SkipOnDevice("Optional<existential> @_cdecl setter crashes on NativeAOT — needs runtime diagnosis")]
     public void TestItemSetterClearToNull()
     {
         var holder = TestLibFunctions.MakeLabelableRenderableHolder("to-clear");

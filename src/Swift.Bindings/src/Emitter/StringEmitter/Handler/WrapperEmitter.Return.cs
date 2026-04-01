@@ -369,6 +369,13 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Record bound generic for NativeAOT module initializer registration.
+                // Without this, NativeAOT trims the explicit ISwiftObject.GetTypeMetadata()
+                // on closed generic types returned via @_cdecl indirect result, causing
+                // MarshalFromSwift<T> to fail at runtime.
+                if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
+                    _emissionContext.RecordBoundGenericSwiftObjectType(_wrapperSignature.ReturnType);
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }
