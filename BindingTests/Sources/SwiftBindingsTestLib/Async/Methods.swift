@@ -15,16 +15,6 @@ final class GCDExecutor: SerialExecutor {
     static let shared = GCDExecutor()
     private let queue = DispatchQueue(label: "swift-bindings-test.executor", qos: .userInitiated)
 
-    @available(macOS 14.0, iOS 17.0, tvOS 17.0, watchOS 10.0, *)
-    func enqueue(_ job: consuming ExecutorJob) {
-        let unownedJob = UnownedJob(job)
-        let executor = asUnownedSerialExecutor()
-        queue.async {
-            unownedJob.runSynchronously(on: executor)
-        }
-    }
-
-    // Legacy API for older OS versions.
     func enqueue(_ job: UnownedJob) {
         let executor = asUnownedSerialExecutor()
         queue.async {
