@@ -304,19 +304,20 @@ jobs:
               {commits}
 
               Structure (in this exact order):
-              1. First line: TITLE: <short release title, under 70 chars, no version prefix>
-              2. A blank line, then 1-2 sentences capturing the theme of this release — what it means for users, not a list of changes. Write this like a human maintainer would, with confidence and personality.
-              3. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters.
-              4. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience", "## Test coverage"). Only include categories that have meaningful content.
-              5. End with a "## Packages" table listing SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates all at version {version}, followed by a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
+              1. Start with 1-2 sentences capturing the theme of this release — what it means for users in practical terms. Focus on what you can do now that you couldn't before, not internal metrics. Write like a maintainer talking to users, not a press release. No hype, no overpromising — this is an experimental project.
+              2. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters to someone consuming the bindings.
+              3. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience"). Only include categories that have meaningful content. Consolidate related commits into single bullets — don't list every commit separately. Aim for 3-6 bullets per section max.
+              4. End with a "## Packages" table listing SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates all at version {version}, followed by a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
 
               Style guidelines:
-              - Write like a knowledgeable maintainer, not a bot. Vary sentence structure. Be direct.
+              - Write like a knowledgeable maintainer, not a bot or marketer. No words like "seamless", "mastery", "bulletproof", "aces", "unlocking". Be direct and understated.
+              - The opening sentences should describe the user-facing theme, not cite pass/fail numbers. Save metrics for highlight bullets where they add context.
               - In the highlights, explain impact ("fixes a crash when..." not "fixed crash in X function")
-              - In detail sections, use concise bullet points. Bold the first few words of each bullet as a label.
+              - In detail sections, use concise bullet points. Bold the first few words of each bullet as a label. Collapse related work into single bullets rather than listing each commit.
               - Do not use filler phrases like "This release includes" or "We are excited to announce"
               - Use the commit messages as source of truth — do not invent changes
               - Omit trivial changes (typo fixes, minor refactors) unless they're part of a larger story
+              - Wrap Swift attributes (@MainActor, @Observable, @frozen, @convention, etc.) in backticks so GitHub doesn't parse them as user mentions
           """).strip()
           data = json.dumps({
               "model": "grok-4-1-fast-reasoning",
@@ -340,16 +341,9 @@ jobs:
                   # Strip markdown code fences if model wrapped the output
                   content = re.sub(r'^```(?:markdown|md)?\s*\n', '', content)
                   content = re.sub(r'\n```\s*$', '', content)
-                  # Extract title from first line if present
-                  lines = content.split("\n", 1)
-                  if lines[0].startswith("TITLE:"):
-                      title = lines[0].removeprefix("TITLE:").strip()
-                      notes = lines[1].lstrip("\n") if len(lines) > 1 else ""
-                      if title:
-                          with open("RELEASE-TITLE.txt", "w") as f:
-                              f.write(title)
-                  else:
-                      notes = content
+                  # Escape bare @words that aren't already in backticks (prevents GitHub user mentions)
+                  content = re.sub(r'(?<!`)@(\w+)(?!`)', r'`@\1`', content)
+                  notes = content
                   # Only write notes file if body is non-empty,
                   # otherwise gh release create falls back to --generate-notes
                   if notes.strip():
@@ -375,10 +369,7 @@ jobs:
           if [ -f RELEASE-NOTES.md ]; then
             notes_args=(--notes-file RELEASE-NOTES.md)
           fi
-          title_args=()
-          if [ -f RELEASE-TITLE.txt ]; then
-            title_args=(--title "$(cat RELEASE-TITLE.txt)")
-          fi
+          title_args=(--title "SwiftBindings v${VERSION}")
           prerelease_args=()
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             prerelease_args=(--prerelease)
