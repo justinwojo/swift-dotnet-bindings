@@ -30,4 +30,5 @@ public interface IProjectionVisitor<T>
     T Visit(NativeRemappedProjection p);
     T Visit(TupleProjection p);
     T Visit(DateProjection p);
+    T Visit(ResultProjection p);
 }

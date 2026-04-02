@@ -19,6 +19,25 @@ public struct AnyError : IExistentialContainer, ISwiftExistentialConvertible<Exi
     private ExistentialContainer1 _container;
 
     /// <summary>
+    /// Registers Swift type metadata for 'any Error' so that SwiftResult&lt;TSuccess, AnyError&gt;
+    /// can obtain the correct metadata via TypeMetadata.GetTypeMetadataOrThrow&lt;AnyError&gt;().
+    /// </summary>
+    static AnyError()
+    {
+        try
+        {
+            var metadata = PInvokesForAnyError._TypeMetadataAccessor();
+            if (metadata.IsValid)
+                TypeMetadata.RegisterMetadata(typeof(AnyError), metadata);
+        }
+        catch
+        {
+            // SwiftBindingsRuntime may not be loaded yet (e.g., during unit tests).
+            // Metadata will be unavailable but that's OK for non-Result paths.
+        }
+    }
+
+    /// <summary>
     /// Creates an AnyError from an existing ExistentialContainer1.
     /// </summary>
     /// <param name="container">The existential container holding the Swift error value.</param>
@@ -58,4 +77,10 @@ public struct AnyError : IExistentialContainer, ISwiftExistentialConvertible<Exi
     /// <inheritdoc/>
     public void CopyTo<T>(ref T container) where T : struct, IExistentialContainer
         => _container.CopyTo(ref container);
+}
+
+internal static class PInvokesForAnyError
+{
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_AnyError_TypeMetadata")]
+    public static extern TypeMetadata _TypeMetadataAccessor();
 }

@@ -232,6 +232,15 @@ public class TypeProjectionFactory
             return new DictionaryProjection(keyProjection, valueProjection, context.IsParameter);
         }
 
+        if (name == "Swift.Result" && namedType.GenericParameters.Count == 2)
+        {
+            var successProjection = Project(namedType.GenericParameters[0], context);
+            var failureProjection = Project(namedType.GenericParameters[1], context);
+            if (successProjection == null || failureProjection == null)
+                return null;
+            return new ResultProjection(successProjection, failureProjection);
+        }
+
         // Well-known simple types
         if (name == "Swift.Bool")
             return new BoolProjection();

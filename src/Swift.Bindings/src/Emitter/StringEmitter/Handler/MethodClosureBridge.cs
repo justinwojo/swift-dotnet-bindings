@@ -87,16 +87,11 @@ public static class MethodClosureBridge
         // or a complex enum (D1: complex enums need heap allocation in Swift wrapper)
         if (!hasBoundGenericInClosure && !hasComplexEnumInClosure) return false;
 
-        // COVERAGE GAP: @_cdecl free functions can't access generic parent type parameters.
-        // Unmanaged<GenericClass>.fromOpaque() and GenericClass.staticMethod() require
-        // concrete generic parameters that aren't available in a free function context.
-        // Returning false here causes MemberValidationPipeline to fall through to
-        // SkipReason.GenericTypeCallback, dropping these APIs from the binding surface.
-        // This is safer than emitting broken Swift (the pre-R2 @_silgen_name extension
-        // approach inherited generic context but had a calling convention mismatch that
-        // crashed at runtime). To restore support: use @_silgen_name extension + matching
-        // CallConvSwift/SwiftSelf on the C# P/Invoke side.
-        if (method.ParentDecl is TypeDecl parentTd && parentTd.IsGeneric)
+        // Generic parent types: instance methods use @_silgen_name extension (inherits
+        // generic context) + CallConvSwift/SwiftSelf on C# side. Static methods on generic
+        // types are still blocked — they require type metadata passing which is complex.
+        if (method.ParentDecl is TypeDecl parentTd && parentTd.IsGeneric &&
+            method.MethodType == MethodType.Static)
             return false;
 
         // Check non-closure params: each must be a class (IntPtr), primitive, or have a default value
@@ -236,6 +231,10 @@ public static class MethodClosureBridge
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
 
+        // Generic parent types use @_silgen_name extension to inherit generic context.
+        // Non-generic types use @_cdecl free function with explicit self parameter.
+        bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
+
         // Use the first closure's callback base name for the silgen symbol (backward compat for single closure)
         var silgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
 
@@ -274,7 +273,7 @@ public static class MethodClosureBridge
             swiftParams.Add($"    _ {closureCsName}Context: UnsafeMutableRawPointer?");
         }
 
-        // Build return type — for @_cdecl, non-primitive returns use UnsafeMutableRawPointer
+        // Build return type — non-primitive returns use UnsafeMutableRawPointer
         var returnSpec = method.CSSignature[0].SwiftTypeSpec;
         bool returnsValue = !returnSpec.IsEmptyTuple;
         bool returnsClass = returnsValue && returnSpec is NamedTypeSpec rts &&
@@ -283,23 +282,36 @@ public static class MethodClosureBridge
             : returnsClass ? " -> UnsafeMutableRawPointer"
             : $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpecForReturnType(returnSpec)}";
 
-        // Emit the wrapper as a @_cdecl free function (not extension method).
-        // Using @_silgen_name on an extension method produces Swift calling convention
-        // (self in x20 register), but the C# P/Invoke uses CallConvCdecl — causing a
-        // calling convention mismatch and Mono JIT assertion crash (R2 regression).
-        if (isInstance)
-        {
-            // Instance methods need explicit self parameter (UnsafeMutableRawPointer)
-            swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
-        }
-
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, method.IsMainActorIsolated, method.IsNonisolated);
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor,
-            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentDecl));
-        swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
-        swiftWriter.WriteLine(string.Join(",\n", swiftParams));
-        swiftWriter.WriteLine($"){swiftReturnType} {{");
+        var availability = WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentDecl);
+
+        if (isGenericParent && isInstance)
+        {
+            // Generic parent: emit @_silgen_name extension method.
+            // Self is implicit (in x20 register via Swift calling convention).
+            // C# P/Invoke uses CallConvSwift + SwiftSelf to match.
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            if (needsMainActor)
+                swiftWriter.WriteLine("@MainActor");
+            swiftWriter.WriteLine($"extension {typeName} {{");
+            swiftWriter.WriteLine($"@_silgen_name(\"{silgenName}\")");
+            swiftWriter.WriteLine($"func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
+            swiftWriter.WriteLine(string.Join(",\n", swiftParams));
+            swiftWriter.WriteLine($"){swiftReturnType} {{");
+        }
+        else
+        {
+            // Non-generic parent: emit @_cdecl free function with explicit self parameter.
+            if (isInstance)
+            {
+                swiftParams.Add($"    _ self_: UnsafeMutableRawPointer");
+            }
+            WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, silgenName, needsMainActor, availability);
+            swiftWriter.WriteLine($"public func _sbw_mcb_{closures[0].CallbackBaseName}_{method.Name}(");
+            swiftWriter.WriteLine(string.Join(",\n", swiftParams));
+            swiftWriter.WriteLine($"){swiftReturnType} {{");
+        }
 
         // Load non-primitive params from UnsafeRawPointer.
         // Classes: the pointer IS the object reference — use Unmanaged to recover it.
@@ -328,13 +340,10 @@ public static class MethodClosureBridge
             swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
         }
 
-        // For instance methods, unwrap self from the explicit pointer parameter.
-        // Classes use Unmanaged<T> (AnyObject reference); all value types (structs, enums)
-        // use assumingMemoryBound (pointer to value storage). Matches SelfReconstructionEmitter.
-        // Mutating value-type methods skip the variable and use through-pointer access directly
-        // so mutations write back through self_ (same pattern as MethodWrapperEmitter).
+        // For non-generic parents, unwrap self from the explicit pointer parameter.
+        // For generic parents, self is implicit from the extension.
         bool isMutatingValueType = isInstance && !(parentDecl is ClassDecl) && method.IsMutating;
-        if (isInstance && !isMutatingValueType)
+        if (isInstance && !isGenericParent && !isMutatingValueType)
         {
             bool isClassParent = parentDecl is ClassDecl;
             if (isClassParent)
@@ -349,9 +358,15 @@ public static class MethodClosureBridge
             : returnsValue ? "return "
             : "";
         var returnSuffix = returnsClass ? ").toOpaque()" : "";
-        var callTarget = isMutatingValueType
-            ? $"self_.assumingMemoryBound(to: {typeName}.self).pointee"
-            : isInstance ? "selfObj" : typeName;
+        string callTarget;
+        if (isGenericParent && isInstance)
+            callTarget = "self"; // Extension method: self is implicit
+        else if (isMutatingValueType)
+            callTarget = $"self_.assumingMemoryBound(to: {typeName}.self).pointee";
+        else if (isInstance)
+            callTarget = "selfObj";
+        else
+            callTarget = typeName;
 
         // Collect all method call args in parameter order, interleaving non-closure and closure args
         var methodCallArgs = new List<string>();
@@ -463,6 +478,9 @@ public static class MethodClosureBridge
         }
 
         swiftWriter.WriteLine("}");
+        // Close extension block for generic parent types
+        if (isGenericParent && isInstance)
+            swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
     }
 
@@ -746,12 +764,15 @@ public static class MethodClosureBridge
             pinvokeParams.Add($"IntPtr __closureCtx{suffix}");
         }
 
-        // Self pointer last — instance methods only.
-        // Uses IntPtr (not SwiftSelf) because the @_cdecl wrapper accepts self as a plain pointer.
+        // Self parameter — instance methods only.
+        // Generic parents use SwiftSelf (Swift calling convention, self in x20 register).
+        // Non-generic parents use IntPtr (C calling convention, self as trailing parameter).
         bool isInstance = method.MethodType != MethodType.Static;
+        bool isGenericParent = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
+        bool usesSwiftCallingConvention = isGenericParent && isInstance;
         if (isInstance)
         {
-            pinvokeParams.Add("IntPtr self_");
+            pinvokeParams.Add(usesSwiftCallingConvention ? "SwiftSelf self_" : "IntPtr self_");
         }
 
         // Return type
@@ -776,7 +797,10 @@ public static class MethodClosureBridge
             MethodName = pInvokeName,
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            CallingConvention = usesSwiftCallingConvention
+                ? PInvokeCallingConvention.Swift
+                : PInvokeCallingConvention.Cdecl
         });
         csWriter.WriteLine();
     }
@@ -955,13 +979,17 @@ public static class MethodClosureBridge
             callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
         }
 
-        // Self pointer — instance methods only.
-        // Passes IntPtr directly to the @_cdecl wrapper (not SwiftSelf, since the wrapper is Cdecl).
+        // Self parameter — instance methods only.
+        // Generic parents: SwiftSelf (Swift calling convention, self in x20).
+        // Non-generic parents: IntPtr directly (C calling convention, self as trailing arg).
         if (!isStatic)
         {
+            bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric;
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
-            var selfExpr = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
-            callArgs.Add(selfExpr);
+            var selfHandle = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
+            callArgs.Add(usesSwiftSelf
+                ? $"new SwiftSelf((void*){selfHandle})"
+                : selfHandle);
         }
 
         if (returnsClass)
@@ -1303,7 +1331,7 @@ public static class MethodClosureBridge
     /// <summary>
     /// Gets the P/Invoke type for a Swift primitive.
     /// </summary>
-    private static string GetPInvokePrimitiveType(TypeSpec typeSpec)
+    internal static string GetPInvokePrimitiveType(TypeSpec typeSpec)
     {
         if (typeSpec is NamedTypeSpec named)
         {

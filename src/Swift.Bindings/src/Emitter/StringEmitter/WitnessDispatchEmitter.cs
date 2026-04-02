@@ -162,6 +162,11 @@ public class WitnessDispatchEmitter
             // @objc optional properties: calling on existential returns Optional — skip dispatch
             if (property.IsObjCOptional)
                 continue;
+            // Custom actor-isolated properties: we can't annotate the dispatch accessor with
+            // the correct actor, so it would be a non-isolated access → compile error.
+            // @MainActor properties are handled by the emission methods (they add @MainActor).
+            if (property.IsActorIsolated && !property.IsMainActorIsolated)
+                continue;
             if (!emittedPropertyNames.Add(property.Name + "_get"))
                 continue;
             var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
@@ -200,6 +205,8 @@ public class WitnessDispatchEmitter
             if (property.IsStatic)
                 continue;
             if (property.IsObjCOptional)
+                continue;
+            if (property.IsActorIsolated && !property.IsMainActorIsolated)
                 continue;
             if (!emittedPropertyNames.Add(property.Name + "_set"))
                 continue;
@@ -1912,9 +1919,11 @@ public class WitnessDispatchEmitter
     {
         var protocolName = protocolDecl.Name;
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         writer.WriteLines($$"""
-            @_silgen_name("{{accessorSymbol}}")
+            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                 var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}
@@ -1937,9 +1946,11 @@ public class WitnessDispatchEmitter
             return;
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
         writer.WriteLines($$"""
-            @_silgen_name("{{accessorSymbol}}")
+            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
                 var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}
@@ -1964,7 +1975,8 @@ public class WitnessDispatchEmitter
 
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
-        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType);
+        bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
+        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType, needsMainActor);
     }
 
     /// <summary>

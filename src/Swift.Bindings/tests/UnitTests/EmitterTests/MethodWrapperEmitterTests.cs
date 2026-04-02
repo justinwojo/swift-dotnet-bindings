@@ -348,9 +348,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_UnsupportedGenericContainerParam_ReturnsFalse()
+    public void ShouldEmitWrapper_ResultParam_NowSupported()
     {
-        // Result<T,E> is still blocked — not a supported collection type
+        // Result<T,E> now supported — passes through via UnsafeRawPointer transport
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -361,13 +361,13 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", resultSpec, "result", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_UnsupportedGenericContainerReturn_ReturnsFalse()
+    public void ShouldEmitWrapper_ResultReturn_NowSupported()
     {
-        // Result<T,E> return is still blocked
+        // Result<T,E> return now supported via IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -378,7 +378,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithReturn("doWork", resultSpec, parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]
@@ -2430,9 +2430,9 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_ResultParam_StillReturnsFalse()
+    public void ShouldEmitWrapper_ResultParam_ReturnsTrue()
     {
-        // Result<T,E> still blocked — complex error handling not supported in @_cdecl
+        // Result<T,E> now supported — passes through via UnsafeRawPointer transport
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2443,7 +2443,7 @@ public class MethodWrapperEmitterTests
         var method = CreateMethodWithParam("doWork", resultSpec, "result", parentDecl, moduleDecl);
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
     [Fact]

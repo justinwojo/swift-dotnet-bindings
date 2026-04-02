@@ -870,17 +870,18 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArgInArray_ReturnsTrue()
+    public void HasNonSwiftObjectGenericArg_WithNestedObjCBridgedArgInArray_ReturnsFalse()
     {
-        // Container<Array<UIView>> — SwiftArray<T> has ISwiftObject constraint,
-        // UIView doesn't satisfy it. Nested ObjC-bridged in non-Optional is still blocked.
+        // Container<Array<UIView>> — SwiftArray<T> has no ISwiftObject constraint on T,
+        // and UIView is ObjC-bridged with a projection (UIView → IntPtr). The bypass
+        // recognizes Array<UIView> as a container with projectable elements.
         var inner = new NamedTypeSpec("Swift.Array");
         inner.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
 
         var outer = new NamedTypeSpec("TestModule.Container");
         outer.GenericParameters.Add(inner);
 
-        Assert.True(_handler.HasNonSwiftObjectGenericArg(outer));
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(outer));
     }
 
     [Fact]
@@ -1031,21 +1032,22 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
-    public void HasNonSwiftObjectGenericArg_NonOptionalObjCBridged_ReturnsTrue()
+    public void HasNonSwiftObjectGenericArg_ArrayOfObjCBridged_ReturnsFalse()
     {
-        // SwiftArray<UIKit.UIView> — SwiftArray<T> has ISwiftObject constraint,
-        // UIView doesn't satisfy it. Should still be blocked.
+        // SwiftArray<UIKit.UIView> — SwiftArray<T> has no ISwiftObject constraint on T,
+        // and UIView is ObjC-bridged with a projection. Container bypass applies.
         var array = new NamedTypeSpec("Swift.Array");
         array.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
 
-        Assert.True(_handler.HasNonSwiftObjectGenericArg(array));
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(array));
     }
 
     [Fact]
-    public void HasNonSwiftObjectGenericArg_NonOptionalNativeRemapped_ReturnsTrue()
+    public void HasNonSwiftObjectGenericArg_ArrayOfNativeRemapped_ReturnsTrue()
     {
-        // SwiftArray<Foundation.URL> — SwiftArray<T> has ISwiftObject constraint,
-        // Foundation.URL (mapped to NSUrl) doesn't satisfy it. Should still be blocked.
+        // SwiftArray<Foundation.URL> — native-remapped types in containers are still blocked.
+        // The bypass only handles ObjC-bridged class types, not native-remapped types
+        // which need different container marshalling not yet supported.
         var array = new NamedTypeSpec("Swift.Array");
         array.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
 
@@ -1061,6 +1063,175 @@ public class BoundGenericsHandlerTests
         optional.GenericParameters.Add(new NamedTypeSpec("UIKit.UIImage"));
 
         Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    #endregion
+
+    #region Container with Projectable Elements Bypass
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_DictionaryWithObjCBridgedAndNormal_ReturnsFalse()
+    {
+        // Swift.Dictionary<Swift.String, UIKit.UIView> — String is a normal ISwiftObject type,
+        // UIView is ObjC-bridged (→ IntPtr). The bypass applies.
+        var dict = new NamedTypeSpec("Swift.Dictionary");
+        dict.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dict.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(dict));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_OptionalArrayOfObjCBridged_ReturnsFalse()
+    {
+        // Optional<Array<UIView>> — unwrap Optional, then Array with projectable element.
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(array);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(optional));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_NestedArrayOfObjCBridged_ReturnsFalse()
+    {
+        // Array<Array<UIView>> — nested container, recursive bypass.
+        var inner = new NamedTypeSpec("Swift.Array");
+        inner.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+        var outer = new NamedTypeSpec("Swift.Array");
+        outer.GenericParameters.Add(inner);
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(outer));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_SetOfNativeRemapped_ReturnsTrue()
+    {
+        // Swift.Set<Foundation.URL> — native-remapped types in containers are still blocked.
+        // The container bypass only handles ObjC-bridged class types (→ IntPtr), not
+        // native-remapped types which need different marshalling.
+        var set = new NamedTypeSpec("Swift.Set");
+        set.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(set));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_ArrayOfNonProjectable_ReturnsTrue()
+    {
+        // Swift.Array<(Int, String)> — tuple element has no projection, bypass doesn't apply.
+        var array = new NamedTypeSpec("Swift.Array");
+        array.GenericParameters.Add(new TupleTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String")
+        }));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(array));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_NonContainerWithObjCBridged_StillBlocked()
+    {
+        // TestModule.Future<UIView> — not a container, ObjC-bridged still blocked.
+        var generic = new NamedTypeSpec("TestModule.Future");
+        generic.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
+    #endregion
+
+    #region Well-Known Stdlib Conformances
+
+    [Theory]
+    [InlineData("Swift.String", "Swift.Comparable")]
+    [InlineData("Swift.String", "Swift.Equatable")]
+    [InlineData("Swift.String", "Swift.Hashable")]
+    [InlineData("Swift.Int", "Swift.Comparable")]
+    [InlineData("Swift.Int", "Swift.Equatable")]
+    [InlineData("Swift.Double", "Swift.Comparable")]
+    [InlineData("Swift.Bool", "Swift.Equatable")]
+    [InlineData("Swift.Never", "Swift.Error")]
+    public void TryGetFirstUnsatisfiedConstraint_WellKnownStdlibConformance_ReturnsFalse(
+        string typeArg, string protocolConstraint)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Wrapper", moduleDecl, "T", protocolConstraint);
+
+        var boundGeneric = new NamedTypeSpec(
+            "TestModule.Wrapper",
+            new NamedTypeSpec(typeArg));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out _);
+
+        Assert.False(found);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_StdlibTypeWithoutKnownConformance_ReturnsTrue()
+    {
+        // Swift.String does NOT conform to Swift.Error — should still be blocked.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("Wrapper", moduleDecl, "T", "Swift.Error");
+
+        var boundGeneric = new NamedTypeSpec(
+            "TestModule.Wrapper",
+            new NamedTypeSpec("Swift.String"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    #endregion
+
+    #region ObjC-Bridged IntPtr Projection in Containers
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_ArrayOfObjCBridged_UsesIntPtr()
+    {
+        // Swift.Array<UIKit.UIView> — ObjC-bridged class elements in stdlib containers
+        // should project to IntPtr (the raw pointer representation).
+        var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
+        arrayTypeSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        var argDecl = CreateArgumentDecl(arrayTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Equal("Swift.Runtime.SwiftArray<IntPtr>", result);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_DictionaryWithObjCBridgedValue_UsesIntPtr()
+    {
+        // Swift.Dictionary<Swift.String, UIKit.UIView> — ObjC-bridged value element uses IntPtr.
+        var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
+
+        var argDecl = CreateArgumentDecl(dictTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.Contains("IntPtr", result);
+        Assert.Contains("SwiftDictionary", result);
+    }
+
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_ArrayOfNativeRemapped_DoesNotUseIntPtr()
+    {
+        // Swift.Array<Foundation.URL> — native-remapped types should NOT be replaced with IntPtr.
+        var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
+        arrayTypeSpec.GenericParameters.Add(new NamedTypeSpec("Foundation.URL"));
+
+        var argDecl = CreateArgumentDecl(arrayTypeSpec);
+        var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
+
+        Assert.DoesNotContain("IntPtr", result);
     }
 
     #endregion

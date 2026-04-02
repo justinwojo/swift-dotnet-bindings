@@ -1227,7 +1227,7 @@ public class ComplexProjectionTests
     public void ObjCBridged_ElementConversions()
     {
         var proj = new ObjCBridgedProjection("UIImage");
-        Assert.Equal("e.Handle", proj.GetParameterElementConversion("e"));
+        Assert.Equal("(IntPtr)e.Handle", proj.GetParameterElementConversion("e"));
         Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIImage>(e)!", proj.GetReturnElementConversion("e"));
     }
 

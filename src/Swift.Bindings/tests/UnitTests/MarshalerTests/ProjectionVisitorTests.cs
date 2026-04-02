@@ -528,7 +528,7 @@ public class ProjectionVisitorTests
     /// <summary>
     /// Visitor that returns the projection type name — verifies Accept() dispatches correctly.
     /// </summary>
-    private class TypeNameCollectorVisitor : IProjectionVisitor<string>
+    internal class TypeNameCollectorVisitor : IProjectionVisitor<string>
     {
         public string Visit(StringProjection p) => "StringProjection";
         public string Visit(BlittableProjection p) => "BlittableProjection";
@@ -551,6 +551,7 @@ public class ProjectionVisitorTests
         public string Visit(NativeRemappedProjection p) => "NativeRemappedProjection";
         public string Visit(TupleProjection p) => "TupleProjection";
         public string Visit(DateProjection p) => "DateProjection";
+        public string Visit(ResultProjection p) => "ResultProjection";
     }
 
     #endregion

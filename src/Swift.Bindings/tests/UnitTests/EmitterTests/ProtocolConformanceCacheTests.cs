@@ -66,17 +66,17 @@ public class ProtocolConformanceCacheTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_SelfTypedMembers_RecordsSkipDecision()
+    public void EmitProtocolConformance_SelfTypedMembers_EmitsConformanceWithStubs()
     {
         var (emitter, ctx) = CreateEmitterWithContext();
-        // Protocol with a method returning a generic type parameter (Self-typed)
+        // Protocol with a method returning a generic type parameter (Self-typed).
+        // Self-typed members now get fatalError() stubs instead of skipping the entire protocol.
         var protocolDecl = CreateProtocolWithSelfTypedMethod("GenericProto");
 
         var writer = CreateSwiftWriter();
         emitter.EmitProtocolConformance(writer, protocolDecl);
 
-        Assert.False(ctx.WasConformanceEmitted("GenericProto"));
-        Assert.Equal("SelfTypedMembers", ctx.ConformanceDecisions["GenericProto"].SkipReason);
+        Assert.True(ctx.WasConformanceEmitted("GenericProto"));
     }
 
     [Fact]

@@ -508,6 +508,7 @@ namespace BindingsGeneration
             new ProtocolExtensionClosureBridgeAdapter(),   // Invariant #2: before MethodClosureBridge
             new MethodClosureBridgeAdapter(),              // Bound generic closure args
             new NestedClosureBridgeAdapter(),              // Two-level trampoline
+            new MethodGenericBridgeAdapter(),              // Method-level generic params via existential opening
             new OptionalClosureBypassAdapter(),            // Last: narrowest scope
         ];
 

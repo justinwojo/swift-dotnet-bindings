@@ -341,6 +341,9 @@ public partial class ProtocolProxyEmitter
                 if (!emittedMembers.Add($"property:{property.Name}"))
                     continue;
                 EmitInheritedPropertyStub(writer, property);
+                // Track inherited property names so inherited methods with the same name
+                // get renamed (e.g., RichText property + RichText(range) method collision).
+                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
             }
 
             // Emit inherited method stubs

@@ -979,16 +979,25 @@ namespace BindingsGeneration
         {
             var internalNames = new HashSet<string>();
             var publicNames = new HashSet<string>();
-            CollectTypeNames(module.Types, internalNames, publicNames);
+            CollectTypeNames(module.Types, internalNames, publicNames, module.Name);
             // Remove short names that collide with public type names to avoid over-stripping
             internalNames.ExceptWith(publicNames);
             return internalNames;
         }
 
-        private static void CollectTypeNames(IEnumerable<TypeDecl> types, HashSet<string> internalNames, HashSet<string> publicNames)
+        private static void CollectTypeNames(IEnumerable<TypeDecl> types, HashSet<string> internalNames, HashSet<string> publicNames, string moduleName)
         {
             foreach (var t in types)
             {
+                // Skip types from other modules (e.g., Swift.Error, Foundation.PropertyListDecoder).
+                // The ABI JSON includes type descriptors for cross-module extensions, but these
+                // types are not internal to this module — they're imports or stdlib types.
+                if (t.SwiftTypeName != null && t.SwiftTypeName.Module != moduleName)
+                {
+                    CollectTypeNames(t.Types, internalNames, publicNames, moduleName);
+                    continue;
+                }
+
                 if (t.IsModuleInternal)
                 {
                     // Always add qualified name (unique, no collision risk)
@@ -1001,7 +1010,7 @@ namespace BindingsGeneration
                 {
                     publicNames.Add(t.Name);  // Track public short names for collision detection
                 }
-                CollectTypeNames(t.Types, internalNames, publicNames);  // Recurse ALL children
+                CollectTypeNames(t.Types, internalNames, publicNames, moduleName);  // Recurse ALL children
             }
         }
 

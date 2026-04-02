@@ -643,7 +643,11 @@ namespace BindingsGeneration
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
                 emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
-                dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
+                // Skip witness dispatch for mixed-generic protocols — the type projection
+                // pipeline generates incorrect types when method-level generic parameters
+                // are in scope (e.g., RxTime→Double instead of Date).
+                if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
+                    dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
             }
         }
 

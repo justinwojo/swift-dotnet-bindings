@@ -39,7 +39,7 @@ public static class WrapperEmitterHelpers
     /// Without these, the wrapper calls an API that requires a newer OS version
     /// and fails to compile on device SDKs with stricter availability checking.
     /// </summary>
-    private static void EmitSwiftAvailability(SwiftWriter swiftWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
+    internal static void EmitSwiftAvailability(SwiftWriter swiftWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
     {
         if (annotations == null || annotations.Count == 0)
             return;

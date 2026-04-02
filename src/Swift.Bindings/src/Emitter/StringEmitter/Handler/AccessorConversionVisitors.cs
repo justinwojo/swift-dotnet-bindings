@@ -35,6 +35,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ObjCBridgeableProjection p) => (null, false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
+    public (string?, bool) Visit(ResultProjection p) => (null, false);
 
     // --- Shared getter helpers ---
 
@@ -169,6 +170,7 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(AsyncProjection p) => DefaultCast(p);
     public (string?, bool) Visit(OptionalProjection p) => DefaultCast(p);
     public (string?, bool) Visit(TupleProjection p) => DefaultCast(p);
+    public (string?, bool) Visit(ResultProjection p) => DefaultCast(p);
 
     // Use explicit HasValue/Some check instead of implicit operator cast.
     // The implicit operator T?(SwiftOptional<T>) is broken for value types:
@@ -216,6 +218,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ObjCBridgeableProjection p) => (null, false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
+    public (string?, bool) Visit(ResultProjection p) => (null, false);
 
     // --- Shared setter helpers ---
 

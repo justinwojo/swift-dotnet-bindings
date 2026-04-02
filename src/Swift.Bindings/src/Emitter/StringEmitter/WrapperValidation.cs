@@ -329,8 +329,8 @@ public static class WrapperValidation
     /// <summary>
     /// Returns true if a type is a generic container that can't be handled by @_cdecl wrappers.
     /// Allows: Optional&lt;value-type&gt; (IndirectResult), Optional&lt;reference&gt; (nullable pointer),
-    /// Array, Dictionary, Set (UnsafeRawPointer transport).
-    /// Blocks: Result&lt;T,E&gt;, Optional&lt;protocol existential&gt; (needs proxy conversion).
+    /// Array, Dictionary, Set (UnsafeRawPointer transport), Result&lt;T,E&gt; (UnsafeRawPointer transport).
+    /// Blocks: Optional&lt;protocol existential&gt; (needs proxy conversion).
     /// </summary>
     public static bool IsUnsupportedGenericContainer(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
@@ -340,7 +340,21 @@ public static class WrapperValidation
             return false;  // Optional<value-type/reference>: IndirectResult or nullable pointer
         if (IsSupportedCollectionType(typeSpec))
             return false;  // Array, Dictionary, Set pass through via UnsafeRawPointer
-        return true;  // Result<T,E>, Optional<existential> still blocked
+        if (IsSupportedResultType(typeSpec))
+            return false;  // Result<T,E> passes through via UnsafeRawPointer
+        return true;  // Optional<existential> still blocked
+    }
+
+    /// <summary>
+    /// Returns true for Result&lt;T, E&gt; types that can be transported through @_cdecl
+    /// wrappers via UnsafeRawPointer + initializeMemory(as:) / assumingMemoryBound(to:).pointee.
+    /// Result is a frozen enum — its memory layout is stable and can be safely copied
+    /// through the boundary as raw bytes.
+    /// </summary>
+    public static bool IsSupportedResultType(TypeSpec typeSpec)
+    {
+        return typeSpec is NamedTypeSpec named &&
+            named.Name == "Swift.Result" && named.GenericParameters.Count == 2;
     }
 
     /// <summary>

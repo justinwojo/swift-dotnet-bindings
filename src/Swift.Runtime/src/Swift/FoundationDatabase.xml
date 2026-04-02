@@ -255,5 +255,10 @@
             <typedeclaration kind="enum" name="ComparisonResult" module="Foundation"
                              frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
+        <!-- URLError.Code — maps to nint (Int-backed). Uses kind="struct" (not enum)
+             because we map to a primitive, not a real .NET enum type. -->
+        <entity managedNameSpace="" managedTypeName="nint">
+            <typedeclaration kind="struct" name="URLError.Code" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
     </entities>
 </swifttypedatabase>

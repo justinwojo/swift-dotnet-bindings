@@ -295,8 +295,10 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolExtension_WithGenericTypeParameter_UsesAnyTypeErasure()
+    public void EmitProtocolExtension_WithGenericTypeParameter_EmitsSelfTypedStub()
     {
+        // "T" is treated as protocol-level generic param (Self) by TypeSpecHelpers.
+        // Self-typed properties get fatalError() stubs with EveryProtocol substitution.
         var protocolDecl = CreateSimpleProtocol("GenericLike");
         protocolDecl.Properties.Add(new PropertyDecl
         {
@@ -314,7 +316,8 @@ public class EveryProtocolEmitterTests
 
         var output = EmitProtocolExtension(protocolDecl);
 
-        Assert.Contains("public var item: Any", output);
+        Assert.Contains("public var item: EveryProtocol", output);
+        Assert.Contains("Self-typed property 'item'", output);
     }
 
     [Fact]
@@ -808,10 +811,11 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitConformance_MethodLevelGenericsWithNonGenericProperty_SkipsConformance()
+    public void EmitConformance_MethodLevelGenericsWithNonGenericProperty_EmitsConformance()
     {
-        // Like RxSwift.SchedulerType: has method-level generics AND a non-generic property
-        // — witness dispatch for the property may generate incorrect type projections
+        // Like RxSwift.SchedulerType: has method-level generics AND a non-generic property.
+        // Mixed-generic protocol: ALL members get fatalError() stubs because the type
+        // projection pipeline generates incorrect types for non-generic members.
         var protocol = CreateSimpleProtocol("SchedulerType");
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("scheduleRelative"));
         protocol.Properties.Add(new PropertyDecl
@@ -830,20 +834,32 @@ public class EveryProtocolEmitterTests
 
         var output = EmitConformance(protocol);
 
-        Assert.DoesNotContain("extension EveryProtocol", output);
+        Assert.Contains("extension EveryProtocol: TestModule.SchedulerType", output);
+        // Generic method gets a fatalError() stub
+        Assert.Contains("fatalError", output);
+        // Property also gets a stub (mixed-generic protocol — no vtable dispatch)
+        Assert.DoesNotContain("func_now_get", output);
+        Assert.Contains("public var now: Foundation.Date", output);
     }
 
     [Fact]
-    public void EmitConformance_MethodLevelGenericsWithNonGenericMethod_SkipsConformance()
+    public void EmitConformance_MethodLevelGenericsWithNonGenericMethod_EmitsConformance()
     {
-        // Protocol has both generic and non-generic methods
+        // Protocol has both generic and non-generic methods.
+        // Mixed-generic protocol: ALL members get fatalError() stubs.
         var protocol = CreateSimpleProtocol("MixedProtocol");
         protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("genericMethod"));
         protocol.Methods.Add(CreateMethodDecl("nonGenericMethod"));
 
         var output = EmitConformance(protocol);
 
-        Assert.DoesNotContain("extension EveryProtocol", output);
+        Assert.Contains("extension EveryProtocol: TestModule.MixedProtocol", output);
+        // Generic method gets a fatalError() stub
+        Assert.Contains("method-level generic method 'genericMethod'", output);
+        // Non-generic method also gets a stub (mixed-generic protocol — no vtable dispatch)
+        Assert.DoesNotContain("func_nonGenericMethod_1", output);
+        Assert.Contains("func nonGenericMethod()", output);
+        Assert.Contains("fatalError", output);
     }
 
     [Fact]
@@ -941,6 +957,210 @@ public class EveryProtocolEmitterTests
         Assert.Contains("extension EveryProtocol: TestModule.TupleTransformer", output);
         // Tuple must be parenthesized: (T, Int), not bare T, Int
         Assert.Matches(@"\(_G0,\s*Swift\.Int\)", output);
+    }
+
+    [Fact]
+    public void EmitConformance_SelfTypedMethodReturn_EmitsConformanceWithStub()
+    {
+        // Protocol with a Self-typed (τ_0_0) return method and a normal method.
+        // Self-typed method gets fatalError() stub; normal method gets vtable dispatch.
+        var protocol = CreateSimpleProtocol("KFOptionSetter");
+        // Self-returning method: func setOption() -> Self (τ_0_0)
+        var selfMethod = CreateMethodDecl("setOption");
+        selfMethod.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        protocol.Methods.Add(selfMethod);
+        // Normal method
+        protocol.Methods.Add(CreateMethodDecl("reset"));
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.KFOptionSetter", output);
+        // Self-typed method gets stub with EveryProtocol substitution
+        Assert.Contains("-> EveryProtocol", output);
+        Assert.Contains("Self-typed method 'setOption'", output);
+        // Normal method gets vtable dispatch
+        Assert.Contains("func_reset_1", output);
+    }
+
+    [Fact]
+    public void EmitConformance_SelfTypedProperty_EmitsConformanceWithStub()
+    {
+        // Protocol with a Self-typed property and a normal property
+        var protocol = CreateSimpleProtocol("ContentEquatable");
+        // Self-typed property: var copy: Self (τ_0_0)
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "copy",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("copy_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        // Normal property
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.ContentEquatable", output);
+        // Self-typed property gets stub with EveryProtocol type
+        Assert.Contains("public var copy: EveryProtocol", output);
+        Assert.Contains("Self-typed property 'copy'", output);
+        // Normal property gets vtable dispatch
+        Assert.Contains("func_name_get", output);
+    }
+
+    [Fact]
+    public void EmitConformance_SelfTypedMethodParam_EmitsStubWithEveryProtocol()
+    {
+        // Protocol with a method that takes Self as a parameter
+        var protocol = CreateSimpleProtocol("Comparable");
+        var method = CreateMethodDecl("compare");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "other",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            PrivateName = "other",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.Comparable", output);
+        Assert.Contains("other: EveryProtocol", output);
+        Assert.Contains("Self-typed method 'compare'", output);
+    }
+
+    [Fact]
+    public void EmitConformance_SelfTypedOptionalReturn_EmitsStubWithOptionalEveryProtocol()
+    {
+        // Protocol with a method returning Optional<Self>: func find() -> Self?
+        var protocol = CreateSimpleProtocol("Findable");
+        var method = CreateMethodDecl("find");
+        method.CSSignature[0] = new ArgumentDecl
+        {
+            Name = "",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional")
+            {
+                GenericParameters = { new NamedTypeSpec("τ_0_0") }
+            },
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        protocol.Methods.Add(method);
+
+        var output = EmitConformance(protocol);
+
+        Assert.Contains("extension EveryProtocol: TestModule.Findable", output);
+        Assert.Contains("Swift.Optional<EveryProtocol>", output);
+    }
+
+    [Fact]
+    public void EmitVtableStruct_SkipsSelfTypedAndMethodLevelGenericFields()
+    {
+        // Protocol with Self-typed members only (no method-level generics → NOT mixed-generic).
+        // Self-typed members should not get vtable fields; normal members should.
+        var protocol = CreateSimpleProtocol("SelfTypedProtocol");
+        // Normal property — should have vtable field
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("count_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        // Self-typed property — should NOT have vtable field
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "self_prop",
+            SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("self_prop_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        // Normal method — should have vtable field
+        protocol.Methods.Add(CreateMethodDecl("normalOp"));
+
+        var output = EmitVtableStruct(protocol);
+
+        // Normal property and method get vtable fields
+        Assert.Contains("func_count_get", output);
+        Assert.Contains("func_normalOp_0", output);
+        // Self-typed property does NOT get vtable field
+        Assert.DoesNotContain("func_self_prop", output);
+    }
+
+    [Fact]
+    public void EmitVtableStruct_MixedGenericProtocol_SkipsAllFields()
+    {
+        // Mixed-generic protocol (has both method-level generic and non-generic members).
+        // ALL members get stubs — vtable has only csVTHandle, no member fields.
+        var protocol = CreateSimpleProtocol("MixedGenericProtocol");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("count_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocol.Methods.Add(CreateMethodWithMethodLevelGeneric("genericOp"));
+        protocol.Methods.Add(CreateMethodDecl("normalOp"));
+
+        var output = EmitVtableStruct(protocol);
+
+        // Only csVTHandle — no member vtable fields
+        Assert.Contains("csVTHandle", output);
+        Assert.DoesNotContain("func_count_get", output);
+        Assert.DoesNotContain("func_normalOp", output);
     }
 
     #endregion

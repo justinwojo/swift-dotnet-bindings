@@ -481,6 +481,14 @@ public class BoundGenericsHandler
             CdeclParamMapper.IsOptionalObjCBridgeableContainer(namedTypeSpec, _typeDatabase))
             return false;
 
+        // Containers with ObjC-bridged or native-remapped elements (e.g., [UIImage], [URL: UIColor])
+        // bypass the ISwiftObject check. SwiftArray/SwiftDictionary/SwiftSet have no ISwiftObject
+        // constraint on their type parameters, and the projection system handles element-to-IntPtr
+        // mapping. This is separate from IsObjCBridgeableContainer which also changes the @_cdecl
+        // marshalling strategy — this bypass only relaxes the constraint check.
+        if (IsUnconstrainedContainerWithProjectableElements(namedTypeSpec))
+            return false;
+
         // Swift.Optional (SwiftOptional<T>) has no ISwiftObject constraint on T,
         // so tuples are valid generic args. All other emitted generics have
         // 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
@@ -589,6 +597,20 @@ public class BoundGenericsHandler
                     continue;
                 }
             }
+
+            // ObjC-bridged class types (UIView, NSURLSessionTask) in stdlib containers
+            // map to IntPtr — the raw pointer representation. The projection system handles
+            // element conversion (GetNSObject<T> for return, .Handle for parameter).
+            if (isStdlibContainer &&
+                genericParameter is NamedTypeSpec namedGenericParam &&
+                !namedGenericParam.ContainsGenericParameters &&
+                IsObjCBridgedType(namedGenericParam) &&
+                !IsNonSwiftObjectMappedType(namedGenericParam))
+            {
+                translatedGenericParameters.Add("IntPtr");
+                continue;
+            }
+
             translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl, parentTypeDecl));
         }
 
@@ -988,6 +1010,12 @@ public class BoundGenericsHandler
             if (typeArgumentName == protocolConstraint)
                 return true;
 
+            // Well-known Swift stdlib conformances: the generator doesn't have declarations
+            // for stdlib types, but we know their conformances. Without this, members using
+            // e.g. KeyedStorage<String, V> where String : Comparable are incorrectly skipped.
+            if (HasWellKnownStdlibConformance(typeArgumentName, protocolConstraint))
+                return true;
+
             // For external concrete types (e.g. Swift stdlib types), we can't verify
             // conformance from local declarations, so fail closed and skip the member.
             return false;
@@ -1090,6 +1118,53 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Well-known conformances for Swift standard library types that the generator
+    /// cannot verify from local declarations. These are stable, documented conformances
+    /// from the Swift standard library.
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> s_wellKnownStdlibConformances = new()
+    {
+        ["Swift.String"] = new HashSet<string>
+        {
+            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
+            "Swift.CustomStringConvertible", "Swift.CustomDebugStringConvertible",
+            "Swift.LosslessStringConvertible", "Swift.ExpressibleByStringLiteral",
+            "Swift.ExpressibleByStringInterpolation", "Swift.TextOutputStream",
+            "Swift.TextOutputStreamable", "Swift.RangeExpression",
+        },
+        ["Swift.Int"] = new HashSet<string>
+        {
+            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
+            "Swift.Numeric", "Swift.SignedNumeric", "Swift.BinaryInteger",
+            "Swift.FixedWidthInteger", "Swift.SignedInteger", "Swift.Strideable",
+            "Swift.CustomStringConvertible",
+        },
+        ["Swift.Double"] = new HashSet<string>
+        {
+            "Swift.Comparable", "Swift.Equatable", "Swift.Hashable",
+            "Swift.Numeric", "Swift.SignedNumeric", "Swift.FloatingPoint",
+            "Swift.BinaryFloatingPoint", "Swift.Strideable",
+            "Swift.CustomStringConvertible",
+        },
+        ["Swift.Bool"] = new HashSet<string>
+        {
+            "Swift.Equatable", "Swift.Hashable", "Swift.CustomStringConvertible",
+            "Swift.ExpressibleByBooleanLiteral",
+        },
+        ["Swift.Never"] = new HashSet<string>
+        {
+            "Swift.Error", "Swift.Equatable", "Swift.Hashable",
+            "Swift.Comparable",
+        },
+    };
+
+    private static bool HasWellKnownStdlibConformance(SwiftTypeName typeArgument, SwiftTypeName protocolConstraint)
+    {
+        return s_wellKnownStdlibConformances.TryGetValue(typeArgument.ModuleQualifiedName, out var conformances) &&
+               conformances.Contains(protocolConstraint.ModuleQualifiedName);
+    }
+
+    /// <summary>
     /// Checks whether a protocol transitively inherits from a target protocol.
     /// Uses the module's protocol declarations to resolve the inheritance chain.
     /// </summary>
@@ -1166,6 +1241,58 @@ public class BoundGenericsHandler
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true when a type is a container (Array/Dictionary/Set, optionally wrapped in Optional)
+    /// whose element types that would fail the ISwiftObject check are all ObjC-bridged class types
+    /// (UIImage → IntPtr). The TranslateBoundGenericTypeToCSharp method maps these to IntPtr,
+    /// and the projection system handles element conversion (GetNSObject for return, .Handle for param).
+    /// Native-remapped types (Foundation.URL → NSUrl, Foundation.Date → DateTimeOffset) are NOT
+    /// included because they need different marshalling that the container path doesn't support.
+    /// </summary>
+    private bool IsUnconstrainedContainerWithProjectableElements(NamedTypeSpec typeSpec)
+    {
+        var target = typeSpec;
+        // Unwrap one level of Optional
+        if (target.Name == "Swift.Optional" && target.GenericParameters.Count == 1 &&
+            target.GenericParameters[0] is NamedTypeSpec inner)
+            target = inner;
+
+        if (target.Name != "Swift.Array" && target.Name != "Swift.Dictionary" && target.Name != "Swift.Set")
+            return false;
+
+        // At least one element must be ObjC-bridged for the bypass to be meaningful
+        bool hasObjCBridgedElement = false;
+
+        foreach (var param in target.GenericParameters)
+        {
+            if (param is not NamedTypeSpec namedParam)
+                return false;
+
+            // ObjC-bridged class types project to IntPtr
+            if (IsObjCBridgedType(namedParam) && !IsNonSwiftObjectMappedType(namedParam))
+            {
+                hasObjCBridgedElement = true;
+                continue;
+            }
+
+            // Normal types that implement ISwiftObject are fine in containers
+            // (they wouldn't trigger the non-ISwiftObject check on their own)
+            if (!IsObjCBridgedType(namedParam) && !IsNonSwiftObjectMappedType(namedParam))
+                continue;
+
+            // Recurse into nested containers (e.g., [[UIImage]])
+            if (namedParam.ContainsGenericParameters && IsUnconstrainedContainerWithProjectableElements(namedParam))
+            {
+                hasObjCBridgedElement = true;
+                continue;
+            }
+
+            // Native-remapped or other non-ISwiftObject types without projections — block
+            return false;
+        }
+        return hasObjCBridgedElement;
     }
 
     // Swift value types < 8 bytes whose Optional<T> fits within IntPtr (8 bytes).

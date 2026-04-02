@@ -177,6 +177,25 @@ namespace BindingsGeneration
     }
 
     /// <summary>
+    /// Bridge adapter for method-level generic parameters — uses Swift 5.7+ implicit existential
+    /// opening to bridge methods with single protocol-constrained generic type parameters.
+    /// </summary>
+    internal sealed class MethodGenericBridgeAdapter : IMethodBridgeEmitter
+    {
+        public BridgeEmitResult? TryEmit(BridgeEmitterContext context)
+        {
+            if (MethodGenericBridgeEmitter.TryEmit(
+                context.CsWriter, context.SwiftWriter, context.MethodEnv,
+                context.ParentDecl, ctx: context.EmissionContext))
+            {
+                return new BridgeEmitResult("MethodGenericBridge",
+                    "Method-level generic parameter bridged via existential opening.");
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Bridge adapter for Optional&lt;Closure&gt;+default bypass — omits unsupported optional closure
     /// params, letting Swift fill nil. Must be last in the dispatch table (narrowest scope).
     /// </summary>

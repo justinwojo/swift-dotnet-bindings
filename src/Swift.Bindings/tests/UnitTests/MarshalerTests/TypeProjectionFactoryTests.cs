@@ -398,6 +398,7 @@ public class TypeProjectionFactoryTests
         public bool Visit(NativeRemappedProjection p) => false;
         public bool Visit(TupleProjection p) => false;
         public bool Visit(DateProjection p) => false;
+        public bool Visit(ResultProjection p) => false;
     }
 
     #endregion
@@ -547,6 +548,110 @@ public class TypeProjectionFactoryTests
 
         Assert.Equal("SwiftOptional<TestModule.ManagedFrozen>", optional.ContainerTypeName);
         Assert.Equal("SwiftOptional<TestModule.ManagedFrozen.Buffer>", optional.SwiftContainerGenericType);
+    }
+
+    #endregion
+
+    #region ResultProjection
+
+    [Fact]
+    public void Project_SwiftResult_ReturnsResultProjection()
+    {
+        var typeSpec = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Bool"));
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<ResultProjection>(projection);
+    }
+
+    [Fact]
+    public void ResultProjection_PublicType_ContainsBothTypes()
+    {
+        var success = new BlittableProjection("int");
+        var failure = new BlittableProjection("nint");
+        var proj = new ResultProjection(success, failure);
+
+        Assert.Contains("SwiftResult<", proj.PublicType);
+        Assert.Contains("int", proj.PublicType);
+        Assert.Contains("nint", proj.PublicType);
+    }
+
+    [Fact]
+    public void ResultProjection_PInvokeType_IsIntPtr()
+    {
+        var success = new BlittableProjection("int");
+        var failure = new BlittableProjection("nint");
+        var proj = new ResultProjection(success, failure);
+
+        Assert.Equal("IntPtr", proj.PInvokeType);
+        Assert.Null(proj.PInvokeAttribute);
+    }
+
+    [Fact]
+    public void ResultProjection_ReturnPlan_UsesMarshalFromSwift()
+    {
+        var success = new StringProjection();
+        var failure = new BlittableProjection("int");
+        var proj = new ResultProjection(success, failure);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+        Assert.Contains("MarshalFromSwift<SwiftResult<", plan.SetupStatements[0].ToString());
+    }
+
+    [Fact]
+    public void ResultProjection_ParameterPlan_ThrowsNotSupported()
+    {
+        var success = new BlittableProjection("int");
+        var failure = new BlittableProjection("nint");
+        var proj = new ResultProjection(success, failure);
+
+        Assert.Throws<NotSupportedException>(() => proj.GetParameterPlan("myResult"));
+    }
+
+    [Fact]
+    public void ResultProjection_DoesNotRequireSwiftWrapper()
+    {
+        var success = new BlittableProjection("int");
+        var failure = new BlittableProjection("nint");
+        var proj = new ResultProjection(success, failure);
+
+        Assert.False(proj.RequiresSwiftWrapper);
+    }
+
+    [Fact]
+    public void ResultProjection_Accept_VisitsResultProjection()
+    {
+        var success = new BlittableProjection("int");
+        var failure = new BlittableProjection("nint");
+        var proj = new ResultProjection(success, failure);
+        var visitor = new ProjectionVisitorTests.TypeNameCollectorVisitor();
+        var result = proj.Accept(visitor);
+        Assert.Equal("ResultProjection", result);
+    }
+
+    [Fact]
+    public void Project_SwiftResult_NullWhenInnerFails()
+    {
+        // Result with unresolvable inner type → null
+        var typeSpec = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("Unknown.Type"), new NamedTypeSpec("Swift.Bool"));
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+        Assert.Null(projection);
+    }
+
+    [Fact]
+    public void ResultProjection_ContainerTypeName_UsesInnerMarshalTypes()
+    {
+        var success = new ClassProjection("MyApp.FetchData");
+        var failure = new NonFrozenStructProjection("MyApp.FetchError");
+        var proj = new ResultProjection(success, failure);
+
+        Assert.Contains("SwiftResult<MyApp.FetchData, MyApp.FetchError>", proj.ContainerTypeName);
     }
 
     #endregion

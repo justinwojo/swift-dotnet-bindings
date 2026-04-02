@@ -988,10 +988,10 @@ public class MethodClosureBridgeTests
     // ─── IsEligible: generic parent types ─────────────────────────────
 
     [Fact]
-    public void IsEligible_GenericParentType_ReturnsFalse()
+    public void IsEligible_GenericParentType_InstanceMethod_ReturnsTrue()
     {
-        // @_cdecl free functions can't access generic parent type parameters.
-        // Unmanaged<GenericClass> without concrete params is invalid Swift.
+        // Instance methods on generic parents use @_silgen_name extension approach
+        // to inherit generic context, with CallConvSwift + SwiftSelf on C# side.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
@@ -1004,6 +1004,28 @@ public class MethodClosureBridgeTests
 
         var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
             TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_GenericParentType_StaticMethod_ReturnsFalse()
+    {
+        // Static methods on generic parents are still blocked — type metadata passing is complex.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateGenericClassDecl("GenericClass", moduleDecl, "T");
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        method.MethodType = MethodType.Static;
         var closureHandler = new ClosureHandler(typeDatabase);
 
         Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));

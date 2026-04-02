@@ -90,7 +90,7 @@ public static class GenericClosureBridgeEmitter
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
             if (arg == closureArgCandidate) continue;
-            if (!IsIntPtrCompatibleParam(arg, env.TypeDatabase))
+            if (!IsBridgePassableParam(arg, env.TypeDatabase))
                 return null;
         }
 
@@ -106,7 +106,7 @@ public static class GenericClosureBridgeEmitter
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg == closureArg) continue;
-            if (!IsIntPtrCompatibleParam(arg, env.TypeDatabase))
+            if (!IsBridgePassableParam(arg, env.TypeDatabase))
                 return false;
         }
         return true;
@@ -120,23 +120,23 @@ public static class GenericClosureBridgeEmitter
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg == closureArg) continue;
-            if (!IsIntPtrCompatibleParam(arg, typeDatabase))
+            if (!IsBridgePassableParam(arg, typeDatabase))
                 return false;
         }
         return true;
     }
 
     /// <summary>
-    /// Checks if a non-closure parameter can be safely passed as IntPtr in the bridge P/Invoke.
-    /// Currently returns false for ALL parameter types because the emitted C# wrapper passes
-    /// managed variables directly into a P/Invoke that declares IntPtr, with no conversion
-    /// (no .DangerousGetHandle(), no implicit cast). Until proper per-type marshalling is
-    /// emitted, only methods where the closure is the sole non-self parameter are eligible.
+    /// Checks if a non-closure parameter can be safely passed through the bridge P/Invoke.
+    /// Supports class types (IntPtr via handle), ObjC-rooted (IntPtr via Handle),
+    /// and primitives (pass by value). Reuses MCB's ParamAbiCategory classification.
     /// </summary>
-    private static bool IsIntPtrCompatibleParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
+    private static bool IsBridgePassableParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
-        // No non-closure params are supported — the bridge emits no marshalling conversions.
-        return false;
+        var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+        return category is MethodClosureBridge.ParamAbiCategory.Primitive
+            or MethodClosureBridge.ParamAbiCategory.ObjCHandle
+            or MethodClosureBridge.ParamAbiCategory.PayloadHandle;
     }
 
     // ─── SBW_CreateError Helper ───────────────────────────────────────
@@ -635,7 +635,19 @@ public static class GenericClosureBridgeEmitter
         {
             if (arg == closureArg) continue;
             var csName = NameProvider.GetCSharpParameterName(arg);
-            paramList.Add($"IntPtr {csName}");
+            var category = MethodClosureBridge.ClassifyParam(arg, env.TypeDatabase);
+            switch (category)
+            {
+                case MethodClosureBridge.ParamAbiCategory.Primitive:
+                    if (MarshallingHelpers.IsBoolType(arg.SwiftTypeSpec))
+                        paramList.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
+                    else
+                        paramList.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
+                    break;
+                default:
+                    paramList.Add($"IntPtr {csName}");
+                    break;
+            }
         }
         if (methodDecl.MethodType == MethodType.Instance)
             paramList.Add("SwiftSelf self_");
@@ -703,7 +715,7 @@ public static class GenericClosureBridgeEmitter
         callArgs.Add($"s_{callbackName}");
         callArgs.Add("GCHandle.ToIntPtr(gcHandle)");
         callArgs.Add("resultBuf");
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl);
+        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase);
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
@@ -800,7 +812,7 @@ public static class GenericClosureBridgeEmitter
         var callArgs = new List<string>();
         callArgs.Add($"s_{callbackName}");
         callArgs.Add("GCHandle.ToIntPtr(gcHandle)");
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl);
+        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase);
         if (methodDecl.MethodType == MethodType.Instance)
             callArgs.Add($"new SwiftSelf((void*){selfExpr})");
         if (methodDecl.Throws)
@@ -866,12 +878,13 @@ public static class GenericClosureBridgeEmitter
     }
 
     /// <summary>
-    /// Adds non-closure arguments to the P/Invoke call args list.
+    /// Adds non-closure arguments to the P/Invoke call args list with proper marshalling.
     /// Skips closure arguments (both bare ClosureTypeSpec and Optional-wrapped closures).
     /// </summary>
     private static void AddNonClosurePInvokeCallArgs(
         List<string> callArgs,
-        MethodDecl methodDecl)
+        MethodDecl methodDecl,
+        ITypeDatabase typeDatabase)
     {
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -883,7 +896,19 @@ public static class GenericClosureBridgeEmitter
                 opt.GenericParameters.Count == 1 && opt.GenericParameters[0] is ClosureTypeSpec)
                 continue;
             var csName = NameProvider.GetCSharpParameterName(arg);
-            callArgs.Add(csName);
+            var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+            switch (category)
+            {
+                case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
+                    callArgs.Add($"{csName}.Handle");
+                    break;
+                case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
+                    callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                    break;
+                default:
+                    callArgs.Add(csName);
+                    break;
+            }
         }
     }
 

@@ -114,6 +114,17 @@ public func getExistentialTypeMetadata(_ numProtocols: Int) -> UnsafeMutableRawP
     return unsafeBitCast(type, to: UnsafeMutableRawPointer.self)
 }
 
+/// Returns the type metadata for `any Swift.Error` existential type.
+///
+/// Unlike generic existential metadata (N-protocol slot), `any Error` is a specific
+/// well-known existential type whose metadata includes the Swift.Error protocol
+/// descriptor. Used by C# `SwiftResult<TSuccess, TFailure>` to construct Result
+/// metadata when TFailure = AnyError.
+@_cdecl("SBW_AnyError_TypeMetadata")
+public func sbw_anyErrorTypeMetadata() -> UnsafeMutableRawPointer {
+    return unsafeBitCast((any Error).self, to: UnsafeMutableRawPointer.self)
+}
+
 // MARK: - SwiftString Wrapper Functions
 //
 // SwiftString.cs uses CallConvSwift P/Invokes for ToString() and Length,
