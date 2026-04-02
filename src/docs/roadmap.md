@@ -2,8 +2,9 @@
 
 **Updated**: April 1, 2026
 
-**Current baseline**: 95/95 CS compile, 60/61 Swift compile (GRDB: 236 errors remain — pre-existing generator bugs).
+**Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
 **Skip metrics**: 10,718 emitted members, 2,038 skipped (16% skip rate) across 95 validation targets.
+**Runtime tests**: 1,285 passed, 9 skipped on both iOS Simulator (Mono JIT) and device (NativeAOT).
 **Downstream validation**: 630/630 sim tests passing across 20 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.5.0-dev packages.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug. Investigate generated C#/Swift wrapper signatures before ever labeling a failure as upstream.

@@ -8,13 +8,9 @@ A single tool that generates .NET bindings from Swift, Objective-C, or mixed App
 Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more, so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
 
 ### Objective-C Bindings
-**A full replacement for Objective Sharpie. Ready-to-compile output with no `[Verify]` cleanup required.**
+Also handles pure Objective-C frameworks — a full replacement for Objective Sharpie with ready-to-compile output. See [below](#objective-c-support).
 
-Point the same tool at an Objective-C framework and it parses headers via clang, emits standard `ApiDefinition.cs` + `StructsAndEnums.cs` binding definitions, and generates a ready-to-build `.csproj` — no manual cleanup required. Drop any xcframework and the correct pipeline runs automatically.
-
-For the story behind this project — why I created it, the process of building it entirely with AI tooling, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
-
----
+For the story behind this project — why I created it, the process of building it, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
 
 ## Why This Exists
 
@@ -29,29 +25,30 @@ Without Swift interop, **.NET on Apple platforms becomes progressively less acce
 
 And for the Objective-C frameworks that remain, the de facto binding tool — Objective Sharpie — is no longer maintained and produces output requiring extensive manual cleanup (`[Verify]` attributes on every binding).
 
-Swift Bindings automates the entire process:
+Swift Bindings automates the entire process.
+
+**Traditional approach:**
 
 ```
-Traditional approach (Swift):
-  Swift API → manual Swift proxy → @objc headers → Objective Sharpie → C# binding
-  (significant work, fragile, limited to ObjC-compatible types)
+Swift:  Swift API → manual proxy → @objc headers → Objective Sharpie → C# binding
+        (fragile, limited to ObjC-compatible types)
 
-Traditional approach (Objective-C):
-  ObjC framework → Objective Sharpie → C# binding
-  (numerous [Verify] attributes to review, manual .csproj scaffolding)
+ObjC:   ObjC framework → Objective Sharpie → C# binding
+        (dozens of [Verify] attributes, manual .csproj scaffolding)
+```
 
-Swift Bindings approach (both):
-  Any xcframework → SwiftBindings tool → C# binding
-  (automated, ready to compile)
+**With Swift Bindings:**
+
+```
+Any xcframework → SwiftBindings tool → C# binding
+(automated, ready to compile)
 ```
 
 ### Where This Project Comes From
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **700+ commits, ~125K lines of production code and ~175K lines of tests**. The generator now covers protocols, generics, closures, async, SwiftUI bridging, protocol extensions, existential containers, and much more.
-
----
+Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **800+ commits, ~140K lines of production code and ~150K lines of tests**.
 
 ## What It Can Do
 
@@ -66,7 +63,7 @@ The generator handles the full breadth of Swift's type system:
 - **Closures** (`@convention(c)`, `@escaping`) with automatic delegate marshalling, including closures with bound generic arguments and error propagation
 - **Tuples**, **operators**, **subscripts**, **inout parameters**, **failable initializers**
 - **Existential containers** (`any Protocol`) as parameters and return values, with concrete-type boxing via `IExistentialBoxable`
-- **Type projections** — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Set<T>` → `IReadOnlySet<T>`, `Dictionary<K,V>` → `IReadOnlyDictionary<K,V>`, `Data` → `byte[]`, `Optional<T>` → `T?`
+- **Type projections** — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Set<T>` → `IReadOnlySet<T>`, `Dictionary<K,V>` → `IReadOnlyDictionary<K,V>`, `Data` → `byte[]`, `Decimal` → `decimal`, `Optional<T>` → `T?`
 - **Convenience overloads** — `nint`/`nuint` parameters get `int`/`uint` overloads, methods with default parameters get reduced-arity overloads
 - **SwiftUI Views** — automatic `UIHostingController` bridge with two-way state updates, view modifier chains, and async factory patterns
 - **XML doc comments** — Swift documentation automatically extracted and converted to C# IntelliSense docs
@@ -118,9 +115,7 @@ bool playing = animationView.IsAnimationPlaying;
 double progress = animationView.CurrentProgress;
 ```
 
-All generated C# — no proxy libraries, no bridging headers, no manual wrapper code.
-
----
+All generated C# — no manual wrapper code.
 
 ## Getting Started
 
@@ -188,8 +183,6 @@ Then just ask Claude: *"I want to create a Swift binding for [library name]"*
 
 **Codex / other AI tools:** The skill definition is a standalone markdown file ([`swift-binding-assistant/SKILL.md`](https://github.com/justinwojo/claude-skills/blob/main/swift-binding-assistant/SKILL.md)). Copy its contents into your tool's custom instructions or system prompt to get the same guided workflow.
 
----
-
 ## SwiftUI Interop
 
 SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
@@ -198,24 +191,20 @@ Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingCo
 
 For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
 
----
-
 ## Real-World Validation
 
-Validated against **46 libraries (90 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+Validated against **51 libraries (95 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
 
 | Category | Libraries |
 |----------|-----------|
-| **Image & Animation** | Nuke, Lottie, SwiftyGif, FSPagerView |
+| **Image & Animation** | Nuke, Lottie, Kingfisher, SwiftyGif, FSPagerView |
 | **Networking & Data** | Alamofire, Starscream, GRDB, KeychainAccess, ObjectMapper |
 | **Payments** | Stripe (14 frameworks) |
-| **UI Components** | SnapKit, SkeletonView, Parchment, SVGView, BonMot |
-| **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift |
+| **UI Components** | SnapKit, SkeletonView, Parchment, SVGView, BonMot, CodeScanner, AlertToast |
+| **Utilities** | CryptoSwift, DeviceKit, PhoneNumberKit, Swinject, RxSwift, XMLCoder |
 | **ObjC Frameworks** | Realm, SDWebImage, CocoaLumberjack, MBProgressHUD, Firebase (28 targets) |
 
 Select libraries (Nuke, Lottie, BlinkID, BlinkID UX, Stripe) have dedicated test apps with end-to-end runtime validation on iOS Simulator in the [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages) repo. The generator also validates Nuke across macOS and tvOS targets.
-
----
 
 ## Documentation
 
@@ -231,21 +220,15 @@ Full documentation is available on the **[project wiki](https://github.com/justi
 | [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) | Platform requirements, Mono JIT workarounds, unsupported patterns |
 | [Architecture](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Architecture) | Generator pipeline, type mapping, memory management |
 
----
-
 ## Known Limitations
 
 Swift Bindings targets .NET 10 on Apple platforms. The vast majority of generated P/Invokes (94-98% for representative libraries) use standard C calling conventions and work identically everywhere. A small number of methods use `CallConvSwift`, which may encounter Mono JIT limitations on iOS/tvOS Simulator. **Device builds (NativeAOT) and macOS are unaffected.**
 
 For full details, see [Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
----
-
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **7,000+ unit tests** and **1,000+ runtime tests** on iOS Simulator and macOS.
-
----
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **9,000+ unit tests** and **1,285 runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
 
 ## Contributing
 
@@ -253,13 +236,9 @@ The best way to contribute right now is through [issue reports](https://github.c
 
 See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for development setup, PR guidelines, and details on the AI-assisted workflow used to build this project.
 
----
-
 ## Support This Project
 
 This project takes a massive amount of effort to build and maintain, and the tooling used to develop it isn't cheap. If you find it useful, please consider [sponsoring the project](https://github.com/sponsors/justinwojo).
-
----
 
 ## License
 
