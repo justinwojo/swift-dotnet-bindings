@@ -679,6 +679,8 @@ public static class MethodWrapperEmitter
                 var n => n
             };
 
+            // When argLabel == label, Swift syntax is just "label:" (no redundant duplicate)
+            var paramPrefix = (argLabel == label) ? label : $"{argLabel} {label}";
             var protocolArgLabel = argLabel == "_" ? "" : argLabel + ": ";
             var methodArgLabel = arg.Name switch
             {
@@ -691,7 +693,7 @@ public static class MethodWrapperEmitter
 
             if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
             {
-                protocolParams.Add($"{argLabel} {label}: UnsafeRawPointer");
+                protocolParams.Add($"{paramPrefix}: UnsafeRawPointer");
                 cdeclParams.Add($"_ {label}: UnsafeRawPointer");
                 cdeclCallArgs.Add($"{protocolArgLabel}{label}");
 
@@ -703,7 +705,7 @@ public static class MethodWrapperEmitter
             {
                 var (cdeclParam, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                protocolParams.Add($"{argLabel} {label}: {swiftType}");
+                protocolParams.Add($"{paramPrefix}: {swiftType}");
                 cdeclParams.Add(cdeclParam);
 
                 if (reconstruction != null)

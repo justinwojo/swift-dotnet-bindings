@@ -857,10 +857,13 @@ public static class ConstructorWrapperEmitter
                 var n => n
             };
 
+            // When argLabel == label, Swift syntax is just "label:" (no redundant duplicate)
+            var paramPrefix = (argLabel == label) ? label : $"{argLabel} {label}";
+
             if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
             {
                 // T-typed param → UnsafeRawPointer in protocol, reconstructed in extension body
-                protocolParams.Add($"{argLabel} {label}: UnsafeRawPointer");
+                protocolParams.Add($"{paramPrefix}: UnsafeRawPointer");
                 cdeclParams.Add($"_ {label}: UnsafeRawPointer");
                 cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}");
 
@@ -876,7 +879,7 @@ public static class ConstructorWrapperEmitter
                 var (cdeclParam, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
                 // For the protocol, use the Swift type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                protocolParams.Add($"{argLabel} {label}: {swiftType}");
+                protocolParams.Add($"{paramPrefix}: {swiftType}");
                 cdeclParams.Add(cdeclParam);
 
                 if (reconstruction != null)
