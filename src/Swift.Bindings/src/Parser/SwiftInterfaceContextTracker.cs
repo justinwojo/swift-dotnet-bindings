@@ -31,9 +31,11 @@ internal sealed class SwiftInterfaceContextTracker
         @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
-    // Regex for public/open var/let declarations
+    // Regex for public/open var/let declarations.
+    // Handles setter-restricted properties like `public private(set) static var shared`
+    // and `public internal(set) var name`, plus `final` in any position.
     private static readonly Regex PublicVarRegex = new(
-        @"(?:public|open)\s+(?:final\s+)?(?:var|let)\s+(\w+)",
+        @"(?:public|open)\s+(?:(?:private|internal|public)\(set\)\s+)?(?:final\s+)?(?:static\s+|class\s+)?(?:var|let)\s+(\w+)",
         RegexOptions.Compiled);
 
     // Regex for public/open init declarations

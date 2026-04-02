@@ -71,6 +71,13 @@ namespace BindingsGeneration
             var parentDecl = enumDecl.ParentDecl ?? throw new ArgumentNullException(nameof(enumDecl.ParentDecl));
             var moduleDecl = enumDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(enumDecl.ModuleDecl));
 
+            // Module-internal enums: suppress Swift wrapper emission but still emit C# type stubs,
+            // because other types may reference the enum in method signatures (e.g., GRDB.RowKey).
+            // Redirecting swiftWriter to a discard writer prevents Swift wrapper emission while
+            // allowing all C# code paths to proceed normally.
+            if (enumDecl.IsModuleInternal)
+                swiftWriter = new SwiftWriter(new System.IO.StringWriter());
+
             if (GenericTypeEmitter.TryGetUnsupportedConstraint(enumDecl, out var unsupportedConstraint))
             {
                 var reason = unsupportedConstraint.Module == "SwiftUI"

@@ -313,7 +313,8 @@ public class ExistentialBypassEmitterTests
     [Fact]
     public void TryEmit_UnlabeledArgParam_OmitsLabelInSwiftCall()
     {
-        // Parameters starting with "arg" are unlabeled in Swift
+        // Auto-generated arg names (arg0, arg1) are unlabeled in Swift.
+        // Real names like "argIndex" or "arguments" should keep their labels.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
@@ -326,17 +327,15 @@ public class ExistentialBypassEmitterTests
             moduleDecl,
             parameters: new List<ArgumentDecl>
             {
-                CreateArgumentWithNames("argIndex", "argIndex", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgumentWithNames("arg0", "arg0", new NamedTypeSpec("Swift.Int"), moduleDecl),
                 CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
             });
 
         var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
         Assert.NotEqual(string.Empty, swiftOutput);
-        // The init call should NOT use "argIndex:" label — unlabeled params use bare value.
-        // The wrapper function param declaration uses "_ argIndex: Int" which is fine.
-        // The init call line should be "Config(argIndex)" without a label.
-        Assert.Contains("Config(argIndex)", swiftOutput);
+        // The init call should NOT use "arg0:" label — auto-generated names use bare value.
+        Assert.Contains("Config(arg0)", swiftOutput);
     }
 
     [Fact]

@@ -1,11 +1,11 @@
 {
-  "git_sha": "d7e9c865",
+  "git_sha": "6b641ad2",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 46452,
+        "lines": 46460,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,14 +40,14 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 74919,
+        "lines": 74926,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4549,
+        "lines": 4597,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -257,7 +257,7 @@
       "DeviceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5882,
+        "lines": 5887,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,7 +313,7 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14130,
+        "lines": 14131,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,7 +649,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 37,
-        "lines": 23357,
+        "lines": 23359,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

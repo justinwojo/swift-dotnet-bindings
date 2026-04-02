@@ -1233,6 +1233,12 @@ public static class ProtocolExtensionEmitter
             ? $"<{string.Join(", ", genericParamNames)}>"
             : "";
 
+        // Build where clause from parent type's generic constraints.
+        // Free functions need module-qualified conformance names (e.g., GRDB.Cursor).
+        var whereClause = isGenericConforming
+            ? WrapperEmitterHelpers.BuildSwiftWhereClause(conformingType.GenericParameters, moduleQualify: true)
+            : "";
+
         // Build the qualified type name with generic parameters for unsafeBitCast
         var qualifiedTypeName = isGenericConforming
             ? $"{typeName}<{string.Join(", ", genericParamNames)}>"
@@ -1309,7 +1315,7 @@ public static class ProtocolExtensionEmitter
         {
             ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
         var isStructConformer = conformingType is StructDecl;
 
@@ -1442,6 +1448,12 @@ public static class ProtocolExtensionEmitter
             ? $"<{string.Join(", ", genericParamNames)}>"
             : "";
 
+        // Build where clause from parent type's generic constraints.
+        // Free functions need module-qualified conformance names (e.g., GRDB.Cursor).
+        var whereClause = isGenericConforming
+            ? WrapperEmitterHelpers.BuildSwiftWhereClause(conformingType.GenericParameters, moduleQualify: true)
+            : "";
+
         // Build the qualified type name with generic parameters for unsafeBitCast
         var qualifiedTypeName = isGenericConforming
             ? $"{typeName}<{string.Join(", ", genericParamNames.Take(conformingType.GenericParameters.Count))}>"
@@ -1529,7 +1541,7 @@ public static class ProtocolExtensionEmitter
         {
             ctx.AddProtocolExtWrapperLine("@MainActor");
         }
-        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow} {{");
+        ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
         var isStructConformer = conformingType is StructDecl;
 

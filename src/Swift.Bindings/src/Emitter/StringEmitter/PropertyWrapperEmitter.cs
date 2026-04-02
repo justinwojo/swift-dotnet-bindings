@@ -70,6 +70,11 @@ public static class PropertyWrapperEmitter
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return false;
 
+        // 4b. Throwing property getters — the @_cdecl wrapper doesn't emit try/catch for property access.
+        // Gate these out until full try/catch + error callback support is added for property wrappers.
+        if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
+            return false;
+
         // 8. Nested types — ALLOWED. @_cdecl wrapper signatures use C-compatible types
         //    (Int32 raw value for simple enums, UnsafeRawPointer for complex types, void+resultPtr
         //    for indirect results). The nested type name only appears in the function BODY
@@ -138,6 +143,8 @@ public static class PropertyWrapperEmitter
             return "optional_closure_not_cdecl_compatible";
         if (propertyDecl.Accessors.Any(a => a.Method.IsAsync))
             return "async_property";
+        if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
+            return "throwing_property_getter";
         if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
             return "actor_type_property";
         // Noncopyable struct parents are now allowed (borrowing pointer semantics)

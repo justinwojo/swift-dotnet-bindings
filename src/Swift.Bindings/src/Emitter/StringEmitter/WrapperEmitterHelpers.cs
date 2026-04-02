@@ -79,6 +79,33 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Builds a Swift where clause from generic parameter constraints.
+    /// Returns an empty string if no constraints exist, or " where T : Proto, U : Proto2" etc.
+    /// </summary>
+    /// <param name="genericParams">The generic parameters with conformance information.</param>
+    /// <param name="moduleQualify">When true, uses module-qualified conformance names (e.g., GRDB.Cursor).
+    /// Use true for free functions, false for code inside an extension of the module's type.</param>
+    public static string BuildSwiftWhereClause(IEnumerable<GenericArgumentDecl> genericParams, bool moduleQualify = false)
+    {
+        var clauses = new List<string>();
+        foreach (var p in genericParams)
+        {
+            foreach (var gc in p.GenericConformances)
+            {
+                var target = moduleQualify ? gc.ConformanceTarget.ModuleQualifiedName : gc.ConformanceTarget.Name;
+                clauses.Add($"{p.SugaredTypeName} : {target}");
+            }
+            foreach (var tc in p.AssosiatedTypeConformances)
+            {
+                var target = moduleQualify ? tc.ConformanceTarget.ModuleQualifiedName : tc.ConformanceTarget.Name;
+                var op = tc.Kind == ConformanceKind.Protocol ? " : " : " == ";
+                clauses.Add($"{p.SugaredTypeName}.{string.Join(".", tc.Path.Skip(1))}{op}{target}");
+            }
+        }
+        return clauses.Count > 0 ? " where " + string.Join(", ", clauses) : "";
+    }
+
+    /// <summary>
     /// Emits a safe tag-only enum return for @_cdecl wrappers.
     /// Tag-only enums (no RawRepresentable conformance) have a memory layout smaller than
     /// the cdecl return type (e.g., a 4-case enum is 1 byte, but the return type is Int/8 bytes).

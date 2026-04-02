@@ -1417,7 +1417,7 @@ public class ClosureHandler
     /// Gets the C# underlying type and Swift scalar type for a simple enum.
     /// Returns null if the type is not a simple enum.
     /// </summary>
-    public (string csUnderlying, string swiftScalar, bool hasRawValue)? GetSimpleEnumInfo(TypeSpec typeSpec)
+    public (string csUnderlying, string swiftScalar, bool hasRawValue, string? swiftRawType)? GetSimpleEnumInfo(TypeSpec typeSpec)
     {
         if (typeSpec is not NamedTypeSpec namedType)
             return null;
@@ -1440,7 +1440,11 @@ public class ClosureHandler
         // which doesn't match the Int32 ABI, so they must use the tag-only pointer path.
         var hasRawValue = !string.IsNullOrEmpty(typeRecord.RawValueTypeName) &&
                           typeRecord.RawValueTypeName != "String";
-        return (csUnderlying, swiftScalar, hasRawValue);
+        // swiftRawType: the actual Swift raw value type (e.g., "Int") which may differ
+        // from swiftScalar (e.g., "Int64"). Needed for init(rawValue:) casts where
+        // Swift treats Int and Int64 as distinct types.
+        var swiftRawType = typeRecord.RawValueTypeName;
+        return (csUnderlying, swiftScalar, hasRawValue, swiftRawType);
     }
 
     /// <summary>
