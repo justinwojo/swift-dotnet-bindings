@@ -85,7 +85,7 @@ Supports protocol patterns (`[Protocol, Model]`, `WeakDelegate`/`Wrap`), idiomat
 
 ### Examples
 
-**Async image loading with [Nuke](https://github.com/kean/Nuke):**
+**Async image loading with [Nuke](https://github.com/kean/Nuke)** ([NuGet package](https://www.nuget.org/packages/SwiftBindings.Nuke/)):
 
 ```csharp
 // Load an image asynchronously
@@ -97,7 +97,7 @@ UIImage image = await pipeline.ImageAsync(request);
 ImageContainer? cached = pipeline.CacheValue.CachedImage(request);
 ```
 
-**Animation playback with [Lottie](https://github.com/airbnb/lottie-ios):**
+**Animation playback with [Lottie](https://github.com/airbnb/lottie-ios)** ([NuGet package](https://www.nuget.org/packages/SwiftBindings.Lottie/)):
 
 ```csharp
 // Play with a completion callback and nullable loop mode
@@ -115,7 +115,7 @@ bool playing = animationView.IsAnimationPlaying;
 double progress = animationView.CurrentProgress;
 ```
 
-All generated C# — no manual wrapper code.
+All generated C# — no manual wrapper code. These packages are published from [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages).
 
 ## Getting Started
 
