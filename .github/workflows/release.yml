@@ -193,7 +193,7 @@ jobs:
         run: >
           dotnet nuke pack
           --version ${{ steps.version.outputs.version }}
-          --output-dir artifacts
+          --output-dir ${{ github.workspace }}/artifacts
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

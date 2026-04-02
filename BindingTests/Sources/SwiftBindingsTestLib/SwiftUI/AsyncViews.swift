@@ -48,6 +48,6 @@ public struct MixedAsyncView: View {
     }
 
     public var body: some View {
-        Text("Mixed: \(service.getKey()) count=\(count) enabled=\(enabled)")
+        Text("Mixed: \(service.getKey()) count=\(count) enabled=\(enabled ? "true" : "false")")
     }
 }
