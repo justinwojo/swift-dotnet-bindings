@@ -391,6 +391,22 @@ public class MarshallingHelpersTests
         Assert.Equal("ObjCRuntime.Runtime.GetNSObject<Foundation.NSData>(result)", result);
     }
 
+    [Fact]
+    public void FormatObjCBridgeCall_NSObjectType_OwnsReference_UsesGetINativeObject()
+    {
+        // ownsReference=true on NSObject types should use GetINativeObject (not GetNSObject)
+        // to transfer +1 ownership without adding an extra DangerousRetain
+        var result = MarshallingHelpers.FormatObjCBridgeCall("UIKit.UIImage", "ptr", ownsReference: true);
+        Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<UIKit.UIImage>(ptr, true)", result);
+    }
+
+    [Fact]
+    public void FormatObjCBridgeCall_NSObjectType_OwnsReference_WithNonNull_AppendsExclamation()
+    {
+        var result = MarshallingHelpers.FormatObjCBridgeCall("Foundation.NSData", "ptr", nonNull: true, ownsReference: true);
+        Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<Foundation.NSData>(ptr, true)!", result);
+    }
+
     #endregion
 
     #region IsOptionalObjCBridged — System Framework Fallback Tests

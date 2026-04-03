@@ -80,27 +80,16 @@ let addressConverted = addressPtr.assumingMemoryBound(to: Binding.self).pointee 
 
 ## Issue 4: String Marshalling Corruption — STPAPIClient.AppInfo
 
-**Modules affected**: StripeCore (and potentially any NSObject-backed type with string properties)
+**Status**: Fixed (2026-04-02).
 
-**Severity**: Medium — 1 test skipped, but could indicate a broader marshalling bug
+**Root cause**: The accessor return type for `Optional<Class/ObjCRooted>` properties was `SwiftOptional<T>` instead of `IntPtr`. This forced the getter through `MarshalFromSwift<T>` + `SwiftOptional.NewSome()` — two VWT operations that performed `InitializeWithCopy` / `swift_retain` on the ObjC object, corrupting tagged pointer NSString ivars by +2 per call at byte offset 4.
 
-**Symptom**: Setting `STPAppInfo(name: "TestApp", ...)` and reading back via `client.AppInfo.Name` returns `"TestCpp"`. Character corruption: `A` (0x41) → `C` (0x43) at offset 4.
+**Fix**: Extended the `IsOptionalObjCBridged`-only accessor checks to use `IsOptionalWithReferenceInner` (covers ObjC-bridged, ObjC-rooted, and pure Swift classes). The accessor now returns `IntPtr` directly, and the property getter converts via `GetNSObject<T>` (ObjC-rooted) or `MarshalFromSwift<T>` (Swift class) — zero VWT operations for ObjC types.
 
-**Investigation results** (2026-04-02):
-- **Same handle**: `appInfo` and `readBack` are the same object (ObjC `strong` property)
-- **Corruption is in the GETTER path**: `appInfo.Name` returns "TestApp" after the setter, but returns "TestCpp" after `client.AppInfo` (getter) is called. The corruption is on the actual Swift object, not a read issue.
-- **Cumulative**: Each getter call adds +2 to byte 4 of the string. "TestApp" → "TestCpp" → "TestEpp"
-- **Pattern-consistent**: All strings corrupted at byte 4 by +2 — "ABCDEFG" → "ABCDGFG", "Hello" → "Hellq"
-- **Setter does NOT corrupt**: `client.AppInfo = appInfo` (which also calls `NewSome`) doesn't cause corruption
-
-**Hypothesis**: The getter path involves `passRetained` (Swift), `InitializeWithCopy` (C#), and `Arc.Retain` (C#). The +2 per getter call matches the two C#-side ARC retain operations. Short NSStrings (≤7 ASCII chars) may use tagged pointer encoding where the string data is stored in the pointer value itself. If `swift_retain` is called on a tagged pointer (treating it as an actual object), it would write to the address space containing the encoded string data, corrupting it.
-
-**Ruled out**:
-- Buffer overrun, struct layout mismatch, memory lifetime issues — corruption is persistent on the object
-- `DestructiveInjectEnumTag` in `SwiftOptional.NewSome` — setter also calls this, no corruption
-- Read-path issues — both original and readBack wrappers see corruption through the same handle
-
-**Next steps**: Add Swift-side diagnostics in the wrapper to print the raw `obj.appInfo` pointer value before/after retain operations to verify the tagged pointer theory. If confirmed, the fix would be to avoid calling `InitializeWithCopy` / `swift_retain` for NSObject properties that may contain tagged NSString ivars.
+**Files changed**:
+- `MethodSignature.cs`: Accessor return type → IntPtr for all reference optionals
+- `WrapperEmitter.Return.cs`: Accessor body → passthrough `return result;`
+- `AccessorConversionVisitors.cs`: Added IntPtr→T? conversions for ClassProjection and ObjCRootedClassProjection
 
 ---
 
@@ -114,25 +103,12 @@ The .csproj had `StripePayments` commented out with the note "generator produces
 
 ---
 
-## Test Coverage Summary
+## Test Coverage Summary (after all fixes)
 
-| Module | Pass | Skip | Blocker |
-|--------|------|------|---------|
-| StripeCore | 42 | 1 | Issue 4 (AppInfo marshalling) |
-| StripePayments | 6 | 1 (entire phase) | Issue 1 (unqualified types) |
-| StripePaymentSheet | 5 | 4 | Issue 2 + 3 (wrapper fails) |
-| StripeApplePay | 2 | 0 | Enums work; wrapper needed for more |
-| StripeIdentity | 7 | 0 | Fully passing |
-| StripeConnect | 0 | 1 (entire phase) | Issue 3 (wrapper fails) |
-| StripeIssuing | 0 | 1 (entire phase) | Issue 3 (wrapper fails) |
-| StripeCardScan | 2 | 5 | Partial — wrapper needed for CancellationReason |
-| StripeFinancialConnections | 0 | 1 (entire phase) | Issue 3 (wrapper fails) |
-| StripePaymentsUI | 0 | 1 (entire phase) | Issue 3 (wrapper fails) |
-| **Total** | **73** | **15** | |
+**74 passed, 0 failed, 14 skipped**
 
-## Recommended Fix Order
+Remaining skips are from modules whose wrapper xcframeworks aren't built for the test project (StripePaymentSheet, StripeConnect, StripeIssuing, StripeFinancialConnections, StripePaymentsUI, StripeCardScan). All validation targets (15/15) pass.
 
-1. **Issue 1** (CdeclParamMapper unqualified types) — highest impact, likely unblocks multiple modules via cascade
-2. **Issue 3** (re-evaluate after Issue 1 fix) — may resolve itself for modules that depend on StripePayments
-3. **Issue 4** (AppInfo string marshalling) — investigate for broader implications
-4. **Issue 2** (SwiftUI bridge Binding<T>) — lower priority, SwiftUI bridge is secondary
+## Remaining Work
+
+- **Issue 2** (SwiftUI bridge Binding<T>) — lower priority, SwiftUI bridge is secondary

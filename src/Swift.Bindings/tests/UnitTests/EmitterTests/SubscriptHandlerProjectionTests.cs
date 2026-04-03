@@ -209,7 +209,7 @@ public class SubscriptHandlerProjectionTests
 
         Assert.NotNull(conversion);
         Assert.Contains("IntPtr.Zero", conversion!);
-        Assert.Contains("GetNSObject", conversion!);
+        Assert.Contains("GetINativeObject", conversion!);
         Assert.False(requiresDisposal);
     }
 

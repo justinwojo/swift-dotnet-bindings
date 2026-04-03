@@ -397,9 +397,10 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Accessor-only: Optional<ObjC> — P/Invoke returns IntPtr (nullable pointer ABI).
-            // Just return the raw result; PropertyHandler applies GetNSObject conversion.
-            if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+            // Accessor-only: Optional<reference-type> — P/Invoke returns IntPtr (nullable pointer ABI).
+            // Covers ObjC-bridged, ObjC-rooted, and pure Swift class optionals.
+            // Just return the raw result; PropertyHandler applies the appropriate conversion.
+            if (_env.MethodDecl.IsAccessor && CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
             {
                 csWriter.WriteLine("return result;");
                 return;

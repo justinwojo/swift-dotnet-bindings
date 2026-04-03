@@ -145,10 +145,12 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(DateProjection p) =>
         ($"((double?){_resultExpr}) is {{}} {_resultExpr}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({_resultExpr}DateVal) : null", false);
     public (string?, bool) Visit(ClosureProjection p) => (null, false);
+    // ObjC types: Swift @_cdecl wrapper returns passRetained (+1).
+    // ownsReference=true transfers +1 ownership to the wrapper without extra DangerousRetain.
     public (string?, bool) Visit(ObjCBridgedProjection p) =>
-        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
+        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
     public (string?, bool) Visit(ObjCBridgeableProjection p) =>
-        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr)})", false);
+        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
     public (string?, bool) Visit(ArrayProjection p) =>
         AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
     public (string?, bool) Visit(DictionaryProjection p) =>
@@ -156,11 +158,17 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(SetProjection p) =>
         AccessorGetterConversionVisitor.OptionalContainerGetterConversion(p, _resultExpr);
 
-    // Reference types: accessor already returns the projected type — no conversion needed
+    // Existential/non-frozen struct: accessor already returns the projected type — no conversion needed
     public (string?, bool) Visit(ExistentialProjection p) => (null, false);
-    public (string?, bool) Visit(ClassProjection p) => (null, false);
     public (string?, bool) Visit(NonFrozenStructProjection p) => (null, false);
-    public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
+
+    // Reference class types: accessor returns IntPtr (nullable pointer ABI), convert to T?
+    // Swift @_cdecl wrapper returns passRetained (+1). ClassProjection: SwiftClassHandle takes ownership.
+    // ObjCRooted: ownsReference=true transfers +1 to wrapper without extra DangerousRetain.
+    public (string?, bool) Visit(ClassProjection p) =>
+        ($"({_resultExpr} == IntPtr.Zero ? null : ({p.PublicType})SwiftMarshal.MarshalFromSwift<{p.MarshalFromSwiftType}>({_resultExpr}))", false);
+    public (string?, bool) Visit(ObjCRootedClassProjection p) =>
+        ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
 
     // Default: cast to nullable public type
     public (string?, bool) Visit(BlittableProjection p) => DefaultCast(p);

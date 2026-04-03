@@ -498,9 +498,11 @@ namespace BindingsGeneration
                 return;
             }
 
-            // Optional<ObjC> accessor: ObjC optionals use nullable pointer ABI (IntPtr where nil = 0).
-            // The accessor helper returns raw IntPtr, PropertyHandler applies GetNSObject conversion.
-            if (_env.MethodDecl.IsAccessor && MarshallingHelpers.IsOptionalObjCBridged(argument.SwiftTypeSpec, _env.TypeDatabase))
+            // Optional<reference-type> accessor: reference optionals use nullable pointer ABI (IntPtr where nil = 0).
+            // Covers ObjC-bridged (NSString, etc.), ObjC-rooted (NSObject subclasses), and pure Swift classes.
+            // The accessor helper returns raw IntPtr, PropertyHandler applies the appropriate conversion
+            // (GetNSObject for ObjC types, MarshalFromSwift for pure Swift classes).
+            if (_env.MethodDecl.IsAccessor && CdeclParamMapper.IsOptionalWithReferenceInner(argument.SwiftTypeSpec, _env.TypeDatabase))
             {
                 SetReturnType("IntPtr");
                 return;

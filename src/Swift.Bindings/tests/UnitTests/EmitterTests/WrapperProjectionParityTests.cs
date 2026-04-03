@@ -218,14 +218,34 @@ public class WrapperProjectionParityTests
     }
 
     [Fact]
-    public void OptionalGetter_ClassInner_ReturnsNull()
+    public void OptionalGetter_ClassInner_ReturnsIntPtrConversion()
     {
         var inner = new ClassProjection("MyClass");
         var proj = new OptionalProjection(inner);
         var (conversion, disposal) = proj.Accept(new AccessorGetterConversionVisitor("result"));
 
-        // Class optionals are passthrough — accessor already returns nullable
-        Assert.Null(conversion);
+        // Class optionals: accessor returns IntPtr, convert to T? via MarshalFromSwift
+        Assert.NotNull(conversion);
+        Assert.Contains("IntPtr.Zero", conversion);
+        Assert.Contains("MarshalFromSwift", conversion);
+        Assert.Contains("MyClass", conversion);
+        Assert.False(disposal);
+    }
+
+    [Fact]
+    public void OptionalGetter_ObjCRootedClassInner_ReturnsOwnedBridgeCall()
+    {
+        var inner = new ObjCRootedClassProjection("MyNSObject");
+        var proj = new OptionalProjection(inner);
+        var (conversion, disposal) = proj.Accept(new AccessorGetterConversionVisitor("result"));
+
+        // ObjC-rooted optionals: accessor returns IntPtr (passRetained +1),
+        // convert via GetINativeObject with owns=true to avoid retain leak
+        Assert.NotNull(conversion);
+        Assert.Contains("IntPtr.Zero", conversion);
+        Assert.Contains("GetINativeObject", conversion);
+        Assert.Contains("true", conversion); // owns: true
+        Assert.Contains("MyNSObject", conversion);
         Assert.False(disposal);
     }
 

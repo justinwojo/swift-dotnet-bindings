@@ -1697,7 +1697,9 @@ public class PropertyHandlerTests
         var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorGetterConversion(opt, "result");
 
         Assert.NotNull(conversion);
-        Assert.Contains("GetNSObject<UIKit.UIImage>", conversion);
+        // ObjC-bridged optionals: accessor returns passRetained IntPtr (+1),
+        // convert via GetINativeObject with owns=true to avoid retain leak
+        Assert.Contains("GetINativeObject<UIKit.UIImage>", conversion);
         Assert.Contains("IntPtr.Zero", conversion);
         Assert.DoesNotContain("SwiftOptional", conversion);
         Assert.False(requiresDisposal);
@@ -1721,7 +1723,7 @@ public class PropertyHandlerTests
     [Fact]
     public void GetOptionalAccessorGetterConversion_ObjCBridged_HasDuplicatedResultExpr()
     {
-        // Issue N: ObjCBridged Optional getter produces a ternary that references
+        // ObjCBridged Optional getter produces a ternary that references
         // the result expression twice (null check + bridge call). When the result
         // expression is a method call, this means calling P/Invoke twice.
         // The PropertyHandler.EmitProjectedGetter detects this and caches the result.
@@ -1742,7 +1744,7 @@ public class PropertyHandlerTests
     [Fact]
     public void GetOptionalAccessorGetterConversion_ObjCBridged_CachedExprIsSingleCall()
     {
-        // Bug fix: When EmitProjectedGetter detects the double-call pattern, it re-derives
+        // When EmitProjectedGetter detects the double-call pattern, it re-derives
         // the conversion using a cached variable (__ptr). Verify the cached conversion only
         // references the cached variable — no method call duplication (ARC leak).
         var inner = new ObjCBridgedProjection("Foundation.NSUrlResponse");
@@ -1754,9 +1756,9 @@ public class PropertyHandlerTests
         // Cached conversion should reference __ptr exactly twice (nil check + bridge call)
         // but since __ptr is a local variable (not a P/Invoke), there's no ARC leak
         Assert.Contains("__ptr == IntPtr.Zero", cachedConversion!);
-        Assert.Contains("GetNSObject<Foundation.NSUrlResponse>(__ptr)", cachedConversion);
-        // Must NOT contain any method call pattern (parentheses after name)
-        Assert.DoesNotContain("()", cachedConversion);
+        Assert.Contains("GetINativeObject<Foundation.NSUrlResponse>(__ptr, true)", cachedConversion);
+        // Must NOT contain any P/Invoke call pattern
+        Assert.DoesNotContain("PInvoke", cachedConversion);
     }
 
     #endregion

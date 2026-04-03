@@ -538,7 +538,10 @@ namespace BindingsGeneration
         public static string FormatObjCBridgeCall(string publicType, string resultExpr, bool nonNull = false, bool ownsReference = false)
         {
             var suffix = nonNull ? "!" : "";
-            if (IsCoreFoundationType(publicType))
+            // GetINativeObject<T>(ptr, owns) handles both CF and NSObject types uniformly.
+            // owns=true: wrapper takes ownership of +1 reference without adding another retain.
+            // owns=false: wrapper adds DangerousRetain (caller must balance with DangerousRelease).
+            if (IsCoreFoundationType(publicType) || ownsReference)
                 return $"ObjCRuntime.Runtime.GetINativeObject<{publicType}>({resultExpr}, {(ownsReference ? "true" : "false")}){suffix}";
             return $"ObjCRuntime.Runtime.GetNSObject<{publicType}>({resultExpr}){suffix}";
         }
