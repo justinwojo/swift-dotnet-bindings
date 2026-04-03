@@ -237,7 +237,7 @@ namespace BindingsGeneration
                 }
 
                 // 1b. Detect simulator-only members (for wrapper guards and thunk filtering)
-                HashSet<string>? simulatorOnlyMembers = null;
+                SimulatorOnlyResult? simulatorOnlyMembers = null;
                 if (deviceResolution != null)
                 {
                     simulatorOnlyMembers = SimulatorOnlyMemberDetector.Detect(

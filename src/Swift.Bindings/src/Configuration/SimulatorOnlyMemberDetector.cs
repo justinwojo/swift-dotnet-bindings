@@ -8,6 +8,104 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Holds the result of simulator-only member detection.
+    /// Carries both human-readable qualified names (for wrapper comment matching)
+    /// and ABI mangled name hashes (for precise overload-aware matching in @_cdecl and thunk symbols).
+    /// </summary>
+    public sealed class SimulatorOnlyResult
+    {
+        internal record MemberEntry(string QualifiedName, string? Hash);
+
+        internal readonly List<MemberEntry> _entries = new();
+        private readonly HashSet<string> _qualifiedNames = new(StringComparer.Ordinal);
+
+        /// <summary>Qualified names like "TypeName.memberName" for wrapper comment matching.</summary>
+        public IReadOnlySet<string> QualifiedNames => _qualifiedNames;
+
+        /// <summary>Number of simulator-only members detected.</summary>
+        public int Count => _qualifiedNames.Count;
+
+        internal void Add(string qualifiedName, string patchedMangledName)
+        {
+            _qualifiedNames.Add(qualifiedName);
+            string? hash = !string.IsNullOrEmpty(patchedMangledName)
+                ? EmitterUtility.DeterministicHash8(patchedMangledName)
+                : null;
+            _entries.Add(new MemberEntry(qualifiedName, hash));
+        }
+
+        /// <summary>
+        /// Checks if a @_cdecl wrapper block matches a simulator-only member.
+        /// Uses hash matching for precise overload identification when available,
+        /// falls back to qualified name matching for members without mangled names (e.g., properties).
+        /// </summary>
+        internal bool MatchesCdeclBlock(string qualifiedName, string? cdeclLine)
+        {
+            foreach (var entry in _entries)
+            {
+                if (entry.QualifiedName != qualifiedName)
+                    continue;
+
+                if (entry.Hash != null && cdeclLine != null)
+                {
+                    // Precise: check hash in @_cdecl line (uppercase in wrapper name)
+                    if (cdeclLine.Contains(entry.Hash, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else if (entry.Hash == null)
+                {
+                    // No hash available — name match is sufficient (properties, etc.)
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a thunk assembly block matches a simulator-only member.
+        /// Uses hash matching for precision (the hash appears in the .globl line as lowercase hex).
+        /// Falls back to (typeName, memberName) pair matching for members without mangled names.
+        /// </summary>
+        internal bool MatchesThunkBlock(string blockText)
+        {
+            foreach (var entry in _entries)
+            {
+                if (entry.Hash != null)
+                {
+                    // Precise: hash appears in thunk .globl line (lowercase) or target symbol
+                    if (blockText.Contains(entry.Hash, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else
+                {
+                    // Fallback: token-aware matching using Swift name mangling conventions.
+                    // Swift mangled symbols encode identifiers as {length}{name}, e.g.,
+                    // "8Identity4Card2id". Matching on "{len}Identity" instead of bare
+                    // "Identity" prevents false positives from names like "IdentityCard".
+                    var lastDot = entry.QualifiedName.LastIndexOf('.');
+                    if (lastDot < 0) continue;
+
+                    var parts = entry.QualifiedName.Split('.');
+                    bool allMatch = true;
+                    foreach (var part in parts)
+                    {
+                        // Match the length-prefixed form "{len}{name}" in the mangled symbol
+                        var lengthPrefixed = $"{part.Length}{part}";
+                        if (!blockText.Contains(lengthPrefixed, StringComparison.Ordinal))
+                        {
+                            allMatch = false;
+                            break;
+                        }
+                    }
+                    if (allMatch)
+                        return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Detects Swift members that exist only in the simulator slice of an xcframework.
     /// These members are behind #if targetEnvironment(simulator) in the Swift source.
     /// The wrapper Swift file must guard @_cdecl functions for these members so the
@@ -17,49 +115,58 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// Compares simulator and device ABI JSON files to find members that exist only
-        /// in the simulator slice. Returns qualified member names (e.g., "TypeName.propertyName").
+        /// in the simulator slice. Returns qualified member names and mangled name hashes
+        /// for precise overload-aware matching.
         /// </summary>
-        public static HashSet<string> Detect(
+        public static SimulatorOnlyResult Detect(
             string simulatorAbiJsonPath,
             string? deviceAbiJsonPath,
             ILogger logger)
         {
             if (string.IsNullOrEmpty(deviceAbiJsonPath) || !File.Exists(deviceAbiJsonPath))
-                return new HashSet<string>();
+                return new SimulatorOnlyResult();
 
             if (!File.Exists(simulatorAbiJsonPath))
-                return new HashSet<string>();
+                return new SimulatorOnlyResult();
 
             try
             {
-                var simMembers = ExtractMembers(simulatorAbiJsonPath);
-                var deviceMembers = ExtractMembers(deviceAbiJsonPath);
+                var simMap = ExtractMembers(simulatorAbiJsonPath);
+                var deviceKeys = new HashSet<string>(
+                    ExtractMembers(deviceAbiJsonPath).Keys, StringComparer.Ordinal);
 
-                var simulatorOnly = new HashSet<string>(simMembers, StringComparer.Ordinal);
-                simulatorOnly.ExceptWith(deviceMembers);
-
-                if (simulatorOnly.Count > 0)
+                // Diff on mangledName keys (unique per overload), then collect results
+                var result = new SimulatorOnlyResult();
+                foreach (var (key, (qualifiedName, patchedMangledName)) in simMap)
                 {
-                    logger.LogInformation("Detected {Count} simulator-only member(s): {Members}",
-                        simulatorOnly.Count, string.Join(", ", simulatorOnly));
+                    if (!deviceKeys.Contains(key))
+                        result.Add(qualifiedName, patchedMangledName);
                 }
 
-                return simulatorOnly;
+                if (result.Count > 0)
+                {
+                    logger.LogInformation("Detected {Count} simulator-only member(s): {Members}",
+                        result.Count, string.Join(", ", result.QualifiedNames));
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
                 logger.LogWarning("Failed to detect simulator-only members: {Message}", ex.Message);
-                return new HashSet<string>();
+                return new SimulatorOnlyResult();
             }
         }
 
         /// <summary>
-        /// Extracts qualified member names (TypeName.memberName) from an ABI JSON file.
-        /// Only extracts Var and Function declarations that are direct children of type declarations.
+        /// Extracts a map of (key → (qualifiedName, patchedMangledName)) from an ABI JSON file.
+        /// Uses mangledName as key to disambiguate overloaded members with the same name.
+        /// Applies constructor mangled name patching (c→C) to match the generator's convention.
+        /// Extracts Var, Function, and Constructor declarations that are children of type declarations.
         /// </summary>
-        private static HashSet<string> ExtractMembers(string abiJsonPath)
+        private static Dictionary<string, (string QualifiedName, string PatchedMangledName)> ExtractMembers(string abiJsonPath)
         {
-            var members = new HashSet<string>(StringComparer.Ordinal);
+            var members = new Dictionary<string, (string, string)>(StringComparer.Ordinal);
             using var stream = File.OpenRead(abiJsonPath);
             using var doc = JsonDocument.Parse(stream);
 
@@ -77,9 +184,10 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Recursively walks ABI JSON nodes, collecting qualified Var/Function names.
+        /// Recursively walks ABI JSON nodes, collecting (mangledName → (qualifiedName, patchedMangledName)) entries
+        /// for Var, Function, and Constructor members.
         /// </summary>
-        private static void WalkNode(JsonElement node, string parentType, HashSet<string> members)
+        private static void WalkNode(JsonElement node, string parentType, Dictionary<string, (string QualifiedName, string PatchedMangledName)> members)
         {
             var kind = node.TryGetProperty("kind", out var k) ? k.GetString() ?? "" : "";
             var name = node.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
@@ -90,9 +198,21 @@ namespace BindingsGeneration
                 currentParent = string.IsNullOrEmpty(parentType) ? name : $"{parentType}.{name}";
             }
 
-            if ((kind == "Var" || kind == "Function") && !string.IsNullOrEmpty(currentParent) && !string.IsNullOrEmpty(name))
+            if ((kind == "Var" || kind == "Function" || kind == "Constructor") && !string.IsNullOrEmpty(currentParent) && !string.IsNullOrEmpty(name))
             {
-                members.Add($"{currentParent}.{name}");
+                var qualifiedName = $"{currentParent}.{name}";
+                var mangledName = node.TryGetProperty("mangledName", out var m) ? m.GetString() ?? "" : "";
+
+                // Apply constructor mangled name patching to match the generator's convention.
+                // Swift ABI JSON uses lowercase 'c' suffix for designated constructors, but the
+                // generator patches it to uppercase 'C' (allocating) before computing hashes.
+                var patchedMangledName = mangledName;
+                if (kind == "Constructor" && patchedMangledName.Length > 0 && patchedMangledName[^1] == 'c')
+                    patchedMangledName = patchedMangledName[..^1] + "C";
+
+                // Use mangledName as key to disambiguate overloads; fall back to qualifiedName
+                var key = !string.IsNullOrEmpty(mangledName) ? mangledName : qualifiedName;
+                members.TryAdd(key, (qualifiedName, patchedMangledName));
             }
 
             if (node.TryGetProperty("children", out var children))
@@ -113,23 +233,22 @@ namespace BindingsGeneration
         /// <summary>
         /// Applies #if targetEnvironment(simulator) / #endif guards around @_cdecl wrapper
         /// blocks for simulator-only members in the Swift wrapper source.
+        /// Uses mangled name hashes to precisely identify overloads in the @_cdecl function name.
         /// </summary>
         /// <param name="content">Swift wrapper file content.</param>
         /// <param name="moduleName">The module name (e.g., "StripeIdentity").</param>
-        /// <param name="simulatorOnlyMembers">
-        /// Set of qualified member names (e.g., "IdentityVerificationSheet.simulatorDocumentCameraImages").
-        /// </param>
+        /// <param name="simOnly">Simulator-only detection result with qualified names and mangled hashes.</param>
         /// <returns>The content with #if guards applied, and count of guarded blocks.</returns>
         public static (string Content, int GuardedCount) ApplySimulatorGuards(
             string content,
             string moduleName,
-            HashSet<string> simulatorOnlyMembers)
+            SimulatorOnlyResult simOnly)
         {
-            if (simulatorOnlyMembers.Count == 0 || string.IsNullOrEmpty(content))
+            if (simOnly.Count == 0 || string.IsNullOrEmpty(content))
                 return (content, 0);
 
             var lines = content.Split('\n');
-            var output = new List<string>(lines.Length + simulatorOnlyMembers.Count * 2);
+            var output = new List<string>(lines.Length + simOnly.Count * 2);
             int guardedCount = 0;
             int i = 0;
 
@@ -142,7 +261,8 @@ namespace BindingsGeneration
                 if (match.Success)
                 {
                     var qualifiedPath = match.Groups[1].Value;
-                    if (IsSimulatorOnlyMember(qualifiedPath, moduleName, simulatorOnlyMembers))
+                    var resolvedName = ResolveQualifiedName(qualifiedPath, moduleName, simOnly.QualifiedNames);
+                    if (resolvedName != null)
                     {
                         // Find the full block: comment line(s) + optional @available + @_cdecl + func body
                         int blockStart = i;
@@ -168,15 +288,31 @@ namespace BindingsGeneration
                         // Find end of function body (matching braces)
                         int blockEnd = FindBlockEnd(lines, funcStart);
 
-                        // Emit with #if guard
-                        output.Add("#if targetEnvironment(simulator)");
+                        // Find the @_cdecl or @_silgen_name line for hash-based overload matching
+                        string? cdeclLine = null;
                         for (int j = blockStart; j <= blockEnd && j < lines.Length; j++)
-                            output.Add(lines[j]);
-                        output.Add("#endif");
+                        {
+                            var s = lines[j].TrimStart();
+                            if (s.StartsWith("@_cdecl(", StringComparison.Ordinal) ||
+                                s.StartsWith("@_silgen_name(", StringComparison.Ordinal))
+                            {
+                                cdeclLine = s;
+                                break;
+                            }
+                        }
 
-                        guardedCount++;
-                        i = blockEnd + 1;
-                        continue;
+                        if (simOnly.MatchesCdeclBlock(resolvedName, cdeclLine))
+                        {
+                            // Emit with #if guard
+                            output.Add("#if targetEnvironment(simulator)");
+                            for (int j = blockStart; j <= blockEnd && j < lines.Length; j++)
+                                output.Add(lines[j]);
+                            output.Add("#endif");
+
+                            guardedCount++;
+                            i = blockEnd + 1;
+                            continue;
+                        }
                     }
                 }
 
@@ -188,55 +324,43 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a qualified path from a wrapper comment matches a simulator-only member.
-        /// The comment path may be module-qualified (e.g., "StripeIdentity.IdentityVerificationSheet.simulatorDocumentCameraImages")
-        /// while the member set uses type-qualified names (e.g., "IdentityVerificationSheet.simulatorDocumentCameraImages").
+        /// Resolves a qualified path from a wrapper comment to a member name in the simulator-only set.
+        /// Handles module-qualified paths (e.g., "StripeIdentity.Type.member" → "Type.member").
+        /// Returns the resolved name or null if not found.
         /// </summary>
-        private static bool IsSimulatorOnlyMember(string qualifiedPath, string moduleName, HashSet<string> simulatorOnlyMembers)
+        private static string? ResolveQualifiedName(string qualifiedPath, string moduleName, IReadOnlySet<string> simulatorOnlyNames)
         {
-            // Try exact match first
-            if (simulatorOnlyMembers.Contains(qualifiedPath))
-                return true;
+            if (simulatorOnlyNames.Contains(qualifiedPath))
+                return qualifiedPath;
 
-            // Strip module prefix and try again
             var prefix = moduleName + ".";
             if (qualifiedPath.StartsWith(prefix, StringComparison.Ordinal))
             {
                 var stripped = qualifiedPath.Substring(prefix.Length);
-                if (simulatorOnlyMembers.Contains(stripped))
-                    return true;
+                if (simulatorOnlyNames.Contains(stripped))
+                    return stripped;
             }
 
-            return false;
+            return null;
         }
 
         /// <summary>
         /// Creates a filtered copy of a native thunk assembly file that excludes thunks
         /// referencing simulator-only members. Used for device slice compilation.
+        /// Uses mangled name hashes for precise matching — each hash uniquely identifies
+        /// a member and appears in the thunk's .globl symbol line as lowercase hex.
         /// </summary>
         /// <param name="assemblyFilePath">Path to the original .arm64.s file.</param>
-        /// <param name="simulatorOnlyMembers">Simulator-only member names (e.g., "IdentityVerificationSheet.simulatorDocumentCameraImages").</param>
+        /// <param name="simOnly">Simulator-only detection result with mangled hashes.</param>
         /// <param name="deviceOutputDirectory">Directory to write the filtered file.</param>
         /// <returns>Path to filtered file and count of removed thunks, or null if no filtering needed.</returns>
         public static (string FilteredPath, int RemovedCount)? FilterThunkAssembly(
             string assemblyFilePath,
-            HashSet<string> simulatorOnlyMembers,
+            SimulatorOnlyResult simOnly,
             string deviceOutputDirectory)
         {
-            if (simulatorOnlyMembers.Count == 0)
+            if (simOnly.Count == 0)
                 return null;
-
-            // Extract just the member names (last component) for matching against mangled symbols.
-            // Mangled symbols contain the member name literally (e.g., "simulatorDocumentCameraImages").
-            var memberNames = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var fqn in simulatorOnlyMembers)
-            {
-                var lastDot = fqn.LastIndexOf('.');
-                if (lastDot >= 0)
-                    memberNames.Add(fqn.Substring(lastDot + 1));
-                else
-                    memberNames.Add(fqn);
-            }
 
             var lines = File.ReadAllLines(assemblyFilePath);
             var output = new List<string>(lines.Length);
@@ -248,32 +372,37 @@ namespace BindingsGeneration
                 // Thunk blocks start with ".globl _thunk_..."
                 if (lines[i].TrimStart().StartsWith(".globl _thunk_", StringComparison.Ordinal))
                 {
-                    // Collect the full thunk block (up to and including "ret")
+                    // Collect the full thunk block. Two forms exist:
+                    // 1. Tail-call: .globl + .p2align + label + "b <symbol>" (no ret)
+                    // 2. Multi-instruction: .globl + .p2align + label + ... + "ret"
+                    // Block ends at "ret", or at the next ".globl" / end-of-file for tail-call thunks.
                     int blockStart = i;
                     int blockEnd = i;
-                    for (int j = i; j < lines.Length; j++)
+                    for (int j = i + 1; j < lines.Length; j++)
                     {
-                        blockEnd = j;
-                        if (lines[j].TrimStart().StartsWith("ret", StringComparison.Ordinal))
-                            break;
-                    }
-
-                    // Check if this thunk references a simulator-only symbol
-                    bool isSimOnly = false;
-                    for (int j = blockStart; j <= blockEnd; j++)
-                    {
-                        foreach (var memberName in memberNames)
+                        var trimmed = lines[j].TrimStart();
+                        if (trimmed.StartsWith("ret", StringComparison.Ordinal))
                         {
-                            if (lines[j].Contains(memberName, StringComparison.Ordinal))
-                            {
-                                isSimOnly = true;
-                                break;
-                            }
+                            blockEnd = j;
+                            break;
                         }
-                        if (isSimOnly) break;
+                        if (trimmed.StartsWith(".globl ", StringComparison.Ordinal))
+                        {
+                            // Next thunk starts here — current block is tail-call form.
+                            // Exclude trailing blank lines from the block.
+                            blockEnd = j - 1;
+                            while (blockEnd > blockStart && string.IsNullOrWhiteSpace(lines[blockEnd]))
+                                blockEnd--;
+                            break;
+                        }
+                        blockEnd = j;
                     }
 
-                    if (isSimOnly)
+                    // Concatenate block for matching
+                    var blockText = string.Join(" ", Enumerable.Range(blockStart, blockEnd - blockStart + 1)
+                        .Where(j => j < lines.Length).Select(j => lines[j]));
+
+                    if (simOnly.MatchesThunkBlock(blockText))
                     {
                         removedCount++;
                         i = blockEnd + 1;
