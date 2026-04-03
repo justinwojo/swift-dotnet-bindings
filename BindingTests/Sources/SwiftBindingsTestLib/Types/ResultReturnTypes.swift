@@ -51,3 +51,35 @@ public class ResultReturnTest {
         return .success(7)
     }
 }
+
+/// Enum with a Result<T,E> associated value.
+/// Tests that the generator doesn't crash when encountering Result in parameter
+/// direction (enum case construction). Previously caused a fatal
+/// NotSupportedException in ResultProjection.GetParameterPlan.
+public enum OperationOutcome {
+    case completed(Result<String, ResultTestError>)
+    case pending
+    case cancelled(reason: String)
+}
+
+/// Helper to create OperationOutcome values from Swift (since enum case
+/// construction with Result param may not be available from C#).
+public class OperationOutcomeFactory {
+    public init() {}
+
+    public func makePending() -> OperationOutcome {
+        return .pending
+    }
+
+    public func makeCancelled(reason: String) -> OperationOutcome {
+        return .cancelled(reason: reason)
+    }
+
+    public func makeCompletedSuccess(value: String) -> OperationOutcome {
+        return .completed(.success(value))
+    }
+
+    public func makeCompletedFailure() -> OperationOutcome {
+        return .completed(.failure(.notFound))
+    }
+}

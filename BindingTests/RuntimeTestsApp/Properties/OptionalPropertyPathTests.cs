@@ -144,6 +144,38 @@ public class OptionalPropertyPathTests : TestBase
         TestLogger.Info("NodeWithParent with parent passed");
     }
 
+    public void TestNodeWithParentSetThenGet()
+    {
+        // Roundtrip: construct with null, set parent, get parent back and verify
+        // inner object properties aren't corrupted. Exercises the Optional<Class>
+        // property getter return path (NewSome/NewNone vs VWT InitializeWithCopy).
+        var node = new NodeWithParent(label: "child", parent: null);
+        var parent = node.Parent;
+        AssertTrue(parent == null, "Parent initially null");
+
+        var animal = new Animal(name: "Rex", sound: "Woof");
+        node.Parent = animal;
+
+        var readBack = node.Parent;
+        AssertNotNull(readBack, "Parent not null after set");
+        AssertEqual("Rex", readBack!.Name, "Parent.Name preserved after roundtrip");
+        AssertEqual("Woof", readBack!.Sound, "Parent.Sound preserved after roundtrip");
+        TestLogger.Info($"NodeWithParent roundtrip: Name={readBack.Name}, Sound={readBack.Sound}");
+    }
+
+    public void TestNodeWithParentSetToNull()
+    {
+        // Set parent, then set back to null, verify getter returns null.
+        var animal = new Animal(name: "Rex", sound: "Woof");
+        var node = new NodeWithParent(label: "child", parent: animal);
+        AssertNotNull(node.Parent, "Parent set via constructor");
+
+        node.Parent = null;
+        var readBack = node.Parent;
+        AssertTrue(readBack == null, "Parent null after setting to null");
+        TestLogger.Info("NodeWithParent set-to-null passed");
+    }
+
     #endregion
 
     #region TaggedCounter — Optional<Int32> on Frozen Struct (tag-byte fixup)

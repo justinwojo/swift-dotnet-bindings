@@ -1,11 +1,11 @@
 {
-  "git_sha": "7e1e0dd7",
+  "git_sha": "f9217612",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48448,
+        "lines": 48446,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 75470,
+        "lines": 75830,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23162,
+        "lines": 23160,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23162,
+        "lines": 23160,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23162,
+        "lines": 23160,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -397,7 +397,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12502,
+        "lines": 12531,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -693,11 +693,5 @@
       "ActorIsolatedAsyncStream": 1
     }
   },
-  "runtime_tests": {
-    "simulator": {
-      "passed": 1295,
-      "skipped": 11,
-      "failed": 0
-    }
-  }
+  "runtime_tests": null
 }

@@ -3361,7 +3361,7 @@ public class ConstructorWrapperEmitterTests
         Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
         // Reconstruction should use Unmanaged.fromOpaque
         Assert.NotNull(reconstruction);
-        Assert.Contains("Unmanaged<MyClass>.fromOpaque", reconstruction);
+        Assert.Contains("Unmanaged<TestModule.MyClass>.fromOpaque", reconstruction);
         Assert.Contains("takeUnretainedValue", reconstruction);
     }
 
@@ -3467,7 +3467,7 @@ public class ConstructorWrapperEmitterTests
         // Reconstruction should use Unmanaged<AnyObject> (NOT Unmanaged<NSZone>)
         Assert.NotNull(reconstruction);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque", reconstruction);
-        Assert.Contains("as! NSZone", reconstruction);
+        Assert.Contains("as! Foundation.NSZone", reconstruction);
         // Should NOT contain Unmanaged<NSZone> — that's the bug this test guards against
         Assert.DoesNotContain("Unmanaged<NSZone>", reconstruction);
     }
@@ -3503,9 +3503,9 @@ public class ConstructorWrapperEmitterTests
         var (_, reconstruction, _) = CdeclParamMapper.Map(
             arg, "child", env, omitLabels: false);
 
-        // True class: Unmanaged<MyClass> is safe (no AnyObject bridge needed)
+        // True class: Unmanaged<TestModule.MyClass> is safe (no AnyObject bridge needed)
         Assert.NotNull(reconstruction);
-        Assert.Contains("Unmanaged<MyClass>.fromOpaque", reconstruction);
+        Assert.Contains("Unmanaged<TestModule.MyClass>.fromOpaque", reconstruction);
         Assert.DoesNotContain("AnyObject", reconstruction);
     }
 

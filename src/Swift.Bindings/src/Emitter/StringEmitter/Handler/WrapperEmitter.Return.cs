@@ -460,6 +460,26 @@ namespace BindingsGeneration
                     // Without this, NativeAOT trims the explicit ISwiftObject.GetTypeMetadata()
                     // on closed generic types, causing MarshalFromSwift<T> to fail.
                     _emissionContext.RecordBoundGenericSwiftObjectType(marshalType);
+
+                    // Optional<Class/ObjC-rooted>: P/Invoke returns IntPtr (nullable pointer ABI).
+                    // Construct the SwiftOptional via NewSome/NewNone instead of
+                    // MarshalFromSwift<SwiftOptional<T>>(new IntPtr(&result)), which goes through
+                    // VWT InitializeWithCopy. The VWT path can produce corrupted results on
+                    // some runtimes (e.g., string data corruption when reading properties off
+                    // the extracted class). The direct construction avoids VWT entirely.
+                    if (projection is OptionalProjection optProj &&
+                        CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase) &&
+                        !MarshallingHelpers.IsOptionalObjCBridged(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    {
+                        var innerType = optProj.InnerProjection.MarshalFromSwiftType;
+                        csWriter.WriteLines($$"""
+                            if (result == IntPtr.Zero)
+                                return SwiftOptional<{{innerType}}>.NewNone();
+                            return SwiftOptional<{{innerType}}>.NewSome(({{innerType}})SwiftMarshal.MarshalFromSwift<{{innerType}}>(result));
+                            """);
+                        return;
+                    }
+
                     csWriter.WriteLines($$"""
                         unsafe {
                             return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));

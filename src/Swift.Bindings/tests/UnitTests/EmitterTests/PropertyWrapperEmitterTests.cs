@@ -938,7 +938,7 @@ public class PropertyWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_ newValue: UnsafeMutableRawPointer", output);
-        Assert.Contains("Unmanaged<ChildObj>.fromOpaque(newValue).takeUnretainedValue()", output);
+        Assert.Contains("Unmanaged<TestModule.ChildObj>.fromOpaque(newValue).takeUnretainedValue()", output);
     }
 
     [Fact]
@@ -2089,7 +2089,7 @@ public class PropertyWrapperEmitterTests
         // Parameter must be nullable pointer (UnsafeMutableRawPointer?)
         Assert.Contains("_ newValue: UnsafeMutableRawPointer?", output);
         // Must reconstruct via Unmanaged map — not .load(as:)
-        Assert.Contains("newValue.map { Unmanaged<Animation>.fromOpaque($0).takeUnretainedValue() }", output);
+        Assert.Contains("newValue.map { Unmanaged<TestModule.Animation>.fromOpaque($0).takeUnretainedValue() }", output);
         // Self must still be reconstructed
         Assert.Contains("Unmanaged<TestModule.MyType>.fromOpaque(self_).takeUnretainedValue()", output);
         Assert.Contains("obj.animation = newValueVal", output);
@@ -2287,7 +2287,7 @@ public class PropertyWrapperEmitterTests
 
         var output = sw.ToString();
         Assert.Contains("_ newValue: UnsafeMutableRawPointer?", output);
-        Assert.Contains("Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! UIImage", output);
+        Assert.Contains("Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! TestModule.UIImage", output);
         Assert.Contains("obj.image = newValueVal", output);
     }
 

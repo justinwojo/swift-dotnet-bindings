@@ -61,6 +61,26 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                // Skip enum cases with associated values that don't support parameter-direction
+                // marshalling (e.g., Result<T,E>). The projection exists for return direction
+                // but GetParameterPlan throws because C#-created instances lack native payloads.
+                // Emitting the factory would produce code that compiles but throws at runtime.
+                if (typeSpec is NamedTypeSpec projCheckSpec && projCheckSpec.ContainsGenericParameters)
+                {
+                    var projCheck = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                    {
+                        TypeDatabase = typeDatabase, IsParameter = true,
+                        GenericContext = enumDecl.IsGeneric
+                            ? BuildGenericContextFromEnumParams(enumDecl.GenericParameters)
+                            : GenericContext.Empty
+                    });
+                    if (projCheck is ResultProjection)
+                    {
+                        _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has Result<T,E> associated value which does not support parameter-direction marshalling. Skipping case factory.");
+                        return false;
+                    }
+                }
+
                 parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 

@@ -112,7 +112,7 @@ public static class CdeclParamMapper
         if (IsOptionalWithReferenceInner(swiftTypeSpec, env.TypeDatabase))
         {
             var innerType = ((NamedTypeSpec)swiftTypeSpec).GenericParameters[0];
-            var swiftInnerType = ExistentialBypassEmitter.RenderSwiftTypeSpec(innerType);
+            var swiftInnerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
 
             // Check if the inner type is an ObjC-bridged struct (e.g., NSZone, IndexPath).
             // Unmanaged<T> requires T: AnyObject, so ObjC-bridged structs need
@@ -323,7 +323,7 @@ public static class CdeclParamMapper
                 MarshallingHelpers.IsObjCBridged(typeRecord) ||
                 MarshallingHelpers.IsObjCRooted(typeRecord))
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
 
                 // Check for NSString typedef structs (e.g., CALayerContentsGravity, CATransitionType).
                 // These are ObjC-bridged in the type database but are Swift structs wrapping NSString,
@@ -358,7 +358,7 @@ public static class CdeclParamMapper
             // via _ObjectiveCBridgeable. Use Unmanaged<AnyObject> + cast, same as ObjCBridged.
             if (MarshallingHelpers.IsObjCBridgeable(typeRecord))
             {
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
                 return ($"_ {label}: UnsafeMutableRawPointer",
                         $"let {label}Val = Unmanaged<AnyObject>.fromOpaque({label}).takeUnretainedValue() as! {swiftType}",
                         $"{argLabel}{label}Val");
