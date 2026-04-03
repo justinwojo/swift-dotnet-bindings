@@ -348,10 +348,9 @@ public static partial class SwiftUIBridgeEmitter
         // so Binding<UnsupportedType> still gets the generic BoundType treatment it had before.
         if (namedSpec.Name is "SwiftUI.Binding" or "SwiftUICore.Binding" && namedSpec.GenericParameters.Count == 1)
         {
-            var bindingResult = MapBindingType(paramName, namedSpec, context);
-            if (bindingResult != null)
-                return bindingResult;
-            // Unsupported inner type — fall through to MapDatabaseType
+            // Return null for unsupported inner types — MapDatabaseType strips generics
+            // from Binding, producing broken bare "Binding" in the Swift output.
+            return MapBindingType(paramName, namedSpec, context);
         }
 
         // Array<T>: bridge as pointer + count across ABI.
@@ -727,11 +726,16 @@ public static partial class SwiftUIBridgeEmitter
         if (innerParam == null)
             return null;
 
-        // Only support Binding<Primitive>, Binding<String>, Binding<BoundEnum>
-        // Binding<BoundType> and Binding<BoundStruct> need more complex two-way lifetime management
+        // Binding<Primitive>, Binding<String>, Binding<BoundEnum>, and Binding<Optional<T>>
+        // where T is any supported type. The State stores the inner value; $state.x creates
+        // the Binding projection automatically. OptionalWrapped works because the update
+        // pipeline already handles all Optional inner type variants.
+        // Binding<BoundType> and Binding<BoundStruct> (non-optional) need more complex
+        // two-way lifetime management — deferred.
         if (innerParam.Kind is not BridgeParameterKind.Primitive
             and not BridgeParameterKind.String
-            and not BridgeParameterKind.BoundEnum)
+            and not BridgeParameterKind.BoundEnum
+            and not BridgeParameterKind.OptionalWrapped)
             return null;
 
         // Reject Binding<SwiftUI.Image> — Image maps as Kind=String with IsSwiftUIImage=true,

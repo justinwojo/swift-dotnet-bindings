@@ -8557,6 +8557,76 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.True(result.IsBinding);
     }
 
+    [Fact]
+    public void BindingOptionalString_MapParameterType_ReturnsOptionalWrappedWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "title",
+            PrivateName = "title",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String"))),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result.Kind);
+        Assert.True(result.IsBinding);
+        Assert.Equal(BridgeParameterKind.String, result.InnerParameter!.Kind);
+    }
+
+    [Fact]
+    public void BindingOptionalBool_MapParameterType_ReturnsOptionalWrappedWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "isEnabled",
+            PrivateName = "isEnabled",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"))),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, null);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result.Kind);
+        Assert.True(result.IsBinding);
+        Assert.True(result.InnerParameter!.SwiftConversion == "!= 0");
+    }
+
+    [Fact]
+    public void BindingOptionalEnum_MapParameterType_ReturnsOptionalWrappedWithIsBinding()
+    {
+        var param = new ArgumentDecl
+        {
+            Name = "style",
+            PrivateName = "style",
+            IsInOut = false,
+            IsGeneric = false,
+            SwiftTypeSpec = new NamedTypeSpec("SwiftUI.Binding",
+                new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.AlertStyle"))),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        var context = new BridgeContext(CreateEnumTypeDatabase());
+        var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
+
+        Assert.NotNull(result);
+        Assert.Equal(BridgeParameterKind.OptionalWrapped, result.Kind);
+        Assert.True(result.IsBinding);
+        Assert.Equal(BridgeParameterKind.BoundEnum, result.InnerParameter!.Kind);
+    }
+
     // --- SwiftUI.Image Tests ---
 
     [Fact]
@@ -8854,10 +8924,10 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
-    public void BindingOfUnsupportedType_WithTypeDatabase_FallsThrough_ToBoundStruct()
+    public void BindingOfUnsupportedType_WithTypeDatabase_ReturnsNull()
     {
-        // Regression test: Binding<UnsupportedType> must fall through to MapDatabaseType
-        // so SwiftUI.Binding resolves as BoundStruct (from SwiftUIDatabase.xml), not return null.
+        // Binding<UnsupportedType> returns null instead of falling through to MapDatabaseType,
+        // which would strip generic parameters and emit broken bare "Binding" in Swift output.
         var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
         {
             ["SwiftUI.Binding"] = new TypeRecord
@@ -8884,8 +8954,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
 
-        Assert.NotNull(result);
-        Assert.Equal(BridgeParameterKind.BoundStruct, result.Kind);
+        Assert.Null(result);
     }
 
     // --- Non-Raw-Value Enum as Init Param Tests ---

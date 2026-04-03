@@ -7,74 +7,31 @@
 
 ## Issue 1: Wrapper Compilation — Unqualified Type Names in CdeclParamMapper
 
-**Modules affected**: StripePayments (and likely any library with cross-type references in @_cdecl wrappers)
+**Status**: Fixed (2026-04-02, commit 16a6adfa).
 
-**Severity**: High — blocks all StripePayments constructor/method tests (~17 tests skipped)
-
-**Root cause**: `CdeclParamMapper.cs` (lines ~326, ~353) uses `ExistentialBypassEmitter.RenderSwiftTypeSpec()` instead of `RenderModuleQualifiedSwiftTypeSpec()` when generating `Unmanaged<T>` casts for non-ObjC-bridged Swift class parameters.
-
-**Generated (broken)**:
-```swift
-let buttonCustomizationVal = Unmanaged<STPThreeDSButtonCustomization>.fromOpaque(buttonCustomization).takeUnretainedValue()
-```
-
-**Expected (correct)**:
-```swift
-let buttonCustomizationVal = Unmanaged<StripePayments.STPThreeDSButtonCustomization>.fromOpaque(buttonCustomization).takeUnretainedValue()
-```
-
-**Impact**: 100+ unqualified type references in the StripePayments wrapper alone. Swift compiler can't resolve the bare type name without module qualification.
-
-**Fix**: In `src/Swift.Bindings/src/Emitter/StringEmitter/CdeclParamMapper.cs`, change `RenderSwiftTypeSpec` to `RenderModuleQualifiedSwiftTypeSpec` at the Unmanaged cast sites (~lines 326, 353). Similar to how it's already done correctly for protocol existentials (lines 83-94) and non-copyable structs (line 316).
-
-**Verification**: After fix, `nuke validate --filter Stripe` should show StripePayments swift_compile passing. Then re-run Stripe sim tests — the Phase 4 StripePayments skip should convert to ~17 passes.
+**Root cause**: `CdeclParamMapper.cs` used `RenderSwiftTypeSpec()` instead of `RenderModuleQualifiedSwiftTypeSpec()` for `Unmanaged<T>` casts. Fixed by switching to module-qualified rendering at the Unmanaged cast sites.
 
 ---
 
 ## Issue 2: SwiftUI Bridge — Bare `Binding` Without Generic Parameter
 
-**Modules affected**: StripePaymentSheet (SwiftUI bridge only — main bindings unaffected)
+**Status**: Fixed (2026-04-02).
 
-**Severity**: Medium — blocks PaymentSheet appearance/config tests (~16 tests skipped), but main wrapper also fails (see Issue 3)
+**Root cause**: When `MapBindingType` returned null for unsupported inner types (e.g., `Binding<Optional<AddressDetails>>`), the code fell through to `MapDatabaseType` which resolved `SwiftUI.Binding` as a bare struct type, stripping the generic parameter. This produced broken Swift code like `@Published var address: Binding` instead of the inner type.
 
-**Root cause**: The SwiftUI bridge generator doesn't resolve the concrete generic type for `SwiftUI.Binding<T>`. It emits bare `Binding` instead of `Binding<AddressElement.AddressDetails?>`.
+**Fix** (two parts):
+1. **Prevented fallthrough**: `MapNamedType` now returns null directly for unsupported Binding inner types instead of falling through to `MapDatabaseType`. Views with unsupported Binding params correctly fall back to templates.
+2. **Extended Binding support**: `MapBindingType` now accepts `OptionalWrapped` inner types, enabling `Binding<T?>` where T is Primitive, String, or BoundEnum. The State stores the inner value; `$state.x` creates the Binding projection automatically.
 
-**Generated (broken)** in `StripePaymentSheet.SwiftUIBridge.swift`:
-```swift
-@Published var address: Binding           // Line 17 — invalid: Binding requires type parameter
-init(address: Binding, ...)               // Line 29
-let addressConverted = addressPtr.assumingMemoryBound(to: Binding.self).pointee  // Line 65
-```
-
-**Expected**:
-```swift
-@Published var address: Binding<AddressElement.AddressDetails?>
-```
-
-**Note**: This is a SwiftUI bridge issue (SWIFTBIND052 warning), not the main wrapper. The main wrapper for StripePaymentSheet also fails — see Issue 3.
+**Files changed**:
+- `SwiftUIBridgeEmitter.InitAnalyzer.cs`: Fallthrough fix + OptionalWrapped in Binding filter
+- `SwiftUIBridgeEmitterTests.cs`: Updated regression test, added 3 new Binding<Optional<T>> tests
 
 ---
 
-## Issue 3: Wrapper Compilation — Missing Framework Dependencies
+## Issue 3: Wrapper Compilation — Cascading Framework Dependencies
 
-**Modules affected**: StripePaymentSheet, StripePaymentsUI, StripeApplePay, StripeConnect, StripeIssuing, StripeFinancialConnections (6 modules total)
-
-**Severity**: High — blocks tests across 6 modules
-
-**Symptom**: Build log shows `SWIFTBIND051: Swift wrapper compilation failed for '<module>SwiftBindings'`. The generated wrapper Swift source exists and appears syntactically valid, but fails to compile.
-
-**Root cause**: The wrapper compilation command passes `--framework-dependency` for direct dependencies but may be missing transitive dependencies or the dependency xcframeworks aren't available at wrapper compile time. For example:
-
-- **StripePaymentSheet** depends on StripeCore, StripePayments, StripeUICore — but the StripePayments wrapper hasn't compiled (Issue 1), so the dependency chain is broken.
-- **StripePaymentsUI** depends on StripeCore, StripePayments, StripeUICore — same cascading failure.
-- **StripeIssuing** depends on StripeCore, StripePayments — same.
-- **StripeApplePay** depends on StripeCore — but its wrapper still fails, possibly due to Issue 1 patterns in its own wrapper.
-- **StripeConnect** depends on StripeCore, StripeFinancialConnections, StripeUICore.
-- **StripeFinancialConnections** depends on StripeCore, StripeUICore.
-
-**Hypothesis**: Fixing Issue 1 (unqualified type names) may unblock several of these modules since StripePayments is a transitive dependency for many. The remaining failures may be independent issues in each module's wrapper.
-
-**Investigation needed**: After fixing Issue 1, rebuild all Stripe modules and check which wrappers still fail. The cascade effect means the true independent failures may be fewer than 6.
+**Status**: Resolved by Issue 1 fix. All 15 Stripe validation targets pass (cs_compile, dep_compile, swift_compile).
 
 ---
 
@@ -111,4 +68,4 @@ Remaining skips are from modules whose wrapper xcframeworks aren't built for the
 
 ## Remaining Work
 
-- **Issue 2** (SwiftUI bridge Binding<T>) — lower priority, SwiftUI bridge is secondary
+All 5 issues resolved. No remaining Stripe-specific work items.
