@@ -59,10 +59,33 @@ public static partial class ClosureEmitter
         // String-containing return types need special handling: System.String has no Swift
         // TypeMetadata, so the generic MarshalToSwift path fails. Convert C# string values
         // to SwiftString, wrap in the correct Swift container, and marshal that.
+        bool isPlainString = WitnessDispatchEmitter.IsStringType(closureTypeSpec.ReturnType);
         bool isOptionalString = IsOptionalStringReturn(closureTypeSpec.ReturnType);
         bool isArrayString = IsArrayStringReturn(closureTypeSpec.ReturnType);
+        // ObjC-bridged returns (e.g., Foundation.URL → NSUrl): write the handle pointer.
+        // The Swift struct (e.g., URL) wraps an ObjC reference — writing the handle to the
+        // buffer correctly represents the Swift struct's ABI layout.
+        bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
+        bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
 
-        if (isOptionalString)
+        if (isPlainString)
+        {
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // Convert string → SwiftString (System.String has no Swift metadata)
+                    using var _swiftStr = new Swift.SwiftString(result);
+                    var metadata = Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata();
+                    var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                    ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref resultSpan);
+                }
+                """);
+        }
+        else if (isOptionalString)
         {
             csWriter.WriteLines($$"""
                 [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
@@ -106,6 +129,35 @@ public static partial class ClosureEmitter
                     var metadata = TypeMetadata.GetTypeMetadataOrThrow<Swift.SwiftArray<Swift.SwiftString>>();
                     var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
                     SwiftMarshal.MarshalToSwift(_swiftArray, ref resultSpan);
+                }
+                """);
+        }
+        else if (isObjCBridged)
+        {
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // ObjC-bridged type: write the handle pointer to the result buffer.
+                    // The Swift struct wraps an ObjC reference — the handle IS the ABI representation.
+                    *(IntPtr*)indirectResult = result.Handle;
+                }
+                """);
+        }
+        else if (isClassReturn)
+        {
+            csWriter.WriteLines($$"""
+                [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
+                private static unsafe void {{callbackName}}({{parametersString}})
+                {
+                    var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                    var result = del({{invokeArgsString}});
+
+                    // Class type: write the retained pointer to the result buffer.
+                    *(IntPtr*)indirectResult = result.Payload.DangerousGetHandle();
                 }
                 """);
         }

@@ -117,4 +117,37 @@ public class NonStandardEnumTests : TestBase
     }
 
     #endregion
+
+    #region Single-Case Enum Skip Verification (BUG-2)
+
+    public void TestSingleCaseModeIsSkipped()
+    {
+        // SingleCaseMode has 1 case and no payload — TypeMetadata.Size == 0.
+        // Generator should skip it entirely to avoid marshalling crash.
+        var type = typeof(SecurityError).Assembly.GetType("SwiftBindingsTestLib.SingleCaseMode");
+        AssertNull(type, "SingleCaseMode should not be emitted (zero runtime size)");
+        TestLogger.Info("SingleCaseMode correctly skipped by generator");
+    }
+
+    public void TestSingletonFlagIsEmitted()
+    {
+        // SingletonFlag has 1 case with Int32 raw value. Despite being single-case (Size==0 in Swift),
+        // int-backed enums are safe: C# enum uses the raw value as backing (4 bytes), not Swift's
+        // zero-size layout. Only String-backed enums (emitted as C# classes with SafeHandle) hit the
+        // Size==0 problem.
+        var type = typeof(SecurityError).Assembly.GetType("SwiftBindingsTestLib.SingletonFlag");
+        AssertNotNull(type, "SingletonFlag should be emitted (int-backed enum is safe)");
+        AssertTrue(type!.IsEnum, "SingletonFlag is a C# enum");
+        TestLogger.Info("SingletonFlag correctly emitted as C# enum");
+    }
+
+    public void TestDualCaseModeIsEmitted()
+    {
+        // DualCaseMode has 2 cases — should be emitted normally.
+        var type = typeof(SecurityError).Assembly.GetType("SwiftBindingsTestLib.DualCaseMode");
+        AssertNotNull(type, "DualCaseMode should be emitted (has 2 cases)");
+        TestLogger.Info("DualCaseMode correctly emitted by generator");
+    }
+
+    #endregion
 }

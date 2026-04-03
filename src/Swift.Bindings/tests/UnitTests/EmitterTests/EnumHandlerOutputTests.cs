@@ -1184,6 +1184,7 @@ public class EnumHandlerOutputTests
         var enum1 = CreateNestedEnumDecl("ErrorType", container1, moduleDecl, isFrozen: false);
         enum1.RawValueTypeName = "String";
         enum1.Cases.Add(CreateCase("unknown"));
+        enum1.Cases.Add(CreateCase("timeout"));
         enum1.Methods.Add(CreateStringRawValueInitializer(enum1, moduleDecl));
         container1.Types.Add(enum1);
 
@@ -1192,6 +1193,7 @@ public class EnumHandlerOutputTests
         var enum2 = CreateNestedEnumDecl("ErrorType", container2, moduleDecl, isFrozen: false);
         enum2.RawValueTypeName = "String";
         enum2.Cases.Add(CreateCase("failed"));
+        enum2.Cases.Add(CreateCase("expired"));
         enum2.Methods.Add(CreateStringRawValueInitializer(enum2, moduleDecl));
         container2.Types.Add(enum2);
 
@@ -1239,6 +1241,7 @@ public class EnumHandlerOutputTests
         var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: false);
         enumDecl.RawValueTypeName = "String";
         enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Cases.Add(CreateCase("timeout"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
         // Context-based tracking: tests use default context (no parallelism)
@@ -1282,6 +1285,7 @@ public class EnumHandlerOutputTests
         var enumDecl = CreateEnumDecl("ErrorCode", moduleDecl, isFrozen: false);
         enumDecl.RawValueTypeName = "String";
         enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Cases.Add(CreateCase("timeout"));
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
         // Context-based tracking: tests use default context (no parallelism)
@@ -2546,6 +2550,7 @@ public class EnumHandlerOutputTests
         var enumDecl = CreateEnumDecl("Unit", moduleDecl, isFrozen: false);
         enumDecl.RawValueTypeName = "Double";
         enumDecl.Cases.Add(CreateCase("seconds"));
+        enumDecl.Cases.Add(CreateCase("milliseconds"));
         enumDecl.Methods.Add(CreateTypedRawValueInitializer(enumDecl, moduleDecl, "Swift.Double"));
 
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);

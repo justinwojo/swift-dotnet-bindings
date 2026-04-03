@@ -648,6 +648,26 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 5b: Include SPM resource bundle stubs in app bundle             -->
+  <!-- SPM-generated resource_bundle_accessor.swift searches Bundle.main for  -->
+  <!-- named bundles. Empty stub directories prevent fatalError at runtime.   -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_IncludeSwiftResourceBundleStubs"
+          AfterTargets="_IncludeGeneratedSwiftBindings"
+          Condition="Exists('$(_SwiftBindingIntermediateDir)_resource-bundles.txt')">
+
+    <ReadLinesFromFile File="$(_SwiftBindingIntermediateDir)_resource-bundles.txt">
+      <Output TaskParameter="Lines" ItemName="_SwiftResourceBundleName" />
+    </ReadLinesFromFile>
+
+    <ItemGroup>
+      <BundleResource Include="$(_SwiftBindingIntermediateDir)%(_SwiftResourceBundleName.Identity).bundle/**"
+                      LinkBase="%(_SwiftResourceBundleName.Identity).bundle"
+                      Condition="'%(_SwiftResourceBundleName.Identity)' != ''" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Remove BgenDelegates.cs from Compile — it is only for bgen input       -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_RemoveBgenDelegatesFromCompile"

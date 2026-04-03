@@ -125,6 +125,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Single-case enums with no payload have zero runtime size — Swift optimizes the
+            // tag away since there's only one possible value. Emitting as ISwiftObject is invalid
+            // because TypeMetadata.Size == 0, which breaks SafeHandle allocations. Skip emission;
+            // these unit-type enums carry no information and aren't useful as bindings.
+            if (enumDecl.Cases.Count == 1 && !enumDecl.HasAssociatedValueCases)
+            {
+                ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.UnsupportedType,
+                    "Single-case enum with no payload has zero runtime size (TypeMetadata.Size == 0).");
+                return;
+            }
+
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
 

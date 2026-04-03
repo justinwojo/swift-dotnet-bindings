@@ -269,12 +269,6 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
-            // Note: constructors with CallConvSwift + non-blittable parameters (SafeHandle) will
-            // crash at runtime with InvalidProgramException. They are still emitted (suppression
-            // would break protocol conformance CS0535). Do NOT call RecordMemberSkipped here —
-            // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
-            // tracking it, causing incorrect coverage data.
-
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -318,6 +312,29 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
                 OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
                     emissionContext: context.GetEmissionContext());
+            }
+
+            // Suppress constructors with generic container params (Array, Dictionary, Set)
+            // when no wrapper strategy was chosen. These types cause NSArray/Swift.Array ABI
+            // mismatch crashes — C# sends an ObjC NSArray handle but Swift's CallConvSwift
+            // expects a Swift.Array with different memory layout, corrupting swift_retain.
+            // Only generic containers are suppressed; other non-blittable types (non-frozen
+            // structs, complex enums, classes) may work via direct CallConvSwift or have their
+            // own error handling and should not be blanket-suppressed.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                HasCollectionContainerParams(methodEnv))
+            {
+                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: generic container parameters (Array/Dictionary/Set) require @_cdecl wrapper but wrapper generation was blocked.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.NonBlittableCallConvSwift,
+                    "Constructor has generic container parameters (Array/Dictionary/Set) that crash without @_cdecl wrapper.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
+                    "generic container parameters require @_cdecl wrapper (ABI mismatch)");
+                return;
             }
 
             MethodHandler.CheckExportedSymbol(methodEnv);
@@ -453,6 +470,44 @@ namespace BindingsGeneration
                 !m.CSSignature.Skip(1)
                     .Where(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a))
                     .Any(a => !a.SwiftTypeSpec.IsEmptyTuple));
+        }
+
+        /// <summary>
+        /// Checks whether a constructor has any collection container parameters (Array, Dictionary,
+        /// Set) that cause NSArray/Swift.Array ABI mismatch crashes via CallConvSwift.
+        /// Narrower than IsGenericContainerType (which also catches Optional and Result) —
+        /// only targets the three collection types with proven ABI mismatch crash vectors.
+        /// Optional and Result use different marshalling paths and are not suppressed.
+        /// </summary>
+        private static bool HasCollectionContainerParams(MethodEnvironment env)
+        {
+            foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                    continue;
+                if (arg.SwiftTypeSpec.IsEmptyTuple)
+                    continue;
+                if (env.ClosureHandler.IsClosure(arg))
+                    continue;
+                if (IsCollectionContainerType(arg.SwiftTypeSpec))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true only for Swift.Array, Swift.Dictionary, and Swift.Set —
+        /// the three collection types whose C#/Swift ABI is incompatible via CallConvSwift
+        /// (NSArray handle vs Swift.Array layout mismatch causes swift_retain crash).
+        /// Unlike CdeclParamMapper.IsGenericContainerType, this excludes Optional and Result.
+        /// </summary>
+        private static bool IsCollectionContainerType(TypeSpec typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec named || named.GenericParameters.Count == 0)
+                return false;
+
+            return named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
         }
     }
 

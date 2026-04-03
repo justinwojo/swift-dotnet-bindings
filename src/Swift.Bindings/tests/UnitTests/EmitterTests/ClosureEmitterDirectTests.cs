@@ -888,8 +888,10 @@ public class ClosureEmitterDirectTests
     [Fact]
     public void EmitEscapingClosureCallback_FrozenStructReturn_ReturnsViaPointer()
     {
-        // C# callback for a frozen struct return should use indirect return (void*)
-        // with MarshalToSwift, not return the struct directly.
+        // C# callback for a frozen struct return with useCdecl should use indirect return:
+        // - resultBuffer parameter (first param, IntPtr)
+        // - void return type
+        // - MarshalToSwift writes directly to resultBuffer (no NativeMemory.Alloc)
         var typeDatabase = CreateTypeDatabaseWithFrozenStruct();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -906,10 +908,13 @@ public class ClosureEmitterDirectTests
             "$s6Lottie17SizeValueProviderCyAA_XCTF", useCdecl: true);
 
         var result = output.ToString();
-        // Return type should be void* (indirect return)
-        Assert.Contains("void*", result);
-        Assert.Contains("NativeMemory.Alloc", result);
+        // Indirect return: callback accepts resultBuffer as first param, returns void, writes to buffer
+        Assert.Contains("IntPtr resultBuffer", result);
+        Assert.Contains("void init_block_", result); // void return type
         Assert.Contains("MarshalToSwift", result);
+        Assert.Contains("resultBuffer", result);
+        // Should NOT allocate its own buffer — writes to caller-provided buffer
+        Assert.DoesNotContain("NativeMemory.Alloc", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithFrozenStruct()

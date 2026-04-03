@@ -1,11 +1,11 @@
 {
-  "git_sha": "20a65828",
+  "git_sha": "16e5b09f",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48424,
+        "lines": 48286,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12379,
+        "lines": 12036,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 75822,
+        "lines": 75741,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57299,
+        "lines": 57213,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31478,
+        "lines": 31479,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,14 +110,14 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11728,
+        "lines": 11680,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10685,
+        "lines": 10421,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14590,
+        "lines": 14586,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,7 +313,7 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14131,
+        "lines": 14104,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3327,
+        "lines": 3292,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -663,15 +663,15 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 30902,
+        "lines": 30563,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10757,
-    "total_skipped_members": 1971,
+    "total_emitted_members": 10744,
+    "total_skipped_members": 1974,
     "skip_rate_pct": 15.5,
     "skip_reasons": {
       "ModuleInternal": 722,
@@ -689,6 +689,7 @@
       "StaticProtocolMember": 22,
       "GenericTypeCallback": 17,
       "DuplicateSignature": 4,
+      "NonBlittableCallConvSwift": 3,
       "UnderscorePrefixInternal": 2,
       "ActorIsolatedAsyncStream": 1
     }

@@ -107,6 +107,41 @@ public struct LargeConfig {
     }
 }
 
+// MARK: - Class with Non-Blittable Constructor (BUG-3 coverage)
+
+/// Class with both a simple constructor and one with Array<String> parameter.
+/// Array<T> is a generic container that requires @_cdecl wrapper because it's
+/// non-blittable in CallConvSwift. Without the wrapper, Mono JIT crashes.
+/// Real-world pattern: Kingfisher ImagePrefetcher(urls:options:completionHandler:).
+///
+/// BUG-3 fix: When no wrapper strategy is available (e.g., third-party xcframework),
+/// the generator now suppresses the constructor instead of emitting a raw
+/// CallConvSwift P/Invoke that crashes. In BindingTests (with wrapper support),
+/// the @_cdecl wrapper handles it correctly.
+public class ArrayInitHolder {
+    public var count: Int32
+    public var label: String
+
+    /// Simple constructor — always works (blittable params).
+    public init(count: Int32) {
+        self.count = count
+        self.label = "count-only"
+    }
+
+    /// Constructor with Array<String> — non-blittable, requires @_cdecl wrapper.
+    /// In BindingTests, the wrapper is generated. In third-party libs without
+    /// wrapper support, BUG-3 fix suppresses this to prevent Mono JIT crash.
+    public init(items: [String]) {
+        self.count = Int32(items.count)
+        self.label = items.joined(separator: ", ")
+    }
+
+    /// Instance method for verification.
+    public func describe() -> String {
+        return "ArrayInitHolder(count: \(count), label: \(label))"
+    }
+}
+
 // MARK: - Non-Frozen Struct with Instance Methods (RequiresCdeclForAbiSafety: non-frozen)
 
 /// Non-frozen struct with instance methods — exercises

@@ -704,6 +704,21 @@ namespace BindingsGeneration
                     }
                 }
 
+                // 6d. Resource bundle stubs: detect SPM resource bundles in the framework
+                // and create empty .bundle directories in the output directory at build time.
+                // SPM-generated resource_bundle_accessor.swift searches Bundle.main for named
+                // bundles — stubs placed in the output directory get copied to the app bundle
+                // root by Sdk.targets, where the accessor will discover them.
+                var bundleNames = DetectResourceBundleNames(dylibPath, commandRunner, logger);
+                if (bundleNames.Count > 0)
+                {
+                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger);
+                }
+
+                // Combine thunk object files for linking
+                var objectFilesToLink = thunkResult?.ObjectFiles?.Count > 0
+                    ? (IReadOnlyList<string>)thunkResult.ObjectFiles : null;
+
                 // 7. Link into wrapper binary
                 if (cleanedFiles.Count > 0)
                 {
@@ -712,15 +727,15 @@ namespace BindingsGeneration
                         cleanedFiles, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
                         effectiveSearchPaths, precompiledModulePath,
-                        thunkResult?.ObjectFiles, moduleName);
+                        objectFilesToLink, moduleName);
                 }
-                else if (thunkResult != null && thunkResult.ObjectFiles.Count > 0)
+                else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
                 {
                     // Edge case: no Swift wrappers (all functions thunked).
                     // swiftc requires at least one .swift input, so use clang -shared.
-                    logger.LogInformation("No Swift wrappers — linking thunk objects with clang.");
+                    logger.LogInformation("No Swift wrappers — linking {Count} object file(s) with clang.", objectFilesToLink.Count);
                     NativeThunkCompiler.LinkWithClang(
-                        thunkResult.ObjectFiles, outputBinaryPath, wrapperModuleName,
+                        objectFilesToLink, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, commandRunner, logger,
                         frameworkSearchPath, moduleName);
                 }
@@ -1360,6 +1375,83 @@ namespace BindingsGeneration
                 .Select(m => m.Groups[1].Value)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Detects SPM resource bundle names required by the framework binary.
+        /// SPM-generated resource_bundle_accessor.swift contains the fatalError message
+        /// "unable to find bundle named {BundleName}" — we search for this pattern
+        /// in the binary to extract the expected bundle name(s).
+        /// </summary>
+        internal static List<string> DetectResourceBundleNames(
+            string dylibPath, ICommandRunner commandRunner, ILogger logger)
+        {
+            var bundleNames = new List<string>();
+            try
+            {
+                // Use grep -ao on the binary to extract the bundle name pattern directly.
+                // grep -a treats binary as text, -o outputs only the matching portion.
+                // Exit code 1 = no match (not an error).
+                var (exitCode, stdout, _) = commandRunner.Run(
+                    "grep", $"-ao \"unable to find bundle named [A-Za-z0-9_]*\" \"{dylibPath}\"",
+                    timeoutMs: 30000);
+
+                if (exitCode == 1 || string.IsNullOrWhiteSpace(stdout))
+                    return bundleNames; // grep exit 1 = no match
+                if (exitCode != 0)
+                {
+                    logger.LogDebug("Resource bundle detection: grep exited with code {Code}", exitCode);
+                    return bundleNames;
+                }
+
+                const string marker = "unable to find bundle named ";
+                foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith(marker, StringComparison.Ordinal))
+                    {
+                        var name = trimmed.Substring(marker.Length).Trim();
+                        if (!string.IsNullOrEmpty(name) && !bundleNames.Contains(name))
+                            bundleNames.Add(name);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug("Resource bundle detection failed (non-fatal): {Message}", ex.Message);
+            }
+
+            return bundleNames;
+        }
+
+        /// <summary>
+        /// Creates empty .bundle directories in the output directory at build time.
+        /// SPM-generated resource_bundle_accessor.swift searches Bundle.main for named bundles.
+        /// Stubs placed in the output directory are picked up by Sdk.targets (via
+        /// _SwiftResourceBundles item) and copied to the app bundle root, where the
+        /// accessor will discover them at runtime on both simulator and device.
+        /// </summary>
+        internal static void CreateResourceBundleStubs(
+            List<string> bundleNames, string outputDirectory, ILogger logger)
+        {
+            foreach (var name in bundleNames)
+            {
+                var bundlePath = Path.Combine(outputDirectory, $"{name}.bundle");
+                if (!Directory.Exists(bundlePath))
+                    Directory.CreateDirectory(bundlePath);
+                // Placeholder file so the bundle directory is non-empty — MSBuild glob
+                // patterns (*.bundle/**) only match files, not empty directories.
+                var placeholder = Path.Combine(bundlePath, "_sbw_stub");
+                if (!File.Exists(placeholder))
+                    File.WriteAllText(placeholder, "");
+            }
+
+            // Write manifest for Sdk.targets to discover the bundle names
+            var manifestPath = Path.Combine(outputDirectory, "_resource-bundles.txt");
+            File.WriteAllLines(manifestPath, bundleNames);
+
+            logger.LogInformation("Created resource bundle stub(s) for {Count} bundle(s): {Names}",
+                bundleNames.Count, string.Join(", ", bundleNames));
         }
 
         /// <summary>

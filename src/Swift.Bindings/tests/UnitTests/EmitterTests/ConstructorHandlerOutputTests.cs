@@ -714,7 +714,7 @@ public class ConstructorHandlerOutputTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Variant"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Variant"),
                 MetadataAccessor = "$s10TestModule7VariantOMa",
-                Flags = TypeRecordFlags.Frozen,
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
                 Kind = TypeRecordKind.Enum
             })
         });

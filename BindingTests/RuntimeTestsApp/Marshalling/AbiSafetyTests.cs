@@ -320,6 +320,41 @@ public class AbiSafetyRuntimeTests : TestBase
 
     #endregion
 
+    #region ArrayInitHolder — Non-Blittable Constructor @_cdecl Wrapper (BUG-3)
+
+    public void TestArrayInitHolderSimpleConstructor()
+    {
+        // Simple constructor with blittable Int32 param — always works.
+        var obj = new ArrayInitHolder(count: 42);
+        AssertEqual(42, obj.Count, "Count from simple init");
+        AssertEqual("count-only", obj.Label.ToString(), "Label from simple init");
+        TestLogger.Info("ArrayInitHolder(count:) simple constructor passed");
+    }
+
+    public void TestArrayInitHolderArrayConstructor()
+    {
+        // Array<String> constructor — non-blittable, needs @_cdecl wrapper.
+        // BUG-3 coverage: in BindingTests the wrapper is generated and uses CallConvCdecl.
+        // Without the fix, third-party libs without wrapper support would emit a raw
+        // CallConvSwift P/Invoke that crashes Mono JIT.
+        var obj = new ArrayInitHolder(items: new[] { "hello", "world" });
+        AssertEqual(2, obj.Count, "Count from array init");
+        AssertTrue(obj.Label.ToString().Contains("hello"), "Label contains first item");
+        AssertTrue(obj.Label.ToString().Contains("world"), "Label contains second item");
+        TestLogger.Info("ArrayInitHolder(items:) array constructor passed");
+    }
+
+    public void TestArrayInitHolderDescribe()
+    {
+        var obj = new ArrayInitHolder(count: 7);
+        var desc = obj.GetDescribe();
+        AssertTrue(desc.Contains("7"), "Describe contains count");
+        AssertTrue(desc.Contains("count-only"), "Describe contains label");
+        TestLogger.Info($"ArrayInitHolder.GetDescribe() = {desc}");
+    }
+
+    #endregion
+
     #region FinalPropertyHolder — Final Class Instance Property @_cdecl Wrappers
 
     public void TestFinalPropertyHolderConstruction()

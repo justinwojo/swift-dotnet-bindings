@@ -98,6 +98,33 @@ public struct CallbackHolder {
     }
 }
 
+// MARK: - Closure-Returning-Struct Constructor Parameter (BUG-4 pattern)
+
+/// Class with closure constructor parameter that returns a String —
+/// exercises the indirect return path in the C# Cdecl callback.
+/// The Swift adapter wraps the @convention(c) callback with a result buffer:
+///   cdecl_func(resultBuf, context) -> Void
+/// Without BUG-4 fix, the C# callback misses the result buffer parameter,
+/// causing the context to be misinterpreted → crash in swift_cvw_initWithCopyImpl.
+/// Same pattern as Kingfisher ImageCache(name:cacheDirectoryURL:).
+public class StringSupplierHolder {
+    private let supplier: () -> String
+    public let name: String
+
+    public init(name: String, supplier: @escaping () -> String) {
+        self.name = name
+        self.supplier = supplier
+    }
+
+    public func callSupplier() -> String {
+        return supplier()
+    }
+
+    public func getName() -> String {
+        return name
+    }
+}
+
 // MARK: - Foundation.Date and Foundation.Data Constructor Parameters
 
 /// Class with Foundation.Date and Foundation.Data constructor params — exercises

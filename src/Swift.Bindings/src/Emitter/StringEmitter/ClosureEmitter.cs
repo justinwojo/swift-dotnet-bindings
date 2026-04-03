@@ -32,9 +32,25 @@ public static partial class ClosureEmitter
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
+        // Cdecl closures with indirect return: the Swift adapter passes a result buffer as
+        // the first parameter. The callback writes the result to this buffer instead of returning it.
+        // Swift adapter: cdecl_func(resultBuf, [args...], context) → reads result from buffer.
+        // Without this, the callback signature mismatches the @convention(c) type, causing
+        // the result buffer pointer to be interpreted as the context → crash in swift_cvw_initWithCopyImpl.
+        bool isIndirectReturn = useCdecl
+            && closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec)
+            && !closureTypeSpec.Throws;
+
         // Build parameter list for the callback (arguments + context as last param)
         var parameters = new List<string>();
         var argTypes = new List<TypeSpec>();
+
+        // Indirect return: result buffer is first parameter (matches Swift adapter's @convention(c) layout)
+        if (isIndirectReturn)
+        {
+            parameters.Add("IntPtr resultBuffer");
+        }
+
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
@@ -47,7 +63,9 @@ public static partial class ClosureEmitter
         // Swift: context is passed in the Swift "self" register via SwiftSelf.
         parameters.Add(useCdecl ? "IntPtr contextPtr" : "SwiftSelf context");
 
-        var returnType = GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
+        var returnType = isIndirectReturn
+            ? "void"
+            : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
 
         var parametersString = string.Join(", ", parameters);
 
@@ -65,7 +83,14 @@ public static partial class ClosureEmitter
 
         // Build the return statement using the shared conversion logic
         string returnStatement;
-        if (!hasReturn)
+        if (isIndirectReturn && hasReturn)
+        {
+            returnStatement = BuildCallbackIndirectReturnStatement(
+                closureTypeSpec.ReturnType,
+                $"del({invokeArgsString})",
+                closureHandler);
+        }
+        else if (!hasReturn)
         {
             returnStatement = $"del({invokeArgsString});";
         }
@@ -484,6 +509,60 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// Builds the body statement for a Cdecl closure callback with indirect return.
+    /// Instead of returning the result, writes the marshalled value to the caller-provided
+    /// result buffer (passed as the first parameter by the Swift @convention(c) adapter).
+    /// The Swift adapter then loads the value from the buffer via .move().
+    /// </summary>
+    /// <param name="returnType">The closure's return TypeSpec.</param>
+    /// <param name="resultExpr">The expression that produces the C# result (e.g., "del(args)").</param>
+    /// <param name="closureHandler">The closure handler for type translation.</param>
+    /// <returns>One or more lines of C# code that write the result to resultBuffer.</returns>
+    internal static string BuildCallbackIndirectReturnStatement(
+        TypeSpec returnType,
+        string resultExpr,
+        ClosureHandler closureHandler)
+    {
+        // Class type: write retained pointer to buffer
+        if (closureHandler.IsClassType(returnType))
+        {
+            return $$"""
+                    var _result = {{resultExpr}};
+                            *(IntPtr*)(void*)resultBuffer = _result.Payload.DangerousGetHandle();
+                """;
+        }
+
+        // ObjC-bridged class (e.g., Foundation.URL → NSURL): write handle to buffer
+        if (closureHandler.IsObjCBridgedClass(returnType))
+        {
+            return $$"""
+                    var _result = {{resultExpr}};
+                            *(IntPtr*)(void*)resultBuffer = _result.Handle;
+                """;
+        }
+
+        // String: marshal SwiftString bytes to buffer
+        if (WitnessDispatchEmitter.IsStringType(returnType))
+        {
+            return $$"""
+                    var _result = {{resultExpr}};
+                            using var _swiftStr = new Swift.SwiftString(_result);
+                            var _resultSpan = new Span<byte>((void*)resultBuffer, (int)Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata().Size);
+                            ((Swift.Runtime.ISwiftObject)_swiftStr).MarshalToSwift(ref _resultSpan);
+                """;
+        }
+
+        // General struct/value type: use SwiftMarshal.MarshalToSwift to write to buffer
+        var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);
+        return $$"""
+                var _result = {{resultExpr}};
+                        var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{csharpRetType}}>();
+                        var _resultSpan = new Span<byte>((void*)resultBuffer, (int)_resultMetadata.Size);
+                        SwiftMarshal.MarshalToSwift(_result, ref _resultSpan);
+            """;
+    }
+
+    /// <summary>
     /// Gets the C# type for a closure callback parameter.
     /// Delegates to ClosureHandler.TranslateTypeSpecToPInvokeType for consistency
     /// between the callback signature and function pointer type declaration.
@@ -746,13 +825,26 @@ public static partial class ClosureEmitter
         ClosureHandler closureHandler,
         bool useCdecl = false)
     {
+        // Cdecl closures with indirect return: prepend IntPtr (result buffer) and use void return.
+        // Must match the @convention(c) type generated by GetSwiftConventionCType which inserts
+        // UnsafeMutableRawPointer as the first param and returns Void for indirect return closures.
+        bool isIndirectReturn = useCdecl
+            && closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec)
+            && !closureTypeSpec.Throws;
+
         var types = new List<string>();
+
+        if (isIndirectReturn)
+        {
+            types.Add("IntPtr"); // result buffer — first parameter
+        }
+
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             types.Add(GetCallbackParameterType(arg, closureHandler));
         }
 
-        types.Add(GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
+        types.Add(isIndirectReturn ? "void" : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
         var callConv = useCdecl ? "Cdecl" : "Swift";
         return $"delegate* unmanaged[{callConv}]<{string.Join(", ", types)}>";
     }
