@@ -148,6 +148,10 @@ public static class NativeThunkEmitter
         // bridge thunk doesn't set x8, causing SIGSEGV. Class returns use x0 (no x8 needed).
         // Direct-dispatch getters (final method, final class) use standard swiftcc return
         // convention, which TypeLowering handles correctly — no x8 hazard.
+        // ObjC-bridged class types (UIColor, UIFont, etc.) are also rejected: the Tj dispatch
+        // calls the Swift vtable getter which may follow ObjC return semantics (+0 unretained),
+        // but the C# marshalling expects +1 (passRetained). The @_cdecl wrapper path handles
+        // this correctly via explicit Unmanaged.passRetained() in the Swift wrapper.
         var returnSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
         if (methodDecl.IsAccessor && !returnSpec.IsEmptyTuple)
         {
@@ -158,7 +162,8 @@ public static class NativeThunkEmitter
             if (usesDispatchThunk)
             {
                 if (!env.TypeDatabase.TryGetTypeRecord(returnSpec, out var accessorReturnRecord)
-                    || accessorReturnRecord.Kind != TypeRecordKind.Class)
+                    || accessorReturnRecord.Kind != TypeRecordKind.Class
+                    || MarshallingHelpers.IsObjCBridged(accessorReturnRecord))
                     return false;
             }
         }
@@ -167,6 +172,9 @@ public static class NativeThunkEmitter
         // types. The Swift accessor reads the value from [x0] (indirect), but our thunk passes
         // the raw value in x0 → SIGSEGV for enums and value types. Class types are fine because
         // the value IS a pointer (ARC-retained). Mirrors the getter gate above.
+        // ObjC-bridged class types also rejected: the setter expects @owned (+1) but the thunk
+        // passes raw IntPtr (+0). The @_cdecl wrapper uses takeUnretainedValue() which lets
+        // Swift ARC handle the retain on property assignment correctly.
         if (methodDecl.IsAccessor && returnSpec.IsEmptyTuple
             && MarshallingHelpers.MethodIsSetter(methodDecl))
         {
@@ -181,7 +189,8 @@ public static class NativeThunkEmitter
                 {
                     var setterTypeSpec = valueParam.SwiftTypeSpec;
                     if (!env.TypeDatabase.TryGetTypeRecord(setterTypeSpec, out var setterTypeRecord)
-                        || setterTypeRecord.Kind != TypeRecordKind.Class)
+                        || setterTypeRecord.Kind != TypeRecordKind.Class
+                        || MarshallingHelpers.IsObjCBridged(setterTypeRecord))
                         return false;
                 }
             }

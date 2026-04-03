@@ -507,12 +507,10 @@ done"
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -v $(SwiftGeneratorVerbosity)</_SwiftWrapperCmd>
       <!-- Resolved ProjectReference dependency xcframework paths (preferred, absolute) -->
       <_SwiftWrapperCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftWrapperCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
-      <!-- Explicit SwiftFrameworkDependency search paths (only when no ProjectReference deps resolved, to avoid duplicates).
-           Note: this is an all-or-nothing switch. If some deps resolve via ProjectReference and others are
-           NuGet-only SwiftFrameworkDependency, the NuGet-only ones are dropped. In practice this doesn't occur
-           because _ResolveSwiftAutoDetectedDependencies injects ProjectReferences for all resolvable deps.
-           A per-module dedup would handle the theoretical mixed case but adds complexity for no current use case. -->
-      <_SwiftWrapperCmd Condition="'@(SwiftFrameworkDependency)' != '' AND '@(_ResolvedDepXCFramework)' == ''">$(_SwiftWrapperCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- Explicit SwiftFrameworkDependency search paths — always included alongside ProjectReference deps.
+           Frameworks like Stripe3DS2 may not have a binding project but are still required on the -F search path
+           for wrapper compilation. Duplicates with _ResolvedDepXCFramework are harmless (just extra -F flags). -->
+      <_SwiftWrapperCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftWrapperCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftWrapperSkip)' != 'true'"

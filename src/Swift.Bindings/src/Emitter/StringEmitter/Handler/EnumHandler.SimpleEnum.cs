@@ -357,6 +357,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             foreach (var caseDecl in enumDecl.Cases)
             {
+                if (caseDecl.IsSpiProtected) continue;
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 var rawValue = caseDecl.RawValue ?? caseDecl.Name;
                 csWriter.WriteLine($"{enumName}.{casePascalName} => \"{rawValue}\",");
@@ -377,6 +378,7 @@ namespace BindingsGeneration
             csWriter.Indent++;
             foreach (var caseDecl in enumDecl.Cases)
             {
+                if (caseDecl.IsSpiProtected) continue;
                 var casePascalName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
                 var rawValue = caseDecl.RawValue ?? caseDecl.Name;
                 csWriter.WriteLine($"\"{rawValue}\" => {enumName}.{casePascalName},");
@@ -642,6 +644,12 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.Cases)
             {
                 var tag = enumDecl.GetCaseTag(caseDecl);
+                // Skip @_spi-protected cases — inaccessible without @_spi import
+                if (caseDecl.IsSpiProtected)
+                {
+                    swiftWriter.WriteLine($"case {tag}: fatalError(\"Case at index \\({tag}) is @_spi protected\")");
+                    continue;
+                }
                 swiftWriter.WriteLine($"case {tag}: value = .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}");
             }
             swiftWriter.WriteLine($"default: fatalError(\"Invalid enum tag\")");
@@ -657,6 +665,9 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"switch {varName} {{");
             foreach (var caseDecl in enumDecl.Cases)
             {
+                // Skip @_spi-protected cases — inaccessible without @_spi import
+                if (caseDecl.IsSpiProtected)
+                    continue;
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 swiftWriter.WriteLine($"case .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}: return {tag}");
             }

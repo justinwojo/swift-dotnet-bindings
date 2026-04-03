@@ -1,71 +1,41 @@
-# Stripe Deep Dive: Issues Found
+# Stripe Deep Dive: All Issues Resolved
 
-**Date**: April 2, 2026
-**Context**: Expanded Stripe sim tests from 8 tests to 88 test points across all 12 modules. Results: 73 passed, 0 failed, 15 skipped.
-
----
-
-## Issue 1: Wrapper Compilation — Unqualified Type Names in CdeclParamMapper
-
-**Status**: Fixed (2026-04-02, commit 16a6adfa).
-
-**Root cause**: `CdeclParamMapper.cs` used `RenderSwiftTypeSpec()` instead of `RenderModuleQualifiedSwiftTypeSpec()` for `Unmanaged<T>` casts. Fixed by switching to module-qualified rendering at the Unmanaged cast sites.
+**Last updated**: April 3, 2026
+**SDK version**: 0.5.1 (uncommitted, includes fixes from issues 1-9)
+**Test results**: 151 passed, 0 failed, 0 skipped (all 12 modules have wrapper xcframeworks)
 
 ---
 
-## Issue 2: SwiftUI Bridge — Bare `Binding` Without Generic Parameter
+## Resolved Issues (1-9)
 
-**Status**: Fixed (2026-04-02).
+Issues 1-8 resolved April 2, Issue 9 resolved April 3. Fixes are uncommitted on swift-bindings main.
 
-**Root cause**: When `MapBindingType` returned null for unsupported inner types (e.g., `Binding<Optional<AddressDetails>>`), the code fell through to `MapDatabaseType` which resolved `SwiftUI.Binding` as a bare struct type, stripping the generic parameter. This produced broken Swift code like `@Published var address: Binding` instead of the inner type.
+| # | Issue | Root Cause | Fix |
+|---|---|---|---|
+| 1 | Unqualified type names in CdeclParamMapper | `RenderSwiftTypeSpec()` instead of module-qualified | Switch to `RenderModuleQualifiedSwiftTypeSpec()` |
+| 2 | SwiftUI `Binding` bare emission | Fallthrough to `MapDatabaseType` stripped generic param | Prevent fallthrough + extend Binding<Optional<T>> |
+| 3 | Cascading framework deps | Resolved by Issue 1 fix | — |
+| 4 | STPAppInfo string corruption | `Optional<Class>` accessor used SwiftOptional instead of IntPtr | Return IntPtr directly for reference optionals |
+| 5 | StripePayments excluded | Stale comment; enum bindings now correct | Uncommented ProjectReference |
+| 6 | Simulator-only symbols break device | `#if targetEnvironment(simulator)` members emitted unconditionally | ABI JSON diff + `#if` guards + thunk filtering |
+| 7 | @_spi enum case leak | `SimpleEnum` didn't check `IsSpiProtected` | Added checks to 4 iteration sites |
+| 8 | SDK drops non-binding framework deps | Sdk.targets all-or-nothing switch + duplicate error + no wrapper fallback | Always include deps + skip dupes + search-path fallback |
+| 9 | UIColor property roundtrip returns null | Native thunks for ObjC-bridged class dispatch (Tj) getters/setters have ARC ownership mismatch vs @_cdecl wrappers | Reject ObjC-bridged types in dispatch thunk gate → fall back to SBW wrappers |
 
-**Fix** (two parts):
-1. **Prevented fallthrough**: `MapNamedType` now returns null directly for unsupported Binding inner types instead of falling through to `MapDatabaseType`. Views with unsupported Binding params correctly fall back to templates.
-2. **Extended Binding support**: `MapBindingType` now accepts `OptionalWrapped` inner types, enabling `Binding<T?>` where T is Primitive, String, or BoundEnum. The State stores the inner value; `$state.x` creates the Binding projection automatically.
+## Binding Coverage
 
-**Files changed**:
-- `SwiftUIBridgeEmitter.InitAnalyzer.cs`: Fallthrough fix + OptionalWrapped in Binding filter
-- `SwiftUIBridgeEmitterTests.cs`: Updated regression test, added 3 new Binding<Optional<T>> tests
+| Module | Types | Members | Skip Reasons |
+|---|---|---|---|
+| StripeCore | 18/106 | 67/424 | 92 internal, 2 unsupported sig |
+| StripePayments | 200/240 | 1230/1633 | 32 internal, 121 member skips |
+| StripePaymentSheet | 72/138 | 311/647 | 34 internal, 70 member skips |
+| StripeConnect | 18/37 | 78/150 | 14 internal |
+| StripeIdentity | 4/6 | 9/18 | 2 internal |
+| StripeApplePay | 4/8 | 6/36 | 4 internal, 12 member skips |
+| StripeIssuing | 7/7 | 18/22 | 4 member skips |
+| StripeCardScan | 8/14 | 14/20 | 6 internal |
+| StripeFinancialConnections | 7/10 | 12/22 | 2 internal, 6 member skips |
+| StripePaymentsUI | 12/40 | 138/276 | 36 internal, 2 SwiftUI view |
+| Stripe | 1/2 | 1/3 | 1 internal |
 
----
-
-## Issue 3: Wrapper Compilation — Cascading Framework Dependencies
-
-**Status**: Resolved by Issue 1 fix. All 15 Stripe validation targets pass (cs_compile, dep_compile, swift_compile).
-
----
-
-## Issue 4: String Marshalling Corruption — STPAPIClient.AppInfo
-
-**Status**: Fixed (2026-04-02).
-
-**Root cause**: The accessor return type for `Optional<Class/ObjCRooted>` properties was `SwiftOptional<T>` instead of `IntPtr`. This forced the getter through `MarshalFromSwift<T>` + `SwiftOptional.NewSome()` — two VWT operations that performed `InitializeWithCopy` / `swift_retain` on the ObjC object, corrupting tagged pointer NSString ivars by +2 per call at byte offset 4.
-
-**Fix**: Extended the `IsOptionalObjCBridged`-only accessor checks to use `IsOptionalWithReferenceInner` (covers ObjC-bridged, ObjC-rooted, and pure Swift classes). The accessor now returns `IntPtr` directly, and the property getter converts via `GetNSObject<T>` (ObjC-rooted) or `MarshalFromSwift<T>` (Swift class) — zero VWT operations for ObjC types.
-
-**Files changed**:
-- `MethodSignature.cs`: Accessor return type → IntPtr for all reference optionals
-- `WrapperEmitter.Return.cs`: Accessor body → passthrough `return result;`
-- `AccessorConversionVisitors.cs`: Added IntPtr→T? conversions for ClassProjection and ObjCRootedClassProjection
-
----
-
-## Issue 5: StripePayments Was Incorrectly Excluded
-
-**Status**: Fixed in this session.
-
-The .csproj had `StripePayments` commented out with the note "generator produces invalid enum-as-NSObject bindings". Investigation confirmed this is no longer true — all 31 enums in the binding use correct primitive integer backing (`: long` or `: ulong`). The wrapper xcframework was also generated successfully.
-
-**Change made**: Uncommented the `ProjectReference` for StripePayments and added `using StripePayments;` to the test file. All StripePayments enum tests (Phase 5) pass.
-
----
-
-## Test Coverage Summary (after all fixes)
-
-**74 passed, 0 failed, 14 skipped**
-
-Remaining skips are from modules whose wrapper xcframeworks aren't built for the test project (StripePaymentSheet, StripeConnect, StripeIssuing, StripeFinancialConnections, StripePaymentsUI, StripeCardScan). All validation targets (15/15) pass.
-
-## Remaining Work
-
-All 5 issues resolved. No remaining Stripe-specific work items.
+Type skips are overwhelmingly `ModuleInternal` (correct — these are `@_spi` or `@usableFromInline internal` APIs not meant for consumers). The public API surface is well covered.

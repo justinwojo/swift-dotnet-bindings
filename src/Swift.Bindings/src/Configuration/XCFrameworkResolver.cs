@@ -366,6 +366,67 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves only framework search paths from an xcframework, without requiring
+        /// a Swift module or ObjC modulemap. Used for wrapper xcframeworks (compiled binding
+        /// wrappers) that only need -F search paths for linking during wrapper compilation.
+        /// Returns a FrameworkDependencyInfo with search paths, or null if resolution fails.
+        /// </summary>
+        public static FrameworkDependencyInfo? ResolveSearchPathsOnly(
+            string xcframeworkPath,
+            string wrapperArchitectures,
+            ILogger logger,
+            PlatformInfo? platformInfo = null)
+        {
+            try
+            {
+                xcframeworkPath = Path.GetFullPath(xcframeworkPath);
+                ValidateXCFramework(xcframeworkPath);
+                var plistPath = Path.Combine(xcframeworkPath, "Info.plist");
+                var slices = ParseInfoPlist(plistPath);
+                var moduleName = Path.GetFileNameWithoutExtension(xcframeworkPath);
+
+                string? simSearchPath = null;
+                string? deviceSearchPath = null;
+
+                // Resolve simulator slice search path
+                try
+                {
+                    var simSlice = SelectSlice(slices, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+                    simSearchPath = Path.Combine(xcframeworkPath, simSlice.LibraryIdentifier);
+                }
+                catch { /* No simulator slice — acceptable for device-only builds */ }
+
+                // Resolve device slice search path
+                if (wrapperArchitectures == "all" || wrapperArchitectures == "device")
+                {
+                    try
+                    {
+                        var devSlice = SelectSlice(slices, XCFrameworkPlatformTarget.Device, logger, platformInfo);
+                        deviceSearchPath = Path.Combine(xcframeworkPath, devSlice.LibraryIdentifier);
+                    }
+                    catch { /* No device slice — acceptable for simulator-only builds */ }
+                }
+
+                if (simSearchPath == null && deviceSearchPath == null)
+                    return null;
+
+                return new FrameworkDependencyInfo
+                {
+                    XCFrameworkPath = xcframeworkPath,
+                    ModuleName = moduleName,
+                    SimulatorFrameworkSearchPath = simSearchPath,
+                    DeviceFrameworkSearchPath = deviceSearchPath,
+                    IsObjCOnly = true, // Treated like ObjC: search path only, no binding/packaging
+                };
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Could not resolve search paths for framework: {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Detects whether a Swift framework also has ObjC API surface (mixed framework).
         /// Returns an ObjCFrameworkResolution if the framework has a module.modulemap with
         /// non-Swift headers, or null if it's Swift-only.

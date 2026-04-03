@@ -793,29 +793,27 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_CompileSwiftWrapper_PrefersResolvedDepsOverExplicit()
+        public void Targets_CompileSwiftWrapper_IncludesBothResolvedAndExplicitDeps()
         {
-            // Bug 4: Both SwiftFrameworkDependency and _ResolvedDepXCFramework were
-            // unconditionally appended, causing duplicate module errors for Stripe.
-            // Fix: prefer _ResolvedDepXCFramework; only use SwiftFrameworkDependency
-            // when no ProjectReference deps resolved.
+            // Both _ResolvedDepXCFramework (from ProjectReference) and SwiftFrameworkDependency
+            // (explicit) are always included. Non-binding frameworks (e.g., Stripe3DS2) have no
+            // ProjectReference but still need -F search paths for wrapper compilation.
+            // Duplicate modules are handled by the generator (skip, not error).
             var targetStart = TargetsContent.IndexOf("Name=\"_CompileSwiftWrapper\"", StringComparison.Ordinal);
             var targetEnd = TargetsContent.IndexOf("</Target>", targetStart, StringComparison.Ordinal);
             var targetBody = TargetsContent.Substring(targetStart, targetEnd - targetStart);
 
-            // _ResolvedDepXCFramework line should come BEFORE SwiftFrameworkDependency line
+            // Both should be present
             var resolvedIdx = targetBody.IndexOf("@(_ResolvedDepXCFramework->' --framework-dependency", StringComparison.Ordinal);
             var explicitIdx = targetBody.IndexOf("@(SwiftFrameworkDependency->' --framework-dependency", StringComparison.Ordinal);
             Assert.True(resolvedIdx >= 0, "Should have _ResolvedDepXCFramework framework-dependency line");
             Assert.True(explicitIdx >= 0, "Should have SwiftFrameworkDependency framework-dependency line");
-            Assert.True(resolvedIdx < explicitIdx, "_ResolvedDepXCFramework must come before SwiftFrameworkDependency");
 
-            // SwiftFrameworkDependency line must be gated on _ResolvedDepXCFramework being empty
-            // Extract the PropertyGroup line containing SwiftFrameworkDependency --framework-dependency
+            // SwiftFrameworkDependency should NOT be gated on _ResolvedDepXCFramework being empty
             var explicitLine = targetBody.Substring(
                 targetBody.LastIndexOf("<_SwiftWrapperCmd", explicitIdx, StringComparison.Ordinal));
             explicitLine = explicitLine.Substring(0, explicitLine.IndexOf("</_SwiftWrapperCmd>", StringComparison.Ordinal));
-            Assert.Contains("'@(_ResolvedDepXCFramework)' == ''", explicitLine);
+            Assert.DoesNotContain("'@(_ResolvedDepXCFramework)' == ''", explicitLine);
         }
 
         private static string FindRepoRoot()

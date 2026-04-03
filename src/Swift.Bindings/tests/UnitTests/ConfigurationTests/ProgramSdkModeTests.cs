@@ -817,8 +817,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ResolveFrameworkDependencies_ObjCDepNoModulemap_ReturnsNull()
+        public void ResolveFrameworkDependencies_ObjCDepNoModulemap_FallsBackToSearchPathOnly()
         {
+            // Frameworks without modulemap (e.g., compiled wrapper xcframeworks) fall back
+            // to search-path-only resolution instead of returning null.
             using var fixture = CreateObjCDepFixture("BrokenDep", hasBothSlices: false, addModulemap: false);
             var primaryResolution = CreateMinimalResolution("Primary");
             var runner = new MockCommandRunner();
@@ -833,12 +835,15 @@ namespace BindingsGeneration.Tests
                 NullLogger.Instance,
                 commandRunner: runner);
 
-            Assert.Null(result);
+            Assert.NotNull(result);
+            Assert.Single(result);
         }
 
         [Fact]
-        public void ResolveFrameworkDependencies_ObjCDepDuplicateModule_ReturnsNull()
+        public void ResolveFrameworkDependencies_ObjCDepDuplicateModule_SkipsDuplicate()
         {
+            // Duplicate modules are silently skipped (not errors), since the SDK targets
+            // can pass both ProjectReference-resolved and explicit SwiftFrameworkDependency items.
             using var fixture1 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
             using var fixture2 = CreateObjCDepFixture("DupMod", hasBothSlices: true);
             var primaryResolution = CreateMinimalResolution("Primary");
@@ -854,7 +859,8 @@ namespace BindingsGeneration.Tests
                 NullLogger.Instance,
                 commandRunner: runner);
 
-            Assert.Null(result);
+            Assert.NotNull(result);
+            Assert.Single(result); // Second duplicate is skipped
         }
 
         [Fact]

@@ -236,6 +236,31 @@ namespace BindingsGeneration
                     };
                 }
 
+                // 1b. Detect simulator-only members (for wrapper guards and thunk filtering)
+                HashSet<string>? simulatorOnlyMembers = null;
+                if (deviceResolution != null)
+                {
+                    simulatorOnlyMembers = SimulatorOnlyMemberDetector.Detect(
+                        simulatorResolution.AbiJsonPath, deviceResolution.AbiJsonPath, logger);
+
+                    // Apply #if targetEnvironment(simulator) guards to wrapper Swift files
+                    if (simulatorOnlyMembers.Count > 0 && cleanedFiles.Count > 0)
+                    {
+                        foreach (var cleanedFile in cleanedFiles)
+                        {
+                            var content = File.ReadAllText(cleanedFile);
+                            var (guarded, count) = SimulatorOnlyMemberDetector.ApplySimulatorGuards(
+                                content, moduleName, simulatorOnlyMembers);
+                            if (count > 0)
+                            {
+                                File.WriteAllText(cleanedFile, guarded);
+                                logger.LogInformation("  Applied #if targetEnvironment(simulator) guards to {Count} wrapper(s) in {File}",
+                                    count, Path.GetFileName(cleanedFile));
+                            }
+                        }
+                    }
+                }
+
                 // 2. Resolve deployment target
                 var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
 
@@ -343,13 +368,42 @@ namespace BindingsGeneration
 
                     // Compile thunk assembly for device slice
                     // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
+                    // Filter out thunks for simulator-only members before device compilation.
                     NativeThunkCompilationResult? devThunkResult = null;
+                    var deviceThunkDir = outputDirectory;
+                    if (simulatorOnlyMembers != null && simulatorOnlyMembers.Count > 0 && hasAssemblyFiles)
+                    {
+                        var deviceThunkBuildDir = Path.Combine(cleanedDir, ".device-thunks");
+                        Directory.CreateDirectory(deviceThunkBuildDir);
+                        bool anyFiltered = false;
+
+                        foreach (var asmFile in NativeThunkCompiler.CollectAssemblyFiles(outputDirectory))
+                        {
+                            var filterResult = SimulatorOnlyMemberDetector.FilterThunkAssembly(
+                                asmFile, simulatorOnlyMembers, deviceThunkBuildDir);
+                            if (filterResult != null)
+                            {
+                                logger.LogInformation("  Filtered {Count} simulator-only thunk(s) from {File} for device slice",
+                                    filterResult.Value.RemovedCount, Path.GetFileName(asmFile));
+                                anyFiltered = true;
+                            }
+                            else
+                            {
+                                // No filtering needed — copy as-is
+                                File.Copy(asmFile, Path.Combine(deviceThunkBuildDir, Path.GetFileName(asmFile)), overwrite: true);
+                            }
+                        }
+
+                        if (anyFiltered)
+                            deviceThunkDir = deviceThunkBuildDir;
+                    }
+
                     if (!skipThunkCompilation)
                     {
                         try
                         {
                             devThunkResult = NativeThunkCompiler.CompileThunkObjects(
-                                outputDirectory, devTargetTriple, devSdkPath, logger, commandRunner);
+                                deviceThunkDir, devTargetTriple, devSdkPath, logger, commandRunner);
                         }
                         catch (Exception ex)
                         {

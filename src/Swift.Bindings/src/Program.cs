@@ -1175,7 +1175,21 @@ namespace BindingsGeneration
 
                     if (objcResolution == null)
                     {
-                        // Not a valid ObjC framework (no modulemap) — treat as real error
+                        // Neither Swift nor ObjC module found. This may be a wrapper xcframework
+                        // (compiled binding wrapper) that only needs -F search paths for linking.
+                        // Extract search paths from the xcframework directory structure.
+                        var wrapperFallback = XCFrameworkResolver.ResolveSearchPathsOnly(
+                            depPath, wrapperArchitectures, logger, platformInfo: platformInfo);
+                        if (wrapperFallback != null)
+                        {
+                            var wrapperModuleName = Path.GetFileNameWithoutExtension(depPath);
+                            logger.LogInformation(
+                                "Dependency '{Name}' is a binary-only framework (wrapper) — adding framework search paths.",
+                                wrapperModuleName);
+                            resolvedDeps.Add(wrapperFallback);
+                            continue;
+                        }
+
                         logger.LogError(
                             "Error: Dependency '{Path}' has no Swift module and no ObjC module.modulemap. " +
                             "It may be a Swift framework without library evolution support.",
@@ -1251,13 +1265,13 @@ namespace BindingsGeneration
                         }
                     }
 
-                    // Duplicate module check
+                    // Skip duplicate module names
                     if (seenModules.TryGetValue(objcResolution.ModuleName, out var existingObjCPath))
                     {
-                        logger.LogError(
-                            "Error: Duplicate dependency module '{Module}' from '{Path1}' and '{Path2}'.",
-                            objcResolution.ModuleName, existingObjCPath, depPath);
-                        return null;
+                        logger.LogDebug(
+                            "Skipping duplicate dependency module '{Module}' (already resolved from '{Path}').",
+                            objcResolution.ModuleName, existingObjCPath);
+                        continue;
                     }
 
                     // Primary module conflict check
@@ -1288,13 +1302,14 @@ namespace BindingsGeneration
                     return null;
                 }
 
-                // Check for duplicate module names
+                // Skip duplicate module names (can occur when SDK targets pass both
+                // ProjectReference-resolved paths and explicit SwiftFrameworkDependency items)
                 if (seenModules.TryGetValue(moduleName, out var existingPath))
                 {
-                    logger.LogError(
-                        "Error: Duplicate dependency module '{Module}' from '{Path1}' and '{Path2}'.",
-                        moduleName, existingPath, depPath);
-                    return null;
+                    logger.LogDebug(
+                        "Skipping duplicate dependency module '{Module}' (already resolved from '{Path}').",
+                        moduleName, existingPath);
+                    continue;
                 }
 
                 // Check primary module as dependency
