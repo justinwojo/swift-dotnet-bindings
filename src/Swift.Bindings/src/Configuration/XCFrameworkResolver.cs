@@ -173,7 +173,14 @@ namespace BindingsGeneration
             }
 
             // 5. Find dylib and verify it's dynamic
-            var dylibPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier, slice.BinaryPath);
+            // Infer BinaryPath from LibraryPath if missing (wrapper xcframeworks may omit it)
+            var binaryPath = slice.BinaryPath;
+            if (string.IsNullOrEmpty(binaryPath) && slice.LibraryPath.EndsWith(".framework", StringComparison.Ordinal))
+            {
+                var frameworkName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
+                binaryPath = $"{slice.LibraryPath}/{frameworkName}";
+            }
+            var dylibPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier, binaryPath);
             if (!File.Exists(dylibPath))
             {
                 throw new FileNotFoundException($"Dylib not found at expected path: '{dylibPath}'.");

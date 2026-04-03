@@ -521,6 +521,80 @@ namespace BindingsGeneration.Tests
                 </plist>
                 """;
         }
+        /// <summary>
+        /// Regression test: wrapper xcframeworks generated before the BinaryPath fix
+        /// had no BinaryPath in Info.plist. The resolver must infer it from LibraryPath.
+        /// </summary>
+        [Fact]
+        public void Resolve_MissingBinaryPath_InferredFromLibraryPath()
+        {
+            using var fixture = new XCFrameworkFixture();
+
+            // Plist WITHOUT BinaryPath — the exact bug pattern from wrapper xcframeworks
+            var plistWithoutBinaryPath = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>Lib.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            fixture.WriteInfoPlist(plistWithoutBinaryPath);
+            // Create the dylib at the INFERRED path (Lib.framework/Lib)
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Lib.framework", "Lib");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateTbd(moduleDir, "Lib");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+
+            var result = XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            Assert.Equal("Lib", result.ModuleName);
+            Assert.Contains("Lib.framework/Lib", result.DylibPath);
+        }
+
+        [Fact]
+        public void ParseInfoPlist_MissingBinaryPath_DefaultsToEmpty()
+        {
+            using var fixture = new XCFrameworkFixture();
+            var plist = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>Lib.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            fixture.WriteInfoPlist(plist);
+
+            var slices = XCFrameworkResolver.ParseInfoPlist(
+                Path.Combine(fixture.RootPath, "Info.plist"));
+
+            Assert.Single(slices);
+            Assert.Equal("", slices[0].BinaryPath);
+            Assert.Equal("Lib.framework", slices[0].LibraryPath);
+        }
     }
 
     #endregion

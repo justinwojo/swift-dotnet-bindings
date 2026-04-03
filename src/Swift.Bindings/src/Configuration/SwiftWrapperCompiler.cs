@@ -1153,6 +1153,8 @@ namespace BindingsGeneration
                 ? $"""
 
                             <dict>
+                                <key>BinaryPath</key>
+                                <string>{wrapperModuleName}.framework/{wrapperModuleName}</string>
                                 <key>LibraryIdentifier</key>
                                 <string>{devSliceId}</string>
                                 <key>LibraryPath</key>
@@ -1175,6 +1177,8 @@ namespace BindingsGeneration
                     <key>AvailableLibraries</key>
                     <array>
                         <dict>
+                            <key>BinaryPath</key>
+                            <string>{wrapperModuleName}.framework/{wrapperModuleName}</string>
                             <key>LibraryIdentifier</key>
                             <string>{simSliceId}</string>
                             <key>LibraryPath</key>

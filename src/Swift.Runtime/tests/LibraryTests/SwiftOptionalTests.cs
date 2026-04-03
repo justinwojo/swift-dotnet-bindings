@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -6,6 +7,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using Swift;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -195,5 +197,56 @@ public class SwiftOptionalTests : IClassFixture<SwiftOptionalTests.TestFixture>
 
         var none = SwiftOptional<TestColor>.NewNone();
         Assert.False(none.HasValue);
+    }
+
+    // Class type optional fast-path guard tests.
+    // The full NewSome/NewNone round-trip for class types requires real Swift metadata
+    // (VWT with valid size/stride/InitializeWithCopy). That coverage lives in BindingTests
+    // (NodeWithParent roundtrip). These tests verify the TYPE DETECTION conditions that
+    // gate the fast path: non-value-type + ISwiftObject + Class metadata kind.
+
+    /// <summary>
+    /// Verifies that TypeMetadata with pointer value > 0x7ff reports Kind == Class,
+    /// matching the Swift ABI convention for class metadata pointers.
+    /// </summary>
+    [Fact]
+    public unsafe void ClassMetadataKind_PointerAboveDiscriminator_ReportsClass()
+    {
+        // Allocate a buffer with a value > kMaxDiscriminator (0x7ff)
+        var ptr = (IntPtr)NativeMemory.AllocZeroed((nuint)(IntPtr.Size * 4));
+        try
+        {
+            *(nint*)ptr = 0x1000; // > 0x7ff → TypeMetadataKind.Class
+            var md = TypeMetadata.FromHandle(ptr);
+            Assert.Equal(TypeMetadataKind.Class, md.Kind);
+        }
+        finally
+        {
+            NativeMemory.Free((void*)ptr);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the type guard conditions for the class fast path in SwiftOptional.
+    /// A reference type implementing ISwiftObject with Class metadata should
+    /// match the fast path conditions.
+    /// </summary>
+    [Fact]
+    public void ClassFastPathGuard_ReferenceTypeWithISwiftObject_MatchesConditions()
+    {
+        // The fast path checks: !IsValueType && ISwiftObject.IsAssignableFrom
+        // SwiftOptional<T> itself is a class implementing ISwiftObject — verify the conditions
+        var t = typeof(SwiftOptional<int>);
+        Assert.False(t.IsValueType);
+        Assert.True(typeof(ISwiftObject).IsAssignableFrom(t));
+    }
+
+    [Fact]
+    public void ClassFastPathGuard_ValueType_DoesNotMatch()
+    {
+        // Value types should NOT match the class fast path
+        Assert.True(typeof(int).IsValueType);
+        Assert.True(typeof(bool).IsValueType);
+        Assert.True(typeof(TestColor).IsValueType);
     }
 }

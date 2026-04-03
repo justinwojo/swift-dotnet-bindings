@@ -362,6 +362,66 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void CreateXCFrameworkStructure_XCFrameworkPlistHasBinaryPath()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var xcfwPath = Path.Combine(dir, "TestSwiftBindings.xcframework");
+                var fwDir = Path.Combine(xcfwPath, "ios-arm64-simulator", "TestSwiftBindings.framework");
+
+                SwiftWrapperCompiler.CreateXCFrameworkStructure(xcfwPath, fwDir, "TestSwiftBindings", "15.0");
+
+                var xcfwPlist = File.ReadAllText(Path.Combine(xcfwPath, "Info.plist"));
+                // BinaryPath must be present and point to the dylib inside the .framework bundle
+                Assert.Contains("<key>BinaryPath</key>", xcfwPlist);
+                Assert.Contains("TestSwiftBindings.framework/TestSwiftBindings", xcfwPlist);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void WriteXCFrameworkPlist_DualSlice_BothSlicesHaveBinaryPath()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var xcfwPath = Path.Combine(dir, "MyLib.xcframework");
+                Directory.CreateDirectory(xcfwPath);
+
+                SwiftWrapperCompiler.WriteXCFrameworkPlist(xcfwPath, "MyLib", includeDeviceSlice: true);
+
+                var plist = File.ReadAllText(Path.Combine(xcfwPath, "Info.plist"));
+                // Both sim and device slices should contain BinaryPath
+                var binaryPathCount = plist.Split("<key>BinaryPath</key>").Length - 1;
+                Assert.Equal(2, binaryPathCount);
+                Assert.Contains("MyLib.framework/MyLib", plist);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void WriteXCFrameworkPlist_BinaryPathParsableByResolver()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var xcfwPath = Path.Combine(dir, "Foo.xcframework");
+                Directory.CreateDirectory(xcfwPath);
+
+                SwiftWrapperCompiler.WriteXCFrameworkPlist(xcfwPath, "Foo", includeDeviceSlice: false);
+
+                // Parse with the resolver's plist parser and verify BinaryPath is populated
+                var plistPath = Path.Combine(xcfwPath, "Info.plist");
+                var slices = XCFrameworkResolver.ParseInfoPlist(plistPath);
+                Assert.Single(slices);
+                Assert.Equal("Foo.framework/Foo", slices[0].BinaryPath);
+                Assert.Equal("Foo.framework", slices[0].LibraryPath);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void CreateXCFrameworkStructure_RemovesPreviousBuild()
         {
             var dir = CreateTempDir();

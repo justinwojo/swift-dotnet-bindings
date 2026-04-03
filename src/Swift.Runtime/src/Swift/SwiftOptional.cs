@@ -282,6 +282,22 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 return instance;
             }
 
+            // Extra-inhabitant fast path for class types.
+            // Optional<Class> uses nil as the extra inhabitant: .some is the non-null pointer,
+            // .none is null. MarshalToSwift already wrote the class pointer (via InitializeWithCopy),
+            // so the payload is already the correct .some representation.
+            // DestructiveInjectEnumTag(Some) is by definition a no-op for class optionals —
+            // skip it to avoid going through the VWT (consistent with the other fast paths above).
+            if (!typeof(T).IsValueType
+                && typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+            {
+                var elementMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                if (elementMetadata.Kind == TypeMetadataKind.Class)
+                {
+                    return instance;
+                }
+            }
+
             metadata.ValueWitnessTable->DestructiveInjectEnumTag(payload, (uint)SwiftOptionalCases.Some, metadata);
             return instance;
         }
@@ -330,6 +346,19 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 payload[0] = 2; // None for Optional<Bool>
                 return instance;
+            }
+
+            // Extra-inhabitant fast path for class types.
+            // Optional<Class>.none is the null pointer — AllocZeroed already wrote 0x0.
+            // Skip DestructiveInjectEnumTag to avoid the Mono VWT bug (see NewSome comment).
+            if (!typeof(T).IsValueType
+                && typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+            {
+                var elementMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+                if (elementMetadata.Kind == TypeMetadataKind.Class)
+                {
+                    return instance;
+                }
             }
 
             var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
