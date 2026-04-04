@@ -589,9 +589,9 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // Result<T,E> closure args come as IntPtr, marshalled via SwiftMarshal.MarshalFromSwift
-        // BoundGenericsHandler produces fully-qualified names
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<Swift.Runtime.SwiftResult<TestModule.MyData, TestModule.MyError>>", cs);
+        // Result<T,E> closure args come as IntPtr, marshalled via MarshalBorrowedFromSwift
+        // (callback parameters are borrowed references — prevents double-release)
+        Assert.Contains("SwiftMarshal.MarshalBorrowedFromSwift<Swift.Runtime.SwiftResult<TestModule.MyData, TestModule.MyError>>", cs);
     }
 
     // ─── Multi-Closure (C1) ──────────────────────────────────────────
@@ -872,8 +872,8 @@ public class MethodClosureBridgeTests
         Assert.Contains("initializeMemory", swift);
         Assert.Contains("MemoryLayout<MyError>", swift);
 
-        // C# callback should marshal via SwiftMarshal
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.MyError>", cs);
+        // C# callback should marshal via MarshalBorrowedFromSwift (borrowed reference)
+        Assert.Contains("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.MyError>", cs);
     }
 
     [Fact]

@@ -460,6 +460,32 @@ public static class ConstructorWrapperEmitter
         // Build the Swift function name (internal, doesn't need to be pretty)
         var swiftFuncName = $"_sbw_init_{EmitterUtility.DeterministicHash8(symbolName)}";
 
+        // Insert nil args for stripped optional closures at their original positions.
+        // The wrapper loop above only processes kept args (closures stripped from CSSignature),
+        // so callArgs has entries only for non-closure params. We interleave nils at the
+        // positions where closures originally appeared using the saved original arg list.
+        if (methodDecl.HasNilOptionalClosures && methodDecl.OriginalArgsWithNilClosures != null)
+        {
+            var merged = new List<string>();
+            int keptIdx = 0;
+            foreach (var (arg, isNilClosure, argLabel) in methodDecl.OriginalArgsWithNilClosures)
+            {
+                if (isNilClosure)
+                {
+                    merged.Add(omitLabels ? "nil" : $"{argLabel}nil");
+                }
+                else
+                {
+                    // Skip debug/empty tuple params that don't produce callArgs entries
+                    if (DefaultParameterOverloadEmitter.IsDebugParameter(arg) || arg.SwiftTypeSpec.IsEmptyTuple)
+                        continue;
+                    if (keptIdx < callArgs.Count)
+                        merged.Add(callArgs[keptIdx++]);
+                }
+            }
+            callArgs = merged;
+        }
+
         // Build call arguments string
         var callArgString = string.Join(", ", callArgs);
 

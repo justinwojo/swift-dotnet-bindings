@@ -1,5 +1,5 @@
 {
-  "git_sha": "dde3a16b",
+  "git_sha": "af761565",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57151,
+        "lines": 57185,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -429,13 +429,6 @@
         "dep_compile": "none",
         "swift_compile": "ok"
       },
-      "MBProgressHUD": {
-        "compile": "ok",
-        "errors": 0,
-        "lines": 48,
-        "dep_compile": "none",
-        "swift_compile": "no_wrapper"
-      },
       "FirebaseABTesting": {
         "compile": "ok",
         "errors": 0,
@@ -670,8 +663,8 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10744,
-    "total_skipped_members": 1974,
+    "total_emitted_members": 10745,
+    "total_skipped_members": 1973,
     "skip_rate_pct": 15.5,
     "skip_reasons": {
       "ModuleInternal": 722,
@@ -689,7 +682,7 @@
       "StaticProtocolMember": 22,
       "GenericTypeCallback": 17,
       "DuplicateSignature": 4,
-      "NonBlittableCallConvSwift": 3,
+      "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2,
       "ActorIsolatedAsyncStream": 1
     }

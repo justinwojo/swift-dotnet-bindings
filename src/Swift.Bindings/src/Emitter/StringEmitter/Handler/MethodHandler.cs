@@ -269,6 +269,69 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
+            // Constructors with generic container params (Array, Dictionary, Set) need
+            // a @_cdecl wrapper — direct CallConvSwift causes NSArray/Swift.Array ABI mismatch.
+            // If no wrapper was assigned (e.g., because optional closures blocked ShouldEmitWrapper),
+            // try to force one by stripping the unsupported optional closures and passing nil.
+            // MUST run BEFORE SignatureHandler creation so the C# signature reflects the stripped params.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                HasCollectionContainerParams(methodEnv))
+            {
+                // Check if the only blocking factor is unsupported optional closures.
+                // If so, strip them and force a @_cdecl wrapper that passes nil for them.
+                var closureParams = methodEnv.MethodDecl.CSSignature.Skip(1)
+                    .Where(methodEnv.ClosureHandler.IsClosure).ToList();
+                bool allClosuresOptional = closureParams.Count > 0 &&
+                    closureParams.All(arg => methodEnv.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec));
+
+                if (allClosuresOptional)
+                {
+                    // Save full original arg list with closure positions marked, so the
+                    // wrapper emitter can insert nil at the correct positions.
+                    var originalArgs = new List<(ArgumentDecl Arg, bool IsNilClosure, string ArgLabel)>();
+                    var sig = methodEnv.MethodDecl.CSSignature;
+                    for (int ci = 1; ci < sig.Count; ci++)
+                    {
+                        bool isClosure = closureParams.Contains(sig[ci]);
+                        var label = isClosure ? ClosureEmitter.GetSwiftArgLabelForCdecl(sig[ci]) : "";
+                        originalArgs.Add((sig[ci], isClosure, label));
+                    }
+
+                    // Strip optional closures from CSSignature
+                    foreach (var cp in closureParams)
+                        methodEnv.MethodDecl.CSSignature.Remove(cp);
+
+                    // Force @_cdecl constructor wrapper
+                    var parentType_ = methodEnv.ParentDecl as TypeDecl;
+                    var cdeclSymbol = ConstructorWrapperEmitter.GetConstructorSymbolName(
+                        parentType_!.SwiftTypeName.Module,
+                        parentType_.Name,
+                        methodEnv.MethodDecl.MangledName);
+                    methodEnv.MethodDecl.UsesCdeclConstructorWrapper = true;
+                    methodEnv.MethodDecl.UsesWrapperLibrary = true;
+                    methodEnv.MethodDecl.MangledName = cdeclSymbol;
+                    methodEnv.MethodDecl.HasNilOptionalClosures = true;
+                    methodEnv.MethodDecl.OriginalArgsWithNilClosures = originalArgs;
+
+                    _logger.LogInformation("Forced @_cdecl wrapper for constructor {Name}: stripped {Count} optional closure param(s), passing nil.",
+                        methodEnv.MethodDecl.Name, closureParams.Count);
+                }
+                else
+                {
+                    _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: generic container parameters (Array/Dictionary/Set) require @_cdecl wrapper but wrapper generation was blocked.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method,
+                        methodEnv.MethodDecl.Name,
+                        methodEnv.MethodDecl.ParentDecl,
+                        SkipReason.NonBlittableCallConvSwift,
+                        "Constructor has generic container parameters (Array/Dictionary/Set) that crash without @_cdecl wrapper.");
+                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                        BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
+                        "generic container parameters require @_cdecl wrapper (ABI mismatch)");
+                    return;
+                }
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
@@ -312,29 +375,6 @@ namespace BindingsGeneration
                 methodEnv.MethodDecl.UsesFreeFunctionWrapper = true;
                 OptionalPointerWrapperEmitter.EmitSwiftWrapper(swiftWriter, methodEnv, methodEnv.ParentDecl as TypeDecl,
                     emissionContext: context.GetEmissionContext());
-            }
-
-            // Suppress constructors with generic container params (Array, Dictionary, Set)
-            // when no wrapper strategy was chosen. These types cause NSArray/Swift.Array ABI
-            // mismatch crashes — C# sends an ObjC NSArray handle but Swift's CallConvSwift
-            // expects a Swift.Array with different memory layout, corrupting swift_retain.
-            // Only generic containers are suppressed; other non-blittable types (non-frozen
-            // structs, complex enums, classes) may work via direct CallConvSwift or have their
-            // own error handling and should not be blanket-suppressed.
-            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
-                HasCollectionContainerParams(methodEnv))
-            {
-                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: generic container parameters (Array/Dictionary/Set) require @_cdecl wrapper but wrapper generation was blocked.");
-                ReportCollector.RecordMemberSkipped(
-                    BindingItemKind.Method,
-                    methodEnv.MethodDecl.Name,
-                    methodEnv.MethodDecl.ParentDecl,
-                    SkipReason.NonBlittableCallConvSwift,
-                    "Constructor has generic container parameters (Array/Dictionary/Set) that crash without @_cdecl wrapper.");
-                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
-                    BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
-                    "generic container parameters require @_cdecl wrapper (ABI mismatch)");
-                return;
             }
 
             MethodHandler.CheckExportedSymbol(methodEnv);

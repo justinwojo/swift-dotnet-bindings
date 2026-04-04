@@ -210,6 +210,13 @@ namespace BindingsGeneration
                 if (kind == "Constructor" && patchedMangledName.Length > 0 && patchedMangledName[^1] == 'c')
                     patchedMangledName = patchedMangledName[..^1] + "C";
 
+                // Property Var nodes have mangledNames on the Var node itself, but property
+                // @_cdecl wrappers use name-based naming (SBW_Get_/SBW_Set_) without including
+                // the Var's mangledName hash. Clear the hash for Var entries so MatchesCdeclBlock
+                // uses name-only fallback matching, which correctly matches property wrappers.
+                if (kind == "Var")
+                    patchedMangledName = "";
+
                 // Use mangledName as key to disambiguate overloads; fall back to qualifiedName
                 var key = !string.IsNullOrEmpty(mangledName) ? mangledName : qualifiedName;
                 members.TryAdd(key, (qualifiedName, patchedMangledName));

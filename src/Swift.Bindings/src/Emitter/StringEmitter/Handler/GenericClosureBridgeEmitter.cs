@@ -694,9 +694,9 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("Action<IntPtr[], IntPtr> invoke = (IntPtr[] args, IntPtr resBufPtr) =>");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // Marshal each closure arg from IntPtr to concrete C# type
+        // Marshal each closure arg from IntPtr — callback params are borrowed references
         for (int i = 0; i < closureArgTypes.Count; i++)
-            csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalFromSwift<{closureArgTypes[i]}>(args[{i}]);");
+            csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalBorrowedFromSwift<{closureArgTypes[i]}>(args[{i}]);");
         var userCallArgs = Enumerable.Range(0, closureArgTypes.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"var result = {csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.WriteLine("var resBufSpan = new Span<byte>((void*)resBufPtr, (int)metadata.Size);");
@@ -796,8 +796,9 @@ public static class GenericClosureBridgeEmitter
         csWriter.WriteLine("Action<IntPtr[]> invoke = (IntPtr[] args) =>");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        // Callback params are borrowed references — use MarshalBorrowedFromSwift
         for (int i = 0; i < closureArgTypes.Count; i++)
-            csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalFromSwift<{closureArgTypes[i]}>(args[{i}]);");
+            csWriter.WriteLine($"var a{i} = SwiftMarshal.MarshalBorrowedFromSwift<{closureArgTypes[i]}>(args[{i}]);");
         var userCallArgs = Enumerable.Range(0, closureArgTypes.Count).Select(i => $"a{i}");
         csWriter.WriteLine($"{csClosureName}({string.Join(", ", userCallArgs)});");
         csWriter.Indent--;

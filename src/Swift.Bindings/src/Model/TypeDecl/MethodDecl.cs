@@ -338,6 +338,23 @@ namespace BindingsGeneration
         /// (method or constructor) that handle closure params inline.
         /// </summary>
         public bool HasCdeclClosureMarshalling => HasClosureCdeclWrapper || (UsesCdeclWrapper && HasClosureParams);
+
+        /// <summary>
+        /// When true, this constructor had unsupported optional closure params that were
+        /// stripped from CSSignature. The @_cdecl wrapper passes nil for them.
+        /// Set by MethodHandler when forcing a wrapper for constructors with collection params
+        /// whose only blocking factor is unsupported optional closures.
+        /// </summary>
+        public bool HasNilOptionalClosures { get; set; } = false;
+
+        /// <summary>
+        /// The original argument list (excluding return) before optional closures were stripped,
+        /// with each entry marked as kept or nil. Used by ConstructorWrapperEmitter to emit
+        /// nil args at the correct positions in the forwarding call.
+        /// Each entry is (arg, isNilClosure, argLabel) where isNilClosure=true means this
+        /// was a stripped optional closure that should be passed as nil.
+        /// </summary>
+        public List<(ArgumentDecl Arg, bool IsNilClosure, string ArgLabel)>? OriginalArgsWithNilClosures { get; set; }
     }
 
     /// <summary>

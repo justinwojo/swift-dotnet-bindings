@@ -652,13 +652,15 @@ public static partial class ClosureEmitter
                 return $"new IntPtr(arg{argIndex})";
             }
 
-            // Optional<Class>: void* → null check → MarshalFromSwift or null
+            // Optional<Class>: void* → null check → MarshalBorrowedFromSwift or null
+            // Callback parameters are borrowed references — use MarshalBorrowedFromSwift
+            // to prevent double-release when the GC collects the wrapper.
             if (IsOptionalReferenceParam(namedType, closureHandler))
             {
                 var inner = namedType.GenericParameters[0];
                 var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
                 if (closureHandler.IsClassType(inner))
-                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
+                    return $"arg{argIndex} != null ? SwiftMarshal.MarshalBorrowedFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
                 else // ObjC-bridged
                     return $"arg{argIndex} != null ? {MarshallingHelpers.FormatObjCBridgeCall(innerType, $"new IntPtr(arg{argIndex})")} : null";
             }
@@ -687,12 +689,12 @@ public static partial class ClosureEmitter
             // String parameter: System.String has no Swift metadata, so MarshalFromSwift<string> fails.
             // Marshal as SwiftString (which implements ISwiftObject) and convert to string.
             if (WitnessDispatchEmitter.IsStringType(namedType))
-                return $"SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
+                return $"SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
 
             // The callback receives void* but the delegate expects the actual type.
-            // Use SwiftMarshal.MarshalFromSwift to convert.
+            // Use MarshalBorrowedFromSwift — callback parameters are borrowed references.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
-            return $"SwiftMarshal.MarshalFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
+            return $"SwiftMarshal.MarshalBorrowedFromSwift<{delegateType}>(new IntPtr(arg{argIndex}))";
         }
 
         // Well-known protocol wrapping (e.g., any Swift.Error → AnyError)

@@ -1032,8 +1032,10 @@ public static class MethodClosureBridge
         }
         else
         {
-            // Bound generics / classes come as IntPtr — marshal via SwiftMarshal
-            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
+            // Bound generics / classes come as IntPtr — marshal via MarshalBorrowedFromSwift.
+            // Callback parameters are borrowed references from Swift (the caller owns them).
+            // MarshalBorrowedFromSwift suppresses the finalizer to prevent double-release.
+            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalBorrowedFromSwift<{csharpType}>(__p{index});");
         }
     }
 

@@ -157,6 +157,11 @@ namespace BindingsGeneration.Tests
                 var result = SimulatorOnlyMemberDetector.Detect(sim, dev, Logger);
                 Assert.Equal(1, result.Count);
                 Assert.Contains("MyType.simProp", result.QualifiedNames);
+
+                // Var entries must have null hash — property @_cdecl wrappers use name-based
+                // naming (SBW_Get_/SBW_Set_), not hash-based, so hash matching would fail.
+                Assert.Single(result._entries);
+                Assert.Null(result._entries[0].Hash);
             }
             finally { Directory.Delete(dir, true); }
         }

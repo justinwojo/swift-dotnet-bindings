@@ -521,8 +521,9 @@ public static class ProtocolExtensionClosureBridge
         }
         else
         {
-            // Use SwiftMarshal for ISwiftObject types (classes, generic params)
-            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
+            // Use MarshalBorrowedFromSwift for ISwiftObject types (classes, generic params).
+            // Callback parameters are borrowed references — prevents double-release.
+            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalBorrowedFromSwift<{csharpType}>(__p{index});");
         }
     }
 

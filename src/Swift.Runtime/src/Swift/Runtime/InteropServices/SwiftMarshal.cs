@@ -409,6 +409,53 @@ public static class SwiftMarshal
         Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
     public static T MarshalFromSwift<T>(IntPtr swiftSource)
     {
+        return MarshalFromSwiftCore<T>(swiftSource);
+    }
+
+    /// <summary>
+    /// Marshals a borrowed Swift reference into a non-owning C# wrapper.
+    /// Used for closure callback parameters where the native handle is borrowed from Swift
+    /// (the caller owns the reference). The wrapper's finalizer is suppressed to prevent
+    /// double-release when the GC collects it.
+    /// </summary>
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Delegates to MarshalFromSwiftCore")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Delegates to MarshalFromSwiftCore")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Delegates to MarshalFromSwiftCore")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087", Justification = "Delegates to MarshalFromSwiftCore")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059", Justification = "Delegates to MarshalFromSwiftCore")]
+    [UnconditionalSuppressMessage("Trimming", "IL2070",
+        Justification = "GetProperty on ISwiftObject types whose Payload property is always preserved")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "GetType().GetProperty on ISwiftObject types whose Payload property is always preserved via TrimmerRoots.xml")]
+    public static T MarshalBorrowedFromSwift<T>(IntPtr swiftSource)
+    {
+        var obj = MarshalFromSwiftCore<T>(swiftSource);
+        if (obj != null)
+        {
+            GC.SuppressFinalize(obj);
+            // Generated wrapper classes hold a SafeHandle in a Payload property.
+            // The SafeHandle's finalizer calls ReleaseHandle (Arc.Release / VWT.Destroy),
+            // which would double-release a borrowed native handle.
+            if (obj is ISwiftObject)
+            {
+                var payloadProp = obj.GetType().GetProperty("Payload",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (payloadProp?.GetValue(obj) is object payload)
+                    GC.SuppressFinalize(payload);
+            }
+        }
+        return obj;
+    }
+
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Tuple marshalling path only; non-tuple paths are AOT-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2091", Justification = "Tuple marshalling path only; non-tuple paths are trim-safe")]
+    [UnconditionalSuppressMessage("Trimming", "IL2087",
+        Justification = "typeof(T) satisfies DynamicallyAccessedMembers at runtime; types preserved via TrimmerRoots.xml")]
+    [UnconditionalSuppressMessage("Trimming", "IL2059",
+        Justification = "RunClassConstructor is a NativeAOT fallback in try-catch; type is always an ISwiftObject whose static constructor is preserved")]
+    private static T MarshalFromSwiftCore<T>(IntPtr swiftSource)
+    {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
         {
             // Try factory cache first (populated by constrained code paths on NativeAOT).
