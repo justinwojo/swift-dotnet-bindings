@@ -797,6 +797,104 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void FilterThunkAssembly_Fallback_SwiftSubstitutionCompression()
+        {
+            // Swift mangling compresses shared prefixes between module and type names.
+            // Module "StripeIdentity" + type "IdentityVerificationSheet" mangles as
+            // "14StripeIdentity0B17VerificationSheet" — "Identity" shared prefix replaced by "0B".
+            // The suffix "17VerificationSheet" still appears, so suffix matching must find it.
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var asm = string.Join("\n", new[]
+                {
+                    ".globl _thunk_StripeIdentity_af0eb15e",
+                    ".p2align 2",
+                    "_thunk_StripeIdentity_af0eb15e:",
+                    "    stp     x20, x19, [sp, #-32]!",
+                    "    stp     x29, x30, [sp, #16]",
+                    "    add     x29, sp, #16",
+                    "    mov     x0, #0",
+                    "    bl      _$s14StripeIdentity0B17VerificationSheetCMa",
+                    "    mov     x20, x0",
+                    "    bl      _$s14StripeIdentity0B17VerificationSheetC29simulatorDocumentCameraImagesSaySo7UIImageCGvgZ",
+                    "    ldp     x29, x30, [sp, #16]",
+                    "    ldp     x20, x19, [sp], #32",
+                    "    ret",
+                    "",
+                    ".globl _thunk_StripeIdentity_other",
+                    ".p2align 2",
+                    "_thunk_StripeIdentity_other:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s14StripeIdentity0B17VerificationSheetC30verificationSessionClientSecretSSvg",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    ""
+                });
+                var asmFile = Path.Combine(dir, "StripeIdentity.arm64.s");
+                File.WriteAllText(asmFile, asm);
+
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                // "IdentityVerificationSheet" is substituted to "0B17VerificationSheet" in the mangled name.
+                // Empty mangled name triggers fallback. Suffix matching should find "17VerificationSheet"
+                // even though "29IdentityVerificationSheet" doesn't appear literally.
+                var simOnly = MakeResult(("IdentityVerificationSheet.simulatorDocumentCameraImages", ""));
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(asmFile, simOnly, outDir);
+
+                Assert.NotNull(result);
+                Assert.Equal(1, result!.Value.RemovedCount);
+
+                // The other thunk (verificationSessionClientSecret) must be preserved
+                var filtered = File.ReadAllText(result.Value.FilteredPath);
+                Assert.Contains("verificationSessionClientSecret", filtered);
+                Assert.DoesNotContain("simulatorDocumentCameraImages", filtered);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void FilterThunkAssembly_Fallback_DoesNotMatchUnrelatedTypeWithSharedSuffix()
+        {
+            // Codex review: "AddressVerificationSheet.simulatorDocumentCameraImages" must NOT match
+            // a sim-only entry for "IdentityVerificationSheet.simulatorDocumentCameraImages" just
+            // because both share the suffix "VerificationSheet". The suffix match requires a Swift
+            // substitution pattern (uppercase letter) immediately before the length-prefixed suffix.
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                // This thunk is for AddressVerificationSheet — no substitution, full name present
+                var asm = string.Join("\n", new[]
+                {
+                    ".globl _thunk_Module_aaa",
+                    ".p2align 2",
+                    "_thunk_Module_aaa:",
+                    "    stp     x29, x30, [sp, #-16]!",
+                    "    bl      _$s6Module24AddressVerificationSheetC29simulatorDocumentCameraImagesSaySo7UIImageCGvgZ",
+                    "    ldp     x29, x30, [sp], #16",
+                    "    ret",
+                    ""
+                });
+                var asmFile = Path.Combine(dir, "Module.arm64.s");
+                File.WriteAllText(asmFile, asm);
+
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                // Sim-only entry is for IdentityVerificationSheet, not AddressVerificationSheet
+                var simOnly = MakeResult(("IdentityVerificationSheet.simulatorDocumentCameraImages", ""));
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(asmFile, simOnly, outDir);
+
+                // Must NOT filter the thunk — it belongs to a different type
+                Assert.Null(result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void FilterThunkAssembly_NoOp_WhenEmptyResult()
         {
             var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(

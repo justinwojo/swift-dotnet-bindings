@@ -330,6 +330,43 @@ partial class Build
             {
                 if (runResults == null || runResults.Tests.Count == 0)
                 {
+                    // JSONL recovery failed — fall back to console output parsing
+                    var consoleClasses = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                    if (consoleClasses.Count > 0)
+                    {
+                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleClasses.Count);
+                        foreach (var cls in consoleClasses)
+                            excludeClasses.Add(cls);
+
+                        var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
+                        if (remainingAfterConsole.Count == 0)
+                        {
+                            Log.Information("All classes either completed or crashed — no more to run.");
+                            break;
+                        }
+
+                        Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
+
+                        if (attempt == maxRetries)
+                        {
+                            Log.Error("Max retries ({Max}) reached.", maxRetries);
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    // Neither JSONL nor console output available. Blind-skip the first
+                    // remaining class to make progress through the crash-recovery loop.
+                    var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
+                    if (remainingBlind.Count > 0 && attempt < maxRetries)
+                    {
+                        var suspect = remainingBlind[0];
+                        Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
+                        excludeClasses.Add(suspect);
+                        continue;
+                    }
+
                     Log.Error("No JSONL results recovered from crashed run — cannot resume.");
                     break;
                 }
@@ -461,6 +498,47 @@ partial class Build
             {
                 if (runResults == null || runResults.Tests.Count == 0)
                 {
+                    // JSONL recovery failed — fall back to console output parsing.
+                    // Extract class names from [PASS]/[FAIL]/[SKIP] lines to identify
+                    // completed classes and the class that was running when the app crashed.
+                    var consoleClasses = JsonlTestResults.ParseClassesFromConsole(result.Output);
+                    if (consoleClasses.Count > 0)
+                    {
+                        Log.Warning("JSONL recovery failed — falling back to console output ({Count} classes found).", consoleClasses.Count);
+                        foreach (var cls in consoleClasses)
+                            excludeClasses.Add(cls);
+
+                        var remainingAfterConsole = eligibleClasses.Except(excludeClasses).ToList();
+                        if (remainingAfterConsole.Count == 0)
+                        {
+                            Log.Information("All classes either completed or crashed — no more to run.");
+                            break;
+                        }
+
+                        Log.Information("Remaining classes: {Count}", remainingAfterConsole.Count);
+
+                        if (attempt == maxRetries)
+                        {
+                            Log.Error("Max retries ({Max}) reached on device.", maxRetries);
+                            break;
+                        }
+
+                        continue;
+                    }
+
+                    // Neither JSONL nor console gave us classes. The app likely crashed at
+                    // startup before running any tests. Skip the first remaining class
+                    // (alphabetically) to make progress — the crash-recovery loop will
+                    // keep narrowing down until the crasher is isolated.
+                    var remainingBlind = eligibleClasses.Except(excludeClasses).OrderBy(c => c).ToList();
+                    if (remainingBlind.Count > 0 && attempt < maxRetries)
+                    {
+                        var suspect = remainingBlind[0];
+                        Log.Warning("Blind skip: excluding '{Class}' (first remaining — no output to identify crasher).", suspect);
+                        excludeClasses.Add(suspect);
+                        continue;
+                    }
+
                     Log.Error("No JSONL results recovered from crashed device run — cannot resume.");
                     break;
                 }

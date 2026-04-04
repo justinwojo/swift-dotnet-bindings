@@ -1,11 +1,11 @@
 # Roadmap to 1.0
 
-**Updated**: April 2, 2026
+**Updated**: April 4, 2026
 
 **Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
 **Skip metrics**: 10,757 emitted members, 1,971 skipped (15.5% skip rate) across 95 validation targets.
-**Runtime tests**: 1,295 passed, 11 skipped on iOS Simulator (Mono JIT).
-**Downstream validation**: 630/630 sim tests passing across 20 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.5.0 packages.
+**Runtime tests**: 1,292 passed, 20 skipped on iOS Device (NativeAOT). 1,668 passed, 2 skipped across 8 real-world library test suites (swift-dotnet-packages).
+**Downstream validation**: 2,107/2,107 sim tests passing across 23 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.6.0 packages.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
 
@@ -31,6 +31,7 @@ Skip rate is 15.5%. The remaining ~1,971 skips are overwhelmingly either correct
 | **Multi-protocol generic compositions** | blocked | High | Needs full existential composition in @_cdecl wrapper |
 | **Value-type generic conformers** | blocked | High | Requires non-AnyObject transport through @_cdecl boundary |
 | **NativeAOT MCB callback SIGSEGV** | 3 tests | Low | Only runtime skips that might be our bugs. Resolve or classify before 1.0 |
+| **NativeAOT ResultReturnTests crash** | 6 tests | Medium | Device-only: app crashes at class init before any test runs. Blind-skipped by harness. Needs investigation — may be upstream NativeAOT or a generator bug in result-return marshalling. |
 
 ---
 

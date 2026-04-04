@@ -164,4 +164,44 @@ public class JsonlTestResults
     /// </summary>
     public override string ToString()
         => $"JSONL: {PassCount} pass, {FailCount} fail, {SkipCount} skip, {CrashCount} crash (done={Done})";
+
+    /// <summary>
+    /// Fallback: extracts class names from console output lines like
+    /// "[PASS] ClassName.TestMethod" when JSONL recovery fails.
+    /// Returns all unique class names found, which can be used to skip
+    /// already-completed classes on the next retry attempt.
+    /// </summary>
+    public static HashSet<string> ParseClassesFromConsole(string consoleOutput)
+    {
+        var classes = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrEmpty(consoleOutput)) return classes;
+
+        foreach (var line in consoleOutput.Split('\n'))
+        {
+            // Match lines like: "[PASS] ClassName.TestMethod (0ms)"
+            // or "[SKIP] ClassName.TestMethod: reason"
+            var idx = line.IndexOf("] ", StringComparison.Ordinal);
+            if (idx < 0) continue;
+
+            var tag = line.AsSpan(0, idx + 1);
+            if (!tag.Contains("[PASS]", StringComparison.Ordinal) &&
+                !tag.Contains("[FAIL]", StringComparison.Ordinal) &&
+                !tag.Contains("[WARN] SKIP:", StringComparison.Ordinal))
+                continue;
+
+            var after = line.Substring(idx + 2).TrimStart();
+            // For SKIP lines: "SKIP: ClassName.TestMethod: reason"
+            if (after.StartsWith("SKIP: ", StringComparison.Ordinal))
+                after = after.Substring(6);
+
+            var dot = after.IndexOf('.');
+            if (dot > 0)
+            {
+                var className = after.Substring(0, dot);
+                if (className.Length > 0 && char.IsUpper(className[0]))
+                    classes.Add(className);
+            }
+        }
+        return classes;
+    }
 }

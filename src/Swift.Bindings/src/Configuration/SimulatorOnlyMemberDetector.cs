@@ -82,6 +82,15 @@ namespace BindingsGeneration
                     // Swift mangled symbols encode identifiers as {length}{name}, e.g.,
                     // "8Identity4Card2id". Matching on "{len}Identity" instead of bare
                     // "Identity" prevents false positives from names like "IdentityCard".
+                    //
+                    // Swift also uses substitution indices (e.g., "0B") to compress shared
+                    // prefixes between the module name and type name. For example, module
+                    // "StripeIdentity" + type "IdentityVerificationSheet" mangles as
+                    // "14StripeIdentity0B17VerificationSheet" — the shared "Identity" prefix
+                    // is replaced by "0B". In this case, "29IdentityVerificationSheet" won't
+                    // appear literally, but "17VerificationSheet" (a suffix) will.
+                    // We handle this by trying length-prefixed suffixes preceded by a Swift
+                    // substitution pattern (uppercase letter terminator, e.g., "B", "C").
                     var lastDot = entry.QualifiedName.LastIndexOf('.');
                     if (lastDot < 0) continue;
 
@@ -93,8 +102,35 @@ namespace BindingsGeneration
                         var lengthPrefixed = $"{part.Length}{part}";
                         if (!blockText.Contains(lengthPrefixed, StringComparison.Ordinal))
                         {
-                            allMatch = false;
-                            break;
+                            // Try suffix matching for Swift substitution compression.
+                            // Substitutions produce patterns like "0B17VerificationSheet" where
+                            // the uppercase letter (B) terminates the substitution index and
+                            // the length-prefixed suffix follows immediately.
+                            // Require the suffix to be preceded by an uppercase letter to
+                            // confirm an actual substitution, not a coincidental match.
+                            bool suffixFound = false;
+                            for (int len = part.Length - 1; len >= 5; len--)
+                            {
+                                var suffix = part.Substring(part.Length - len);
+                                var suffixPrefixed = $"{len}{suffix}";
+                                int pos = blockText.IndexOf(suffixPrefixed, StringComparison.Ordinal);
+                                if (pos > 0)
+                                {
+                                    // Verify preceding character is an uppercase letter
+                                    // (Swift substitution index terminator)
+                                    char preceding = blockText[pos - 1];
+                                    if (preceding >= 'A' && preceding <= 'Z')
+                                    {
+                                        suffixFound = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!suffixFound)
+                            {
+                                allMatch = false;
+                                break;
+                            }
                         }
                     }
                     if (allMatch)
