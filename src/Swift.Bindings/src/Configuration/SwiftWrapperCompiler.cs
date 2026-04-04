@@ -264,6 +264,17 @@ namespace BindingsGeneration
                 // 2. Resolve deployment target
                 var minOS = ResolveDeploymentTarget(simulatorResolution.DylibPath, logger, commandRunner);
 
+                // 2b. Resource bundle stubs: detect SPM resource bundles in the framework
+                // and create empty .bundle directories in the output directory at build time.
+                // SPM-generated resource_bundle_accessor.swift searches Bundle.main for named
+                // bundles — stubs placed in the output directory get copied to the app bundle
+                // root by Sdk.targets, where the accessor will discover them.
+                var bundleNames = DetectResourceBundleNames(simulatorResolution.DylibPath, commandRunner, logger);
+                if (bundleNames.Count > 0)
+                {
+                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger, simulatorResolution.DylibPath);
+                }
+
                 // 3. Create xcframework directory structure
                 var xcframeworkPath = Path.Combine(outputDirectory, $"{wrapperModuleName}.xcframework");
                 if (Directory.Exists(xcframeworkPath))
@@ -712,7 +723,7 @@ namespace BindingsGeneration
                 var bundleNames = DetectResourceBundleNames(dylibPath, commandRunner, logger);
                 if (bundleNames.Count > 0)
                 {
-                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger);
+                    CreateResourceBundleStubs(bundleNames, outputDirectory, logger, dylibPath);
                 }
 
                 // Combine thunk object files for linking
@@ -1425,33 +1436,73 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Creates empty .bundle directories in the output directory at build time.
+        /// Copies real SPM resource bundles from the source framework into the output
+        /// directory, or creates empty stubs when the real bundle cannot be located.
         /// SPM-generated resource_bundle_accessor.swift searches Bundle.main for named bundles.
-        /// Stubs placed in the output directory are picked up by Sdk.targets (via
+        /// Bundles placed in the output directory are picked up by Sdk.targets (via
         /// _SwiftResourceBundles item) and copied to the app bundle root, where the
         /// accessor will discover them at runtime on both simulator and device.
         /// </summary>
         internal static void CreateResourceBundleStubs(
-            List<string> bundleNames, string outputDirectory, ILogger logger)
+            List<string> bundleNames, string outputDirectory, ILogger logger,
+            string? sourceDylibPath = null)
         {
+            // The real .bundle directories live as siblings of the dylib inside the
+            // framework directory (e.g., Library.xcframework/<slice>/Library.framework/<Name>.bundle/).
+            string? sourceFrameworkDir = null;
+            if (!string.IsNullOrEmpty(sourceDylibPath))
+                sourceFrameworkDir = Path.GetDirectoryName(sourceDylibPath);
+
             foreach (var name in bundleNames)
             {
-                var bundlePath = Path.Combine(outputDirectory, $"{name}.bundle");
-                if (!Directory.Exists(bundlePath))
-                    Directory.CreateDirectory(bundlePath);
-                // Placeholder file so the bundle directory is non-empty — MSBuild glob
-                // patterns (*.bundle/**) only match files, not empty directories.
-                var placeholder = Path.Combine(bundlePath, "_sbw_stub");
-                if (!File.Exists(placeholder))
-                    File.WriteAllText(placeholder, "");
+                var destBundlePath = Path.Combine(outputDirectory, $"{name}.bundle");
+
+                // Try to copy the real bundle from the source framework
+                var realBundle = sourceFrameworkDir != null
+                    ? Path.Combine(sourceFrameworkDir, $"{name}.bundle")
+                    : null;
+
+                if (realBundle != null && Directory.Exists(realBundle))
+                {
+                    CopyDirectory(realBundle, destBundlePath);
+                    logger.LogInformation("Copied real resource bundle '{Name}.bundle' from source framework", name);
+                }
+                else
+                {
+                    // Fall back to empty stub — prevents fatalError in resource_bundle_accessor.swift
+                    // but resources (images, strings, JSON, etc.) will not be available at runtime.
+                    if (!Directory.Exists(destBundlePath))
+                        Directory.CreateDirectory(destBundlePath);
+                    var placeholder = Path.Combine(destBundlePath, "_sbw_stub");
+                    if (!File.Exists(placeholder))
+                        File.WriteAllText(placeholder, "");
+                    logger.LogWarning("Could not locate real resource bundle '{Name}.bundle' in source framework — created empty stub. " +
+                        "Resources loaded from Bundle.module will not be available at runtime.", name);
+                }
             }
 
             // Write manifest for Sdk.targets to discover the bundle names
             var manifestPath = Path.Combine(outputDirectory, "_resource-bundles.txt");
             File.WriteAllLines(manifestPath, bundleNames);
 
-            logger.LogInformation("Created resource bundle stub(s) for {Count} bundle(s): {Names}",
+            logger.LogInformation("Prepared resource bundle(s) for {Count} bundle(s): {Names}",
                 bundleNames.Count, string.Join(", ", bundleNames));
+        }
+
+        /// <summary>
+        /// Recursively copies a directory tree.
+        /// </summary>
+        private static void CopyDirectory(string sourceDir, string destDir)
+        {
+            Directory.CreateDirectory(destDir);
+            foreach (var file in Directory.GetFiles(sourceDir))
+            {
+                File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: true);
+            }
+            foreach (var subDir in Directory.GetDirectories(sourceDir))
+            {
+                CopyDirectory(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
+            }
         }
 
         /// <summary>

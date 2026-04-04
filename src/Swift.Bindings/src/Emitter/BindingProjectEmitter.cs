@@ -42,6 +42,11 @@ namespace BindingsGeneration
         /// Platform info for multi-platform support. Defaults to iOS if not specified.
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
+        /// <summary>
+        /// SPM resource bundle names detected in the source framework.
+        /// When non-empty, BundleResource and pack items are emitted for each bundle.
+        /// </summary>
+        public IReadOnlyList<string>? ResourceBundleNames { get; init; }
     }
 
     /// <summary>
@@ -164,6 +169,28 @@ namespace BindingsGeneration
                 """;
             }
 
+            // SPM resource bundle items (local build: BundleResource, NuGet pack: None)
+            var resourceBundleItems = "";
+            var resourceBundlePackItems = "";
+            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
+            {
+                foreach (var bundleName in options.ResourceBundleNames)
+                {
+                    resourceBundleItems += $"""
+
+                    <BundleResource Include="{bundleName}.bundle/**"
+                                    LinkBase="{bundleName}.bundle"
+                                    Condition="Exists('{bundleName}.bundle')" />
+                """;
+                    resourceBundlePackItems += $"""
+
+                    <None Include="{bundleName}.bundle/**" Pack="true"
+                          Condition="Exists('{bundleName}.bundle')"
+                          PackagePath="{pi.GetNativePackPath($"{bundleName}.bundle")}" />
+                """;
+                }
+            }
+
             var content = $"""
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -198,14 +225,19 @@ namespace BindingsGeneration
                     <NativeReference Include="{relativeSourceXcfw}">
                       <Kind>Framework</Kind>
                     </NativeReference>{wrapperNativeRef}{bridgeNativeRef}
+                  </ItemGroup>{(resourceBundleItems != "" ? $"""
+
+                  <!-- SPM resource bundles (included in app bundle at runtime) -->
+                  <ItemGroup>{resourceBundleItems}
                   </ItemGroup>
+                """ : "")}
 
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
                           PackagePath="{pi.GetBuildTransitivePath()}" />
                     <None Include="{relativeSourceXcfw}/**" Pack="true"
-                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}{bridgePackItem}
+                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}{bridgePackItem}{resourceBundlePackItems}
                   </ItemGroup>{objcProjectRef}
                 </Project>
                 """;

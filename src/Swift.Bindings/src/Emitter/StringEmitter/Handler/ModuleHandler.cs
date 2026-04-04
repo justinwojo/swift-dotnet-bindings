@@ -281,16 +281,16 @@ namespace BindingsGeneration
                 """);
             foreach (var typeName in factoryTypes)
             {
-                csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>();");
-                // SwiftObjectHelper<T>.GetTypeMetadata() handles both Mono (reflection) and
-                // NativeAOT (static virtual dispatch) and caches the result. This ensures
-                // TryGetTypeMetadata<T>() finds metadata in the cache without needing the
-                // reflection path (GetMethods) that NativeAOT trims.
-                csWriter.WriteLines($"        global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata();");
+                // Wrap each registration in try-catch so one failing type doesn't crash the
+                // entire app during module initialization. On NativeAOT device, some types
+                // (e.g., types depending on framework initialization order) may fail during
+                // early startup. The factory and metadata are best-effort — types that fail
+                // here will fall back to the reflection path at call time.
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
             }
             foreach (var (typeName, protocolName) in conformances)
             {
-                csWriter.WriteLines($"        global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>();");
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}");
             }
             // Pre-register witness tables for ALL protocol conformances.
             // This eagerly computes and caches the witness table during module initialization

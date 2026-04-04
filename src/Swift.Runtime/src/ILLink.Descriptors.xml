@@ -8,15 +8,18 @@
      Those types self-register their factories via SwiftFrameworkResolver.InitializeRuntime(). -->
 <linker>
   <assembly fullname="Swift.Runtime">
-    <!-- Core collection/wrapper types -->
-    <type fullname="Swift.SwiftString" preserve="methods" />
-    <type fullname="Swift.SwiftArray`1" preserve="methods" />
-    <type fullname="Swift.SwiftOptional`1" preserve="methods" />
-    <type fullname="Swift.SwiftResult`2" preserve="methods" />
-    <type fullname="Swift.SwiftDictionary`2" preserve="methods" />
-    <type fullname="Swift.SwiftSet`1" preserve="methods" />
-    <type fullname="Swift.Data" preserve="methods" />
-    <type fullname="Swift.AnyHashable" preserve="methods" />
+    <!-- Core collection/wrapper types — preserve="all" ensures explicit interface
+         implementations (NewFromPayload, GetTypeMetadata) are discoverable via reflection
+         on NativeAOT. preserve="methods" alone may not preserve reflection metadata for
+         private explicit implementations that the trimmer considers unreachable. -->
+    <type fullname="Swift.SwiftString" preserve="all" />
+    <type fullname="Swift.SwiftArray`1" preserve="all" />
+    <type fullname="Swift.SwiftOptional`1" preserve="all" />
+    <type fullname="Swift.SwiftResult`2" preserve="all" />
+    <type fullname="Swift.SwiftDictionary`2" preserve="all" />
+    <type fullname="Swift.SwiftSet`1" preserve="all" />
+    <type fullname="Swift.Data" preserve="all" />
+    <type fullname="Swift.AnyHashable" preserve="all" />
     <!-- Existential containers -->
     <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />

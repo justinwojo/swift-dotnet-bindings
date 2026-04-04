@@ -28,6 +28,11 @@ namespace BindingsGeneration
         /// Platform info for multi-platform support. Defaults to iOS if not specified.
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
+        /// <summary>
+        /// SPM resource bundle names detected in the source framework.
+        /// When non-empty, BundleResource items are emitted to include bundles from the NuGet package.
+        /// </summary>
+        public IReadOnlyList<string>? ResourceBundleNames { get; init; }
     }
 
     /// <summary>
@@ -66,6 +71,21 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            // SPM resource bundle items for NuGet consumers
+            var resourceBundleItems = "";
+            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
+            {
+                foreach (var bundleName in options.ResourceBundleNames)
+                {
+                    resourceBundleItems += $"""
+
+                      <BundleResource Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{bundleName}.bundle/**"
+                                      LinkBase="{bundleName}.bundle"
+                                      Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{bundleName}.bundle')" />
+                """;
+                }
+            }
+
             var content = $"""
                 <Project>
                   <!-- SwiftBindingsInteropMode: Auto (default) | Safe | Direct
@@ -99,7 +119,7 @@ namespace BindingsGeneration
                                        Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework')">
                         <Kind>Framework</Kind>
                       </NativeReference>
-                {wrapperNativeRef}{bridgeNativeRef}    </ItemGroup>
+                {wrapperNativeRef}{bridgeNativeRef}{resourceBundleItems}    </ItemGroup>
                   </Target>
 
                   <!-- SwiftBindingFramework registration for downstream tooling -->
@@ -168,6 +188,21 @@ namespace BindingsGeneration
                 """
                 : "";
 
+            // SPM resource bundle items for ProjectReference consumers
+            var localResourceBundleItems = "";
+            if (options.ResourceBundleNames != null && options.ResourceBundleNames.Count > 0)
+            {
+                foreach (var bundleName in options.ResourceBundleNames)
+                {
+                    localResourceBundleItems += $"""
+
+                          <BundleResource Include="$(MSBuildThisFileDirectory){bundleName}.bundle/**"
+                                          LinkBase="{bundleName}.bundle"
+                                          Condition="Exists('$(MSBuildThisFileDirectory){bundleName}.bundle')" />
+                """;
+                }
+            }
+
             // Compute the relative path from the output directory to the source xcframework.
             // This avoids hardcoding directory traversal depth, which breaks if the consumer
             // customizes IntermediateOutputPath or BaseIntermediateOutputPath.
@@ -205,7 +240,7 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}    </ItemGroup>
+                {sourceXcfwRef}{wrapperNativeRef}{bridgeNativeRef}{localResourceBundleItems}    </ItemGroup>
                   </Target>
                 </Project>
                 """;

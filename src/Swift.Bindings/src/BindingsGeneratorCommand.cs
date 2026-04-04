@@ -596,6 +596,12 @@ public static class BindingsGeneratorCommand
                     hasBridgeSwift: hasBridgeSwift,
                     bridgeModuleName: bridgeModuleName);
 
+                // Read resource bundle manifest (written by CreateResourceBundleStubs during compilation)
+                var resourceBundleManifest = Path.Combine(outputDirectory, "_resource-bundles.txt");
+                IReadOnlyList<string>? resourceBundleNames = File.Exists(resourceBundleManifest)
+                    ? File.ReadAllLines(resourceBundleManifest).Where(l => !string.IsNullOrWhiteSpace(l)).ToList()
+                    : null;
+
                 // Only emit .csproj in non-SDK mode
                 if (!sdkMode)
                 {
@@ -616,6 +622,7 @@ public static class BindingsGeneratorCommand
                         ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
                         ObjCProjectFileName = objcProjFileName,
                         PlatformInfo = platformInfo,
+                        ResourceBundleNames = resourceBundleNames,
                     }, logger);
                 }
 
@@ -633,6 +640,7 @@ public static class BindingsGeneratorCommand
                     HasBridgeXCFramework = hasBridgeSwift,
                     XcframeworkPath = xcframeworkPath,
                     PlatformInfo = platformInfo,
+                    ResourceBundleNames = resourceBundleNames,
                 }, logger);
 
                 XCFrameworkMetadataExtractor.EmitMetadataJson(metadata, outputDirectory, logger);

@@ -197,6 +197,12 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteNewFromPayload()
         {
+            // NativeAOT trimming: preserve Tag property and CaseTag nested enum for
+            // reflection-based access patterns. CaseTag is preserved transitively as
+            // the return type of Tag. NewFromPayload is rooted via SwiftObjectReflectionHelper
+            // (preserved in ILLink.Descriptors.xml), making it a reliable anchor.
+            if (_enumDecl.Cases.Any())
+                _writer.WriteLine("""[global::System.Diagnostics.CodeAnalysis.DynamicDependency("Tag")]""");
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
