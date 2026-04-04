@@ -66,7 +66,7 @@ public class ResultProjection : ITypeProjection
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
         var resultType = ContainerTypeName;
-        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<{resultType}>";
+        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<{resultType}>";
 
         return strategy switch
         {

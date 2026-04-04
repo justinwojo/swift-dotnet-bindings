@@ -47,7 +47,7 @@ public class ObjCRootedClassProjection : ITypeProjection
         // Pass to MarshalFromSwift which calls NewFromPayload to wrap via NSObject.
         return new MarshalPlan
         {
-            PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+            PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
         };
     }
 

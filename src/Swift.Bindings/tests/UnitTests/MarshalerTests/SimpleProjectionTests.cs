@@ -156,7 +156,7 @@ public class SimpleProjectionTests
         Assert.Equal("swiftResult.ToString()", plan.PInvokeExpression);
         Assert.True(plan.RequiresUnsafe);
         Assert.Single(plan.SetupStatements);
-        Assert.Contains("MarshalFromSwift<SwiftString>", ((MarshalStatement.Line)plan.SetupStatements[0]).Code);
+        Assert.Contains("MarshalFromSwiftObject<SwiftString>", ((MarshalStatement.Line)plan.SetupStatements[0]).Code);
     }
 
     [Fact]
@@ -310,7 +310,7 @@ public class SimpleProjectionTests
     {
         var proj = new DataProjection();
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<Swift.Data>(result).ToByteArray()", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<Swift.Data>(result).ToByteArray()", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -500,7 +500,7 @@ public class SimpleProjectionTests
     {
         var proj = new NonFrozenStructProjection("MyClass");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<MyClass>(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<MyClass>(result)", plan.PInvokeExpression);
     }
 
     [Fact]

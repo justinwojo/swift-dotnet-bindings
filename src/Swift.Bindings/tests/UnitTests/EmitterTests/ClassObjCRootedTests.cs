@@ -647,7 +647,7 @@ public class ClassObjCRootedTests
 
         // No buffer allocation — direct MarshalFromSwift like ClassProjection
         Assert.False(plan.RequiresUnsafe);
-        Assert.Contains("MarshalFromSwift<MyLayer>", plan.PInvokeExpression);
+        Assert.Contains("MarshalFromSwiftObject<MyLayer>", plan.PInvokeExpression);
         Assert.Contains("result", plan.PInvokeExpression);
     }
 

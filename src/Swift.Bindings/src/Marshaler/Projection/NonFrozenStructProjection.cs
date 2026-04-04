@@ -52,13 +52,13 @@ public class NonFrozenStructProjection : ITypeProjection
         {
             return new MarshalPlan
             {
-                PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+                PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
             };
         }
 
         return new MarshalPlan
         {
-            PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+            PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
         };
     }
 

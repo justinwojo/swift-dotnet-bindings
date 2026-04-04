@@ -159,7 +159,9 @@ internal static class SwiftObjectReflectionHelper
     /// </summary>
     [UnconditionalSuppressMessage("Trimming", "IL2070",
         Justification = "NewFromPayload is always present on ISwiftObject implementations; types preserved via TrimmerRoots.xml")]
-    internal static ISwiftObject InvokeNewFromPayload([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type type, IntPtr payload)
+    [UnconditionalSuppressMessage("Trimming", "IL2065",
+        Justification = "Constructor lookup is a NativeAOT fallback for explicit interface implementations not found via GetMethods")]
+    internal static ISwiftObject InvokeNewFromPayload([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods | DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] Type type, IntPtr payload)
     {
         foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
         {
@@ -171,6 +173,15 @@ internal static class SwiftObjectReflectionHelper
                 return (ISwiftObject)method.Invoke(null, new object[] { payload })!;
             }
         }
+
+        // Fallback: NativeAOT may not enumerate explicit interface implementations via GetMethods.
+        // All ISwiftObject types have a constructor(IntPtr) that NewFromPayload delegates to.
+        var ctor = type.GetConstructor(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, new[] { typeof(IntPtr) }, null);
+        if (ctor != null)
+            return (ISwiftObject)ctor.Invoke(new object[] { payload });
+
         throw new InvalidOperationException($"Failed to find NewFromPayload on {type}");
     }
 

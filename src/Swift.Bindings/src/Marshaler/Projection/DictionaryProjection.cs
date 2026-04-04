@@ -179,16 +179,16 @@ public class DictionaryProjection : ITypeProjection
         {
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftDictionary<{rawK}, {rawV}>>(new IntPtr(&{resultName})){asProjected}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftDictionary<{rawK}, {rawV}>>(new IntPtr(&{resultName})){asProjected}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftDictionary<{rawK}, {rawV}>>({resultName}){asProjected}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftDictionary<{rawK}, {rawV}>>({resultName}){asProjected}"
             },
             ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftDictionary<{rawK}, {rawV}>>({resultName}){asProjected}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftDictionary<{rawK}, {rawV}>>({resultName}){asProjected}"
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)

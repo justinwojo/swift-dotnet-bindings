@@ -175,16 +175,16 @@ public class ArrayProjection : ITypeProjection
         {
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftArray<{rawElem}>>(new IntPtr(&{resultName})){asProjected}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftArray<{rawElem}>>(new IntPtr(&{resultName})){asProjected}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftArray<{rawElem}>>({resultName}){asProjected}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftArray<{rawElem}>>({resultName}){asProjected}"
             },
             ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftArray<{rawElem}>>({resultName}){asProjected}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftArray<{rawElem}>>({resultName}){asProjected}"
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)

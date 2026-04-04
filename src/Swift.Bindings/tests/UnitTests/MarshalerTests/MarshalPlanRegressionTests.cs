@@ -102,7 +102,7 @@ public class MarshalPlanRegressionTests
         Assert.True(plan.RequiresUnsafe);
         Assert.Single(plan.SetupStatements);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result))", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&result))", setupLine.Code);
     }
 
     [Fact]
@@ -238,7 +238,7 @@ public class MarshalPlanRegressionTests
         var proj = new NonFrozenStructProjection("Pipeline");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<Pipeline>(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<Pipeline>(result)", plan.PInvokeExpression);
     }
 
     #endregion
@@ -265,7 +265,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -275,7 +275,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<ManagedFrozen>(result)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public class MarshalPlanRegressionTests
         var proj = new FrozenWithMemoryProjection("ManagedFrozen");
         var plan = proj.GetReturnPlan("_optRetPtr", ReturnStrategy.OutBuffer);
 
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
     }
 
     #endregion
@@ -308,7 +308,7 @@ public class MarshalPlanRegressionTests
 
         // ARC bridge: no buffer allocation, just MarshalFromSwift directly
         Assert.False(plan.RequiresUnsafe);
-        Assert.Equal("(ViewController)SwiftMarshal.MarshalFromSwift<ViewController>(result)", plan.PInvokeExpression);
+        Assert.Equal("(ViewController)SwiftMarshal.MarshalFromSwiftObject<ViewController>(result)", plan.PInvokeExpression);
         Assert.Empty(plan.SetupStatements);
     }
 
@@ -337,7 +337,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftArray<Int64>>(new IntPtr(&result))", plan.PInvokeExpression);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftArray<Int64>>(new IntPtr(&result))", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(e => e)", plan.PInvokeExpression);
     }
 
@@ -348,7 +348,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftArray<Int64>>(result)", plan.PInvokeExpression);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftArray<Int64>>(result)", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(e => e)", plan.PInvokeExpression);
     }
 
@@ -380,7 +380,7 @@ public class MarshalPlanRegressionTests
         var proj = new ArrayProjection(new StringProjection(), isParameter: false);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftArray<SwiftString>>(result)", plan.PInvokeExpression);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftArray<SwiftString>>(result)", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(e => e.ToString())", plan.PInvokeExpression);
     }
 
@@ -422,7 +422,7 @@ public class MarshalPlanRegressionTests
         var proj = new DictionaryProjection(new StringProjection(), new StringProjection(), isParameter: false);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftDictionary<SwiftString, SwiftString>>(result)", plan.PInvokeExpression);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftDictionary<SwiftString, SwiftString>>(result)", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(k => k.ToString(), k => new SwiftString(k), v => v.ToString())", plan.PInvokeExpression);
     }
 
@@ -454,7 +454,7 @@ public class MarshalPlanRegressionTests
         Assert.True(plan.RequiresUnsafe);
         // Should use HasValue/Some pattern instead of ToNullable() which is broken for value types
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<Int64>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.Contains("_swiftOpt.Some", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
@@ -469,7 +469,7 @@ public class MarshalPlanRegressionTests
         Assert.False(plan.RequiresUnsafe);
         // Should use HasValue/Some pattern instead of ToNullable()
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result)", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<Int64>>(result)", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
@@ -501,7 +501,7 @@ public class MarshalPlanRegressionTests
 
         Assert.True(plan.RequiresUnsafe);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<int>>", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<int>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
@@ -516,7 +516,7 @@ public class MarshalPlanRegressionTests
 
         Assert.False(plan.RequiresUnsafe);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<Int64>>(result)", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<Int64>>(result)", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
@@ -546,7 +546,7 @@ public class MarshalPlanRegressionTests
 
         Assert.True(plan.RequiresUnsafe);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftOptional<CGPoint>>", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<CGPoint>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
@@ -576,7 +576,7 @@ public class MarshalPlanRegressionTests
 
         // Should use HasValue/Some + conditional conversion
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("MarshalFromSwift<SwiftOptional<SwiftString>>", setupLine.Code);
+        Assert.Contains("MarshalFromSwiftObject<SwiftOptional<SwiftString>>", setupLine.Code);
         Assert.DoesNotContain("ToNullable", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.Contains(".Some.ToString()", plan.PInvokeExpression);
@@ -781,7 +781,7 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
         var output = Render(plan);
 
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&result))", output);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&result))", output);
         Assert.Contains("return swiftResult.ToString();", output);
     }
 
@@ -803,7 +803,7 @@ public class MarshalPlanRegressionTests
         var output = Render(plan);
 
         // ARC bridge: direct MarshalFromSwift, no buffer allocation
-        Assert.Contains("return (ViewController)SwiftMarshal.MarshalFromSwift<ViewController>(result);", output);
+        Assert.Contains("return (ViewController)SwiftMarshal.MarshalFromSwiftObject<ViewController>(result);", output);
         Assert.DoesNotContain("NativeMemory", output);
         Assert.DoesNotContain("try", output);
         Assert.DoesNotContain("catch", output);

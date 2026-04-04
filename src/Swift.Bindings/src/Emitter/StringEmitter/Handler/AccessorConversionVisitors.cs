@@ -166,7 +166,7 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     // Swift @_cdecl wrapper returns passRetained (+1). ClassProjection: SwiftClassHandle takes ownership.
     // ObjCRooted: ownsReference=true transfers +1 to wrapper without extra DangerousRetain.
     public (string?, bool) Visit(ClassProjection p) =>
-        ($"({_resultExpr} == IntPtr.Zero ? null : ({p.PublicType})SwiftMarshal.MarshalFromSwift<{p.MarshalFromSwiftType}>({_resultExpr}))", false);
+        ($"({_resultExpr} == IntPtr.Zero ? null : ({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.MarshalFromSwiftType}>({_resultExpr}))", false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
 

@@ -37,7 +37,7 @@ public class StringProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var swiftResult = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&{resultName}));")
+                        $"var swiftResult = SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&{resultName}));")
                 },
                 PInvokeExpression = "swiftResult.ToString()",
                 RequiresUnsafe = true

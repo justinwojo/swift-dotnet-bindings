@@ -481,7 +481,7 @@ public class TypeProjectionConsistencyTests
         Assert.False(plan.RequiresUnsafe);
 
         var rendered = RenderPlan(plan);
-        Assert.Contains("MarshalFromSwift<MyViewController>", rendered);
+        Assert.Contains("MarshalFromSwiftObject<MyViewController>", rendered);
         Assert.DoesNotContain("NativeMemory", rendered);
         Assert.DoesNotContain("try", rendered);
         Assert.DoesNotContain("catch", rendered);

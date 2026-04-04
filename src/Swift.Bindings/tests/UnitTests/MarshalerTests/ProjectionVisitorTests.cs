@@ -46,7 +46,7 @@ public class ProjectionVisitorTests
     {
         var proj = new ClassProjection("Loader");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Contains("MarshalFromSwift<Loader>", plan.PInvokeExpression);
+        Assert.Contains("MarshalFromSwiftObject<Loader>", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class ProjectionVisitorTests
     {
         var proj = new ClassProjection("Loader");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
-        Assert.Contains("MarshalFromSwift<Loader>", plan.PInvokeExpression);
+        Assert.Contains("MarshalFromSwiftObject<Loader>", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class ProjectionVisitorTests
     {
         var proj = new ObjCRootedClassProjection("UIViewController");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Contains("MarshalFromSwift", plan.PInvokeExpression);
+        Assert.Contains("MarshalFromSwiftObject", plan.PInvokeExpression);
     }
 
     [Fact]

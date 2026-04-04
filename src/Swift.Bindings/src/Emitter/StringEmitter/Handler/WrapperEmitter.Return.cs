@@ -1201,7 +1201,7 @@ namespace BindingsGeneration
             // Swift.String → string conversion (received as IntPtr to heap-allocated buffer)
             // Must check before generic IntPtr path since non-primitive structs all use IntPtr.
             if (MarshallingHelpers.IsSwiftString(element))
-                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<SwiftString>({itemName}).ToString();";
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwiftObject<SwiftString>({itemName}).ToString();";
 
             // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer)
             if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
@@ -1211,15 +1211,18 @@ namespace BindingsGeneration
             if (pinvokeType == "IntPtr")
             {
                 // IntPtr IS the pointer — pass directly (no address-of)
+                // Use unconstrained MarshalFromSwift<T> here because csharpType may be an ObjC enum
+                // (not ISwiftObject). The constrained path is used in projection-layer code where
+                // the type is statically known to implement ISwiftObject.
                 return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
             }
             else if (pinvokeType.EndsWith(".Buffer"))
             {
                 // SwiftString.Buffer → string (via MarshalFromSwift + ToString)
                 if (MarshallingHelpers.IsSwiftString(element))
-                    return $"var {resultName} = SwiftMarshal.MarshalFromSwift<SwiftString>(new IntPtr(&{itemName})).ToString();";
+                    return $"var {resultName} = SwiftMarshal.MarshalFromSwiftObject<SwiftString>(new IntPtr(&{itemName})).ToString();";
                 // Other .Buffer types (frozen structs with memory management)
-                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(&{itemName}));";
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwiftObject<{csharpType}>(new IntPtr(&{itemName}));";
             }
 
             // Simple enums: P/Invoke uses underlying type (int, long), need cast to C# enum

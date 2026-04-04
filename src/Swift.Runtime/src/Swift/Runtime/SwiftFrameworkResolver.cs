@@ -29,11 +29,23 @@ public static class SwiftFrameworkResolver
     {
         RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
-        // Pre-register NewFromPayload factories for Swift.Runtime types that can't have
-        // preserve="methods" in the ILLink descriptor (CallConvSwift P/Invoke members crash ILC).
-        // The static virtual dispatch here ensures ILC preserves the NewFromPayload method
-        // on these types without needing trimmer annotations.
+        // Pre-register NewFromPayload factories for all non-generic Swift.Runtime ISwiftObject types.
+        // On NativeAOT with NuGet packages (not project references), the trimmer may strip
+        // explicit interface implementations (ISwiftObject.NewFromPayload), causing
+        // MarshalFromSwift<T> reflection fallback to fail with "Failed to find NewFromPayload".
+        // Static virtual dispatch here ensures ILC preserves the method and populates the
+        // factory cache before any marshalling call.
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.SwiftString>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.Data>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URL>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URLRequest>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URLResponse>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.AnyHashable>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.AnyType>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.Hasher>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.DispatchQueue>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.OperationQueue>();
+        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.CIContext>();
     }
 
     /// <summary>

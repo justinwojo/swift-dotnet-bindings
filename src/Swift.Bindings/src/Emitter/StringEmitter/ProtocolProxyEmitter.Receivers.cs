@@ -147,7 +147,7 @@ public partial class ProtocolProxyEmitter
                 // String property: local MarshalFromSwift<SwiftString> uses Unsafe.Read which
                 // can't construct a managed SwiftString from raw Swift memory. Use runtime marshaller.
                 var marshalExpr = IsStringTypeSpec(property.SwiftTypeSpec)
-                    ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(valuePtr)"
+                    ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
                     : $"MarshalFromSwift<{abiTypeName}>(valuePtr)";
 
                 writer.WriteLines($$"""
@@ -195,7 +195,7 @@ public partial class ProtocolProxyEmitter
                     var param = subscript.IndexParameters[i];
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
-                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(arg{i}).ToString();");
+                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
                     else
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
@@ -238,7 +238,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"var proxy = SwiftObjectRegistry.GetProxyFromContainer<{proxyClassName}>(container);");
                 if (IsStringTypeSpec(subscript.ReturnTypeSpec))
                 {
-                    writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(valuePtr).ToString();");
+                    writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
                 }
                 else
                 {
@@ -260,7 +260,7 @@ public partial class ProtocolProxyEmitter
                     var param = subscript.IndexParameters[i];
                     var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, forAbiMarshalling: true);
                     if (IsStringTypeSpec(param.SwiftTypeSpec))
-                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(arg{i}).ToString();");
+                        writer.WriteLine($"var index{i} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(arg{i}).ToString();");
                     else
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
@@ -349,7 +349,7 @@ public partial class ProtocolProxyEmitter
             // Use the runtime's SwiftMarshal.MarshalFromSwift which calls NewFromPayload.
             if (IsStringTypeSpec(param.SwiftTypeSpec))
             {
-                writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>(rawArg{argIndex});");
+                writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(rawArg{argIndex});");
                 writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
             }
             // Dictionaries need special handling in receiver context: the interface declares

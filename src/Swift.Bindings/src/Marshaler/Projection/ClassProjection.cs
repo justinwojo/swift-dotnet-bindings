@@ -44,7 +44,7 @@ public class ClassProjection : ITypeProjection
         // NewFromPayload to create a SwiftClassHandle. No buffer allocation needed.
         return new MarshalPlan
         {
-            PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+            PInvokeExpression = $"({_typeName})SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
         };
     }
 

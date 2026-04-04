@@ -165,16 +165,16 @@ public class SetProjection : ITypeProjection
         {
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftSet<{rawElem}>>(new IntPtr(&{resultName})){conversion}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>(new IntPtr(&{resultName})){conversion}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftSet<{rawElem}>>({resultName}){conversion}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName}){conversion}"
             },
             ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<SwiftSet<{rawElem}>>({resultName}){conversion}"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>({resultName}){conversion}"
             },
             ReturnStrategy.AsyncCallback => MarshalPlan.PassThrough(resultName),
             _ => MarshalPlan.PassThrough(resultName)

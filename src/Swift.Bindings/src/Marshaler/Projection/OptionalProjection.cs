@@ -318,7 +318,7 @@ public class OptionalProjection : ITypeProjection
         // NOTE: .ToNullable() is broken for value types in unconstrained generic context
         // (T? is T in IL, not Nullable<T>, so default returns zero-value instead of null).
         // Use explicit HasValue/Some check in generated concrete code, where default(T?) IS null.
-        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{returnTypeParam}>>";
+        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
 
         if (innerRetConv != null)
@@ -447,7 +447,7 @@ public class OptionalProjection : ITypeProjection
     private static MarshalPlan BuildDiscriminantReturnPlan(
         string resultName, ReturnStrategy strategy, string optTypeParam, string convExpr)
     {
-        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwift<SwiftOptional<{optTypeParam}>>";
+        var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<{optTypeParam}>>";
         return strategy switch
         {
             ReturnStrategy.Direct => new MarshalPlan

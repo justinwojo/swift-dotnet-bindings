@@ -65,16 +65,16 @@ public class FrozenWithMemoryProjection : ITypeProjection
         {
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<{_typeName}>(new IntPtr(&{resultName}))",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<{_typeName}>(new IntPtr(&{resultName}))",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
             },
             ReturnStrategy.OutBuffer => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<{_typeName}>({resultName})"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<{_typeName}>({resultName})"
             },
             _ => MarshalPlan.PassThrough(resultName)
         };

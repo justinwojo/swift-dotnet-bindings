@@ -36,7 +36,7 @@ public class DataProjection : ITypeProjection
             },
             ReturnStrategy.IndirectResult => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwift<Swift.Data>({resultName}).ToByteArray()"
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<Swift.Data>({resultName}).ToByteArray()"
             },
             _ => MarshalPlan.PassThrough(resultName)
         };

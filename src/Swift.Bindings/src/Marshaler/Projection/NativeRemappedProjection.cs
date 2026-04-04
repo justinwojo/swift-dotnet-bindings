@@ -101,7 +101,7 @@ public class NativeRemappedProjection : ITypeProjection
             // Non-frozen (URL) via indirect result — marshal from pointer first
             return new MarshalPlan
             {
-                PInvokeExpression = $"(({_swiftWrapperType})SwiftMarshal.MarshalFromSwift<{_swiftWrapperType}>({resultName})).{_toConversionMethod}()"
+                PInvokeExpression = $"(({_swiftWrapperType})SwiftMarshal.MarshalFromSwiftObject<{_swiftWrapperType}>({resultName})).{_toConversionMethod}()"
             };
         }
 

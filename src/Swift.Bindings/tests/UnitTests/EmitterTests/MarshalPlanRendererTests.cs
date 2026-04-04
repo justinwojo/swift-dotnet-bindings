@@ -141,7 +141,7 @@ public class MarshalPlanRendererTests
         var output = Render(plan);
 
         // ARC bridge: direct MarshalFromSwift, no buffer allocation
-        Assert.Contains("MarshalFromSwift<MyApp.ViewController>", output);
+        Assert.Contains("MarshalFromSwiftObject<MyApp.ViewController>", output);
         Assert.DoesNotContain("NativeMemory", output);
         Assert.DoesNotContain("try", output);
         Assert.DoesNotContain("catch", output);

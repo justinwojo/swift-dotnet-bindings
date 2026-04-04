@@ -295,7 +295,7 @@ public class TypeProjectionFactoryTests
 
         // ARC bridge: no buffer allocation, direct MarshalFromSwift
         Assert.False(plan.RequiresUnsafe);
-        Assert.Equal("(TestModule.MyClass)SwiftMarshal.MarshalFromSwift<TestModule.MyClass>(result)", plan.PInvokeExpression);
+        Assert.Equal("(TestModule.MyClass)SwiftMarshal.MarshalFromSwiftObject<TestModule.MyClass>(result)", plan.PInvokeExpression);
         Assert.Empty(plan.SetupStatements);
     }
 
@@ -489,7 +489,7 @@ public class TypeProjectionFactoryTests
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -499,7 +499,7 @@ public class TypeProjectionFactoryTests
         var plan = projection.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
         Assert.False(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(result)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<TestModule.ManagedFrozen>(result)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -508,7 +508,7 @@ public class TypeProjectionFactoryTests
         var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetReturnPlan("_optRetPtr", ReturnStrategy.OutBuffer);
 
-        Assert.Equal("SwiftMarshal.MarshalFromSwift<TestModule.ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<TestModule.ManagedFrozen>(_optRetPtr)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -598,7 +598,7 @@ public class TypeProjectionFactoryTests
         var proj = new ResultProjection(success, failure);
 
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
-        Assert.Contains("MarshalFromSwift<SwiftResult<", plan.SetupStatements[0].ToString());
+        Assert.Contains("MarshalFromSwiftObject<SwiftResult<", plan.SetupStatements[0].ToString());
     }
 
     [Fact]

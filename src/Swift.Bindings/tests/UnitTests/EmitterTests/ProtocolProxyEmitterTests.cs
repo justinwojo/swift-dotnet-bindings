@@ -2328,7 +2328,7 @@ public class ProtocolProxyEmitterTests
 
         Assert.Contains("Receive_label_set", output);
         // Must use runtime SwiftMarshal for String (not local helper which uses Unsafe.Read)
-        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
@@ -2356,7 +2356,7 @@ public class ProtocolProxyEmitterTests
 
         Assert.Contains("Receive_greet_0", output);
         // Must use runtime SwiftMarshal for String (not local helper which uses Unsafe.Read)
-        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>", output);
         Assert.Contains(".ToString()", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
@@ -3213,7 +3213,7 @@ public class ProtocolProxyEmitterTests
         protocol.Methods.Add(method);
         var output = EmitProxyClass(protocol);
 
-        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<Swift.SwiftString>", output);
+        Assert.Contains("global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>", output);
         Assert.DoesNotContain("MarshalFromSwift<string>", output);
     }
 
