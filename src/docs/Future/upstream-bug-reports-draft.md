@@ -1,16 +1,17 @@
 # Upstream Issues for dotnet/runtime
 
-Prepared: February 2026
-Project: Swift/.NET interop binding generator
+Updated: April 2026
+Project: [swift-dotnet-bindings](https://github.com/justinwojo/swift-dotnet-bindings)
 Contact: Justin Wojciechowski
+Repro project: [swift-interop-repro](https://github.com/justinwojo/swift-interop-repro)
 
 Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
-> **Before filing:** These drafts are waiting on the swift-bindings repo going public so we can
-> link to concrete reproduction code and the binding generator as context. Before submitting,
-> have Claude re-review each draft against the current state of the repo — the bugs, workarounds,
-> and runtime landscape may have changed. Re-search dotnet/runtime issues at that time to
-> confirm nothing has been filed in the interim.
+> **Before filing:**
+> 1. Re-search dotnet/runtime issues to confirm nothing has been filed in the interim.
+> 2. Re-verify each repro against the current .NET SDK version.
+> 3. Update version numbers in each issue to match the SDK used for verification.
+> 4. Replace `justinwojo/swift-interop-repro` URLs with the actual published repo URL if different.
 
 **Filing strategy:**
 - **Issue 2** — File as a **feature request** (highest priority). Non-blittable `CallConvSwift` support. Includes source-level analysis of both Mono (`marshal.c:3729`) and CoreCLR (`SwiftPhysicalLowering.cs:215`) rejection points, architectural suggestion (run marshalling before blittable validation), and incremental approach (SafeHandle first, then String).
@@ -36,9 +37,9 @@ Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (no
 ### Description
 
 **Environment:**
-- .NET 10.0, Mono runtime (iOS / Mac Catalyst)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime (`libswiftCore.dylib`)
+- .NET 10.0 (10.0.103), Mono runtime (iOS / Mac Catalyst)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
@@ -146,9 +147,9 @@ The P/Invoke call to `swift_getExistentialTypeMetadata` with `CallConvSwift` sho
 ### Description
 
 **Environment:**
-- .NET 10.0, both Mono (iOS Simulator) and NativeAOT (iOS device)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime
+- .NET 10.0 (10.0.103), both Mono (iOS Simulator) and NativeAOT (iOS device)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
@@ -223,8 +224,8 @@ Non-blittable types in `CallConvSwift` P/Invoke signatures should be marshalled 
 
 ## Issue 3 (Tracking Issue Comment): SafeHandle/SwiftSelf lifetime across async P/Invoke with `CallConvSwift` (Mono-only)
 
-> **Mono-only issue.** NativeAOT investigation (March 2026) confirmed this does not reproduce on NativeAOT.
-> Do not file as a standalone issue. Post as a comment on the current Swift interop tracking issue (successor to [#108662](https://github.com/dotnet/runtime/issues/108662)) to ask about the supported pattern on Mono.
+> **Mono-only.** NativeAOT investigation (March 2026, .NET 10.0.103) confirmed this does not reproduce on NativeAOT.
+> File as a **comment on the Swift interop tracking issue** (successor to [#108662](https://github.com/dotnet/runtime/issues/108662)), not a standalone issue.
 
 ### Suggested comment
 
@@ -279,9 +280,9 @@ This affects every async Swift API we bind — libraries like StoreKit 2 and Nuk
 ### Description
 
 **Environment:**
-- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime
+- .NET 10.0 (10.0.103), NativeAOT (iOS device, `ios-arm64`)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
@@ -382,9 +383,9 @@ Affects any Swift API taking custom struct parameters with float/double fields o
 ### Description
 
 **Environment:**
-- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime
+- .NET 10.0 (10.0.103), NativeAOT (iOS device, `ios-arm64`)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
@@ -475,9 +476,9 @@ Or use `SwiftIndirectResult` to bypass register allocation entirely (struct retu
 ### Description
 
 **Environment:**
-- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime
+- .NET 10.0 (10.0.103), NativeAOT (iOS device, `ios-arm64`)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
@@ -530,7 +531,7 @@ public static class IntStructRepro
 
 The Swift calling convention on ARM64 decomposes structs into register-sized elements: integer fields occupy consecutive GPRs (x0–x7), up to 4 elements maximum. A 3-field integer struct should occupy x0, x1, x2. NativeAOT's `SwiftPhysicalLowering.cs` should produce 3 separate `CORINFO_TYPE_LONG` chunks for this struct.
 
-The investigation (NATIVEAOT-FINDINGS.md in `/Users/wojo/Dev/swift-interop-repro/`) concluded that NativeAOT falls back to AAPCS64 indirect passing (pointer in x0) for integer structs >16 bytes, while Swift still expects direct register passing up to the 4-register limit.
+Investigation concluded that NativeAOT falls back to AAPCS64 indirect passing (pointer in x0) for integer structs >16 bytes, while Swift still expects direct register passing up to the 4-register limit. See the [repro project](https://github.com/justinwojo/swift-interop-repro) `NativeAOT_A2_StructSizes` test class and `Struct3Ints`/`Struct4Ints` in `ReproLib.swift` for full test results.
 
 **Workaround in use:**
 
@@ -565,15 +566,15 @@ Affects any Swift API taking custom struct parameters with 3+ integer fields (�
 ### Description
 
 **Environment:**
-- .NET 10.0, NativeAOT (iOS device, `ios-arm64`)
-- macOS 15+ / iOS 18+, arm64
-- Swift 5.10+ runtime
+- .NET 10.0 (10.0.103), NativeAOT (iOS device, `ios-arm64`)
+- macOS 26+ / iOS 26+, arm64
+- Xcode 26.2 / Swift 6.2.3
 
 **Summary:**
 
 Calling a Swift generic function with **2 type parameters** (`pair<T, U>`) via `CallConvSwift` P/Invoke crashes with SIGSEGV on NativeAOT ARM64. The same pattern with **1 type parameter** (`genericIdentity<T>`) works correctly. The only difference is the addition of a second `TypeMetadata` argument.
 
-**Reproduction evidence from repro project** (`/Users/wojo/Dev/swift-interop-repro/`):
+**Reproduction evidence from [repro project](https://github.com/justinwojo/swift-interop-repro):**
 
 ```
 7a. @_cdecl pairIntInt(10, 20) = (10, 20) — PASS       ← concrete control
@@ -660,13 +661,17 @@ Blocks direct CallConvSwift dispatch for any generic Swift function with 2+ type
 
 **Context:**
 
-These issues were discovered while building a Swift/.NET binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. The generator has been validated against 51 third-party Swift libraries (16,451 P/Invokes total).
+These issues were discovered while building [swift-dotnet-bindings](https://github.com/justinwojo/swift-dotnet-bindings), a binding generator that produces C# bindings from compiled Swift frameworks. The project targets .NET 10 on iOS/macOS, generating P/Invoke declarations with `CallConvSwift` for direct Swift function calls. The generator has been validated against 51 third-party Swift libraries (16,451 P/Invokes total).
 
-- **Issue 1** — Mono-specific (iOS Simulator)
-- **Issue 2** — Both runtimes. Highest impact: non-blittable types are the primary driver of ~67% of P/Invokes needing `@_cdecl` wrappers across real-world libraries
-- **Issue 3** — Mono-specific (iOS Simulator)
-- **Issues 5-6** — NativeAOT on physical devices. Source-level analysis shows the struct lowering (`SwiftPhysicalLowering.cs`) correctly classifies float/double fields — the bug is downstream in JIT register assignment
-- **Issue 7** — NativeAOT (and Mono at higher thresholds). Custom integer structs >16 bytes passed by pointer instead of in registers. Reproduced in `/Users/wojo/Dev/swift-interop-repro/` (Struct3Ints, Struct4Ints)
-- **Issue 8** — NativeAOT. Multi-type-parameter generic functions crash. Reproduced in repro project (genericPair<T,U> vs working genericIdentity<T>). Clean minimal repro with PASS/SIGSEGV delta
+All issues are reproducible via the standalone [repro project](https://github.com/justinwojo/swift-interop-repro) — see its README for build/run instructions.
+
+| Issue | Runtime | Summary |
+|-------|---------|---------|
+| 1 | Mono | JIT assertion `!ji->async` on synchronous CallConvSwift P/Invoke |
+| 2 | Both | Non-blittable types rejected — primary driver of ~67% wrapper rate |
+| 3 | Mono | SafeHandle/SwiftSelf lifetime across async P/Invoke |
+| 5-6 | NativeAOT | Custom struct float/double fields in GPR instead of FPR |
+| 7 | Both (different thresholds) | Custom integer struct >16B passed by pointer instead of in registers |
+| 8 | NativeAOT | Multi-type-parameter generic function SIGSEGV |
 
 All active issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling). Issue 2 (non-blittable support) would have the largest impact — reducing the wrapper rate from ~67% to ~20%.
