@@ -1649,7 +1649,7 @@ namespace BindingsGeneration
                     0 => LogLevel.None,  // No logging
                     1 => LogLevel.Information, // Info and above
                     2 => LogLevel.Debug,    // Debug and above
-                    _ => throw new ArgumentOutOfRangeException(nameof(verbosity), "Invalid verbosity level.")
+                    _ => throw new ArgumentOutOfRangeException(nameof(verbosity), $"Invalid verbosity level '{verbosity}'. Valid values: 0 (silent), 1 (info), 2 (debug).")
                 });
             });
         }

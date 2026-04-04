@@ -25,7 +25,7 @@ namespace BindingsGeneration
         /// </summary>
         public string? XcframeworkPath { get; init; }
         /// <summary>
-        /// Platform info for multi-platform support. Defaults to iOS if not specified.
+        /// Platform info for multi-platform support. Falls back to iOS if not specified (CLI default).
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
         /// <summary>
@@ -43,7 +43,7 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// Emits a {PackageId}.targets file into the output directory.
-        /// This file is packaged into buildTransitive/net10.0-ios/ in the NuGet.
+        /// This file is packaged into buildTransitive/{tfm}/ in the NuGet (e.g. net10.0-ios, net10.0-macos).
         /// Also emits a {PackageId}.ProjectReference.targets file for local ProjectReference
         /// consumers, which uses paths relative to the intermediate output directory.
         /// </summary>
@@ -162,7 +162,7 @@ namespace BindingsGeneration
         /// Emits a {PackageId}.ProjectReference.targets file for local ProjectReference consumers.
         /// Uses paths relative to the intermediate output directory (where this file lives).
         /// Consuming projects import this via:
-        ///   &lt;Import Project="path/to/obj/Debug/net10.0-ios/swift-binding/{PackageId}.ProjectReference.targets"
+        ///   &lt;Import Project="path/to/obj/Debug/{tfm}/swift-binding/{PackageId}.ProjectReference.targets"
         ///           Condition="Exists('...')" /&gt;
         /// </summary>
         private static void EmitProjectReferenceTargets(
@@ -225,7 +225,7 @@ namespace BindingsGeneration
                   <!-- ProjectReference consumer targets for {options.PackageId}.
                        Import this file in projects that reference this library via ProjectReference
                        (local development). NativeReference items don't propagate through ProjectReference
-                       in .NET iOS, so this file injects them at build time.
+                       in .NET Apple platforms, so this file injects them at build time.
 
                        The NativeReference items are inside a Target (not a static ItemGroup) to ensure
                        the Exists() conditions evaluate AFTER the library project builds — on a clean build,

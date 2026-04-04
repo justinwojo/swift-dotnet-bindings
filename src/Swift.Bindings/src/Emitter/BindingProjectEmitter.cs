@@ -39,7 +39,7 @@ namespace BindingsGeneration
         /// </summary>
         public string? ObjCProjectFileName { get; init; }
         /// <summary>
-        /// Platform info for multi-platform support. Defaults to iOS if not specified.
+        /// Platform info for multi-platform support. Falls back to iOS if not specified (CLI default).
         /// </summary>
         public PlatformInfo? PlatformInfo { get; init; }
         /// <summary>

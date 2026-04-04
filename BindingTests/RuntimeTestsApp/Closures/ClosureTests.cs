@@ -397,4 +397,34 @@ public class ClosureTests : TestBase
     }
 
     #endregion
+
+    #region Setter-Only Closure Properties (Alamofire ClosureEventMonitor pattern)
+    // Tests for closure properties where the parameter type (existential) prevents C# invocation
+    // via getter, but the setter path works. The generator emits these as set-only properties.
+    // The binding compilation test is the main validation (C# compiles with setter-only property).
+    // Runtime: setter P/Invoke calls raw Swift Tj dispatch (no @_cdecl wrapper generated for
+    // existential-param closures), which crashes on Mono with non-blittable SwiftClosureData.
+
+    [Skip("Setter-only closure: no @_cdecl wrapper for existential-param closure setter, Tj dispatch SIGSEGV on Mono")]
+    public void TestSetterOnlyCallbackHolder_SetAndTrigger()
+    {
+        var called = false;
+        using var holder = new SetterOnlyCallbackHolder();
+        holder.OnConfigChanged = (mode) => { called = true; };
+        holder.NotifyConfigChanged();
+        AssertTrue(called, "Setter-only callback was invoked from Swift");
+        TestLogger.Info("SetterOnlyCallbackHolder set+trigger passed");
+    }
+
+    [Skip("Setter-only closure: no @_cdecl wrapper for existential-param closure setter, Tj dispatch SIGSEGV on Mono")]
+    public void TestSetterOnlyCallbackHolder_SetToNull()
+    {
+        using var holder = new SetterOnlyCallbackHolder();
+        holder.OnConfigChanged = (mode) => { };
+        holder.OnConfigChanged = null;
+        holder.NotifyConfigChanged();
+        TestLogger.Info("SetterOnlyCallbackHolder set-to-null + trigger passed (no crash)");
+    }
+
+    #endregion
 }

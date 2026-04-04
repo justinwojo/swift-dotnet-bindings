@@ -150,6 +150,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         // Handle closure properties (property type is a closure/function type)
         bool isClosure = propertyEnv.ClosureHandler.IsClosure(propertyDecl);
+        bool isSetterOnlyClosure = false;
         if (isClosure)
         {
             var closureTypeSpec = propertyEnv.ClosureHandler.GetClosureTypeSpec(propertyDecl);
@@ -159,11 +160,28 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 SkipProperty(SkipReason.UnsupportedClosure, "Closure type is not supported.");
                 return;
             }
-            // Check if we can invoke this closure from C# (requires primitive parameters)
+            // When the closure's parameters can't be marshalled for invocation from C#,
+            // or the return type requires unsupported marshalling, emit as setter-only.
+            // The setter (callback) marshalling is supported; runtime success depends on
+            // whether a @_cdecl wrapper is generated for the setter accessor.
             if (!propertyEnv.ClosureHandler.CanInvokeFromCSharp(closureTypeSpec))
             {
-                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} - closure has non-primitive parameters that cannot be marshalled.");
-                SkipProperty(SkipReason.UnsupportedClosure, "Closure parameters are not invokable from C#.");
+                isSetterOnlyClosure = true;
+            }
+            if (!isSetterOnlyClosure && !closureTypeSpec.ReturnType.IsEmptyTuple)
+            {
+                var returnPInvokeType = propertyEnv.ClosureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
+                if (returnPInvokeType == "void*" &&
+                    !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, propertyEnv.ClosureHandler))
+                {
+                    isSetterOnlyClosure = true;
+                }
+            }
+            // Setter-only closures require a setter accessor — skip if none available.
+            if (isSetterOnlyClosure && !propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} — getter-only closure with non-invocable parameters or unsupported return marshalling.");
+                SkipProperty(SkipReason.UnsupportedClosure, "Getter-only closure with parameters not invocable from C# or unsupported return type.");
                 return;
             }
         }
@@ -344,10 +362,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
         var propertyName = NameProvider.GetFinalMemberName(baseName, context.PropertyRenames);
 
+        // For setter-only closures, filter out getter accessors — the callback (setter) path works
+        // but the getter (invocation) path can't marshal the closure's non-primitive parameters.
+        var accessorsToEmit = isSetterOnlyClosure
+            ? propertyDecl.Accessors.Where(a => a is SetAccessorDecl).ToList()
+            : propertyDecl.Accessors.ToList();
+
         // Check if all accessor methods can be emitted before actually emitting them.
         // If any accessor would be skipped (due to unsupported types like AnyType),
         // skip the entire property to avoid generating a property that references non-existent methods.
-        foreach (var accessor in propertyDecl.Accessors)
+        foreach (var accessor in accessorsToEmit)
         {
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
@@ -422,7 +446,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var accessorThunkFlags = new Dictionary<AccessorDecl, bool>();
         var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>();
         bool needsObjCOverrideWrapper = false;
-        foreach (var accessor in propertyDecl.Accessors)
+        foreach (var accessor in accessorsToEmit)
         {
             bool thunkEligible = false;
             bool cdeclEligible = false;
@@ -447,7 +471,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Track property wrapper strategy and skip reasons for emission report (per accessor).
         if (WrapperValidation.IsXCFrameworkMode(propertyEnv.TypeDatabase))
         {
-            foreach (var acc in propertyDecl.Accessors)
+            foreach (var acc in accessorsToEmit)
             {
                 if (accessorThunkFlags.TryGetValue(acc, out var thunk) && thunk)
                 {
@@ -478,7 +502,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // tracking it, causing incorrect coverage data.
 
         // Now emit the accessor methods using MethodHandler
-        foreach (var accessor in propertyDecl.Accessors)
+        foreach (var accessor in accessorsToEmit)
         {
             if (conductor.TryGetMethodHandler(accessor.Method, out var methodHandler))
             {
@@ -696,7 +720,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+        var getter = accessorsToEmit.OfType<GetAccessorDecl>().FirstOrDefault();
         if (getter != null)
         {
             var helperPrefix = context.PInvokeHelperContext != null ? $"{context.PInvokeHelperContext.HelperClassName}." : "";
@@ -704,7 +728,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 isNarrowedNint, csTypeName, helperPrefix);
         }
 
-        var setter = propertyDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
+        var setter = accessorsToEmit.OfType<SetAccessorDecl>().FirstOrDefault();
         if (setter != null)
         {
             EmitSetter(csWriter, setter, propertyEnv, propertyDecl, isExistential, isOptionalExistential, propertyGenericContext,

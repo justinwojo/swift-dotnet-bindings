@@ -187,6 +187,26 @@ public class ClosureWithExistentialArray {
     public func getTransformResult() -> Int32 { transformResult }
 }
 
+// MARK: - Setter-Only Closure Properties
+
+/// Class with closure properties whose parameter types can't be marshalled for C# invocation.
+/// The generator emits these as setter-only: C# can set callback handlers but can't get/invoke.
+/// Mirrors Alamofire.ClosureEventMonitor pattern (closures with ObjC-bridgeable/complex params).
+public class SetterOnlyCallbackHolder {
+    /// Closure with a protocol existential parameter (non-invocable from C#).
+    /// The generator emits this as set-only because CanInvokeFromCSharp rejects existential params
+    /// (they aren't NamedTypeSpec, so they fall through all IsInvocableParameter checks).
+    public var onConfigChanged: ((any ProcessingMode) -> Void)?
+
+    /// Verification: trigger the callback from Swift side.
+    public func notifyConfigChanged() {
+        let mode = SimpleMode()
+        onConfigChanged?(mode)
+    }
+
+    public init() {}
+}
+
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.

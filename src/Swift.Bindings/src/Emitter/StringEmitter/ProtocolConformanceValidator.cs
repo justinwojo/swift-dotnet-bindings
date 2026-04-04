@@ -195,6 +195,10 @@ public class ProtocolConformanceValidator
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
                 return false;  // CS0535: missing accessor
+            // Setter-only closure: PropertyHandler strips getter from closure properties where
+            // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
+            if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
+                return false;  // CS0535: getter stripped by setter-only closure logic
 
             // Validate CONCRETE property can be emitted
             var skipReason = MemberEmissionValidator.CanEmitProperty(
@@ -245,6 +249,10 @@ public class ProtocolConformanceValidator
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
                 return false;  // CS0535: missing accessor
+            // Setter-only closure: PropertyHandler strips getter from closure properties where
+            // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
+            if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
+                return false;  // CS0535: getter stripped by setter-only closure logic
 
             // Validate CONCRETE property can be emitted
             var skipReason = MemberEmissionValidator.CanEmitProperty(

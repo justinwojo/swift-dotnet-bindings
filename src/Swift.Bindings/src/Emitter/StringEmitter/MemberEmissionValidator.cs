@@ -150,24 +150,9 @@ public static class MemberEmissionValidator
                 skipDetails = "Closure type is not supported.";
                 return SkipReason.UnsupportedClosure;
             }
-            if (!closureHandler.CanInvokeFromCSharp(closureTypeSpec))
-            {
-                skipDetails = "Closure parameters are not invokable from C#.";
-                return SkipReason.UnsupportedClosure;
-            }
-            // C12: Closure return types that map to void* in function pointers can't be marshalled
-            // back to managed types by the invoker unless an invoke thunk can handle the conversion.
-            // Class/ObjC returns pass through the invoke thunk as retained pointers.
-            if (!closureTypeSpec.ReturnType.IsEmptyTuple)
-            {
-                var returnPInvokeType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
-                if (returnPInvokeType == "void*" &&
-                    !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
-                {
-                    skipDetails = "Closure return type requires marshalling not supported by the closure invoker.";
-                    return SkipReason.UnsupportedClosure;
-                }
-            }
+            // CanInvokeFromCSharp and C12 return-marshalling checks moved to PropertyHandler.
+            // When these fail, PropertyHandler emits setter-only properties instead of skipping.
+            // This allows the callback (setter) path to work even when getter invocation is blocked.
             bool isOptionalClosure = closureHandler.IsOptionalClosure(property.SwiftTypeSpec);
             projectedTypeName = isOptionalClosure
                 ? closureHandler.GetCSharpOptionalDelegateType(property.SwiftTypeSpec)
@@ -393,6 +378,32 @@ public static class MemberEmissionValidator
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns true if a closure property would be emitted as setter-only by PropertyHandler.
+    /// This happens when CanInvokeFromCSharp fails or C12 return-marshalling is unsupported —
+    /// the getter is stripped but the setter (callback path) still works.
+    /// Used by ProtocolConformanceValidator to detect accessor contract mismatches.
+    /// </summary>
+    public static bool IsSetterOnlyClosureProperty(PropertyDecl property, ITypeDatabase typeDatabase)
+    {
+        var closureHandler = new ClosureHandler(typeDatabase);
+        if (!closureHandler.IsClosure(property))
+            return false;
+        var closureTypeSpec = closureHandler.GetClosureTypeSpec(property);
+        if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec))
+            return false; // Would be skipped entirely, not setter-only
+        if (!closureHandler.CanInvokeFromCSharp(closureTypeSpec))
+            return true;
+        if (!closureTypeSpec.ReturnType.IsEmptyTuple)
+        {
+            var returnPInvokeType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
+            if (returnPInvokeType == "void*" &&
+                !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

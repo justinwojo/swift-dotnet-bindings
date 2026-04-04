@@ -1,11 +1,11 @@
 {
-  "git_sha": "d792f6b6",
+  "git_sha": "0174597d",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48225,
+        "lines": 48854,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57185,
+        "lines": 57246,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11664,
+        "lines": 11761,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31901,
+        "lines": 32001,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -656,23 +656,23 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 30532,
+        "lines": 30599,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10745,
-    "total_skipped_members": 1973,
-    "skip_rate_pct": 15.5,
+    "total_emitted_members": 10762,
+    "total_skipped_members": 1956,
+    "skip_rate_pct": 15.4,
     "skip_reasons": {
       "ModuleInternal": 722,
-      "UnsupportedSignature": 346,
+      "UnsupportedSignature": 351,
       "AnyTypeFallback": 307,
       "SynthesizedCodable": 178,
-      "UnsupportedClosure": 153,
       "EveryProtocolConformanceSkipped": 138,
+      "UnsupportedClosure": 131,
       "UnsatisfiedGenericConstraint": 92,
       "UnsupportedType": 68,
       "GenericProtocolConstraint": 67,

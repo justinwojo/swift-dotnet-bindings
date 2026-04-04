@@ -315,11 +315,11 @@
 
     <Warning Condition="'$(_SwiftBindingSkippedTypes)' != '0'"
              Code="SWIFTBIND060"
-             Text="$(_SwiftBindingSkippedTypes) of $(_SwiftBindingTotalTypes) Swift types were skipped during binding generation. See binding-report.json for details and workaround suggestions." />
+             Text="$(_SwiftBindingSkippedTypes) of $(_SwiftBindingTotalTypes) Swift types were skipped during binding generation. See $([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)binding-report.json', '$(MSBuildProjectDirectory)')) for details and workaround suggestions." />
 
     <Warning Condition="'$(_SwiftBindingSkippedMembers)' != '0'"
              Code="SWIFTBIND061"
-             Text="$(_SwiftBindingSkippedMembers) of $(_SwiftBindingTotalMembers) Swift members were skipped during binding generation. See binding-report.json for per-item skip reasons." />
+             Text="$(_SwiftBindingSkippedMembers) of $(_SwiftBindingTotalMembers) Swift members were skipped during binding generation. See $([System.IO.Path]::GetFullPath('$(_SwiftBindingIntermediateDir)binding-report.json', '$(MSBuildProjectDirectory)')) for per-item skip reasons." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

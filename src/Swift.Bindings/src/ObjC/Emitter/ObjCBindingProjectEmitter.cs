@@ -12,7 +12,7 @@ public sealed record ObjCBindingProjectOptions
     public required string SourceXCFrameworkPath { get; init; }
     public string? PackageId { get; init; }
     /// <summary>
-    /// Platform info for multi-platform support. Defaults to iOS if not specified.
+    /// Platform info for multi-platform support. Falls back to iOS if not specified (CLI default).
     /// </summary>
     public PlatformInfo? PlatformInfo { get; init; }
 }
