@@ -1,5 +1,5 @@
 {
-  "git_sha": "0174597d",
+  "git_sha": "fed912c1",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -428,6 +428,13 @@
         "lines": 1061,
         "dep_compile": "none",
         "swift_compile": "ok"
+      },
+      "MBProgressHUD": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 48,
+        "dep_compile": "none",
+        "swift_compile": "no_wrapper"
       },
       "FirebaseABTesting": {
         "compile": "ok",

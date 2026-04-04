@@ -3,8 +3,8 @@
 **Updated**: April 4, 2026
 
 **Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
-**Skip metrics**: 10,757 emitted members, 1,971 skipped (15.5% skip rate) across 95 validation targets.
-**Runtime tests**: 1,292 passed, 20 skipped on iOS Device (NativeAOT). 1,668 passed, 2 skipped across 8 real-world library test suites (swift-dotnet-packages).
+**Skip metrics**: 10,762 emitted members, 1,956 skipped (15.4% skip rate) across 95 validation targets.
+**Runtime tests**: 1,301 passed, 17 skipped on iOS Device (NativeAOT). 1,668 passed, 2 skipped across 8 real-world library test suites (swift-dotnet-packages).
 **Downstream validation**: 2,107/2,107 sim tests passing across 23 libraries (swift-dotnet-packages + sim-validation). Zero regressions on 0.6.0 packages.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
@@ -19,19 +19,17 @@
 
 ## Theme A: Skip Reduction *(low priority)*
 
-Skip rate is 15.5%. The remaining ~1,971 skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
+Skip rate is 15.4%. The remaining ~1,956 skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
 
 | Item | Remaining skips | Effort | Why low priority |
 |------|----------------:|--------|-----------------|
-| **Unsupported signatures** (associated types, bare generics) | ~346 | Very high | Swift patterns with no C# equivalent |
+| **Unsupported signatures** (associated types, bare generics) | ~351 | Very high | Swift patterns with no C# equivalent |
 | **AnyTypeFallback** (cross-library types) | ~307 | Very high | Needs full dependency graph resolution — different product scope |
-| **UnsupportedClosure** (multi-blocker methods) | ~153 | High | Each has 2-3 overlapping blockers |
+| **UnsupportedClosure** (multi-blocker methods) | ~131 | High | Reduced from 153 via setter-only closure properties. Remaining are generic params, async closures, nested closures. |
 | **UnsatisfiedGenericConstraint** (remaining) | ~92 | High | Fundamental type system constraints, not relaxable gates |
 | **Result<T,E> parameter direction** | blocked | Medium | Needs native payload synthesis for C#-created instances |
 | **Multi-protocol generic compositions** | blocked | High | Needs full existential composition in @_cdecl wrapper |
 | **Value-type generic conformers** | blocked | High | Requires non-AnyObject transport through @_cdecl boundary |
-| **NativeAOT MCB callback SIGSEGV** | 3 tests | Low | Only runtime skips that might be our bugs. Resolve or classify before 1.0 |
-| ~~NativeAOT ResultReturnTests crash~~ | ~~6 tests~~ | ~~Medium~~ | **FIXED**: Missing Error witness table + `[UnmanagedCallConv(CallConvSwift)]` on `$ss6ResultOMa` P/Invoke. All 6 tests now pass on device. |
 
 ---
 
@@ -53,41 +51,35 @@ These complement Nuke (image processing) and Lottie (animation) to give coverage
 
 ---
 
-## Theme C: Developer Experience Hardening
+## Theme C: Developer Experience Hardening *(mostly complete)*
 
-**1-2 sessions.** Significant investment already made. Focus on validation and rough edges, not new features.
+Significant investment already made. First hardening pass completed: template post-creation instructions, actionable binding report paths, CLI help completeness, verbosity error messages, multi-platform comment accuracy. Golden path validated end-to-end.
 
-Planning doc: `dx-hardening-sessions.md` (not yet written)
-
-Areas to cover:
-- End-to-end golden path validation (clean machine perspective)
-- Error messages and diagnostics review (consumer-facing, not internal)
-- Template and SDK polish
+Remaining:
 - Documentation gaps in wiki
 
 ---
 
-## Theme D: Upstream Bug Reports + Repro Repo
+## Theme D: Upstream Bug Reports + Repro Repo *(ready to file)*
 
-**1 session.** Clean up the repro repo at `/Users/wojo/Dev/swift-interop-repro/`, get it on GitHub, file the 7 draft bug reports with reproduction steps.
+Repro repo cleaned up with README, .gitignore, clean git history. All 7 draft bug reports polished with correct versions, GitHub URLs, specific repro class references, and filing checklist. Ready for publication and filing.
 
-Planning doc: `upstream-bug-reports-session.md` (not yet written)
+Remaining steps:
+1. Re-verify all repros on current .NET SDK
+2. Publish repro repo to GitHub (`justinwojo/swift-interop-repro`)
+3. File the 7 issues on dotnet/runtime
 
 Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-draft.md)
 
 ---
 
-## Theme E: Multi-Platform Hardening
+## Theme E: Multi-Platform Hardening *(audit complete, runtime testing remaining)*
 
-**1-2 sessions.** We claim support for macOS, Mac Catalyst, and tvOS but have done very little testing beyond iOS. Need to validate before 1.0.
+macOS validation audit completed. Generator, SDK, runtime, and build infrastructure all properly support iOS, macOS, Mac Catalyst, and tvOS — architecture is solid. Verified end-to-end by running the generator against Nuke.xcframework with `--platform macos`. Fixed iOS-specific help text and comments.
 
-Planning doc: `multi-platform-hardening-sessions.md` (not yet written)
-
-Areas to cover:
-- Validate xcframework slicing and platform detection for macOS / Mac Catalyst / tvOS
+Remaining:
 - Runtime tests on non-iOS platforms (at minimum macOS — most accessible)
-- SDK/NuGet packaging: verify platform-specific TFMs and runtime identifiers resolve correctly
-- Identify and fix any iOS-only assumptions in the generator or runtime
+- Validate SDK/NuGet packaging for macOS / Mac Catalyst / tvOS TFMs with real consumers
 
 ---
 
@@ -120,7 +112,6 @@ These are the **only** confirmed upstream issues. There are exactly 5 (reproduce
 | Other | Status |
 |-------|--------|
 | **Non-Int32 enum raw values** | Blocked on Swift compiler: `.swiftinterface` strips integer raw values. No workaround. 1 skipped test. |
-| **Upstream bug reports** (7 drafts) | Blocked on repro repo cleanup. See Theme D. |
 
 ---
 
@@ -146,3 +137,4 @@ These are the **only** confirmed upstream issues. There are exactly 5 (reproduce
 | `@dynamicMemberLookup` / KeyPath projection | Affects <5 types across 53 validation libraries |
 | Composing SwiftUI view trees from C# | Result builders are a compiler feature |
 | Structs projected as C# value types | Only safe for frozen+blittable subset; marginal benefit |
+
