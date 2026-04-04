@@ -154,10 +154,32 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     static TypeMetadata ISwiftObject.GetTypeMetadata()
     {
         return TypeMetadata.Cache.GetOrAdd(typeof(SwiftResult<TSuccess, TFailure>), _ =>
-                PInvokesForSwiftResult._MetadataAccessor(
-                    TypeMetadataRequest.Complete,
-                    TypeMetadata.GetTypeMetadataOrThrow<TSuccess>(),
-                    TypeMetadata.GetTypeMetadataOrThrow<TFailure>()));
+        {
+            var successMetadata = TypeMetadata.GetTypeMetadataOrThrow<TSuccess>();
+
+            TypeMetadata failureMetadata;
+            if (typeof(TFailure) == typeof(ExistentialContainer1))
+            {
+                // TFailure is ExistentialContainer1, the raw 1-protocol existential container
+                // used for 'any Error'. The generic existential metadata from SwiftBindingsRuntime
+                // uses marker protocols that lack Error conformance, so swift_conformsToProtocol
+                // returns null. Construct 'any Error' metadata directly.
+                // Note: only ExistentialContainer1 is handled here — AnyError has its own metadata
+                // registration via its static constructor, and wider existentials (ExistentialContainer2+)
+                // would be a type mismatch (Result<S, F: Error> only accepts single-protocol 'any Error').
+                failureMetadata = PInvokesForSwiftResult.GetAnyErrorExistentialMetadata();
+            }
+            else
+            {
+                failureMetadata = TypeMetadata.GetTypeMetadataOrThrow<TFailure>();
+            }
+
+            // Result<Success, Failure: Error> metadata accessor requires the Error witness table
+            // for the Failure type parameter, just like Dictionary requires Hashable for Key.
+            var errorWitnessTable = PInvokesForSwiftResult.GetErrorWitnessTable(failureMetadata);
+            return PInvokesForSwiftResult._MetadataAccessor(
+                TypeMetadataRequest.Complete, successMetadata, failureMetadata, errorWitnessTable);
+        });
     }
 
     /// <summary>
@@ -496,8 +518,61 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     }
 }
 
-internal static class PInvokesForSwiftResult
+internal static partial class PInvokesForSwiftResult
 {
+    private static readonly Lazy<ProtocolDescriptor> _errorProtocol = new(() =>
+        ProtocolDescriptor.LoadFromSymbol(KnownLibraries.SwiftCore, "$ss5ErrorMp"));
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, ProtocolWitnessTable>
+        _errorWitnessTableCache = new();
+
+    /// <summary>
+    /// Gets the Error protocol witness table for a Swift type using swift_conformsToProtocol.
+    /// Required by $ss6ResultOMa which expects the Error witness table for the Failure type.
+    /// Cached per failure type metadata to avoid repeated swift_conformsToProtocol calls.
+    /// </summary>
+    internal static ProtocolWitnessTable GetErrorWitnessTable(TypeMetadata failureMetadata)
+    {
+        return _errorWitnessTableCache.GetOrAdd(failureMetadata.Handle, _ =>
+        {
+            if (!SwiftConformance.TryGetWitnessTable(failureMetadata, _errorProtocol.Value, out var witnessTable))
+                throw new SwiftRuntimeException(
+                    $"Failed to get Error witness table for failure type (metadata: 0x{failureMetadata.Handle:X}). " +
+                    "The Failure type parameter of SwiftResult must conform to Swift.Error.");
+            return witnessTable!.Value;
+        });
+    }
+
+    /// <summary>
+    /// Constructs the 'any Error' existential type metadata by calling
+    /// swift_getExistentialTypeMetadata with the real Error protocol descriptor.
+    /// This avoids depending on SwiftBindingsRuntime (whose marker-protocol existentials
+    /// lack Error conformance) and works on both Mono and NativeAOT.
+    /// </summary>
+    internal static unsafe TypeMetadata GetAnyErrorExistentialMetadata()
+    {
+        // ProtocolDescriptor is a single-IntPtr wrapper; reinterpret to get the raw pointer.
+        // Layout assumption: ProtocolDescriptor contains only _handle (IntPtr).
+        var errorProto = _errorProtocol.Value;
+        IntPtr errorDesc = Unsafe.As<ProtocolDescriptor, IntPtr>(ref errorProto);
+        // swift_getExistentialTypeMetadata consumes the protocols array synchronously.
+        var handle = _getExistentialTypeMetadata(0, IntPtr.Zero, 1, (IntPtr)(&errorDesc));
+        if (handle == IntPtr.Zero)
+            throw new SwiftRuntimeException(
+                "Failed to get 'any Error' existential metadata via swift_getExistentialTypeMetadata.");
+        return TypeMetadata.FromHandle(handle);
+    }
+
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
+    [DllImport(KnownLibraries.SwiftCore, EntryPoint = "swift_getExistentialTypeMetadata")]
+    private static extern IntPtr _getExistentialTypeMetadata(
+        nint request, IntPtr superclass, nint numProtocols, IntPtr protocols);
+
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$ss6ResultOMa")]
-    public static extern TypeMetadata _MetadataAccessor(TypeMetadataRequest request, TypeMetadata successMetadata, TypeMetadata failureMetadata);
+    public static extern TypeMetadata _MetadataAccessor(
+        TypeMetadataRequest request,
+        TypeMetadata successMetadata,
+        TypeMetadata failureMetadata,
+        ProtocolWitnessTable errorWitnessTable);
 }

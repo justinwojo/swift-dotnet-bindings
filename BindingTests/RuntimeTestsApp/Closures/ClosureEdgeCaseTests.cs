@@ -245,7 +245,6 @@ public class ClosureEdgeCaseTests : TestBase
     #endregion
 
     #region MCB Function Name Dedup
-    [SkipOnDevice("NativeAOT SIGSEGV: Result<Class, Enum> MCB callback — crash in Swift cdecl dispatch, heap alloc doesn't help")]
     public void TestMCBOverload_DataProcessorProcess()
     {
         // DataProcessor.process(completion:) and ImageProcessor.process(completion:) share
@@ -262,7 +261,6 @@ public class ClosureEdgeCaseTests : TestBase
         AssertEqual("processed-by-test", capturedData, "DataProcessor.Process returns correct data");
         TestLogger.Info($"DataProcessor.Process = {capturedData}");
     }
-    [SkipOnDevice("NativeAOT SIGSEGV: Result<Class, Enum> MCB callback — crash in Swift cdecl dispatch, heap alloc doesn't help")]
     public void TestMCBOverload_ImageProcessorProcess()
     {
         var processor = new ImageProcessor("photo");
@@ -275,7 +273,6 @@ public class ClosureEdgeCaseTests : TestBase
         AssertEqual("image-photo", capturedData, "ImageProcessor.Process returns correct data");
         TestLogger.Info($"ImageProcessor.Process = {capturedData}");
     }
-    [SkipOnDevice("NativeAOT SIGSEGV: Result<Class, Enum> MCB callback — crash in Swift cdecl dispatch, heap alloc doesn't help")]
     public void TestMCBOverload_DataProcessorProcessWithError()
     {
         // Exercises the SwiftResult.Failure getter path with a class-typed error.

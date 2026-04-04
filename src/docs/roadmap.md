@@ -31,7 +31,7 @@ Skip rate is 15.5%. The remaining ~1,971 skips are overwhelmingly either correct
 | **Multi-protocol generic compositions** | blocked | High | Needs full existential composition in @_cdecl wrapper |
 | **Value-type generic conformers** | blocked | High | Requires non-AnyObject transport through @_cdecl boundary |
 | **NativeAOT MCB callback SIGSEGV** | 3 tests | Low | Only runtime skips that might be our bugs. Resolve or classify before 1.0 |
-| **NativeAOT ResultReturnTests crash** | 6 tests | Medium | Device-only: app crashes at class init before any test runs. Blind-skipped by harness. Needs investigation — may be upstream NativeAOT or a generator bug in result-return marshalling. |
+| ~~NativeAOT ResultReturnTests crash~~ | ~~6 tests~~ | ~~Medium~~ | **FIXED**: Missing Error witness table + `[UnmanagedCallConv(CallConvSwift)]` on `$ss6ResultOMa` P/Invoke. All 6 tests now pass on device. |
 
 ---
 

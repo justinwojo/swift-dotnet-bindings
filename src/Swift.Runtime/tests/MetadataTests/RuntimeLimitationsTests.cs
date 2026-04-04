@@ -157,13 +157,16 @@ public class RuntimeLimitationsTests
 
     /// <summary>
     /// Verifies that SwiftResult&lt;nint, nint&gt;.TryEagerInitialize() completes
-    /// without throwing, matching the SwiftArray pattern for NativeAOT factory registration.
+    /// without throwing. Returns false because nint does not conform to Swift.Error
+    /// (Result metadata accessor requires the Error witness table for the Failure type).
     /// </summary>
     [Fact]
     public void SwiftResult_TryEagerInitialize_ReturnsGracefully()
     {
         var result = SwiftResult<nint, nint>.TryEagerInitialize();
-        Assert.True(result, "TryEagerInitialize should succeed for SwiftResult<nint, nint>");
+        // nint doesn't conform to Swift.Error, so metadata resolution fails gracefully
+        Assert.False(result, "TryEagerInitialize should return false for SwiftResult<nint, nint> " +
+            "(nint does not conform to Swift.Error)");
     }
 
     [Fact]
