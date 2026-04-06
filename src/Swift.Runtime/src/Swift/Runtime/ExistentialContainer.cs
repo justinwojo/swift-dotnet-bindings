@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -936,6 +937,132 @@ public static class ExistentialContainerFactory
         throw new InvalidCastException(
             $"Cannot create ExistentialContainer1 for {value?.GetType().Name ?? "null"}: " +
             $"type must implement ISwiftExistentialConvertible<ExistentialContainer1> or IExistentialBoxable.");
+    }
+
+    /// <summary>
+    /// Cache of auto-wrapped proxies keyed by the user's implementation instance, with a
+    /// per-impl map keyed by the protocol interface type. Prevents repeated assignments of
+    /// the same impl from accumulating proxy instances in
+    /// <c>SwiftObjectRegistry._strongRegistry</c>, while still constructing distinct proxies
+    /// when the same C# instance implements multiple generated protocol interfaces (each
+    /// proxy carries a different protocol witness table, so they cannot be coalesced).
+    /// The outer table is keyed weakly so the entry becomes eligible for collection once
+    /// the user releases the impl AND no Swift-side reference keeps the proxies alive.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ConditionalWeakTable{TKey,TValue}"/> requires <c>TKey</c> to be a reference
+    /// type and uses reference identity, which is exactly the semantics we want for matching
+    /// repeated assignments of the same managed instance. The inner
+    /// <see cref="ConcurrentDictionary{TKey,TValue}"/> handles the case where one C# class
+    /// implements multiple <c>I&lt;Protocol&gt;</c> interfaces and gets passed to Swift APIs
+    /// expecting different existential types — each call site needs its own
+    /// <c>{Protocol}Proxy</c> with the matching witness table.
+    /// </para>
+    /// <para>
+    /// The inner value is wrapped in <see cref="Lazy{T}"/> with
+    /// <see cref="LazyThreadSafetyMode.ExecutionAndPublication"/> so that under concurrent first
+    /// access for the same <c>(impl, protocol)</c> pair the wrap fallback executes exactly once.
+    /// <see cref="ConcurrentDictionary{TKey,TValue}.GetOrAdd(TKey,Func{TKey,TValue})"/>'s value
+    /// factory may run multiple times when threads race, and each losing factory invocation
+    /// would otherwise allocate a fresh <c>EveryProtocol</c> and register a hidden proxy with
+    /// <see cref="SwiftObjectRegistry.RegisterStrong{TProxy}(IntPtr, TProxy)"/> — leaking
+    /// proxies that the cache never returns. <see cref="Lazy{T}.Value"/> serializes construction
+    /// even when several losing <see cref="Lazy{T}"/> wrappers are produced by GetOrAdd.
+    /// </para>
+    /// </remarks>
+    private static readonly ConditionalWeakTable<object, ConcurrentDictionary<Type, Lazy<ISwiftExistentialConvertible<ExistentialContainer1>>>>
+        s_autoWrapCache = new();
+
+    /// <summary>
+    /// Gets or creates an ExistentialContainer1 for a protocol-typed value, auto-wrapping
+    /// plain C# implementations of the protocol interface in a generator-emitted proxy class.
+    /// </summary>
+    /// <remarks>
+    /// This overload is emitted by the bindings generator at call sites that pass user-supplied
+    /// interface values into Swift (property setters, method parameters, constructor args).
+    /// It lets users implement a generated C# interface directly and pass the instance without
+    /// manually constructing the hidden <c>{Protocol}Proxy</c> class.
+    ///
+    /// Resolution order:
+    /// 1. Already a proxy (<see cref="ISwiftExistentialConvertible{T}"/>) — use as-is.
+    /// 2. A boxable value type (<see cref="IExistentialBoxable"/>) — box via witness.
+    /// 3. Fall back to the generator-supplied <paramref name="wrapFallback"/>, which constructs
+    ///    a proxy wrapping the user's implementation. Auto-wrapped proxies are cached per
+    ///    <c>(impl, TProtocol)</c> pair so repeated assignments of the same managed instance
+    ///    reuse a single proxy per protocol instead of allocating a new one each time.
+    ///
+    /// <para>
+    /// <b>Lifetime caveat (auto-wrap path):</b> The generated proxy registers itself with
+    /// <c>SwiftObjectRegistry.RegisterStrong</c> in its constructor, which holds a strong
+    /// managed reference for the lifetime of the process. There is currently no callback from
+    /// Swift's <c>EveryProtocol</c> deinit to release this strong reference, so each distinct
+    /// <c>(impl, protocol)</c> pair leaks one proxy until process exit. The cache bounds the
+    /// leak to the number of <c>(impl, protocol)</c> pairs ever passed (not the number of
+    /// assignments). For typical "set delegate once" usage this is negligible.
+    /// </para>
+    /// <para>
+    /// <b>SwiftDisposeScope is intentionally bypassed for cached proxies:</b> the auto-wrap
+    /// factory immediately detaches each new proxy from the active scope (if any) so that
+    /// scope disposal cannot mark a still-cached proxy as disposed and trip
+    /// <see cref="ObjectDisposedException"/> on the next reuse. To control auto-wrap proxy
+    /// lifetime explicitly, construct the hidden <c>{Protocol}Proxy</c> manually and dispose
+    /// it yourself — the manual path goes through branch (1) and never enters the cache. The
+    /// proper fix — adding a Swift-side deinit callback so proxies can be released when Swift
+    /// releases the existential — is tracked in the roadmap.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TProtocol">The protocol interface type (e.g., IPerformanceMonitorDelegate).</typeparam>
+    /// <param name="value">The protocol-typed value to box.</param>
+    /// <param name="wrapFallback">
+    /// Factory that wraps a plain C# implementation in the protocol's proxy class. Invoked only
+    /// when <paramref name="value"/> is neither already-convertible nor boxable, and not already
+    /// cached for this <c>(impl, TProtocol)</c> pair. Typically a <c>static</c> lambda like
+    /// <c>static v =&gt; new FooProxy(v)</c>.
+    /// </param>
+    /// <returns>An ExistentialContainer1 for the value.</returns>
+    public static ExistentialContainer1 GetOrCreate<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+    {
+        if (value is ISwiftExistentialConvertible<ExistentialContainer1> convertible)
+            return convertible.GetExistentialContainer();
+
+        if (value is IExistentialBoxable boxable)
+            return boxable.BoxAsExistential1<TProtocol>();
+
+        if (wrapFallback == null)
+            throw new ArgumentNullException(nameof(wrapFallback));
+
+        // Reuse a previously-created proxy for the same (impl, protocol) pair. Reference
+        // identity on the impl is the right outer key — distinct impl instances always need
+        // distinct proxies (otherwise Swift dispatch would land on the wrong _csharpImpl).
+        // The inner dictionary keys per protocol type so that one C# instance implementing
+        // multiple generated interfaces gets a distinct proxy (and matching witness table)
+        // for each protocol it can be passed as. The Lazy<T> wrapper ensures the wrap
+        // fallback runs exactly once per (impl, protocol) pair even under concurrent first
+        // access — see the cache field's remarks for the leak this prevents.
+        var perImplMap = s_autoWrapCache.GetValue(
+            value,
+            static _ => new ConcurrentDictionary<Type, Lazy<ISwiftExistentialConvertible<ExistentialContainer1>>>());
+        var lazy = perImplMap.GetOrAdd(
+            typeof(TProtocol),
+            _ => new Lazy<ISwiftExistentialConvertible<ExistentialContainer1>>(
+                () =>
+                {
+                    var proxy = wrapFallback(value);
+                    // Cached proxies live for the cache lifetime, not the active dispose scope.
+                    // The proxy constructor unconditionally calls SwiftDisposeScope.TryRegister,
+                    // which would let scope disposal mark the still-cached proxy as disposed and
+                    // trip ObjectDisposedException on the next GetOrCreate. Detach immediately
+                    // so the cache owns the proxy lifetime exclusively.
+                    if (proxy is IDisposable disposable)
+                        SwiftDisposeScope.Detach(disposable);
+                    return proxy;
+                },
+                LazyThreadSafetyMode.ExecutionAndPublication));
+        return lazy.Value.GetExistentialContainer();
     }
 
     /// <summary>

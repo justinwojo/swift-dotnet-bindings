@@ -686,7 +686,11 @@ public class MarshalPlanRegressionTests
             "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetParameterPlan("item");
 
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>(item)", plan.PInvokeExpression);
+        // The GetOrCreate call must carry a wrap fallback so that plain C# implementations of
+        // the interface are auto-wrapped in the generated DescribableProxy at the call site.
+        Assert.Contains(
+            "ExistentialContainerFactory.GetOrCreate<IDescribable>(item, static __v => new DescribableProxy(__v))",
+            plan.PInvokeExpression);
     }
 
     [Fact]

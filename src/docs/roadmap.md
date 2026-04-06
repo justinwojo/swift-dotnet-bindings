@@ -94,6 +94,7 @@ Remaining:
 | **Property wrappers / KeyPaths** | Low frequency in public API surfaces |
 | **Static protocol constructors** | Init witness dispatch needs allocation infrastructure |
 | **Weak/unowned references** | 4 test skips. Requires ownership tracking infrastructure |
+| **Auto-wrap proxy lifetime** | `ExistentialContainerFactory.GetOrCreate` with `wrapFallback` registers proxies in `SwiftObjectRegistry._strongRegistry` permanently. Per-`(impl, protocol)` dedup via `ConditionalWeakTable<object, ConcurrentDictionary<Type, Lazy<…>>>` bounds the leak to one proxy per distinct `(impl, protocol)` pair, and the cache detaches each new proxy from the active `SwiftDisposeScope` so scope disposal can't mark cached proxies disposed. Proper fix needs an `EveryProtocol` Swift `deinit` that calls back into C# to unregister, plus refactoring proxies to release their `SwiftClassHandle` +1 retain after Swift takes ownership (current `proxy → SwiftClassHandle → +1 retain → keeps deinit from firing → keeps proxy in registry` cycle blocks deinit-based cleanup). |
 
 ---
 

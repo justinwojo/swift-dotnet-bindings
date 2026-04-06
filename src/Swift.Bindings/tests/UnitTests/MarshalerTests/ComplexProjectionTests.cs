@@ -102,13 +102,16 @@ public class ComplexProjectionTests
     [Fact]
     public void Existential_ParameterPlan_GetOrCreate_UsesPublicTypeAsGenericArg()
     {
-        // GetParameterPlan must use ExistentialContainerFactory.GetOrCreate<PublicType>(param)
-        // so both proxy types (ISwiftExistentialConvertible) and concrete types (IExistentialBoxable)
-        // can pass through the same call site.
+        // GetParameterPlan must use ExistentialContainerFactory.GetOrCreate<PublicType>(param, wrapFallback)
+        // so proxy types (ISwiftExistentialConvertible), Swift value types (IExistentialBoxable), AND
+        // plain C# classes implementing the interface (auto-wrapped via the generator-emitted proxy
+        // factory) all flow through the same call site.
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IBlockMode", "BlockModeProxy");
         var plan = proj.GetParameterPlan("mode");
 
-        Assert.Equal("ExistentialContainerFactory.GetOrCreate<IBlockMode>(mode)", plan.PInvokeExpression);
+        Assert.Equal(
+            "ExistentialContainerFactory.GetOrCreate<IBlockMode>(mode, static __v => new BlockModeProxy(__v))",
+            plan.PInvokeExpression);
     }
 
     [Fact]
@@ -137,12 +140,16 @@ public class ComplexProjectionTests
     [Fact]
     public void Existential_ParameterElementConversion_UsesGetOrCreate()
     {
-        // Element conversion for collection parameters also routes through GetOrCreate.
+        // Element conversion for collection parameters also routes through GetOrCreate with
+        // the same auto-wrap fallback used by scalar existential parameters, so array/set/dict
+        // elements accept plain C# implementations of the interface.
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IRenderable", "RenderableProxy");
         var conv = proj.GetParameterElementConversion("item");
 
         Assert.NotNull(conv);
-        Assert.Equal("ExistentialContainerFactory.GetOrCreate<IRenderable>(item)", conv);
+        Assert.Equal(
+            "ExistentialContainerFactory.GetOrCreate<IRenderable>(item, static __v => new RenderableProxy(__v))",
+            conv);
     }
 
     [Fact]

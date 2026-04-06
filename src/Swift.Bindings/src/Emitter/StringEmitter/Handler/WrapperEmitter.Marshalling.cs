@@ -426,7 +426,23 @@ namespace BindingsGeneration
                 // GetOrCreate only works for single-protocol (EC1) interfaces.
                 // Well-known types (AnyError/EC0) and compositions (EC2+) use direct cast.
                 if (containerType == "Swift.Runtime.ExistentialContainer1" && !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
-                    csWriter.WriteLine($"var {csName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName});");
+                {
+                    // Auto-wrap fallback only when we actually emit a proxy class for the protocol.
+                    // Stdlib/external protocols (e.g. Swift.Encodable) project to publicType "object"
+                    // and have no generated {Protocol}Proxy class — emitting `new EncodableProxy(...)`
+                    // would produce CS0246. Same for protocols without TypeRecords.
+                    string? proxyClassName = null;
+                    if (publicType != "object" &&
+                        _env.ExistentialHandler.AllProtocolsHaveTypeRecords(protocolList) &&
+                        _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
+                    {
+                        proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                    }
+                    var createExpr = proxyClassName != null
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName}, static __v => new {proxyClassName}(__v))"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({csName})";
+                    csWriter.WriteLine($"var {csName}Container = {createExpr};");
+                }
                 else
                     csWriter.WriteLine($"var {csName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){csName}).GetExistentialContainer();");
                 csWriter.WriteLine($"{csName}Heap = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");

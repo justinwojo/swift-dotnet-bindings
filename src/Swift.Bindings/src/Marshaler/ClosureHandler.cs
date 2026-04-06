@@ -1736,4 +1736,19 @@ public class ClosureHandler
         }
         return true;
     }
+
+    /// <summary>
+    /// Gets the cross-module-qualified proxy class name for a given existential type spec,
+    /// or null if no proxy class exists for the type (well-known, object, or ObjC-filtered out).
+    /// Used by ClosureEmitter to emit the GetOrCreate auto-wrap fallback that lets plain C#
+    /// implementations of the interface be passed through closure boundaries without manual
+    /// proxy construction.
+    /// </summary>
+    public string? GetQualifiedProxyClassName(TypeSpec typeSpec)
+    {
+        if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return null;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null) return null;
+        return _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+    }
 }

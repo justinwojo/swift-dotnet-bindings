@@ -446,7 +446,25 @@ namespace BindingsGeneration
                         if (_env.MethodDecl.UsesCdeclWrapper)
                             AddParameter(new MarshalledType.CdeclExistential(containerType, publicType), csName);
                         else
-                            AddParameter(new MarshalledType.Existential(containerType, publicType), csName);
+                        {
+                            // Resolve the proxy class name so MethodSignature can emit the wrap
+                            // fallback, letting users pass plain C# implementations of the interface
+                            // without manually constructing the {Protocol}Proxy. Skip stdlib/external
+                            // protocols that project to "object" or lack TypeRecords — no proxy class
+                            // is emitted for them, so the wrap fallback would not compile.
+                            string? proxyClassName = null;
+                            if (containerType == "Swift.Runtime.ExistentialContainer1" &&
+                                publicType != "object" &&
+                                !_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out _) &&
+                                _env.ExistentialHandler.AllProtocolsHaveTypeRecords(protocolList) &&
+                                _env.ExistentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
+                            {
+                                proxyClassName = _env.ExistentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                            }
+                            AddParameter(
+                                new MarshalledType.Existential(containerType, publicType) { ProxyClassName = proxyClassName },
+                                csName);
+                        }
                     }
                     else
                     {

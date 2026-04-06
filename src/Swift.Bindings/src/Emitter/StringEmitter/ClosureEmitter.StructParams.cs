@@ -91,7 +91,10 @@ public static partial class ClosureEmitter
                 if (closureHandler.ShouldUseGetOrCreate(arg))
                 {
                     var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
-                    invokeArgs.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
+                    var qp = closureHandler.GetQualifiedProxyClassName(arg);
+                    invokeArgs.Add(qp != null
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i}, static __v => new {qp}(__v))"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
                 }
                 else
                 {
@@ -265,7 +268,10 @@ public static partial class ClosureEmitter
                 if (closureHandler.ShouldUseGetOrCreate(arg))
                 {
                     var pt = closureHandler.GetPublicExistentialType(arg) ?? "object";
-                    invokeArgs.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
+                    var qp = closureHandler.GetQualifiedProxyClassName(arg);
+                    invokeArgs.Add(qp != null
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i}, static __v => new {qp}(__v))"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{i})");
                 }
                 else
                 {

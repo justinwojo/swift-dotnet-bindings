@@ -1290,6 +1290,16 @@ namespace BindingsGeneration
             if (suppressedProxyClassNames.Count == 0 || string.IsNullOrEmpty(content))
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
 
+            // Pre-pass: downgrade GetOrCreate auto-wrap fallbacks that reference suppressed proxies
+            // back to the no-fallback form. The generator emits
+            //     ExistentialContainerFactory.GetOrCreate<IFoo>(value, static __v => new FooProxy(__v))
+            // for every existential parameter where a proxy class might exist. If the proxy class
+            // ends up suppressed (EveryProtocol conformance not emitted), the lambda would otherwise
+            // cause the entire enclosing method/helper to be stripped, which cascades into broken
+            // call sites elsewhere. Rewriting just the lambda preserves the surrounding code path
+            // (with the original throw-if-not-convertible runtime semantics for the fallback).
+            content = DowngradeSuppressedWrapFallbacks(content, suppressedProxyClassNames);
+
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
             var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn, bool isProperty, bool propertySetter)>();
@@ -1540,6 +1550,30 @@ namespace BindingsGeneration
                 Content = sb.ToString(),
                 StrippedMemberCount = totalAffected > 0 ? totalAffected : 1
             };
+        }
+
+        // Pattern: ", static __<ident> => new <ProxyName>(__<ident>)" where the matched proxy is suppressed.
+        // The leading comma is the wrap-fallback delimiter inside GetOrCreate<T>(value, fallback).
+        private static readonly System.Text.RegularExpressions.Regex s_wrapFallbackPattern = new(
+            @",\s*static\s+__(\w+)\s*=>\s*new\s+(?:[\w\.]+\.)?(\w+Proxy)\(\s*__\1\s*\)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Removes <c>, static __v =&gt; new SuppressedProxy(__v)</c> wrap-fallback arguments from
+        /// every <c>ExistentialContainerFactory.GetOrCreate&lt;T&gt;(value, ...)</c> call whose
+        /// proxy class ended up suppressed. Leaves the surrounding call (and its enclosing method)
+        /// intact, so the helper still compiles and the original throw-on-incompatible-input
+        /// runtime semantics apply.
+        /// </summary>
+        private static string DowngradeSuppressedWrapFallbacks(string content, IReadOnlySet<string> suppressedProxyClassNames)
+        {
+            return s_wrapFallbackPattern.Replace(content, match =>
+            {
+                var proxyName = match.Groups[2].Value;
+                return suppressedProxyClassNames.Contains(proxyName)
+                    ? string.Empty
+                    : match.Value;
+            });
         }
 
         /// <summary>

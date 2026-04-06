@@ -362,7 +362,18 @@ namespace BindingsGeneration
                                 if (containerType == "Swift.Runtime.ExistentialContainer1" && !existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
                                 {
                                     var publicType = existentialHandler.GetPublicExistentialType(protocolList);
-                                    csWriter.WriteLine($"var {bareName}Container = Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name});");
+                                    // Auto-wrap fallback only when a proxy class is actually emitted
+                                    // (skips Swift stdlib protocols like Encodable that project to "object").
+                                    string? proxyClassName = null;
+                                    if (publicType != "object" &&
+                                        existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
+                                    {
+                                        proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                                    }
+                                    var expr = proxyClassName != null
+                                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name}, static __v => new {proxyClassName}(__v))"
+                                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({name})";
+                                    csWriter.WriteLine($"var {bareName}Container = {expr};");
                                 }
                                 else
                                     csWriter.WriteLine($"var {bareName}Container = ((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){name}).GetExistentialContainer();");
@@ -827,7 +838,17 @@ namespace BindingsGeneration
                     if (containerType == "Swift.Runtime.ExistentialContainer1" && !existentialHandler.TryGetWellKnownProtocolType(protocolList, out _))
                     {
                         var publicType = existentialHandler.GetPublicExistentialType(protocolList);
-                        return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({paramName})";
+                        // Auto-wrap fallback only when a proxy class is actually emitted
+                        // (skips Swift stdlib protocols like Encodable that project to "object").
+                        string? proxyClassName = null;
+                        if (publicType != "object" &&
+                            existentialHandler.TryGetFilteredProxyClassName(protocolList, out var filteredProxy))
+                        {
+                            proxyClassName = existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
+                        }
+                        return proxyClassName != null
+                            ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({paramName}, static __v => new {proxyClassName}(__v))"
+                            : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({paramName})";
                     }
                     return $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){paramName}).GetExistentialContainer()";
                 }

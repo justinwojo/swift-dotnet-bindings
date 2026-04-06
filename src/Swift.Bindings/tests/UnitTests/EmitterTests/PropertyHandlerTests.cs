@@ -1236,8 +1236,12 @@ public class PropertyHandlerTests
         Assert.Contains("SBW_Set_TestModule_Processor_dataCache", swiftOutput);
         // C# setter P/Invoke uses CallConvCdecl
         Assert.Contains("CallConvCdecl", csOutput);
-        // Setter property body marshals value to (IntPtr, bool) via existential container
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v)", csOutput);
+        // Setter property body marshals value to (IntPtr, bool) via existential container.
+        // The GetOrCreate call carries a wrap fallback so plain C# implementations of the
+        // interface are auto-wrapped in the generator-emitted DataCachingProxy at the call site.
+        Assert.Contains(
+            "ExistentialContainerFactory.GetOrCreate<IDataCaching>(__v, static __p => new DataCachingProxy(__p))",
+            csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
         Assert.Contains("Unsafe.Copy(__heap, ref __container)", csOutput);
         Assert.Contains("__hasVal", csOutput);

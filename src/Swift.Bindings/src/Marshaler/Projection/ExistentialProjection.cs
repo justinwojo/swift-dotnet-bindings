@@ -52,8 +52,12 @@ public class ExistentialProjection : ITypeProjection
             // - EC0 (Any/AnyError): AnyError is a value type, can't satisfy class constraint
             // - EC2+ (compositions): GetOrCreate returns EC1 but P/Invoke expects EC2+
             // - No proxy (well-known/object): always implement ISwiftExistentialConvertible directly
+            //
+            // When a proxy class is known, pass a wrap fallback so plain C# implementations of
+            // the interface are automatically wrapped in the proxy (users don't have to construct
+            // the hidden {Protocol}Proxy manually).
             expr = _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName})"
+                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({paramName}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){paramName}).GetExistentialContainer()";
         }
 
@@ -92,7 +96,7 @@ public class ExistentialProjection : ITypeProjection
         _isBareAny
             ? $"ExistentialContainer0.Box({elementVar})"
             : _proxyClassName != null && _containerType == "Swift.Runtime.ExistentialContainer1"
-                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar})"
+                ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     public string? GetReturnElementConversion(string elementVar) =>

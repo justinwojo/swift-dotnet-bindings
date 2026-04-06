@@ -172,8 +172,15 @@ namespace BindingsGeneration
                 // Existential protocol types: GetOrCreate handles both proxy and concrete types.
                 // Only for single-protocol (EC1) interfaces — compositions (EC2+), well-known
                 // value types (AnyError/EC0), and "object" use direct ISwiftExistentialConvertible.
-                { Type: MarshalledType.Existential(var containerType, var publicType) } when containerType == "Swift.Runtime.ExistentialContainer1" && publicType.StartsWith("I") && publicType.Length > 1 && char.IsUpper(publicType[1]) =>
-                    $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
+                // When a proxy class name is known (populated by PInvokeEmitter), emit the wrap
+                // fallback so plain C# implementations of the interface are auto-wrapped without
+                // requiring the caller to construct the hidden {Protocol}Proxy manually.
+                // The interface check uses the unqualified type name so cross-module dependency
+                // protocols (e.g., "OtherModule.IFoo") are recognized along with same-module ones.
+                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when containerType == "Swift.Runtime.ExistentialContainer1" && IsExistentialInterfacePublicType(publicType) =>
+                    existentialType.ProxyClassName != null
+                        ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v))"
+                        : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>({parameter.Name})",
                 { Type: MarshalledType.Existential(var containerType, var publicType) } =>
                     $"((Swift.Runtime.ISwiftExistentialConvertible<{containerType}>){parameter.Name}).GetExistentialContainer()",
                 // @_cdecl existential: pass pointer to pinned container
@@ -236,6 +243,21 @@ namespace BindingsGeneration
                     => $"{parameter.Name}.Handle",
                 _ => parameter.Name
             };
+        }
+
+        /// <summary>
+        /// Returns true if a public-facing existential type name represents a generated protocol
+        /// interface (e.g., "IFoo" or cross-module-qualified "OtherModule.IFoo"). Used to gate
+        /// the GetOrCreate-with-wrap-fallback emission so plain C# implementations of the
+        /// interface are auto-wrapped at the call site. Strips any namespace prefix before
+        /// checking the conventional 'I' + uppercase letter prefix so that cross-module
+        /// dependency protocols are recognized along with same-module ones.
+        /// </summary>
+        private static bool IsExistentialInterfacePublicType(string publicType)
+        {
+            var lastDot = publicType.LastIndexOf('.');
+            var unqualified = lastDot < 0 ? publicType : publicType[(lastDot + 1)..];
+            return unqualified.Length > 1 && unqualified[0] == 'I' && char.IsUpper(unqualified[1]);
         }
     }
 

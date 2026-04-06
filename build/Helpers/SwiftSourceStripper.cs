@@ -30,6 +30,15 @@ public static class SwiftSourceStripper
         "StatusHandler", "PriorityHandler",
         "URLProcessorDelegate",
         "EventDelegate",
+        // Auto-wrap regression for justinwojo/swift-dotnet-bindings#16 (GDPerformanceView).
+        // AutoWrappedDelegateTests drives Swift→C# callbacks through the property setter,
+        // constructor arg, and method arg emit sites, so the EveryProtocol conformance and
+        // its witness table accessor must survive wrapper stripping.
+        "AutoWrappedMonitorDelegate",
+        // Multi-protocol auto-wrap cache regression: same C# instance is wrapped for two
+        // distinct protocols and dispatched via two distinct witness tables in the same
+        // call. Both protocol conformances on EveryProtocol must survive stripping.
+        "AutoWrappedSecondaryDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

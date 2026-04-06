@@ -16,7 +16,17 @@ public abstract record MarshalledType
     // --- Prefixed variants (carry structured data) ---
 
     /// <summary>Existential protocol type with container and public interface types.</summary>
-    public sealed record Existential(string ContainerType, string PublicType) : MarshalledType;
+    /// <remarks>
+    /// <see cref="ProxyClassName"/> (init-only) carries the generator-emitted proxy class name when
+    /// the generator knows which proxy wraps plain C# implementations of the interface. Call sites
+    /// that marshal the value into a Swift existential use this to emit the auto-wrapping fallback
+    /// (<c>GetOrCreate&lt;T&gt;(value, static v =&gt; new FooProxy(v))</c>). Null when no proxy exists
+    /// (well-known types, "object" fallback, cross-module ObjC-only protocols).
+    /// </remarks>
+    public sealed record Existential(string ContainerType, string PublicType) : MarshalledType
+    {
+        public string? ProxyClassName { get; init; }
+    }
 
     /// <summary>Existential protocol type marshalled via ref (pointer) for @_cdecl wrappers.</summary>
     public sealed record CdeclExistential(string ContainerType, string PublicType) : MarshalledType;

@@ -936,8 +936,21 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // EC1 uses factory method; EC2+ and well-known types use direct cast
                 bool useFactory = containerType == "Swift.Runtime.ExistentialContainer1" &&
                     !propertyEnv.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out _);
+                // Resolve proxy class name so users can assign plain C# implementations of the
+                // interface directly (generator auto-wraps them in the hidden {Protocol}Proxy).
+                // Skip stdlib/external protocols that project to "object" or lack TypeRecords —
+                // no proxy class is emitted for them, so the wrap fallback would not compile.
+                string? proxyClassName = null;
+                if (useFactory && publicType != "object" &&
+                    propertyEnv.ExistentialHandler.AllProtocolsHaveTypeRecords(innerProtocolList) &&
+                    propertyEnv.ExistentialHandler.TryGetFilteredProxyClassName(innerProtocolList, out var filteredProxy))
+                {
+                    proxyClassName = propertyEnv.ExistentialHandler.QualifyProxyClassName(filteredProxy, innerProtocolList);
+                }
                 var createExpr = useFactory
-                    ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v)"
+                    ? (proxyClassName != null
+                        ? $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v, static __p => new {proxyClassName}(__p))"
+                        : $"global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(__v)")
                     : $"((global::Swift.Runtime.ISwiftExistentialConvertible<{containerType}>)__v).GetExistentialContainer()";
 
                 csWriter.WriteLines($$"""

@@ -389,7 +389,10 @@ public static partial class ClosureEmitter
             if (closureHandler.ShouldUseGetOrCreate(returnType))
             {
                 var pt = closureHandler.GetPublicExistentialType(returnType) ?? "object";
-                return $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr});";
+                var qp = closureHandler.GetQualifiedProxyClassName(returnType);
+                return qp != null
+                    ? $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr}, static __v => new {qp}(__v));"
+                    : $"return Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({resultExpr});";
             }
             var ct = closureHandler.GetPInvokeExistentialType(returnType);
             return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
@@ -443,7 +446,10 @@ public static partial class ClosureEmitter
                     if (closureHandler.ShouldUseGetOrCreate(elem))
                     {
                         var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
-                        elems.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                        var qp = closureHandler.GetQualifiedProxyClassName(elem);
+                        elems.Add(qp != null
+                            ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v))"
+                            : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
                     }
                     else
                     {
@@ -934,7 +940,10 @@ public static partial class ClosureEmitter
             if (closureHandler.ShouldUseGetOrCreate(typeSpec))
             {
                 var pt = closureHandler.GetPublicExistentialType(typeSpec) ?? "object";
-                return $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex})";
+                var qp = closureHandler.GetQualifiedProxyClassName(typeSpec);
+                return qp != null
+                    ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex}, static __v => new {qp}(__v))"
+                    : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>(_arg{argIndex})";
             }
             var ct = closureHandler.GetPInvokeExistentialType(typeSpec);
             return $"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>)_arg{argIndex}).GetExistentialContainer()";
@@ -969,7 +978,10 @@ public static partial class ClosureEmitter
                         if (closureHandler.ShouldUseGetOrCreate(elem))
                         {
                             var pt = closureHandler.GetPublicExistentialType(elem) ?? "object";
-                            elements.Add($"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
+                            var qp = closureHandler.GetQualifiedProxyClassName(elem);
+                            elements.Add(qp != null
+                                ? $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc}, static __v => new {qp}(__v))"
+                                : $"Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{pt}>({acc})");
                         }
                         else
                         {
