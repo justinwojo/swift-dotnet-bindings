@@ -351,13 +351,11 @@ public static class MethodWrapperEmitter
                         }
                         // Add PWT parameters for constrained generic types.
                         // Only include PWT for resolvable conformances (no associated types
-                        // or Self requirements) to match what C# P/Invoke passes.
-                        // TODO 0.8.0 — Self/AssocType constraints are gated upstream by
+                        // or Self requirements) to match what C# P/Invoke passes. Members on
+                        // parents with unresolvable conformances are gated upstream by
                         // GenericDispatchEmitter.CanEmitGenericDispatch via
-                        // MetatypeHelperEmitter.HasUnresolvableTypeConformances. Until the
-                        // wrapper path can resolve descriptors via swift_conformsToProtocol,
-                        // members on such parents are skipped entirely. See
-                        // src/docs/constrained-generic-metadata-witness-tables.md.
+                        // MetatypeHelperEmitter.HasUnresolvableTypeConformances, so we never
+                        // reach this line for those types today.
                         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int pi = 0; pi < pwtCount; pi++)
                         {

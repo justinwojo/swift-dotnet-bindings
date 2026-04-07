@@ -21,10 +21,9 @@ namespace BindingsGeneration;
 /// undercounts when the parent type has Self-requirement or associated-type
 /// constraints. The dlsym'd <c>...Ma</c> symbol's actual signature includes ALL PWTs,
 /// so a mismatch corrupts caller-saved registers and PAC-traps on arm64e (NativeAOT).
-/// The central gate lives in <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>;
-/// see src/docs/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
-/// Swift wrapper path" for the full rationale and the 0.8.0 follow-up plan to
-/// dynamically resolve descriptors via <c>swift_conformsToProtocol</c> from Swift code.
+/// The central gate lives in <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
+/// Dynamic PWT resolution for the Swift wrapper path is tracked in
+/// <c>src/docs/roadmap.md</c> ("Wrapper-helper path dynamic PWT resolution").
 /// </para>
 /// </summary>
 public static class MetatypeHelperEmitter
@@ -139,21 +138,10 @@ public static class MetatypeHelperEmitter
     /// helper for a type whose metadata accessor expects more PWTs than this returns —
     /// that mismatch is a guaranteed PAC trap / SIGSEGV at runtime, not a recoverable
     /// condition. The fail-closed gate lives in
-    /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
+    /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>. Dynamic PWT
+    /// resolution from the Swift wrapper path is tracked in <c>src/docs/roadmap.md</c>
+    /// ("Wrapper-helper path dynamic PWT resolution").
     /// </summary>
-    /// <remarks>
-    /// TODO 0.8.0 — see src/docs/constrained-generic-metadata-witness-tables.md
-    /// "MetatypeHelperEmitter Swift wrapper path". The type-level metadata accessor
-    /// fix in 0.7.0 added a runtime descriptor + <c>swift_conformsToProtocol</c>
-    /// fallback for unresolvable conformances on the C# P/Invoke side. The Swift
-    /// wrapper path here still excludes them, so methods/properties/constructors on
-    /// constrained-generic types whose constraints have Self requirements or
-    /// associated types pass fewer PWTs than Swift's actual ABI expects. Teaching the
-    /// Swift wrapper to dynamically resolve descriptors via dlsym +
-    /// swift_conformsToProtocol is a separate exercise tracked for 0.8.0; until then
-    /// the fail-closed gate refuses to emit such members. Audited across the
-    /// validation matrix; no current library hits this limitation.
-    /// </remarks>
     public static int GetResolvablePwtParameterCount(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
         int count = 0;
@@ -229,8 +217,8 @@ public static class MetatypeHelperEmitter
     /// metadata-accessor ABI. <see cref="EmitMetadataAccessorHelperIfNeeded"/> always declares the
     /// accessor as a thin function with explicit <c>(request, metadata..., pwt...)</c> args; calling
     /// the buffer-mode ABI through that signature shifts caller-saved registers and PAC-traps on
-    /// arm64e. Buffer-mode emission is the 0.8.0 follow-up — until it lands, callers MUST gate on
-    /// this predicate to refuse emission for over-threshold types.
+    /// arm64e. Callers MUST gate on this predicate to refuse emission for over-threshold types.
+    /// Buffer-mode emission is tracked in <c>src/docs/roadmap.md</c>.
     /// </summary>
     /// <remarks>
     /// Counts the same conformances the wrapper helper itself passes — i.e.

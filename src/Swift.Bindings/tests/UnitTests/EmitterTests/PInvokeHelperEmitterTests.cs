@@ -490,7 +490,6 @@ public class PInvokeHelperEmitterTests
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.False(ctx.ExceedsRegisterArgumentThreshold);
         Assert.Single(ctx.PwtEntries);
         var entry = ctx.PwtEntries[0];
@@ -600,7 +599,6 @@ public class PInvokeHelperEmitterTests
         // cleared defensively in the constructor so any unintended downstream consumer
         // sees an empty list.
         Assert.True(ctx.ExceedsRegisterArgumentThreshold);
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.Empty(ctx.PwtEntries);
     }
 
@@ -650,7 +648,6 @@ public class PInvokeHelperEmitterTests
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.Single(ctx.PwtEntries);
         var entry = ctx.PwtEntries[0];
         Assert.False(entry.IsResolvable);
@@ -710,7 +707,6 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
         Assert.Equal(2, ctx.PwtEntries.Count);
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.False(ctx.ExceedsRegisterArgumentThreshold);
 
         var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
@@ -815,7 +811,6 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
         Assert.Empty(ctx.PwtEntries);
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.False(ctx.ExceedsRegisterArgumentThreshold);
 
         var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
@@ -841,7 +836,6 @@ public class PInvokeHelperEmitterTests
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.Empty(ctx.PwtEntries);
 
         // Only the type metadata arg is emitted — same shape the previous
@@ -874,7 +868,6 @@ public class PInvokeHelperEmitterTests
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
-        Assert.False(ctx.HasUnsupportedConstraint);
         Assert.Empty(ctx.PwtEntries);
     }
 
@@ -893,7 +886,6 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb)!;
 
         Assert.False(ctx.ExceedsRegisterArgumentThreshold);
-        Assert.False(ctx.HasUnsupportedConstraint);
 
         var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
         Assert.Equal(3, parameters.Count);

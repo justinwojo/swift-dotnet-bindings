@@ -414,8 +414,11 @@ public class BasicGenericTests : TestBase
 
     public void TestConstrainedDescribableEnumMetadata()
     {
-        // Exercises EnumHandler.cs's metadata-accessor PInvoke + _payloadSizeLazy
-        // for a constrained generic enum (DescribableBox<T> where T: Describable).
+        // Exercises EnumHandler.cs's metadata-accessor PInvoke and the eager
+        // _payloadSize field initializer for a constrained generic enum
+        // (DescribableBox<T> where T: Describable). Calling GetTypeMetadata()
+        // hits the PInvoke_getMetadata call site that must now include the
+        // Describable PWT arg.
         var metadata = SwiftObjectHelper<DescribableBox<SimpleItem>>.GetTypeMetadata();
         AssertTrue(metadata.Handle != IntPtr.Zero, "DescribableBox<SimpleItem> metadata handle is non-zero");
         AssertTrue(metadata.Size > 0, "DescribableBox<SimpleItem> metadata size is non-zero");
@@ -424,10 +427,11 @@ public class BasicGenericTests : TestBase
 
     public void TestConstrainedDescribableHolderMetadata()
     {
-        // Exercises NonFrozenStructHandler.cs's metadata-accessor PInvoke +
-        // _payloadSizeLazy for a constrained generic struct
-        // (DescribableHolder<T> where T: Describable). This is the precise code
-        // path that originally PAC-trapped Lottie on NativeAOT/arm64e.
+        // Exercises NonFrozenStructHandler.cs's metadata-accessor PInvoke and
+        // the eager _payloadSize field initializer for a constrained generic
+        // non-frozen struct (DescribableHolder<T> where T: Describable). This
+        // is the precise code path that originally PAC-trapped Lottie on
+        // NativeAOT/arm64e before the PWT arg was threaded through.
         var metadata = SwiftObjectHelper<DescribableHolder<SimpleItem>>.GetTypeMetadata();
         AssertTrue(metadata.Handle != IntPtr.Zero, "DescribableHolder<SimpleItem> metadata handle is non-zero");
         AssertTrue(metadata.Size > 0, "DescribableHolder<SimpleItem> metadata size is non-zero");

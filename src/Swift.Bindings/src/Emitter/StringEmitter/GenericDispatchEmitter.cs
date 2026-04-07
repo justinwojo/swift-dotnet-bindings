@@ -52,8 +52,8 @@ internal static class GenericDispatchEmitter
         // generic classes — are NOT rejected just because the parent type has e.g.
         // an associated-type conformance or >3 register args. Those safe paths use
         // SelfReconstructionEmitter.EmitProtocolCast and never touch _sbw_meta_*.
-        // See src/docs/Completed/constrained-generic-metadata-witness-tables.md for
-        // the 0.8.0 buffer-mode follow-up plan.
+        // Dynamic PWT resolution and buffer-mode ABI are tracked in
+        // src/docs/roadmap.md.
 
         switch (kind)
         {
@@ -129,8 +129,9 @@ internal static class GenericDispatchEmitter
     ///    (num_metadata + num_pwts) > 3 forces Swift's metadata accessor into the indirect
     ///    buffer ABI. Our wrapper helper always declares the symbol as a thin function with
     ///    explicit register args, so the call would shift registers and PAC-trap.
-    /// Both are tracked as 0.8.0 follow-ups; for now, refuse to emit any wrapper that would
-    /// route through <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>.
+    /// Both refuse to emit any wrapper that would route through
+    /// <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>. Dynamic
+    /// PWT resolution and buffer-mode ABI are tracked in <c>src/docs/roadmap.md</c>.
     /// </summary>
     internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {

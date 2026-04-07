@@ -47,8 +47,7 @@ public static class PropertyWrapperEmitter
             // (PropertyWrapperEmitter.cs:342) and never touch _sbw_meta_*, so the gates must NOT
             // reject them. NeedsStaticDispatchForProperty = true iff the property is on a generic
             // struct OR its type references the parent's generic params.
-            // See src/docs/Completed/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
-            // Swift wrapper path" for the 0.8.0 buffer-mode follow-up plan.
+            // Dynamic PWT resolution and buffer-mode ABI are tracked in src/docs/roadmap.md.
             if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl))
             {
                 if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))

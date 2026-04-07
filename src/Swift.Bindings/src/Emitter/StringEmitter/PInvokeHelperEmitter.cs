@@ -63,32 +63,17 @@ public class PInvokeHelperContext
 
     /// <summary>
     /// True when the type's metadata accessor would require the indirect-buffer ABI
-    /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md). Buffer mode
-    /// is not implemented yet, so <see cref="TypeMetadataAccessorSkipGate"/> uses this
-    /// flag to skip the type entirely — every C# call site we emit (cctor field
+    /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md). Buffer
+    /// mode is not implemented, so <see cref="TypeMetadataAccessorSkipGate"/> uses
+    /// this flag to skip the type entirely — every C# call site we emit (cctor field
     /// initializers, expression-bodied <c>GetTypeMetadata()</c>, allocating-init
-    /// metadata, enum case factories, raw-value <c>FromRawValue</c>) calls the accessor
-    /// with explicit per-arg parameters, so even a "lazy" deferred call would PAC-trap
-    /// the first time the type is touched on arm64e. Audited across the validation
-    /// matrix; no current library exceeds 3 metadata/PWT args. Full buffer-mode
-    /// emission is tracked as a 0.8.0 follow-up.
+    /// metadata, enum case factories, raw-value <c>FromRawValue</c>) calls the
+    /// accessor with explicit per-arg parameters, so even a "lazy" deferred call
+    /// would PAC-trap the first time the type is touched on arm64e. Audited across
+    /// the validation matrix; no current library exceeds 3 metadata/PWT args.
+    /// Buffer-mode emission is tracked in <c>src/docs/roadmap.md</c>.
     /// </summary>
     public bool ExceedsRegisterArgumentThreshold { get; }
-
-    /// <summary>
-    /// True when at least one of the type's generic-parameter conformances cannot be
-    /// represented as either a resolvable C# interface OR a runtime descriptor lookup —
-    /// e.g. the protocol's record is missing from the type database, or the parser
-    /// failed to capture its descriptor symbol. The handler should skip emission with a
-    /// diagnostic when set.
-    /// </summary>
-    public bool HasUnsupportedConstraint { get; }
-
-    /// <summary>
-    /// Human-readable reason for <see cref="HasUnsupportedConstraint"/>, used by the
-    /// type handler when reporting the skip.
-    /// </summary>
-    public string? UnsupportedConstraintReason { get; }
 
     // Tracks (libraryPath, descriptorSymbol) pairs that have already had their cached
     // descriptor + witness-table helpers emitted into <see cref="RawCodeBlocks"/>, so
@@ -103,15 +88,11 @@ public class PInvokeHelperContext
     /// <param name="genericTypeParameters">The generic type parameter names (T0, T1, etc.).</param>
     /// <param name="pwtEntries">Pre-flattened PWT entries (or empty for unconstrained generics).</param>
     /// <param name="exceedsRegisterThreshold">Set when (metadata + PWT) > 3 — handler must skip.</param>
-    /// <param name="hasUnsupportedConstraint">Set when a constraint can't be projected at all.</param>
-    /// <param name="unsupportedConstraintReason">Human-readable diagnostic for the skip.</param>
     public PInvokeHelperContext(
         string typeName,
         IReadOnlyList<string> genericTypeParameters,
         IReadOnlyList<HelperPwtEntry>? pwtEntries = null,
-        bool exceedsRegisterThreshold = false,
-        bool hasUnsupportedConstraint = false,
-        string? unsupportedConstraintReason = null)
+        bool exceedsRegisterThreshold = false)
     {
         HelperClassName = $"{typeName}_PInvoke";
         GenericTypeParameters = genericTypeParameters;
@@ -123,8 +104,6 @@ public class PInvokeHelperContext
         PwtEntries = exceedsRegisterThreshold
             ? Array.Empty<HelperPwtEntry>()
             : (pwtEntries ?? Array.Empty<HelperPwtEntry>());
-        HasUnsupportedConstraint = hasUnsupportedConstraint;
-        UnsupportedConstraintReason = unsupportedConstraintReason;
     }
 
     /// <summary>
@@ -148,7 +127,7 @@ public class PInvokeHelperContext
             .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
-        var (entries, exceedsThreshold, unsupportedReason) =
+        var (entries, exceedsThreshold) =
             FlattenConformances(typeDecl, typeParams, typeDatabase);
 
         // Use qualified name (e.g., "Outer_Inner") to avoid helper class name collisions
@@ -157,9 +136,7 @@ public class PInvokeHelperContext
             GetQualifiedTypeName(typeDecl),
             typeParams,
             entries,
-            exceedsThreshold,
-            unsupportedReason != null,
-            unsupportedReason);
+            exceedsThreshold);
     }
 
     /// <summary>
@@ -184,7 +161,7 @@ public class PInvokeHelperContext
     /// rule: walk generic params in declaration order, and for each param walk its
     /// conformances sorted lex by ConformanceTarget.ModuleQualifiedName.
     /// </summary>
-    private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold, string? unsupportedReason)
+    private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold)
         FlattenConformances(TypeDecl typeDecl, IReadOnlyList<string> typeParams, ITypeDatabase typeDatabase)
     {
         var entries = new List<HelperPwtEntry>();
@@ -279,7 +256,7 @@ public class PInvokeHelperContext
         // validation matrix; no current library exceeds 3 metadata/PWT args.
         bool exceedsThreshold = (typeParams.Count + entries.Count) > 3;
 
-        return (entries, exceedsThreshold, null);
+        return (entries, exceedsThreshold);
     }
 
     /// <summary>
