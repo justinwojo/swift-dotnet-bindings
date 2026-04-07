@@ -17,9 +17,14 @@ namespace Swift.Runtime;
 /// <c>SwiftClassHandle&lt;T&gt;</c> directly holds the retained Swift object pointer.
 /// ReleaseHandle calls <see cref="Arc.Release"/> to decrement the ARC reference count.
 ///
-/// Finalizer-safe: <see cref="Arc.Release"/> uses <c>CallingConvention.Cdecl</c>
-/// (direct P/Invoke to swift_release), not CallConvSwift. This avoids the
-/// jit-info.c:918 assertion crash that affects CallConvSwift on Mono.
+/// Finalizer-safe: the finalizer path calls <see cref="SwiftReleaseTrampoline.Release"/>
+/// — a non-generic helper with a direct <c>[DllImport]</c> for <c>swift_release</c> —
+/// instead of going through <see cref="Arc.Release"/>. This avoids triggering lazy
+/// JIT compilation of <c>Arc.Release</c>'s managed body on the finalizer thread,
+/// which empirically crashes Mono with the <c>jit-info.c:918 `!ji->async'</c>
+/// assertion after CallConvSwift JIT state contamination. Explicit Dispose still
+/// goes through <c>Arc.Release</c> on a user thread, where the defensive
+/// double-release check is useful.
 ///
 /// Process exit safety: During process exit, finalizer-triggered Arc.Release calls are
 /// skipped to avoid crashes from Swift deinitializers running against a partially torn-down
@@ -105,16 +110,26 @@ public sealed class SwiftClassHandle<T> : SafeHandleZeroOrMinusOneIsInvalid wher
 
         try
         {
-            // Arc.Release uses CallingConvention.Cdecl (NOT CallConvSwift).
-            // This is safe from the GC finalizer thread on both Mono and NativeAOT.
-            // Deinit runs on the releasing thread — no thread affinity issue.
-            Arc.Release(handle);
+            if (_explicitDispose)
+            {
+                // Explicit Dispose runs on a user thread — safe to take the
+                // defensive Arc.Release path (with the swift_isDeallocating check).
+                Arc.Release(handle);
+            }
+            else
+            {
+                // GC finalizer thread: skip Arc.Release's managed wrapper to
+                // avoid Mono's `jit-info.c:918 !ji->async` crash. Call swift_release
+                // directly via the non-generic SwiftReleaseTrampoline. SafeHandle
+                // already guarantees ReleaseHandle is invoked at most once, so the
+                // defensive double-release check from Arc.Release is unnecessary
+                // here. See the SwiftReleaseTrampoline doc comment for details.
+                SwiftReleaseTrampoline.Release(handle);
+            }
         }
         catch
         {
             // Swallow — ReleaseHandle must not throw per SafeHandle contract.
-            // Arc.Release can throw if the object is already deallocating,
-            // which shouldn't happen in normal usage but we guard defensively.
         }
 
         handle = IntPtr.Zero;

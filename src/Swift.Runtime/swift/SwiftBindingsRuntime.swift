@@ -262,6 +262,33 @@ public func sbw_vwtDestroy(_ ptr: UnsafeMutableRawPointer, _ metadataPtr: Unsafe
     destroy(ptr, metadataPtr)
 }
 
+// MARK: - Swift Class ARC Release (Finalizer-Safe)
+
+/// Releases a Swift class reference (-1 ARC retain). Called from the .NET GC
+/// finalizer thread by `SwiftClassHandle<T>.ReleaseHandle` via
+/// `CallingConvention.Cdecl`.
+///
+/// Why this exists: calling `swift_release` directly via `[DllImport(libswiftCore)]`
+/// from the finalizer thread crashes Mono with the `jit-info.c:918 !ji->async`
+/// assertion after CallConvSwift JIT state contamination — even when the C# side
+/// uses a non-generic helper class with no managed body. The crash happens
+/// inside the P/Invoke marshalling stub itself.
+///
+/// Routing the call through this Swift `@_cdecl` wrapper sidesteps the issue:
+/// the C# side only ever crosses one Cdecl boundary (into our own loaded
+/// `SwiftBindingsRuntime.dylib`), and the Swift wrapper makes the actual
+/// `swift_release` call from inside Swift, where Mono's JIT contamination has
+/// no effect.
+///
+/// This is the same trick `SBW_VWTDestroy` uses for Swift struct/value-type
+/// VWT destruction on the finalizer thread.
+///
+/// - Parameter ptr: A non-null Swift class object pointer carrying a +1 retain.
+@_cdecl("SBW_SwiftRelease")
+public func sbw_swiftRelease(_ ptr: UnsafeMutableRawPointer) {
+    Unmanaged<AnyObject>.fromOpaque(ptr).release()
+}
+
 // MARK: - CoreGraphics Type Metadata
 //
 // CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors

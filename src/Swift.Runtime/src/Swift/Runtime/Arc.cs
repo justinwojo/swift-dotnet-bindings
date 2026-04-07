@@ -217,3 +217,41 @@ public static class Arc
         return swift_unownedRetainCount(p);
     }
 }
+
+/// <summary>
+/// Non-generic finalizer-safe trampoline for releasing Swift class references.
+/// Mirrors the <c>VwtDestroyTrampoline</c> pattern used by <c>SwiftSafeHandle</c>.
+///
+/// <para>Why this exists:</para>
+/// <para>
+/// <c>SwiftClassHandle&lt;T&gt;.ReleaseHandle</c> runs on the GC finalizer thread.
+/// Calling <c>swift_release</c> directly from C# (whether via <c>Arc.Release</c>
+/// or via a direct <c>[DllImport(libswiftCore)]</c> in a non-generic helper)
+/// crashes Mono with the <c>jit-info.c:918 `!ji->async'</c> assertion after
+/// CallConvSwift JIT state contamination — observed empirically on the iOS
+/// Simulator in <c>EnumMarshallingTests</c> and <c>ExistentialBoxingTests</c>,
+/// and reproducible from any test class that uses CallConvSwift heavily.
+/// The crash fires inside the P/Invoke marshalling stub itself, even when the
+/// C# side has no managed body.
+/// </para>
+/// <para>
+/// The fix is to route the call through a Swift <c>@_cdecl</c> wrapper
+/// (<c>SBW_SwiftRelease</c>) we control: the C# side only crosses one Cdecl
+/// boundary into our own loaded <c>SwiftBindingsRuntime.dylib</c>, and the
+/// Swift wrapper performs the actual <c>swift_release</c> call from inside
+/// Swift where Mono's JIT contamination has no effect. This is the exact same
+/// trick <c>SBW_VWTDestroy</c> uses for Swift struct VWT destruction on the
+/// finalizer thread, and the only path empirically known to be finalizer-safe
+/// on Mono.
+/// </para>
+/// <para>
+/// The <c>swift_isDeallocating</c> defensive check from <c>Arc.Release</c> is
+/// intentionally skipped here: SafeHandle guarantees ReleaseHandle runs at most
+/// once per handle, so a double-release cannot happen on this path.
+/// </para>
+/// </summary>
+internal static class SwiftReleaseTrampoline
+{
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_SwiftRelease")]
+    internal static extern void Release(IntPtr p);
+}
