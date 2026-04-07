@@ -45,13 +45,21 @@ public static class SwiftFrameworkResolver
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.Data>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URL>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URLRequest>();
-        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.URLResponse>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.AnyHashable>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.AnyType>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.Hasher>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.DispatchQueue>();
-        InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.OperationQueue>();
         InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<Swift.CIContext>();
+        // Removed Swift.* hand-rolled wrappers for ObjC-imported classes (URLResponse,
+        // UIImage, NSImage, NSColor, OperationQueue): they imported `$sSo<ObjCClassName>...`
+        // mangled symbols from Swift overlay libraries, but Swift never emits dispatch
+        // thunks for ObjC-imported class members — those properties dispatch via
+        // objc_msgSend at the call site, not via a Swift function. The helper classes
+        // threw `EntryPointNotFoundException` on every method call. The TypeDB now maps
+        // these types directly to the .NET iOS / Xamarin ObjC bindings
+        // (Foundation.NSUrlResponse, UIKit.UIImage, AppKit.NSImage, AppKit.NSColor,
+        // Foundation.NSOperationQueue), which dispatch correctly through the ObjC runtime.
+        // CIContext still flows through Swift.CIContext pending a dedicated remap session.
     }
 
     /// <summary>

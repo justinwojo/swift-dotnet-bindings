@@ -42,21 +42,35 @@ Skipping property 'url' of type 'Optional' from module 'Swift'
 | Swift Type | Status | C# Mapping | Module |
 |------------|--------|------------|--------|
 | `URL` | DONE | `Swift.URL` with `SwiftSafeHandle` | Foundation |
-| `OperationQueue` | DONE | `Swift.OperationQueue` | Foundation |
+| `OperationQueue` | ~~DONE~~ **REMOVED 2026-04** | now `Foundation.NSOperationQueue` (ObjC-bridged) | Foundation |
 | `DispatchQueue` | DONE | `Swift.DispatchQueue` | Dispatch |
-| `NSImage` | DONE | `Swift.NSImage` | AppKit |
-| `NSColor` | DONE | `Swift.NSColor` | AppKit |
-| `CIContext` | DONE | `Swift.CIContext` | CoreImage |
-| `UIImage` | DONE | `Swift.UIImage` | UIKit |
+| `NSImage` | ~~DONE~~ **REMOVED 2026-04** | now `AppKit.NSImage` (ObjC-bridged) | AppKit |
+| `NSColor` | ~~DONE~~ **REMOVED 2026-04** | now `AppKit.NSColor` (ObjC-bridged) | AppKit |
+| `CIContext` | DONE | `Swift.CIContext` (pending ObjC remap) | CoreImage |
+| `UIImage` | ~~DONE~~ **REMOVED 2026-04** | now `UIKit.UIImage` (ObjC-bridged) | UIKit |
 | `URLRequest` | DONE | `Swift.URLRequest` with `SwiftSafeHandle` | Foundation |
-| `URLResponse` | DONE | `Swift.URLResponse` with `SwiftSafeHandle` | Foundation |
+| `URLResponse` | ~~DONE~~ **REMOVED 2026-04** | now `Foundation.NSUrlResponse` (ObjC-bridged) | Foundation |
 | `Hasher` | DONE | `Swift.Hasher` with `SwiftSafeHandle` | Swift |
 | `UIColor` | DONE | `UIKit.UIColor` (ObjC-bridged) | UIKit |
 | `URLSession` | DONE | `Foundation.NSUrlSession` (ObjC-bridged) | Foundation |
 | `URLSessionConfiguration` | DONE | `Foundation.NSUrlSessionConfiguration` (ObjC-bridged) | Foundation |
 | `URLCache` | DONE | `Foundation.NSUrlCache` (ObjC-bridged) | Foundation |
 
-> **Note**: These `Swift.*` wrapper types work but create UX friction. Section 2.8 describes the planned refactoring to instead map these Objective-C types to the existing .NET iOS bindings (e.g., `UIKit.UIImage` instead of `Swift.UIImage`). This will allow seamless interop with standard .NET iOS code.
+> **Note**: The original `Swift.*` wrapper types listed above as **REMOVED** never actually
+> worked at runtime. They imported `$sSo<ObjCClassName>...` mangled symbols from Swift
+> overlay libraries, but Swift never emits dispatch thunks for ObjC-imported class members —
+> those properties dispatch via `objc_msgSend` at the call site, not via a Swift function.
+> Every method call on those wrappers threw `EntryPointNotFoundException`. They survived
+> in the codebase because no test or validation library exercised them. Section 2.8 (the
+> planned refactoring to .NET iOS bindings) was completed for these types in 2026-04, and
+> the now-broken hand-rolled wrappers were deleted in the same change. The .NET iOS bindings
+> (`UIKit.UIImage`, `Foundation.NSUrlResponse`, etc.) dispatch correctly through the ObjC
+> runtime and are what every generator path uses.
+>
+> `Swift.CIContext` is the one remaining hand-rolled wrapper from this list. It is broken
+> for the same reason but its TypeDB entry has not yet been remapped to `CoreImage.CIContext`.
+> Removing it requires a dedicated session that adds the remap, validates that no test
+> regressions appear, and updates `CoreImageDatabase.xml` accordingly.
 
 **Files added**:
 - `src/Swift.Runtime/src/Swift/OperationQueue.cs`

@@ -94,6 +94,7 @@ Remaining:
 | **Property wrappers / KeyPaths** | Low frequency in public API surfaces |
 | **Static protocol constructors** | Init witness dispatch needs allocation infrastructure |
 | **Weak/unowned references** | 4 test skips. Requires ownership tracking infrastructure |
+| **Remap `Swift.CIContext` to `CoreImage.CIContext`** | Last hand-rolled `Swift.*` ObjC wrapper. Imports `$sSo9CIContextCABycfC` from CoreImage which doesn't exist as a Swift dispatch thunk (CIContext is an ObjC class — `init` dispatches via `+[CIContext new]`/`objc_msgSend`, not via Swift). Same root cause as the 5 wrappers deleted in 2026-04. Cleanup needs: (1) delete `src/Swift.Runtime/src/Swift/CIContext.cs`, (2) remove `Swift.CIContext` registration in `SwiftFrameworkResolver.cs`, (3) update `CoreImageDatabase.xml` to remap `CIContext` → `CoreImage.CIContext` with `objcBridged="true"`, (4) verify validation gates remain green (no test currently exercises CIContext, so blast radius should be zero). |
 
 ---
 
