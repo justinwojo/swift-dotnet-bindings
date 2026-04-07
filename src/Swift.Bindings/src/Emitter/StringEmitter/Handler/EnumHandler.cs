@@ -95,6 +95,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Create P/Invoke helper context for generic enums (to avoid CS7042).
+            // Pre-flatten conformances against the type database so the metadata-accessor
+            // emitter can render the correct PWT plumbing.
+            //
+            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
+            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
+            // (ReportCollector.cs:106), so a skipped generic enum would otherwise be
+            // silently miscounted as emitted.
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl, env.TypeDatabase);
+            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
+                    enumDecl, ownPInvokeContext, csWriter, _logger))
+                return;
+
             ReportCollector.RecordTypeEmitted(enumDecl);
 
             // Caseless enums (zero cases) → static class.
@@ -138,9 +151,6 @@ namespace BindingsGeneration
 
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(enumDecl, env.TypeDatabase);
-
-            // Create P/Invoke helper context for generic enums (to avoid CS7042).
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(enumDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
             // Compute property renames to resolve property/nested-type name collisions
@@ -186,23 +196,18 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
                 if (ownPInvokeContext != null)
                 {
-                    // Generic enums: use helper class metadata accessor to avoid Mono JIT crash
-                    // (mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericEnum<T>>).
+                    // Generic enums: call the helper class metadata accessor directly with
+                    // per-param metadata (and per-conformance witness tables for constrained
+                    // generics). SwiftObjectHelper<GenericEnum<T>> in a static field
+                    // initializer crashes Mono's generic sharing
+                    // (mini-generic-sharing.c:2759) because the nested generic instantiation
+                    // cannot be compiled without the type argument's metadata.
                     //
-                    // LAZY initialization: the helper PInvoke is the constrained-generic Swift
-                    // metadata accessor (e.g. $s..StorageOMa). For protocol-constrained generic
-                    // params, that accessor expects an additional witness-table argument that
-                    // the generator does NOT yet emit, causing a Swift PAC/SIGTRAP crash deep
-                    // inside libswiftCore the moment the call is made. By lazily fetching the
-                    // size on first use (instead of in the field initializer), the cctor stays
-                    // safe and types like Lottie's `ValueProviderStorage<LottieVector3D>` no
-                    // longer abort the host process at module-init time. Direct user-code
-                    // access still triggers the underlying bug — that's a separate fix to the
-                    // metadata-accessor PInvoke emission.
-                    var metadataArgs = string.Join(", ", ownPInvokeContext.GetMetadataArgumentList());
-                    csWriter.WriteLine($"private static readonly global::System.Lazy<nuint> _payloadSizeLazy = new global::System.Lazy<nuint>(() => {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size);");
-                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-                    csWriter.WriteLine("static nuint _payloadSize => _payloadSizeLazy.Value;");
+                    // Note: when (num_metadata + num_pwts) > 3, TypeMetadataAccessorSkipGate
+                    // already skips the type before we reach this point, so PwtEntries is
+                    // always populated correctly here.
+                    var metadataArgs = string.Join(", ", ownPInvokeContext.GetTypeMetadataAccessorArgumentList());
+                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
                 }
                 else
                 {

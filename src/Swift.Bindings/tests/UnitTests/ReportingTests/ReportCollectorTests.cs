@@ -13,6 +13,62 @@ namespace BindingsGeneration.Tests;
 public class ReportCollectorTests
 {
     [Fact]
+    public void RecordTypeSkipped_AfterRecordTypeEmitted_IsSilentlySuppressed()
+    {
+        // Codex P2 regression: ReportCollector.RecordTypeSkipped silently bails out when
+        // the type is already in EmittedTypeKeys (RecordTypeEmitted -> ... -> RecordTypeSkipped
+        // is a no-op). Handlers therefore MUST call any "skip gate" check BEFORE
+        // RecordTypeEmitted, otherwise skipped types are double-counted as emitted and
+        // never make it onto the SkippedItems list.
+        //
+        // This test pins the suppression behaviour so any future change to RecordTypeSkipped
+        // is forced to also revisit handler ordering. The fix on the handler side lives in
+        // ClassHandler / FrozenStructHandler / NonFrozenStructHandler / EnumHandler, where
+        // TypeMetadataAccessorSkipGate.ShouldSkip now runs before RecordTypeEmitted.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeEmitted(classDecl);
+        // Subsequent skip is suppressed because the type is already in EmittedTypeKeys.
+        ReportCollector.RecordTypeSkipped(classDecl, SkipReason.UnsupportedType, "should be suppressed");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(1, report!.EmittedTypes);
+        Assert.Equal(0, report.SkippedTypes);
+        Assert.Empty(report.SkippedItems);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordTypeSkipped_BeforeRecordTypeEmitted_TakesPrecedence()
+    {
+        // Mirror of the test above: when ShouldSkip runs FIRST (the new handler ordering),
+        // the skip is recorded correctly and the subsequent RecordTypeEmitted call is itself
+        // suppressed by the skip-set. This is the path the handlers should hit after the
+        // Codex P2 fix; if a handler regresses to recording emit before checking the gate,
+        // the test above will fire but this one will keep passing — the asymmetry is the
+        // signal that a regression is in the handler, not in the collector.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordTypeSkipped(classDecl, SkipReason.UnsupportedType, "skip wins");
+        // Subsequent RecordTypeEmitted is suppressed because SkippedTypeKeys already contains the key.
+        ReportCollector.RecordTypeEmitted(classDecl);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(0, report!.EmittedTypes);
+        Assert.Equal(1, report.SkippedTypes);
+        Assert.Single(report.SkippedItems);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void StartAndComplete_ComputesTotalsAndRecordedCounts()
     {
         var moduleDecl = CreateModuleDecl();

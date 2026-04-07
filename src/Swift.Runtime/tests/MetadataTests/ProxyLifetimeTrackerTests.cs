@@ -19,6 +19,7 @@ namespace Swift.Runtime.Tests;
 /// (or the existing <c>SwiftClassHandle</c> tests) would race on the flag and produce
 /// non-deterministic failures.
 /// </remarks>
+[Collection(SwiftExitGuardCollection.Name)]
 public class ProxyLifetimeTrackerTests
 {
     // Mock "handle" values — never dereferenced. The process-exit guard prevents

@@ -180,4 +180,16 @@ public record TypeRecord
     /// When null, functions returning this type cannot use native thunks and must fall back to @_cdecl.
     /// </summary>
     public string? AbiFieldLayout { get; init; }
+
+    /// <summary>
+    /// For Protocol kind: the mangled symbol of the protocol descriptor (e.g.
+    /// <c>$s6Lottie16AnyInterpolatableMp</c>). Null for non-protocol kinds.
+    /// Used by the type-metadata-accessor emitter to construct dynamic
+    /// witness-table lookups for Self-requirement / associated-type protocols
+    /// that cannot be expressed as a static C# interface — when the constraint
+    /// can't be projected we still need to pass a runtime witness table to the
+    /// Swift metadata accessor, so we look up the descriptor by symbol and call
+    /// <c>swift_conformsToProtocol</c> at runtime.
+    /// </summary>
+    public string? ProtocolDescriptorSymbol { get; init; }
 }

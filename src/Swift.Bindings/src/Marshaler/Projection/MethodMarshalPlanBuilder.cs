@@ -876,7 +876,13 @@ internal class MethodMarshalPlanBuilder
                     // Swift allocating init ABI: (init_params, T_metadata..., Type<T>.Type metatype).
                     // Use the helper class metadata accessor to get the specialized metatype
                     // (avoids SwiftObjectHelper<Wrapper<T>> which crashes Mono's generic sharing).
-                    var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetMetadataArgumentList());
+                    //
+                    // The metadata accessor PInvoke now also takes PWT args for any
+                    // protocol-constrained generic params — see
+                    // src/docs/constrained-generic-metadata-witness-tables.md. Use the
+                    // type-metadata-accessor argument list (NOT the bare metadata list)
+                    // so the call site stays in sync with the P/Invoke declaration.
+                    var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                     metadataArgs = $"{_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {perParamMetadata}).Handle";
                 }
             }

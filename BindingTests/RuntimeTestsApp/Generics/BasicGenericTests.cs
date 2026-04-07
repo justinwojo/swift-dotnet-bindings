@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -384,6 +385,53 @@ public class BasicGenericTests : TestBase
         AssertNotNull(entity, "TypedEntity created");
         AssertEqual(5, entity.GetEntityId(), "Inherited GetEntityId()");
         TestLogger.Info("TypedEntity creation + inherited method passed");
+    }
+
+    #endregion
+
+    #region Constrained-generic type-metadata accessor (PWT) coverage
+    // Guards the fix in src/docs/constrained-generic-metadata-witness-tables.md.
+    // The type-level metadata accessor for a constrained-generic type must pass
+    // a witness-table pointer for each conformance, in declaration-grouped /
+    // lex-sorted order. Before the fix the C# call site only passed type
+    // metadata, leaving uninitialized register state where Swift's
+    // __swift_instantiateGenericMetadata expected a PWT — on arm64e that
+    // produced a PAC trap inside MetadataCacheKey::operator==.
+    //
+    // The simplest valid test is to invoke the metadata accessor itself via
+    // SwiftObjectHelper<T>.GetTypeMetadata() and assert a non-zero handle and
+    // non-zero size are returned. Both prove that:
+    //   1. The PInvoke signature now declares the PWT parameter, and
+    //   2. The runtime call to __swift_instantiateGenericMetadata received a
+    //      valid (non-uninitialized) witness-table pointer.
+    //
+    // Constrained generic *class* coverage is already provided by the existing
+    // ConstrainedBox<T> tests (TestConstrainedBoxCreation /
+    // TestConstrainedBoxGetDescription) — the constructor SBW wrapper for that
+    // type calls PInvoke_getMetadata with the PWT, which would fail closed if
+    // the fix were missing. The tests below add equivalent coverage for the
+    // *enum* and *non-frozen struct* code paths.
+
+    public void TestConstrainedDescribableEnumMetadata()
+    {
+        // Exercises EnumHandler.cs's metadata-accessor PInvoke + _payloadSizeLazy
+        // for a constrained generic enum (DescribableBox<T> where T: Describable).
+        var metadata = SwiftObjectHelper<DescribableBox<SimpleItem>>.GetTypeMetadata();
+        AssertTrue(metadata.Handle != IntPtr.Zero, "DescribableBox<SimpleItem> metadata handle is non-zero");
+        AssertTrue(metadata.Size > 0, "DescribableBox<SimpleItem> metadata size is non-zero");
+        TestLogger.Info($"DescribableBox<SimpleItem> metadata: handle=0x{metadata.Handle:X}, size={metadata.Size}");
+    }
+
+    public void TestConstrainedDescribableHolderMetadata()
+    {
+        // Exercises NonFrozenStructHandler.cs's metadata-accessor PInvoke +
+        // _payloadSizeLazy for a constrained generic struct
+        // (DescribableHolder<T> where T: Describable). This is the precise code
+        // path that originally PAC-trapped Lottie on NativeAOT/arm64e.
+        var metadata = SwiftObjectHelper<DescribableHolder<SimpleItem>>.GetTypeMetadata();
+        AssertTrue(metadata.Handle != IntPtr.Zero, "DescribableHolder<SimpleItem> metadata handle is non-zero");
+        AssertTrue(metadata.Size > 0, "DescribableHolder<SimpleItem> metadata size is non-zero");
+        TestLogger.Info($"DescribableHolder<SimpleItem> metadata: handle=0x{metadata.Handle:X}, size={metadata.Size}");
     }
 
     #endregion

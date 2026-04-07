@@ -75,7 +75,12 @@ namespace BindingsGeneration
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             if (_pinvokeHelperContext != null)
             {
-                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetMetadataArgumentList());
+                // Type metadata accessor: Swift's metadata accessor for a generic type expects
+                // metadata + witness tables for any protocol-constrained generic params (per
+                // runtime-metadata.md). Use the type-metadata-accessor-specific arg/param list
+                // so the right PWTs flow through. Method/case/operator P/Invokes have their
+                // own conformance handling and continue to use GetMetadataArgumentList().
+                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
                 _pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
@@ -86,7 +91,7 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "TypeMetadataRequest request",
                     IsAsync = false,
-                    MetadataParameters = _pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    MetadataParameters = _pinvokeHelperContext.GetTypeMetadataAccessorParameterDeclarations()
                 });
                 return;
             }

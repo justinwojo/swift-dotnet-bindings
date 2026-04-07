@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Swift.Runtime;
@@ -66,6 +67,33 @@ public static class SwiftConformance
 
         witnessTable = null;
         return false;
+    }
+
+    /// <summary>
+    /// Returns the witness table for a type's conformance to a protocol, throwing
+    /// when the conformance does not exist. Used by generated metadata-accessor
+    /// call sites for generic types whose constraint protocols cannot be projected
+    /// as static C# interfaces (e.g., protocols with Self requirements or
+    /// associated types) — the Swift type metadata accessor still requires a
+    /// witness table pointer at runtime, even when no static C# binding exists.
+    /// </summary>
+    /// <param name="typeMetadata">The type metadata for the Swift type to check.</param>
+    /// <param name="protocolDescriptor">The protocol descriptor for the protocol to check against.</param>
+    /// <returns>The protocol witness table for the type's conformance to the protocol.</returns>
+    /// <exception cref="SwiftRuntimeException">
+    /// Thrown when the type does not conform to the protocol or when the inputs are invalid.
+    /// </exception>
+    public static ProtocolWitnessTable GetWitnessTableOrThrow(
+        TypeMetadata typeMetadata,
+        ProtocolDescriptor protocolDescriptor)
+    {
+        if (!TryGetWitnessTable(typeMetadata, protocolDescriptor, out var witnessTable) || witnessTable is null)
+        {
+            throw new SwiftRuntimeException(
+                $"Type does not conform to required protocol " +
+                $"(metadata: 0x{typeMetadata.Handle:X}, descriptor: 0x{Unsafe.As<ProtocolDescriptor, IntPtr>(ref protocolDescriptor):X}).");
+        }
+        return witnessTable.Value;
     }
 
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]

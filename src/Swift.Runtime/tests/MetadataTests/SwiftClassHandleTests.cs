@@ -16,6 +16,13 @@ namespace Swift.Runtime.Tests;
 /// These are unit tests that verify the handle's behavior using mock pointers.
 /// Real Swift object ARC verification happens in BindingTests runtime tests.
 /// </summary>
+/// <remarks>
+/// Uses xunit collection serialization because many of these tests toggle
+/// <c>SwiftExitGuard.SetProcessExitingForTest</c>, a process-global flag. Parallel
+/// execution with <c>ProxyLifetimeTrackerTests</c> (or with each other) would race
+/// on the flag and produce non-deterministic failures — already observed in CI.
+/// </remarks>
+[Collection(SwiftExitGuardCollection.Name)]
 public class SwiftClassHandleTests
 {
     /// <summary>

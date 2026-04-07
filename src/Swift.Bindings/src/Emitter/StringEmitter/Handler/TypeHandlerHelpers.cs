@@ -80,8 +80,11 @@ namespace BindingsGeneration
 
             if (pinvokeHelperContext != null)
             {
-                // For generic types, call the helper class with type metadata arguments
-                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
+                // Type metadata accessor: Swift's metadata accessor for a generic type expects
+                // metadata + witness tables for any protocol-constrained generic params (per
+                // runtime-metadata.md). Use the type-metadata-accessor-specific arg/param list
+                // so the right PWTs flow through.
+                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
@@ -94,7 +97,7 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "TypeMetadataRequest request",
                     IsAsync = false,
-                    MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    MetadataParameters = pinvokeHelperContext.GetTypeMetadataAccessorParameterDeclarations()
                 };
                 pinvokeHelperContext.AddDeclaration(declaration);
             }

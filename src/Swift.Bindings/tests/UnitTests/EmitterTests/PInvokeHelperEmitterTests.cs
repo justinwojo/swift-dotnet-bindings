@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -462,6 +464,642 @@ public class PInvokeHelperEmitterTests
             MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa"
         };
     }
+
+    #endregion
+
+    #region Constrained-generic metadata accessor tests
+    // These tests cover the conformance pre-flattening introduced in
+    // src/docs/constrained-generic-metadata-witness-tables.md. They run against
+    // every type-decl shape that the four type handlers feed into
+    // PInvokeHelperContext.CreateIfGeneric(decl, typeDb): generic enum, generic
+    // frozen struct, generic non-frozen struct, generic class. Test names use
+    // the form `Emit_Generic{Kind}_*` so each handler path is exercised at least
+    // once for the most important behaviours (single resolvable, single
+    // self-requirement, lex order, dedup, skip-gate).
+
+    [Fact]
+    public void Emit_GenericEnum_SingleResolvableUserConstraint_EmitsResolvableArg()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Box",
+            constraints: new[] { ("TestModule", "Describable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Describable", "$s10TestModule11DescribableMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+        Assert.Single(ctx.PwtEntries);
+        var entry = ctx.PwtEntries[0];
+        Assert.True(entry.IsResolvable);
+        Assert.Equal("IDescribable", entry.ResolvableInterfaceName);
+
+        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
+        Assert.Equal(2, parameters.Count);
+        Assert.Equal("IntPtr tMetadata", parameters[0]);
+        Assert.Equal("IntPtr tDescribablePWT", parameters[1]);
+
+        var args = ctx.GetTypeMetadataAccessorArgumentList();
+        Assert.Equal("SwiftObjectHelper<T>.GetTypeMetadata().Handle", args[0]);
+        Assert.Equal(
+            "ProtocolWitnessTable.GetOrThrowAuto<T, IDescribable>().Handle",
+            args[1]);
+    }
+
+    [Fact]
+    public void Emit_GenericFrozenStruct_SingleResolvableSwiftStdlibConstraint_UsesISwiftPrefix()
+    {
+        // Hashable is a Swift stdlib protocol — NameProvider.GetInterfaceName
+        // applies the ISwift prefix only when moduleName == "Swift". This test
+        // pins the ISwift mapping so future NameProvider edits don't silently
+        // re-route Hashable through the user-protocol path.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateConstrainedGenericFrozenStruct(
+            moduleDecl,
+            "Cache",
+            constraints: new[] { ("Swift", "Hashable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("Swift", "Hashable", "$ss8HashableMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb)!;
+
+        Assert.Single(ctx.PwtEntries);
+        Assert.Equal("ISwiftHashable", ctx.PwtEntries[0].ResolvableInterfaceName);
+
+        var args = ctx.GetTypeMetadataAccessorArgumentList();
+        Assert.Equal(
+            "ProtocolWitnessTable.GetOrThrowAuto<T, ISwiftHashable>().Handle",
+            args[1]);
+    }
+
+    [Fact]
+    public void Emit_GenericNonFrozenStruct_MultipleConstraintsLexOrder_OrderedAlphabetically()
+    {
+        // runtime-metadata.md: PWTs for a single generic param are emitted in
+        // lexicographic order of the protocol's module-qualified name. We
+        // intentionally feed the conformances in REVERSE alphabetical order so
+        // any test failure is unambiguous (the natural list order would otherwise
+        // also pass).
+        //
+        // Keep the total at 1 metadata + 2 PWT = 3 args (AT the register threshold,
+        // not exceeding) so PwtEntries is not cleared by the legacy fallback.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateConstrainedGenericNonFrozenStruct(
+            moduleDecl,
+            "Holder",
+            constraints: new[]
+            {
+                ("TestModule", "Zeta"),
+                ("TestModule", "Alpha"),
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Zeta", "$s10TestModule4ZetaMp")
+            .WithProtocol("TestModule", "Alpha", "$s10TestModule5AlphaMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb)!;
+
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+        Assert.Equal(2, ctx.PwtEntries.Count);
+        Assert.Equal(
+            new[] { "Alpha", "Zeta" },
+            ctx.PwtEntries.Select(e => e.ProtocolName).ToArray());
+    }
+
+    [Fact]
+    public void Emit_GenericClass_MultipleParamsAndConstraints_FollowsRuntimeMetadataOrdering()
+    {
+        // runtime-metadata.md ordering: type metadata for every generic param
+        // first (declaration order), THEN PWT args grouped by generic param,
+        // sorted lex by protocol module-qualified name within each param.
+        // Use 1 param × 3 conformances = 1 metadata + 3 PWT = 4 args (still
+        // exceeds register threshold) so we can keep the cross-conformance
+        // ordering test below — except we need to drop one to stay UNDER
+        // threshold so the entries aren't cleared by the legacy fallback.
+        // Use 1 param × 2 conformances + 1 param × 1 conformance.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "Pair",
+            paramConstraints: new[]
+            {
+                new[] { ("TestModule", "Beta"), ("TestModule", "Alpha") },
+                new[] { ("TestModule", "Carrier") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Beta", "$s10TestModule4BetaMp")
+            .WithProtocol("TestModule", "Alpha", "$s10TestModule5AlphaMp")
+            .WithProtocol("TestModule", "Carrier", "$s10TestModule7CarrierMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+
+        // Total args = 2 metadata + 3 PWT = 5 → exceeds the 3-arg register threshold.
+        // TypeMetadataAccessorSkipGate skips such types entirely; PwtEntries is still
+        // cleared defensively in the constructor so any unintended downstream consumer
+        // sees an empty list.
+        Assert.True(ctx.ExceedsRegisterArgumentThreshold);
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.Empty(ctx.PwtEntries);
+    }
+
+    [Fact]
+    public void Emit_GenericClass_UnderThresholdConstraintsArePreservedInOrder()
+    {
+        // Same as above but with a single conformance per param so total is
+        // 2 metadata + 2 PWT = 4 → still exceeds. Use 1 metadata + 2 PWT
+        // (single param, two conformances) to stay UNDER threshold and
+        // observe the lex-ordering by ProtocolModuleQualifiedName.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Box",
+            constraints: new[] { ("TestModule", "Beta"), ("TestModule", "Alpha") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Beta", "$s10TestModule4BetaMp")
+            .WithProtocol("TestModule", "Alpha", "$s10TestModule5AlphaMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        // 1 metadata + 2 PWT = 3 args → at the threshold (NOT exceeding).
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+        Assert.Equal(2, ctx.PwtEntries.Count);
+        Assert.Equal("Alpha", ctx.PwtEntries[0].ProtocolName);
+        Assert.Equal("Beta", ctx.PwtEntries[1].ProtocolName);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_SelfRequirementConstraint_UsesDynamicHelper()
+    {
+        // Protocols with HasSelfRequirement (or HasAssociatedTypes) cannot be
+        // expressed as a static C# interface bound. The pre-flattener must mark
+        // them as unresolvable and emit a runtime descriptor + witness-table
+        // helper into the helper class.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Wrapper",
+            constraints: new[] { ("TestModule", "AnyInterpolatable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol(
+                "TestModule",
+                "AnyInterpolatable",
+                "$s10TestModule17AnyInterpolatableMp",
+                flags: TypeRecordFlags.HasSelfRequirement);
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.Single(ctx.PwtEntries);
+        var entry = ctx.PwtEntries[0];
+        Assert.False(entry.IsResolvable);
+        Assert.Equal("$s10TestModule17AnyInterpolatableMp", entry.DescriptorSymbol);
+        Assert.Equal("/tmp/TestModule.dylib", entry.LibraryPath);
+
+        // Triggers EmitDynamicPwtHelperIfNeeded — the call site expression must
+        // route through the dynamic helper method on the P/Invoke class.
+        var args = ctx.GetTypeMetadataAccessorArgumentList();
+        Assert.Equal(2, args.Count);
+        Assert.Equal(
+            "Wrapper_PInvoke.GetAnyInterpolatablePWT(SwiftObjectHelper<T>.GetTypeMetadata()).Handle",
+            args[1]);
+
+        // The helper class must contain exactly one cached descriptor + one cache
+        // + one accessor method.
+        Assert.Single(ctx.RawCodeBlocks);
+        var block = ctx.RawCodeBlocks[0];
+        Assert.Contains("_anyInterpolatableDescriptor", block);
+        Assert.Contains("_anyInterpolatableWitnessTableCache", block);
+        Assert.Contains("GetAnyInterpolatablePWT", block);
+        Assert.Contains("$s10TestModule17AnyInterpolatableMp", block);
+        Assert.Contains("/tmp/TestModule.dylib", block);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_TwoSameNamedProtocolsFromDifferentModules_EmitsDistinctIdentifiers()
+    {
+        // Regression: when two protocols with the same simple name come from
+        // different modules (e.g. ModuleA.Syncable + ModuleB.Syncable on the
+        // same constrained-generic type — Swift permits `<T: A.Syncable & B.Syncable>`),
+        // the emitted PWT parameter names, helper field names, and dynamic
+        // accessor method names must be distinct or the generated C# fails to
+        // compile with duplicate-member errors. The discriminator only kicks in
+        // when there's an actual collision so the unique-name case keeps stable
+        // identifiers.
+        //
+        // Use the single-generic-param shape so the total arg count stays under
+        // the register-passing threshold (1 metadata + 2 PWT = 3, at the limit).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Bridge",
+            constraints: new[] { ("ModuleA", "Syncable"), ("ModuleB", "Syncable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol(
+                "ModuleA",
+                "Syncable",
+                "$s7ModuleA8SyncableMp",
+                flags: TypeRecordFlags.HasSelfRequirement)
+            .WithProtocol(
+                "ModuleB",
+                "Syncable",
+                "$s7ModuleB8SyncableMp",
+                flags: TypeRecordFlags.HasSelfRequirement);
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.Equal(2, ctx.PwtEntries.Count);
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+
+        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
+        // 1 metadata + 2 PWT = 3 entries, with both PWT param names containing
+        // a discriminator suffix so they don't collide on `Syncable`.
+        Assert.Equal(3, parameters.Count);
+        var pwtParams = parameters.Skip(1).ToList();
+        Assert.Equal(2, pwtParams.Distinct().Count());
+        Assert.All(pwtParams, p => Assert.Contains("Syncable", p));
+        Assert.All(pwtParams, p => Assert.Contains("PWT", p));
+
+        // Trigger helper emission for both call-site args. Two distinct
+        // descriptor + accessor blocks must be produced (one per protocol).
+        var args = ctx.GetTypeMetadataAccessorArgumentList();
+        Assert.Equal(3, args.Count);
+        Assert.Equal(2, ctx.RawCodeBlocks.Count);
+
+        // The two helper accessor methods must have distinct names so the
+        // generated helper class compiles.
+        var helperMethodLines = ctx.RawCodeBlocks
+            .Select(b => b.Split('\n').First(line => line.Contains("ProtocolWitnessTable Get")))
+            .ToList();
+        Assert.Equal(2, helperMethodLines.Count);
+        Assert.NotEqual(helperMethodLines[0], helperMethodLines[1]);
+
+        // Same for the descriptor and cache fields.
+        var descriptorFieldLines = ctx.RawCodeBlocks
+            .Select(b => b.Split('\n').First(line => line.Contains("Descriptor =")))
+            .ToList();
+        Assert.Equal(2, descriptorFieldLines.Count);
+        Assert.NotEqual(descriptorFieldLines[0], descriptorFieldLines[1]);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_DescriptorCacheDeduplication_OneHelperPerProtocol()
+    {
+        // When the same unresolvable protocol descriptor appears in multiple
+        // PwtEntries (e.g. via two distinct generic params constrained on the
+        // same protocol), only ONE descriptor field + cache + accessor should
+        // be emitted into RawCodeBlocks (deduped by lib + symbol).
+        //
+        // The natural shape — `Foo<T: AnyInterpolatable, U: AnyInterpolatable>` —
+        // has 2 metadata + 2 PWT = 4 args which exceeds the register-passing
+        // threshold and causes the legacy fallback to clear PwtEntries before
+        // the dedup logic ever runs. Construct a context directly so the
+        // dedup behaviour can be observed in isolation.
+        var entries = new List<HelperPwtEntry>
+        {
+            new HelperPwtEntry(
+                GenericParamIndex: 0,
+                GenericParamCsName: "T",
+                ProtocolName: "AnyInterpolatable",
+                ProtocolModuleQualifiedName: "TestModule.AnyInterpolatable",
+                IsResolvable: false,
+                ResolvableInterfaceName: null,
+                DescriptorSymbol: "$s10TestModule17AnyInterpolatableMp",
+                LibraryPath: "/tmp/TestModule.dylib"),
+            new HelperPwtEntry(
+                GenericParamIndex: 1,
+                GenericParamCsName: "U",
+                ProtocolName: "AnyInterpolatable",
+                ProtocolModuleQualifiedName: "TestModule.AnyInterpolatable",
+                IsResolvable: false,
+                ResolvableInterfaceName: null,
+                DescriptorSymbol: "$s10TestModule17AnyInterpolatableMp",
+                LibraryPath: "/tmp/TestModule.dylib"),
+        };
+        var ctx = new PInvokeHelperContext(
+            typeName: "DualWrapper",
+            genericTypeParameters: new[] { "T", "U" },
+            pwtEntries: entries,
+            exceedsRegisterThreshold: false);
+
+        Assert.Equal(2, ctx.PwtEntries.Count);
+
+        // Triggers helper emission for each call-site arg.
+        var args = ctx.GetTypeMetadataAccessorArgumentList();
+        Assert.Equal(4, args.Count);
+
+        // Even though two PWT call-site args were generated, the dynamic helper
+        // class should contain a SINGLE descriptor/cache/accessor block.
+        Assert.Single(ctx.RawCodeBlocks);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_MarkerProtocolConstraint_DoesNotAddPwtArg()
+    {
+        // Marker protocols (Sendable/Copyable/Escapable/...) carry no runtime
+        // witness table — the Swift compiler does not pass a PWT arg to the
+        // metadata accessor. The pre-flattener must filter them out so the
+        // emitted P/Invoke signature matches Swift's ABI.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Bag",
+            constraints: new[] { ("Swift", "Sendable") });
+        // Sendable doesn't even need to be in the type DB — the marker filter
+        // runs before TryGetTypeRecord — but we add it anyway to mirror reality.
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("Swift", "Sendable", "$ss8SendableMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.Empty(ctx.PwtEntries);
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+
+        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
+        Assert.Single(parameters);
+        Assert.Equal("IntPtr tMetadata", parameters[0]);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_UnknownProtocolConstraint_SilentlyDropped()
+    {
+        // A constraint protocol that the type database has never heard of
+        // (e.g. Swift stdlib Hashable/Collection that aren't tracked by the
+        // generator's type database) is silently dropped to MATCH the legacy
+        // MetatypeHelperEmitter.GetResolvablePwtParameterCount filter. Failing
+        // hard would regress every Alamofire/GRDB/RxSwift/DifferenceKit
+        // constrained generic that uses such constraints today.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Mystery",
+            constraints: new[] { ("OtherModule", "GhostProtocol") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase(); // empty
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.Empty(ctx.PwtEntries);
+
+        // Only the type metadata arg is emitted — same shape the previous
+        // generator output had.
+        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
+        Assert.Single(parameters);
+        Assert.Equal("IntPtr tMetadata", parameters[0]);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_ProtocolWithoutDescriptorSymbol_SilentlyDropped()
+    {
+        // A protocol with HasSelfRequirement BUT no ProtocolDescriptorSymbol
+        // (parser failed to capture it, or older module DB without the field)
+        // is silently dropped: with no symbol there is no way to construct a
+        // runtime witness-table lookup. Falling back to the legacy
+        // metadata-only emission preserves backward compatibility for types
+        // that previously compiled with this constraint.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateConstrainedGenericEnum(
+            moduleDecl,
+            "Broken",
+            constraints: new[] { ("TestModule", "OpaqueProto") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol(
+                "TestModule",
+                "OpaqueProto",
+                descriptorSymbol: null,
+                flags: TypeRecordFlags.HasSelfRequirement);
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
+
+        Assert.False(ctx.HasUnsupportedConstraint);
+        Assert.Empty(ctx.PwtEntries);
+    }
+
+    [Fact]
+    public void Emit_GenericFrozenStruct_TwoMetadataOnePwt_DoesNotExceedThreshold()
+    {
+        // 2 metadata + 1 PWT = 3 args → exactly at the threshold (not exceeding).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateConstrainedGenericFrozenStructTwoParams(
+            moduleDecl,
+            "Pair",
+            secondParamConstraints: new[] { ("TestModule", "Describable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Describable", "$s10TestModule11DescribableMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb)!;
+
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+        Assert.False(ctx.HasUnsupportedConstraint);
+
+        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
+        Assert.Equal(3, parameters.Count);
+        Assert.Equal("IntPtr aMetadata", parameters[0]);
+        Assert.Equal("IntPtr bMetadata", parameters[1]);
+        Assert.Equal("IntPtr bDescribablePWT", parameters[2]);
+    }
+
+    #region Constrained-generic test helpers
+
+    private static EnumDecl CreateConstrainedGenericEnum(
+        ModuleDecl moduleDecl,
+        string name,
+        IReadOnlyList<(string Module, string Protocol)> constraints)
+    {
+        return new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}ON",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", BuildConformanceList(constraints), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}OMa",
+            Cases = new List<EnumCaseDecl>()
+        };
+    }
+
+    private static StructDecl CreateConstrainedGenericFrozenStruct(
+        ModuleDecl moduleDecl,
+        string name,
+        IReadOnlyList<(string Module, string Protocol)> constraints)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", BuildConformanceList(constraints), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa"
+        };
+    }
+
+    private static StructDecl CreateConstrainedGenericFrozenStructTwoParams(
+        ModuleDecl moduleDecl,
+        string name,
+        IReadOnlyList<(string Module, string Protocol)> secondParamConstraints)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "A", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+                new("τ_0_1", "B", BuildConformanceList(secondParamConstraints), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa"
+        };
+    }
+
+    private static StructDecl CreateConstrainedGenericNonFrozenStruct(
+        ModuleDecl moduleDecl,
+        string name,
+        IReadOnlyList<(string Module, string Protocol)> constraints)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", BuildConformanceList(constraints), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa"
+        };
+    }
+
+    private static ClassDecl CreateConstrainedGenericClass(
+        ModuleDecl moduleDecl,
+        string name,
+        IReadOnlyList<(string Module, string Protocol)[]> paramConstraints)
+    {
+        var sugarNames = new[] { "T", "U", "V", "W" };
+        var genericParams = paramConstraints
+            .Select((constraints, idx) => new GenericArgumentDecl(
+                $"τ_0_{idx}",
+                sugarNames[idx],
+                BuildConformanceList(constraints),
+                new List<GenericParameterConformance>()))
+            .ToList();
+
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = genericParams,
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static List<GenericParameterConformance> BuildConformanceList(
+        IReadOnlyList<(string Module, string Protocol)> constraints)
+    {
+        return constraints
+            .Select(c => new GenericParameterConformance(
+                Path: new[] { "τ_0_0" },
+                ConformanceTarget: SwiftTypeName.FromModuleQualifiedName($"{c.Module}.{c.Protocol}"),
+                Kind: ConformanceKind.Protocol))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Minimal ITypeDatabase fake — only registers protocol records keyed by
+    /// module-qualified name. Suitable for the constrained-generic emitter
+    /// path that only ever calls TryGetTypeRecord + GetLibraryPath.
+    /// </summary>
+    private sealed class ConstrainedGenericMockTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+
+        public string? AsyncLibraryName => null;
+
+        public ConstrainedGenericMockTypeDatabase WithProtocol(
+            string moduleName,
+            string protocolName,
+            string? descriptorSymbol = null,
+            TypeRecordFlags flags = TypeRecordFlags.None)
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{protocolName}");
+            _types[swiftTypeName.ModuleQualifiedName] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, protocolName),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol,
+                ProtocolDescriptorSymbol = descriptorSymbol
+            };
+            return this;
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(
+            SwiftTypeName swiftTypeName,
+            [NotNullWhen(returnValue: true)] out TypeRecord? record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+
+        public string GetLibraryPath(string moduleName) => $"/tmp/{moduleName}.dylib";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
 
     #endregion
 }

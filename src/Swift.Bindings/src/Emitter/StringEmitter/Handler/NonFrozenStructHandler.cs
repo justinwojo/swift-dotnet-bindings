@@ -87,6 +87,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Create P/Invoke helper context for generic types (to avoid CS7042).
+            // Pre-flatten conformances against the type database so the metadata-accessor
+            // emitter can render the correct PWT plumbing.
+            //
+            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
+            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
+            // (ReportCollector.cs:106), so a skipped non-frozen struct would otherwise be
+            // silently miscounted as emitted.
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl, env.TypeDatabase);
+            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
+                    structDecl, ownPInvokeContext, csWriter, _logger))
+                return;
+
             ReportCollector.RecordTypeEmitted(structDecl);
 
             // Get generic type parts if this is a generic type
@@ -94,8 +107,6 @@ namespace BindingsGeneration
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics, swiftWriter, context.GetEmissionContext());
-            // Create P/Invoke helper context for generic types (to avoid CS7042)
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
             // Compute property renames to resolve property/nested-type name collisions
@@ -276,22 +287,18 @@ namespace BindingsGeneration
             csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
             if (pinvokeHelperContext != null)
             {
-                // Generic types: call the helper class metadata accessor with per-param metadata.
-                // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes Mono JIT
-                // (mini-generic-sharing.c:2759) because the nested generic instantiation can't be
-                // compiled without the type argument's metadata.
+                // Generic types: call the helper class metadata accessor with per-param
+                // metadata (and per-conformance witness tables for constrained generics).
+                // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes
+                // Mono's generic sharing (mini-generic-sharing.c:2759) because the nested
+                // generic instantiation cannot be compiled without the type argument's
+                // metadata.
                 //
-                // LAZY initialization: the helper PInvoke is Swift's constrained-generic
-                // metadata accessor. For protocol-constrained generic params it expects an
-                // additional witness-table argument that the generator does NOT yet emit,
-                // causing a Swift PAC/SIGTRAP deep inside libswiftCore the moment the call
-                // happens. Lazy-init the field so the cctor stays safe and the broken call
-                // only fires when user code actually allocates an instance — preventing
-                // launch-time crashes for libraries that merely reference the type.
-                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                csWriter.WriteLine($"private static readonly global::System.Lazy<nuint> _payloadSizeLazy = new global::System.Lazy<nuint>(() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size);");
-                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
-                csWriter.WriteLine("static nuint _payloadSize => _payloadSizeLazy.Value;");
+                // Note: when (num_metadata + num_pwts) > 3, TypeMetadataAccessorSkipGate
+                // already skips the type before we reach this point, so PwtEntries is
+                // always populated correctly here.
+                var metadataArgs = string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
+                csWriter.WriteLine($"static nuint _payloadSize = {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
             }
             else
             {

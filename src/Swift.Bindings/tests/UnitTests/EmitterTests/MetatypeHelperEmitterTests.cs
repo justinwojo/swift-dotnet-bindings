@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Xunit;
 
@@ -140,6 +144,320 @@ public class MetatypeHelperEmitterTests
 
         // Helper name format: _sbw_meta_{8-char hash}
         Assert.Matches(@"^_sbw_meta_[a-fA-F0-9]{8}$", helperName);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // HasUnresolvableTypeConformances — fail-closed gate for the wrapper
+    // metadata-accessor helper. See src/docs/constrained-generic-metadata-
+    // witness-tables.md "MetatypeHelperEmitter Swift wrapper path".
+    // ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_NonGenericType_ReturnsFalse()
+    {
+        var typeDecl = CreateGenericTypeDecl("Plain", "TestModule", "$s10TestModule5PlainCN", 0);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.False(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_NoConstraints_ReturnsFalse()
+    {
+        var typeDecl = CreateGenericTypeDecl("Container", "TestModule", "$s10TestModule9ContainerCN", 1);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.False(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_ResolvableProtocolOnly_ReturnsFalse()
+    {
+        // T : Describable (a normal protocol with no Self/AssocType requirements)
+        // → resolvable, the wrapper-helper path can supply this PWT correctly.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Box",
+            "TestModule",
+            "$s10TestModule3BoxCN",
+            new[] { ("TestModule", "Describable", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "Describable", TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_SelfRequirementProtocol_ReturnsTrue()
+    {
+        // T : AnyInterpolatable (HasSelfRequirement) — the wrapper-helper path
+        // CANNOT supply a PWT for this protocol; refuse to emit.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Wrapper",
+            "TestModule",
+            "$s10TestModule7WrapperCN",
+            new[] { ("TestModule", "AnyInterpolatable", TypeRecordFlags.HasSelfRequirement) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "AnyInterpolatable", TypeRecordFlags.HasSelfRequirement);
+
+        Assert.True(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_AssociatedTypeProtocol_ReturnsTrue()
+    {
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "ViewBag",
+            "TestModule",
+            "$s10TestModule7ViewBagCN",
+            new[] { ("TestModule", "ViewLike", TypeRecordFlags.HasAssociatedTypes) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "ViewLike", TypeRecordFlags.HasAssociatedTypes);
+
+        Assert.True(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_MixedConstraints_DetectsAnyUnresolvable()
+    {
+        // First param OK, second param has Self requirement → still gated.
+        var typeDecl = new ClassDecl
+        {
+            Name = "Pair",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Pair"),
+            MangledName = "$s10TestModule4PairCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T",
+                    new List<GenericParameterConformance>
+                    {
+                        new(new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>()),
+                new("τ_0_1", "U",
+                    new List<GenericParameterConformance>
+                    {
+                        new(new[] { "τ_0_1" },
+                            SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                            ConformanceKind.Protocol)
+                    },
+                    new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "Describable", TypeRecordFlags.None)
+            .WithProtocol("TestModule", "AnyInterpolatable", TypeRecordFlags.HasSelfRequirement);
+
+        Assert.True(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasUnresolvableTypeConformances_UnknownProtocol_SilentlyAllowed()
+    {
+        // Mirrors the legacy GetResolvablePwtParameterCount filter: an unknown
+        // protocol (not in the type database) is silently dropped, NOT treated
+        // as unresolvable. Failing on unknown would regress every Alamofire/
+        // GRDB/RxSwift constrained generic that uses Swift stdlib protocols
+        // the type database doesn't track.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Cache",
+            "TestModule",
+            "$s10TestModule5CacheCN",
+            new[] { ("Swift", "Hashable", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase(); // empty — protocol unknown
+
+        Assert.False(MetatypeHelperEmitter.HasUnresolvableTypeConformances(typeDecl, db));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // WouldExceedRegisterArgumentThreshold — fail-closed gate for the wrapper
+    // metadata-accessor helper when (num_metadata + num_pwts) > 3 forces
+    // Swift's Ma symbol into the indirect-buffer ABI. The wrapper helper only
+    // emits the thin (request, metadata..., pwt...) signature, so we refuse
+    // to emit any member that would route through buffer mode.
+    // ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_NonGenericType_ReturnsFalse()
+    {
+        var typeDecl = CreateGenericTypeDecl("Plain", "TestModule", "$s10TestModule5PlainCN", 0);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.False(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_OneGenericNoConformances_ReturnsFalse()
+    {
+        // 1 metadata + 0 PWT = 1 → under threshold.
+        var typeDecl = CreateGenericTypeDecl("Box", "TestModule", "$s10TestModule3BoxCN", 1);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.False(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_ThreeGenericsNoConformances_ReturnsFalse()
+    {
+        // 3 metadata + 0 PWT = 3 → AT the threshold (not exceeding).
+        var typeDecl = CreateGenericTypeDecl("Triple", "TestModule", "$s10TestModule6TripleCN", 3);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.False(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_FourGenericsNoConformances_ReturnsTrue()
+    {
+        // 4 metadata + 0 PWT = 4 → exceeds threshold.
+        var typeDecl = CreateGenericTypeDecl("Quad", "TestModule", "$s10TestModule4QuadCN", 4);
+        var db = new SimpleProtocolDatabase();
+
+        Assert.True(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_OneGenericTwoResolvableConformances_ReturnsFalse()
+    {
+        // 1 metadata + 2 PWT = 3 → AT the threshold (not exceeding).
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Box",
+            "TestModule",
+            "$s10TestModule3BoxCN",
+            new[]
+            {
+                ("TestModule", "Alpha", TypeRecordFlags.None),
+                ("TestModule", "Beta",  TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "Alpha", TypeRecordFlags.None)
+            .WithProtocol("TestModule", "Beta", TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_OneGenericThreeResolvableConformances_ReturnsTrue()
+    {
+        // 1 metadata + 3 PWT = 4 → exceeds threshold.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Box",
+            "TestModule",
+            "$s10TestModule3BoxCN",
+            new[]
+            {
+                ("TestModule", "Alpha", TypeRecordFlags.None),
+                ("TestModule", "Beta",  TypeRecordFlags.None),
+                ("TestModule", "Gamma", TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "Alpha", TypeRecordFlags.None)
+            .WithProtocol("TestModule", "Beta", TypeRecordFlags.None)
+            .WithProtocol("TestModule", "Gamma", TypeRecordFlags.None);
+
+        Assert.True(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    [Fact]
+    public void WouldExceedRegisterArgumentThreshold_UnknownProtocol_DoesNotCount()
+    {
+        // 1 metadata + 4 unknown PWT = 1 (we silently drop unknown protocols
+        // the same way GetResolvablePwtParameterCount does). Mirrors the
+        // HasUnresolvableTypeConformances_UnknownProtocol_SilentlyAllowed gate
+        // — counting unknown stdlib protocols would regress every Alamofire/
+        // GRDB/RxSwift constrained generic.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Cache",
+            "TestModule",
+            "$s10TestModule5CacheCN",
+            new[]
+            {
+                ("Swift", "Hashable",   TypeRecordFlags.None),
+                ("Swift", "Equatable",  TypeRecordFlags.None),
+                ("Swift", "Comparable", TypeRecordFlags.None),
+                ("Swift", "Identifiable", TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase(); // empty — protocols unknown
+
+        Assert.False(MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(typeDecl, db));
+    }
+
+    private static ClassDecl CreateGenericTypeDeclWithConformances(
+        string name,
+        string moduleName,
+        string mangledName,
+        IReadOnlyList<(string Module, string Protocol, TypeRecordFlags Flags)> constraints)
+    {
+        var conformances = new List<GenericParameterConformance>();
+        foreach (var c in constraints)
+        {
+            conformances.Add(new GenericParameterConformance(
+                Path: new[] { "τ_0_0" },
+                ConformanceTarget: SwiftTypeName.FromModuleQualifiedName($"{c.Module}.{c.Protocol}"),
+                Kind: ConformanceKind.Protocol));
+        }
+
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{name}"),
+            MangledName = mangledName,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", conformances, new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    private sealed class SimpleProtocolDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+
+        public string? AsyncLibraryName => null;
+
+        public SimpleProtocolDatabase WithProtocol(string moduleName, string protocolName, TypeRecordFlags flags)
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{protocolName}");
+            _types[swiftTypeName.ModuleQualifiedName] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, protocolName),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol,
+                ProtocolDescriptorSymbol = null
+            };
+            return this;
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(
+            SwiftTypeName swiftTypeName,
+            [NotNullWhen(returnValue: true)] out TypeRecord? record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record);
+
+        public string GetLibraryPath(string moduleName) => $"/tmp/{moduleName}.dylib";
+
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
     }
 
     [Fact]

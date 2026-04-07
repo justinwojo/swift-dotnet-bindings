@@ -39,6 +39,23 @@ public static class PropertyWrapperEmitter
         {
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
                 return false;
+
+            // Fail-closed wrapper-helper gates apply ONLY when this property would actually
+            // route through EmitGenericStaticGetterWrapper / EmitGenericStaticSetterWrapper —
+            // those are the paths that call MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded.
+            // Concrete properties on generic class parents use SelfReconstructionEmitter.EmitProtocolCast
+            // (PropertyWrapperEmitter.cs:342) and never touch _sbw_meta_*, so the gates must NOT
+            // reject them. NeedsStaticDispatchForProperty = true iff the property is on a generic
+            // struct OR its type references the parent's generic params.
+            // See src/docs/Completed/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
+            // Swift wrapper path" for the 0.8.0 buffer-mode follow-up plan.
+            if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl))
+            {
+                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
+                    return false;
+                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(td, accessorEnv.TypeDatabase))
+                    return false;
+            }
         }
 
         // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable
@@ -125,6 +142,17 @@ public static class PropertyWrapperEmitter
                 return "inherited_generic_context";
             if (!CanEmitGenericClassPropertyWrapper(propertyDecl, td))
                 return "generic_parent_type";
+            // Wrapper-helper gates only apply to properties that route through the static
+            // dispatch path (NeedsStaticDispatchForProperty). Concrete properties on generic
+            // class parents use protocol-cast dispatch and never touch _sbw_meta_*.
+            // Mirrors the order in ShouldEmitWrapper.
+            if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl))
+            {
+                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
+                    return "generic_parent_unresolved_pwt_constraint";
+                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(td, accessorEnv.TypeDatabase))
+                    return "generic_parent_metadata_buffer_mode";
+            }
         }
         if (propertyDecl.IsModuleInternal)
             return "internal_property";

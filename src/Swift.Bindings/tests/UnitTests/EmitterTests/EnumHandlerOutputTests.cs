@@ -735,20 +735,19 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_GenericEnum_PayloadSizeFieldInitializerIsLazy()
+    public void Emit_GenericEnum_PayloadSizeUsesHelperPInvokeAccessor()
     {
-        // Regression: a non-lazy `_payloadSize` field initializer on a constrained-generic
-        // enum eagerly invokes the metadata accessor PInvoke during cctor. The eager
-        // [ModuleInitializer] registration in __SwiftFrameworkResolver_<Module> then
-        // touches the cctor at module-init time, which on iOS NativeAOT devices was
-        // crashing on PAC trap inside libswiftCore (the metadata cache key picked up a
-        // stale signed pointer in x2). Lottie's `ValueProviderStorage<T>` was the
-        // first reproducer — the lazy field initializer keeps the cctor body free of
-        // any Swift PInvoke so the registration loop can run safely on NativeAOT.
+        // Regression: when emitting a generic enum, `_payloadSize` MUST go through the
+        // helper class metadata accessor PInvoke (`{Type}_PInvoke.PInvoke_getMetadata`)
+        // — never `SwiftObjectHelper<{Type}<T>>.GetTypeMetadata().Size`. The latter
+        // crashes Mono's generic sharing (mini-generic-sharing.c:2759) because it tries
+        // to compile a nested generic instantiation without the type argument's metadata.
         //
-        // The lazy emission MUST be preserved for constrained generics; reverting it
-        // brings back a hard SIGTRAP at app launch with no managed exception (PAC traps
-        // are hardware faults and bypass C# try/catch).
+        // Historically the emission was wrapped in a `Lazy<nuint>` to defer the call
+        // until first use, working around a separate PAC trap on NativeAOT/arm64e
+        // caused by missing protocol-witness-table args on the metadata accessor. That
+        // PAC trap is now fixed end-to-end (constrained-generic-metadata-witness-tables.md),
+        // so the lazy wrapper has been removed and the field initializer is eager again.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);
@@ -764,14 +763,17 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The Lazy<nuint> wrapper must be present.
-        Assert.Contains("global::System.Lazy<nuint>", csOutput);
-        Assert.Contains("_payloadSizeLazy", csOutput);
-        Assert.Contains("_payloadSize => _payloadSizeLazy.Value", csOutput);
-        // The eager assignment form must NOT be emitted for constrained generics.
-        Assert.DoesNotContain(
-            "static nuint _payloadSize = ValueProviderStorage_PInvoke.PInvoke_getMetadata",
+        // The eager helper-PInvoke field initializer must be emitted.
+        Assert.Contains(
+            "static nuint _payloadSize = ValueProviderStorage_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete,",
             csOutput);
+        // The Mono-JIT-crashing form must NEVER appear for generic enums.
+        Assert.DoesNotContain(
+            "static nuint _payloadSize = SwiftObjectHelper<ValueProviderStorage<T>>",
+            csOutput);
+        // The historical lazy workaround must be gone.
+        Assert.DoesNotContain("_payloadSizeLazy", csOutput);
+        Assert.DoesNotContain("global::System.Lazy<nuint>", csOutput);
     }
 
     [Fact]

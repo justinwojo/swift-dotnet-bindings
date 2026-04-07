@@ -74,6 +74,119 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteMethod_UnresolvableConformance_ReturnsTrue()
+    {
+        // Codex P1 regression: a concrete-signature instance method on a generic
+        // class with a Self-requirement constraint must NOT be rejected by the
+        // wrapper-helper gates. Path 1 (concrete-signature instance dispatch) goes
+        // through SelfReconstructionEmitter.EmitProtocolCast and never calls
+        // EmitMetadataAccessorHelperIfNeeded — there's nothing for the gate to protect.
+        // The previous (over-broad) gate placement at the top of CanEmitGenericDispatch
+        // would have rejected this incorrectly.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.AnyInterpolatable", TypeRecordFlags.HasSelfRequirement, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteMethod_ExceedsRegisterThreshold_ReturnsTrue()
+    {
+        // Codex P1 regression: a concrete-signature instance method on a generic
+        // class with enough conformances to trip the register threshold (1 metadata
+        // + 3 PWTs > 3) must NOT be rejected. The instance protocol-cast path doesn't
+        // touch the dlsym'd Ma symbol, so buffer-mode mismatch can't fire here.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.Alpha", TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Beta",  TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Gamma", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Alpha"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Beta"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Gamma"),
+                        ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("doWork", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_TTypedReturn_UnresolvableConformance_ReturnsFalse()
+    {
+        // Method return references τ_0_0 → routes through EmitGenericStaticDispatchMethod →
+        // calls EmitMetadataAccessorHelperIfNeeded. The Self-requirement protocol makes the
+        // wrapper helper undercount PWTs, so the gate must reject.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.AnyInterpolatable", TypeRecordFlags.HasSelfRequirement, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("getValue", parentDecl, moduleDecl);
+        method.CSSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                Name = "_result",
+                PrivateName = "_result",
+                IsInOut = false,
+                IsGeneric = true,
+                ParentDecl = null,
+                ModuleDecl = null
+            }
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_GenericStructParent_ConcreteSignature_ReturnsFalse()
     {
         // Generic struct parent with concrete-only method signature — blocked because

@@ -82,6 +82,20 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Create P/Invoke helper context for generic types (to avoid CS7042).
+            // Pre-flatten conformances against the type database so the metadata-accessor
+            // emitter can render the correct PWT plumbing.
+            //
+            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
+            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
+            // (ReportCollector.cs:106), so a skipped type would be silently miscounted as
+            // emitted. The cross-module extension branch below also depends on this ordering
+            // since cross-module extensions of skipped types should not be emitted either.
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(classDecl, env.TypeDatabase);
+            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
+                    classDecl, ownPInvokeContext, csWriter, _logger))
+                return;
+
             ReportCollector.RecordTypeEmitted(classDecl);
 
             // Cross-module extension: type defined in module A, extended in module B.
@@ -96,9 +110,6 @@ namespace BindingsGeneration
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(classDecl, env.TypeDatabase);
-
-            // Create P/Invoke helper context for generic types (to avoid CS7042)
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(classDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
             // Compute property renames to resolve property/nested-type name collisions
@@ -497,8 +508,11 @@ namespace BindingsGeneration
 
             if (_pinvokeHelperContext != null)
             {
-                // For generic types, call the helper class with type metadata arguments
-                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetMetadataArgumentList());
+                // Type metadata accessor: Swift's metadata accessor for a generic type expects
+                // metadata + witness tables for any protocol-constrained generic params (per
+                // runtime-metadata.md). Use the type-metadata-accessor-specific arg/param list
+                // so the right PWTs flow through.
+                var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
@@ -511,7 +525,7 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "TypeMetadataRequest request",
                     IsAsync = false,
-                    MetadataParameters = _pinvokeHelperContext.GetMetadataParameterDeclarations()
+                    MetadataParameters = _pinvokeHelperContext.GetTypeMetadataAccessorParameterDeclarations()
                 };
                 _pinvokeHelperContext.AddDeclaration(declaration);
             }

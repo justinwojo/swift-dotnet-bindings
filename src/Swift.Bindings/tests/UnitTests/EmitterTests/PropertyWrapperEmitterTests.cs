@@ -105,6 +105,248 @@ public class PropertyWrapperEmitterTests
         Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Wrapper-helper-path fail-closed gates: properties on generic types whose
+    // parent has unresolvable PWT conformances OR would force the dlsym'd Ma
+    // symbol into buffer mode. The wrapper helper passes only resolvable PWTs
+    // and emits only the thin (request, metadata..., pwt...) signature, so
+    // either mismatch shifts caller-saved registers and PAC-traps on arm64e.
+    // Mirrors the gates in CanEmitGenericDispatch for methods/constructors.
+    // See src/docs/constrained-generic-metadata-witness-tables.md.
+    // ─────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_TTypedProperty_UnresolvableConformance_ReturnsFalse()
+    {
+        // T-typed property on a generic class with a Self-requirement constraint.
+        // T-typed properties route through EmitGenericStaticGetterWrapper, which
+        // calls EmitMetadataAccessorHelperIfNeeded — exactly the path the gate
+        // is meant to protect. The wrapper helper would call the dlsym'd Ma
+        // symbol with one fewer PWT arg than Swift's actual signature expects,
+        // shifting registers and PAC-trapping on arm64e.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.AnyInterpolatable", TypeRecordFlags.HasSelfRequirement, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        // Property type is τ_0_0 → routes through static dispatch → uses helper.
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.Equal("generic_parent_unresolved_pwt_constraint",
+            PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_UnresolvableConformance_ReturnsTrue()
+    {
+        // Codex P1 regression: concrete (non-T-typed) properties on generic class parents
+        // route through SelfReconstructionEmitter.EmitProtocolCast (instance dispatch) and
+        // never call the metadata-accessor helper. The wrapper-helper gates (which guard
+        // _sbw_meta_*) MUST NOT reject them, even when the parent has an unresolvable
+        // conformance. Same constraint as the test above, just a Swift.Int property.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.AnyInterpolatable", TypeRecordFlags.HasSelfRequirement, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.AnyInterpolatable"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_TTypedProperty_AssociatedTypeConformance_ReturnsFalse()
+    {
+        // Same gate, but for HasAssociatedTypes — also unresolvable on the wrapper
+        // side because we can't supply a runtime witness table for it yet.
+        // Property type τ_0_0 routes through static dispatch → uses helper → gate fires.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "ViewBag",
+            ("TestModule.ViewLike", TypeRecordFlags.HasAssociatedTypes, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ViewBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "V",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.ViewLike"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "view", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_AssociatedTypeConformance_ReturnsTrue()
+    {
+        // Codex P1 regression: concrete properties on classes with HasAssociatedTypes
+        // conformance must NOT be rejected — they use protocol-cast dispatch.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "ViewBag",
+            ("TestModule.ViewLike", TypeRecordFlags.HasAssociatedTypes, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ViewBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "V",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.ViewLike"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_TTypedProperty_ExceedsRegisterThreshold_ReturnsFalse()
+    {
+        // 1 metadata + 3 resolvable PWTs = 4 args → exceeds Swift's (metadata + pwt)
+        // > 3 register threshold. Swift's Ma symbol would use buffer-mode ABI but
+        // EmitMetadataAccessorHelperIfNeeded only emits the thin signature.
+        // Property type τ_0_0 routes through static dispatch → uses helper → gate fires.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.Alpha", TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Beta",  TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Gamma", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Alpha"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Beta"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Gamma"),
+                        ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.Equal("generic_parent_metadata_buffer_mode",
+            PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_ConcreteProperty_ExceedsRegisterThreshold_ReturnsTrue()
+    {
+        // Codex P1 regression: concrete properties on a constrained generic class that
+        // would otherwise trip the buffer-mode threshold. The instance protocol-cast
+        // path doesn't use the helper, so the gate must NOT fire.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.Alpha", TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Beta",  TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Gamma", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Alpha"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Beta"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Gamma"),
+                        ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "count", new NamedTypeSpec("Swift.Int"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClassParent_AtRegisterThreshold_ReturnsTrue()
+    {
+        // 1 metadata + 2 resolvable PWTs = 3 args → AT the threshold (not exceeding).
+        // The thin Ma signature is correct here, so the wrapper-helper path is allowed.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "GenericBox",
+            ("TestModule.Alpha", TypeRecordFlags.None, TypeRecordKind.Protocol),
+            ("TestModule.Beta",  TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("GenericBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Alpha"),
+                        ConformanceKind.Protocol),
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Beta"),
+                        ConformanceKind.Protocol),
+                },
+                new List<GenericParameterConformance>())
+        };
+        var (propertyDecl, env) = CreatePropertyAndEnv(
+            "value", new NamedTypeSpec("τ_0_0"), parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
     [Fact]
     public void ShouldEmitWrapper_ClosureProperty_ReadOnly_ReturnsTrue()
     {

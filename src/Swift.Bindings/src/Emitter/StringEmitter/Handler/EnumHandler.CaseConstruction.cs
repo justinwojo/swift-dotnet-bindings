@@ -402,9 +402,13 @@ namespace BindingsGeneration
                 }
             }
 
-            // Swift enum case constructors use indirect return - allocate buffer and pass it
+            // Swift enum case constructors use indirect return - allocate buffer and pass it.
+            // Use the type-metadata-accessor argument list (which includes PWTs for any
+            // protocol-constrained generic params) since this calls the metadata accessor
+            // PInvoke whose signature was updated by the constrained-generic fix in
+            // src/docs/constrained-generic-metadata-witness-tables.md.
             var getMetadataCall = pinvokeHelperContext != null
-                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
                 : "PInvoke_getMetadata()";
             csWriter.WriteLine($"var metadata = {getMetadataCall};");
             csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");

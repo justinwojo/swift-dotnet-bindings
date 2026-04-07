@@ -834,6 +834,18 @@ public static class WrapperValidation
         {
             if (IsInheritedGenericContext(parentTypeDecl))
                 return "inherited_generic_context";
+            // The wrapper-helper-path gates only apply when the method actually routes through
+            // EmitGenericStaticDispatchMethod (which calls EmitMetadataAccessorHelperIfNeeded).
+            // Concrete instance methods on generic class parents use protocol-cast dispatch
+            // and never touch _sbw_meta_*, so we MUST NOT report them as gate-rejected.
+            // Mirrors GenericDispatchEmitter.CanEmitGenericDispatch's per-path gate placement.
+            if (GenericDispatchEmitter.NeedsStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
+            {
+                if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(parentTypeDecl, env.TypeDatabase))
+                    return "generic_parent_unresolved_pwt_constraint";
+                if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(parentTypeDecl, env.TypeDatabase))
+                    return "generic_parent_metadata_buffer_mode";
+            }
             if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
                 return "generic_parent";
         }

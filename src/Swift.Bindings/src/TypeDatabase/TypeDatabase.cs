@@ -184,6 +184,7 @@ namespace BindingsGeneration
                 string? inlineSizeStr = typeDeclarationNode?.Attributes?["inlineSize"]?.Value;
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
                 string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
+                string? protocolDescriptorSymbol = typeDeclarationNode?.Attributes?["protocolDescriptorSymbol"]?.Value;
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -241,6 +242,7 @@ namespace BindingsGeneration
                         : null,
                     InlineSize = inlineSize,
                     AbiFieldLayout = abiFieldLayout,
+                    ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

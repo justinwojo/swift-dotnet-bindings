@@ -1064,10 +1064,27 @@ namespace BindingsGeneration
                 MetadataAccessor = string.Empty, // Protocols don't have direct metadata accessors
                 Flags = flags,
                 Kind = TypeRecordKind.Protocol,
+                ProtocolDescriptorSymbol = ConvertProtocolTypeToDescriptorSymbol(protocolDecl.MangledName),
             };
 
             if (!protocolDecl.IsSpiProtected)
                 _moduleDatabase.RegisterType(protocolDecl.SwiftTypeName, typeRecord);
+        }
+
+        /// <summary>
+        /// Converts a protocol type symbol (ABI JSON form, ending in 'P') to its
+        /// protocol descriptor symbol (ending in 'Mp'). Strips exactly one terminal
+        /// 'P' to avoid corrupting names that happen to contain multiple consecutive
+        /// Ps (which TrimEnd('P') would mishandle).
+        /// Verified via swift-demangle:
+        ///   $s20SwiftBindingsTestLib8SummableP  (type)       -> $s20SwiftBindingsTestLib8SummableMp (descriptor)
+        ///   $sSH                                (Hashable)   -> $sSHMp
+        /// </summary>
+        private static string? ConvertProtocolTypeToDescriptorSymbol(string? mangled)
+        {
+            if (string.IsNullOrEmpty(mangled))
+                return null;
+            return mangled.EndsWith('P') ? mangled[..^1] + "Mp" : mangled + "Mp";
         }
 
         /// <summary>

@@ -199,10 +199,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                // Get metadata for the enum type and SwiftOptional<EnumType>
+                // Get metadata for the enum type and SwiftOptional<EnumType>.
+                // The metadata accessor PInvoke now takes PWT args for any
+                // protocol-constrained generic params — see
+                // src/docs/constrained-generic-metadata-witness-tables.md.
                 csWriter.WriteLine("// Get metadata for the enum type");
                 var getMetadataCall = pinvokeHelperContext != null
-                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
                     : "PInvoke_getMetadata()";
                 csWriter.WriteLine($"var enumMetadata = {getMetadataCall};");
                 csWriter.WriteLine();

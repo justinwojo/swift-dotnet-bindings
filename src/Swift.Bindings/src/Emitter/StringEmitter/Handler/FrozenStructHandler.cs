@@ -89,6 +89,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Create P/Invoke helper context for generic types (to avoid CS7042).
+            // Pre-flatten conformances against the type database so the metadata-accessor
+            // emitter can render the correct PWT plumbing.
+            //
+            // The ShouldSkip check MUST happen BEFORE RecordTypeEmitted: ReportCollector
+            // suppresses RecordTypeSkipped if the type key is already in EmittedTypeKeys
+            // (ReportCollector.cs:106), so a skipped frozen struct would otherwise be
+            // silently miscounted as emitted.
+            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl, env.TypeDatabase);
+            if (ownPInvokeContext != null && TypeMetadataAccessorSkipGate.ShouldSkip(
+                    structDecl, ownPInvokeContext, csWriter, _logger))
+                return;
+
             ReportCollector.RecordTypeEmitted(structDecl);
 
             // Retrieve type info from the type database
@@ -102,8 +115,6 @@ namespace BindingsGeneration
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);
 
             var ISwiftObjectMethodWriter = new ISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, structDecl, typeNameWithGenerics, swiftWriter, context.GetEmissionContext());
-            // Create P/Invoke helper context for generic types (to avoid CS7042)
-            var ownPInvokeContext = PInvokeHelperContext.CreateIfGeneric(structDecl);
             var pinvokeHelperContext = ownPInvokeContext ?? context.PInvokeHelperContext;
 
             // Compute property renames to resolve property/nested-type name collisions

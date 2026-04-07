@@ -44,22 +44,48 @@ internal static class GenericDispatchEmitter
     internal static bool CanEmitGenericDispatch(
         MethodEnvironment env, TypeDecl parentTypeDecl, GenericDispatchKind kind)
     {
+        // The two wrapper-helper gates (HasUnresolvableTypeConformances and
+        // WouldExceedRegisterArgumentThreshold) only apply to dispatch paths that
+        // actually route through MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded.
+        // They are pushed into the per-path branches below so that "safe" paths —
+        // concrete-signature generic class instance methods, concrete properties on
+        // generic classes — are NOT rejected just because the parent type has e.g.
+        // an associated-type conformance or >3 register args. Those safe paths use
+        // SelfReconstructionEmitter.EmitProtocolCast and never touch _sbw_meta_*.
+        // See src/docs/Completed/constrained-generic-metadata-witness-tables.md for
+        // the 0.8.0 buffer-mode follow-up plan.
+
         switch (kind)
         {
             case GenericDispatchKind.Method:
             {
-                // Path 1: Generic class with concrete (non-T-referencing) signature — instance dispatch
+                // Path 1: Generic class with concrete (non-T-referencing) signature —
+                // instance dispatch via SelfReconstructionEmitter.EmitProtocolCast at
+                // MethodWrapperEmitter.cs:495. Does NOT call EmitMetadataAccessorHelperIfNeeded,
+                // so the wrapper-helper gates DO NOT apply here.
                 if (parentTypeDecl is ClassDecl && env.MethodDecl.MethodType != MethodType.Static)
                 {
                     if (!HasGenericTypeParamInSignature(env, parentTypeDecl))
                         return true;
                 }
-                // Path 2: Static protocol dispatch
+
+                // Path 2: Static protocol dispatch routes through EmitGenericStaticDispatchMethod,
+                // which calls EmitMetadataAccessorHelperIfNeeded. Apply the wrapper-helper gates
+                // before delegating to CanEmitStaticDispatch.
+                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase))
+                    return false;
                 return CanEmitStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
             }
 
             case GenericDispatchKind.Constructor:
             {
+                // BOTH constructor paths route through EmitMetadataAccessorHelperIfNeeded:
+                //  • Path 1 (concrete params, final class) — ConstructorWrapperEmitter.cs:532
+                //  • Path 2 (static factory)               — ConstructorWrapperEmitter.cs:1050
+                // The wrapper-helper gates apply to both, so check them up front.
+                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase))
+                    return false;
+
                 // Path 1: Generic class with concrete (non-T-referencing) params — metatype dispatch
                 // via _SBW_CI_ protocol with init() requirement. Only works for final classes
                 // because non-final classes can't satisfy protocol init() without `required`.
@@ -81,12 +107,38 @@ internal static class GenericDispatchEmitter
             case GenericDispatchKind.PropertySetter:
                 // Properties always have a dispatch path for generic types
                 // (concrete-signature generic classes use instance dispatch,
-                //  T-referencing or struct types use static dispatch)
+                //  T-referencing or struct types use static dispatch).
+                // The wrapper-helper gates are scoped per-property in
+                // PropertyWrapperEmitter.ShouldEmitWrapper because we need the
+                // PropertyDecl to know whether the property type references T
+                // (only T-typed properties go through the helper-using path).
                 return true;
 
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Returns true if the parent type would trip either wrapper-helper gate:
+    ///  - <see cref="MetatypeHelperEmitter.HasUnresolvableTypeConformances"/>: parent has a
+    ///    Self-requirement / associated-type protocol that <c>GetResolvablePwtParameterCount</c>
+    ///    silently undercounts. Calling the dlsym'd Ma symbol with too few PWT slots shifts
+    ///    caller-saved registers and PAC-traps on arm64e.
+    ///  - <see cref="MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold"/>: total
+    ///    (num_metadata + num_pwts) > 3 forces Swift's metadata accessor into the indirect
+    ///    buffer ABI. Our wrapper helper always declares the symbol as a thin function with
+    ///    explicit register args, so the call would shift registers and PAC-trap.
+    /// Both are tracked as 0.8.0 follow-ups; for now, refuse to emit any wrapper that would
+    /// route through <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>.
+    /// </summary>
+    internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(parentTypeDecl, typeDatabase))
+            return true;
+        if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(parentTypeDecl, typeDatabase))
+            return true;
+        return false;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

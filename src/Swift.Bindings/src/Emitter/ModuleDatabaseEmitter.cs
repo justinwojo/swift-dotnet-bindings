@@ -152,6 +152,12 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(record.AbiFieldLayout))
                 writer.WriteAttributeString("abiLayout", record.AbiFieldLayout);
 
+            // Protocol descriptor symbol (protocols only) — used for runtime witness-table
+            // lookups when emitting type metadata accessor PInvokes for generics constrained
+            // on protocols that can't be projected as static C# interfaces.
+            if (!string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
+                writer.WriteAttributeString("protocolDescriptorSymbol", record.ProtocolDescriptorSymbol);
+
             // Native type name (e.g., Foundation.NSUrl for URL)
             if (record.NativeTypeName != null)
             {

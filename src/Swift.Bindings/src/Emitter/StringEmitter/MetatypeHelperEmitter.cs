@@ -12,6 +12,20 @@ namespace BindingsGeneration;
 /// and Constructor emitters. Extracted here to remove the implicit dependency.
 ///
 /// Deduplication is tracked by <see cref="ModuleEmissionContext.TryAddMetadataAccessorHelper"/>.
+///
+/// <para>
+/// **Fail-closed contract**: Callers MUST gate on
+/// <see cref="HasUnresolvableTypeConformances"/> before invoking
+/// <see cref="EmitMetadataAccessorHelperIfNeeded"/>. The helper renders the dlsym call
+/// site with <see cref="GetResolvablePwtParameterCount"/> PWT slots, which silently
+/// undercounts when the parent type has Self-requirement or associated-type
+/// constraints. The dlsym'd <c>...Ma</c> symbol's actual signature includes ALL PWTs,
+/// so a mismatch corrupts caller-saved registers and PAC-traps on arm64e (NativeAOT).
+/// The central gate lives in <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>;
+/// see src/docs/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
+/// Swift wrapper path" for the full rationale and the 0.8.0 follow-up plan to
+/// dynamically resolve descriptors via <c>swift_conformsToProtocol</c> from Swift code.
+/// </para>
 /// </summary>
 public static class MetatypeHelperEmitter
 {
@@ -115,10 +129,31 @@ public static class MetatypeHelperEmitter
     }
 
     /// <summary>
-    /// Returns the number of PWT parameters that the C# P/Invoke side will actually emit.
-    /// Only counts conformances where the protocol is resolvable (no associated types or
-    /// Self requirements). This matches <see cref="PInvokeEmitter.HandleProtocolConformance"/>.
+    /// Returns the number of PWT parameters that the wrapper-side metadata-accessor
+    /// helper currently passes — restricted to conformances on protocols that can be
+    /// projected as a static C# interface (no associated types, no Self requirements).
+    ///
+    /// This intentionally undercounts versus the actual <c>...Ma</c> symbol's ABI when
+    /// any of the parent type's constraints are unresolvable. Callers MUST gate on
+    /// <see cref="HasUnresolvableTypeConformances"/> upstream so they never reach this
+    /// helper for a type whose metadata accessor expects more PWTs than this returns —
+    /// that mismatch is a guaranteed PAC trap / SIGSEGV at runtime, not a recoverable
+    /// condition. The fail-closed gate lives in
+    /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
     /// </summary>
+    /// <remarks>
+    /// TODO 0.8.0 — see src/docs/constrained-generic-metadata-witness-tables.md
+    /// "MetatypeHelperEmitter Swift wrapper path". The type-level metadata accessor
+    /// fix in 0.7.0 added a runtime descriptor + <c>swift_conformsToProtocol</c>
+    /// fallback for unresolvable conformances on the C# P/Invoke side. The Swift
+    /// wrapper path here still excludes them, so methods/properties/constructors on
+    /// constrained-generic types whose constraints have Self requirements or
+    /// associated types pass fewer PWTs than Swift's actual ABI expects. Teaching the
+    /// Swift wrapper to dynamically resolve descriptors via dlsym +
+    /// swift_conformsToProtocol is a separate exercise tracked for 0.8.0; until then
+    /// the fail-closed gate refuses to emit such members. Audited across the
+    /// validation matrix; no current library hits this limitation.
+    /// </remarks>
     public static int GetResolvablePwtParameterCount(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
     {
         int count = 0;
@@ -138,5 +173,81 @@ public static class MetatypeHelperEmitter
             }
         }
         return count;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the generic parent type has at least one protocol-conformance
+    /// constraint whose runtime witness table the wrapper-helper path cannot supply — i.e. a
+    /// constraint that <see cref="GetResolvablePwtParameterCount"/> drops because the protocol
+    /// has associated types or a Self requirement. Counts ONLY conformances on protocols that
+    /// the type database knows about so the gate ignores unknown stdlib protocols (Hashable,
+    /// Collection, ...) the same way the existing legacy filter does — failing on unknown
+    /// would regress every Alamofire/GRDB/RxSwift/DifferenceKit constrained generic.
+    /// </summary>
+    /// <remarks>
+    /// This is the fail-closed predicate used by
+    /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/> to refuse member emission
+    /// for any generic type whose metadata accessor would be called with the wrong PWT count.
+    /// See src/docs/constrained-generic-metadata-witness-tables.md "MetatypeHelperEmitter
+    /// Swift wrapper path" for the full design rationale. Audited across the validation
+    /// matrix; no current library triggers this gate (those types either have no emittable
+    /// members today, or their constraint protocols are not yet in the type database).
+    /// Adding a new library that DOES trigger it should be loud, not silent — hence the
+    /// gate.
+    /// </remarks>
+    public static bool HasUnresolvableTypeConformances(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in gp.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                    continue; // unknown protocol — already silently dropped, mirrors legacy filter
+                if (record.Kind != TypeRecordKind.Protocol)
+                    continue;
+
+                if (record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                    record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the wrapper-helper's dlsym'd <c>...Ma</c> call would cross the
+    /// (num_metadata + num_pwts) &gt; 3 register threshold and thus require Swift's indirect-buffer
+    /// metadata-accessor ABI. <see cref="EmitMetadataAccessorHelperIfNeeded"/> always declares the
+    /// accessor as a thin function with explicit <c>(request, metadata..., pwt...)</c> args; calling
+    /// the buffer-mode ABI through that signature shifts caller-saved registers and PAC-traps on
+    /// arm64e. Buffer-mode emission is the 0.8.0 follow-up — until it lands, callers MUST gate on
+    /// this predicate to refuse emission for over-threshold types.
+    /// </summary>
+    /// <remarks>
+    /// Counts the same conformances the wrapper helper itself passes — i.e.
+    /// <see cref="GetResolvablePwtParameterCount"/>. With
+    /// <see cref="HasUnresolvableTypeConformances"/> already gating, the resolvable count equals
+    /// the total count Swift's <c>Ma</c> symbol uses (marker protocols are filtered at parse time
+    /// and unknown stdlib protocols are silently dropped on both sides — see the legacy filter
+    /// notes on <see cref="GetResolvablePwtParameterCount"/>). The fail-closed gate lives in
+    /// <see cref="GenericDispatchEmitter.CanEmitGenericDispatch"/>.
+    /// </remarks>
+    public static bool WouldExceedRegisterArgumentThreshold(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        int totalArgs = parentTypeDecl.GenericParameters.Count
+            + GetResolvablePwtParameterCount(parentTypeDecl, typeDatabase);
+        return totalArgs > 3;
     }
 }
