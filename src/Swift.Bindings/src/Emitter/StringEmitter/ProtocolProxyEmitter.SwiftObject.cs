@@ -87,23 +87,20 @@ public partial class ProtocolProxyEmitter
             {
                 if (_disposed) return;
                 _disposed = true;
-                GC.SuppressFinalize(this);
-                if (_everyProtocol != null)
-                {
-                    SwiftObjectRegistry.Unregister(_everyProtocol.Handle);
-                    _everyProtocol.Dispose();
-                }
-            }
-
-            ~{{proxyClassName}}()
-            {
-                if (!_disposed && _everyProtocol != null)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[SwiftBindings] WARNING: {GetType().Name} was finalized without Dispose(). " +
-                        "EveryProtocol handle and SwiftObjectRegistry strong reference were leaked. " +
-                        "Use 'using' or call Dispose() explicitly.");
-                }
+                // No finalizer to suppress — the proxy no longer owns any unmanaged
+                // resources directly. ProxyLifetimeTracker owns the +1 release path
+                // via the impl-keyed ConditionalWeakTable; dropping it here would
+                // deallocate the Swift instance while in-flight Swift code may still
+                // be dispatching into this proxy. Explicit Dispose unregisters the
+                // strong root so further Swift callbacks route to the receivers'
+                // null-impl guard (silent no-op / zeroed-buffer default) — the ARC
+                // release waits for either impl GC (tracker finalizer) or Swift's
+                // last release (deinit callback), whichever comes first. The
+                // null-safe receivers (Codex P0/P1 #3 fix) ensure that an
+                // Unregister'd handle does NOT throw across the
+                // [UnmanagedCallersOnly] boundary if Swift dispatches concurrently.
+                if (_everyProtocolHandle != IntPtr.Zero)
+                    SwiftObjectRegistry.Unregister(_everyProtocolHandle);
             }
 
             #endregion
@@ -192,6 +189,23 @@ public partial class ProtocolProxyEmitter
             ParametersString = "",
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Public
+        });
+        writer.WriteLine();
+        // SBW_SetEveryProtocolDeinitCallback — wires a C# unmanaged callback onto an
+        // EveryProtocol instance so Swift's deinit can drive the strong-registry and
+        // ProxyLifetimeTracker teardown. The function-pointer parameter requires an
+        // unsafe P/Invoke; [LibraryImport] supports `delegate* unmanaged[Cdecl]<...>`
+        // in .NET 10.
+        PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
+        {
+            LibraryPath = wrapperLibPath,
+            EntryPoint = "SBW_SetEveryProtocolDeinitCallback",
+            MethodName = "SetEveryProtocolDeinitCallback",
+            ReturnType = "void",
+            ParametersString = "IntPtr instance, delegate* unmanaged[Cdecl]<IntPtr, void> callback, IntPtr context",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            Visibility = PInvokeVisibility.Public,
+            IsUnsafe = true,
         });
         writer.WriteLine();
         PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo

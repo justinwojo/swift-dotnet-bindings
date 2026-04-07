@@ -49,12 +49,28 @@ public class EveryProtocolEmitter
                 // This is used by vtable functions to find the C# implementation
                 public var handle: UnsafeRawPointer?
 
+                // Deinit callback fired when Swift's last retain drops. The C# proxy
+                // registers this so the SwiftObjectRegistry strong root and the
+                // ProxyLifetimeTracker entry can be torn down when Swift is finished
+                // with the existential container. Storage is fileprivate to prevent
+                // accidental access from outside this module.
+                fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
+                fileprivate var onDeinitCtx: UnsafeRawPointer?
+
                 public init() {
                     self.handle = nil
                 }
 
                 public init(handle: UnsafeRawPointer) {
                     self.handle = handle
+                }
+
+                deinit {
+                    // Idempotent, non-throwing. Runs when Swift's retain count reaches 0.
+                    // The C# callback is responsible for short-circuiting on process exit.
+                    if let cb = onDeinit, let ctx = onDeinitCtx {
+                        cb(ctx)
+                    }
                 }
             }
 
@@ -78,6 +94,22 @@ public class EveryProtocolEmitter
             @_cdecl("SBW_GetMetadata_EveryProtocol")
             public func _sbw_getEveryProtocolMetadata() -> UnsafeRawPointer {
                 return unsafeBitCast(EveryProtocol.self, to: UnsafeRawPointer.self)
+            }
+
+            // Registers a C# deinit callback on an EveryProtocol instance. The callback
+            // fires from Swift's deinit when the instance's retain count reaches 0.
+            // Uses takeUnretainedValue — we're only reading a property reference, not
+            // adding a ref. The caller (C# proxy ctor) already owns a +1 via
+            // SBW_CreateEveryProtocol; takeRetainedValue would incorrectly consume it.
+            @_cdecl("SBW_SetEveryProtocolDeinitCallback")
+            public func _sbw_setEveryProtocolDeinitCallback(
+                _ instance: UnsafeMutableRawPointer,
+                _ callback: @convention(c) (UnsafeRawPointer) -> Void,
+                _ context: UnsafeRawPointer
+            ) {
+                let ep = Unmanaged<EveryProtocol>.fromOpaque(instance).takeUnretainedValue()
+                ep.onDeinit = callback
+                ep.onDeinitCtx = context
             }
 
             """);

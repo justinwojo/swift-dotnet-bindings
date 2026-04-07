@@ -24,9 +24,36 @@ public partial class ProtocolProxyEmitter
 
     private void EmitInstanceFields(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
     {
-        writer.WriteLines($"""
-            private readonly {interfaceName}? _csharpImpl;
-            private readonly EveryProtocol? _everyProtocol;
+        // _everyProtocolHandle is a plain IntPtr — the Swift +1 retain is owned by
+        // ProxyLifetimeTracker (anchored to the user's impl via a
+        // ConditionalWeakTable), not by this proxy. The tracker releases the +1
+        // when the impl is garbage-collected; the Swift-side deinit callback
+        // (OnEveryProtocolDeinit) drops the strong registry root when Swift's
+        // last retain is released. Zero means the proxy was built from an
+        // existing Swift-owned container (the Swift-backed ctor).
+        //
+        // _csharpImpl is a WEAK reference to the user's impl. This is load-bearing:
+        // the proxy is strongly rooted by SwiftObjectRegistry for the lifetime of
+        // the Swift existential container, so a strong _csharpImpl would root the
+        // impl transitively and the tracker's impl-GC trigger would never fire.
+        // The _csharpImpl property unwraps the weak ref on each access; all the
+        // generator's receiver/interface-impl emit sites continue to use the
+        // member access syntax unchanged.
+        writer.WriteLines($$"""
+            private readonly WeakReference<{{interfaceName}}>? _csharpImplRef;
+
+            private {{interfaceName}}? _csharpImpl
+            {
+                get
+                {
+                    var weakRef = _csharpImplRef;
+                    if (weakRef != null && weakRef.TryGetTarget(out var impl))
+                        return impl;
+                    return null;
+                }
+            }
+
+            private readonly IntPtr _everyProtocolHandle;
             private ExistentialContainer1 _swiftContainer;
             private bool _disposed;
 

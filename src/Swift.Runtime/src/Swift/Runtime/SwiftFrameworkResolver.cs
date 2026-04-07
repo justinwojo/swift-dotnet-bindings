@@ -27,6 +27,12 @@ public static class SwiftFrameworkResolver
 #pragma warning restore CA2255
     internal static void InitializeRuntime()
     {
+        // Register the shared process-exit guard so finalizer-triggered Swift
+        // releases (SwiftClassHandle, ProxyLifetimeTracker) short-circuit during
+        // shutdown. Otherwise relying on lazy static init means the first release
+        // path may run before AppDomain.ProcessExit has been wired up.
+        SwiftExitGuard.EnsureInitialized();
+
         RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
         // Pre-register NewFromPayload factories for all non-generic Swift.Runtime ISwiftObject types.

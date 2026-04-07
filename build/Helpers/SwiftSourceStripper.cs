@@ -39,6 +39,11 @@ public static class SwiftSourceStripper
         // distinct protocols and dispatched via two distinct witness tables in the same
         // call. Both protocol conformances on EveryProtocol must survive stripping.
         "AutoWrappedSecondaryDelegate",
+        // Proxy lifetime regression: ProxyLifetimeTests exercises the impl-anchored
+        // EveryProtocol release path (tracker + Swift deinit callback). The fixture
+        // lives in BindingTests/Sources/SwiftBindingsTestLib/Lifetime/ProxyLifetimeFixture.swift
+        // and dispatches Swift→C# via a blittable ping() method.
+        "ProxyLifetimeReceiver",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

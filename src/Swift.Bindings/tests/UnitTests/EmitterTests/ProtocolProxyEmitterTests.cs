@@ -115,16 +115,21 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("private readonly ITestProtocol? _csharpImpl;", output);
+        // _csharpImpl is now a weak-reference-backed property (to break the
+        // impl-anchor lifetime cycle). The field is _csharpImplRef.
+        Assert.Contains("private readonly WeakReference<ITestProtocol>? _csharpImplRef;", output);
+        Assert.Contains("private ITestProtocol? _csharpImpl", output);
     }
 
     [Fact]
-    public void EmitProxyClass_GeneratesEveryProtocolField()
+    public void EmitProxyClass_GeneratesEveryProtocolHandleField()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("private readonly EveryProtocol? _everyProtocol;", output);
+        // The proxy holds a plain IntPtr now — ProxyLifetimeTracker owns the +1 release.
+        Assert.Contains("private readonly IntPtr _everyProtocolHandle;", output);
+        Assert.DoesNotContain("private readonly EveryProtocol? _everyProtocol;", output);
     }
 
     [Fact]
@@ -398,7 +403,204 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("SwiftObjectRegistry.GetProxyFromContainer<TestProtocolProxy>", output);
+        // Receivers use TryGetProxyFromContainer so unregistered handles produce
+        // a safe default return rather than throwing across the
+        // [UnmanagedCallersOnly] boundary (Codex P0 / P1 #3 regression guard).
+        Assert.Contains("SwiftObjectRegistry.TryGetProxyFromContainer<TestProtocolProxy>", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ReceiverGuardsAgainstDeadImpl()
+    {
+        // Codex P0: if the impl is GC'd while Swift still holds a strong retain on
+        // the proxy, the weak _csharpImpl unwrap returns null. Generated receivers
+        // must detect that and return a default value instead of dereferencing.
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: true);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Getter: null impl must produce an AllocZeroed buffer of the ABI type size
+        // (cannot throw from [UnmanagedCallersOnly] — process-terminating).
+        Assert.Contains("var impl = proxy._csharpImpl;", output);
+        Assert.Contains("if (impl is null)", output);
+        Assert.Contains("AllocZeroed", output);
+        // After the guard, dispatch uses the local `impl` — NOT `proxy._csharpImpl!`
+        // (the bang-dereference was the exact bug Codex flagged).
+        Assert.DoesNotContain("proxy._csharpImpl!", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_OptionalBoolGetter_SizesByCarrier()
+    {
+        // Codex P1 #1: when the success path uses a converted carrier (e.g.
+        // SwiftOptional<bool> for bool?), the dead-impl fallback buffer MUST be
+        // sized by the carrier — not by the idiomatic interface type. Otherwise
+        // Swift reads a too-small buffer when the impl is GC'd while Swift still
+        // holds a strong retain on the proxy.
+        var optionalBool = new NamedTypeSpec("Swift.Optional");
+        optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
+        var protocolDecl = CreateProtocolWithProperty("OptBoolDeadProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
+        var output = EmitProxyClass(protocolDecl);
+
+        // Find the getter receiver function definition (not the vtable assignment).
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_flag_get(");
+        Assert.True(receiverIdx >= 0, "Receive_flag_get function definition not found in output");
+        // Bound the receiver body so we don't accidentally match the success path's
+        // SwiftOptional<bool> elsewhere in the file.
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        // The dead-impl fallback must size by SwiftOptional<bool> (the carrier),
+        // matching the success path's MarshalToSwiftBuffer<SwiftOptional<bool>>(swiftResult).
+        Assert.Contains("Unsafe.SizeOf<SwiftOptional<bool>>()", receiverBody);
+        // It must NOT use Unsafe.SizeOf<bool?> — that's the idiomatic type, which is a
+        // different size from SwiftOptional<bool> and would corrupt the buffer.
+        Assert.DoesNotContain("Unsafe.SizeOf<bool?>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_OptionalIntMethod_SizesByCarrier()
+    {
+        // Same Codex P1 #1 fix, exercised on the method-receiver emit site
+        // (separate code path from EmitPropertyReceivers).
+        RegisterSwiftInt32();
+        var optionalInt = new NamedTypeSpec("Swift.Optional");
+        optionalInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateSimpleProtocol("OptIntMethodDeadProto");
+        var method = CreateMethodDecl("getMaybe");
+        method.CSSignature.Insert(0, new ArgumentDecl
+        {
+            Name = "",
+            PrivateName = "",
+            SwiftTypeSpec = optionalInt,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        protocolDecl.Methods.Add(method);
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_getMaybe_0(");
+        Assert.True(receiverIdx >= 0, "Receive_getMaybe_0 function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        // SwiftOptional<int> is the carrier the success path marshals via
+        // MarshalToSwiftBuffer<SwiftOptional<int>>(swiftResult).
+        Assert.Contains("Unsafe.SizeOf<SwiftOptional<int>>()", receiverBody);
+        Assert.DoesNotContain("Unsafe.SizeOf<int?>()", receiverBody);
+    }
+
+    /// <summary>
+    /// Codex P2 hardening: <see cref="GetReceiverGetterCarrierType"/> is a second
+    /// switch that must stay aligned with <see cref="GetReceiverGetterConversion"/>
+    /// and <see cref="GetReceiverExistentialGetterConversion"/>. A future projection
+    /// added to the conversion switch but not the carrier helper would silently
+    /// reintroduce the dead-impl buffer-size mismatch on the very path that is
+    /// supposed to be crash-proof. The tests below pin one example per major
+    /// projection family so any drift fails immediately.
+    /// </summary>
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_ArrayGetter_SizesByCarrier()
+    {
+        // Array<String> getter — success path: MarshalToSwiftBuffer<SwiftArray<SwiftString>>(swiftResult).
+        // Dead-impl null path must AllocZeroed by SwiftArray<SwiftString>, NOT by IReadOnlyList<string>.
+        RegisterSwiftString();
+        var arrayString = new NamedTypeSpec("Swift.Array");
+        arrayString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var protocolDecl = CreateProtocolWithProperty("ArrayCarrierProto", "items", hasGetter: true, hasSetter: false, arrayString);
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_items_get(");
+        Assert.True(receiverIdx >= 0, "Receive_items_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("Unsafe.SizeOf<SwiftArray<SwiftString>>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_DictionaryGetter_SizesByCarrier()
+    {
+        // Dictionary<String, Int> getter — success path: MarshalToSwiftBuffer<SwiftDictionary<SwiftString, nint>>.
+        // Dead-impl null path must AllocZeroed by the SwiftDictionary carrier.
+        RegisterSwiftString();
+        RegisterSwiftInt();
+        RegisterSwiftDictionary();
+        var dictType = new NamedTypeSpec("Swift.Dictionary");
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        dictType.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var protocolDecl = CreateProtocolWithProperty("DictCarrierProto", "lookup", hasGetter: true, hasSetter: false, dictType);
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_lookup_get(");
+        Assert.True(receiverIdx >= 0, "Receive_lookup_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("Unsafe.SizeOf<SwiftDictionary<SwiftString, nint>>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_SetGetter_SizesByCarrier()
+    {
+        // Set<Int32> getter — success path: MarshalToSwiftBuffer<SwiftSet<int>>.
+        RegisterSwiftInt32();
+        var setType = new NamedTypeSpec("Swift.Set");
+        setType.GenericParameters.Add(new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateProtocolWithProperty("SetCarrierProto", "ids", hasGetter: true, hasSetter: false, setType);
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_ids_get(");
+        Assert.True(receiverIdx >= 0, "Receive_ids_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("Unsafe.SizeOf<SwiftSet<int>>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_ObjCBridgedGetter_SizesByCarrier()
+    {
+        // ObjC-bridged getter — success path: MarshalToSwiftBuffer<IntPtr>(value.Handle).
+        // Dead-impl null path must AllocZeroed by IntPtr (carrier), NOT by the public
+        // .NET wrapper class type (Foundation.NSUrlSession).
+        RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
+        var protocolDecl = CreateProtocolWithProperty("ObjCCarrierProto", "session",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("Foundation.NSURLSession"));
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_session_get(");
+        Assert.True(receiverIdx >= 0, "Receive_session_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("Unsafe.SizeOf<IntPtr>()", receiverBody);
+    }
+
+    [Fact]
+    public void EmitProxyClass_DeadImplPath_NativeRemappedGetter_SizesByCarrier()
+    {
+        // NativeRemapped getter — success path: MarshalToSwiftBuffer<SwiftWrapperType>(value.ToWrapper()).
+        // Dead-impl null path must AllocZeroed by the Swift wrapper type, NOT the .NET native type.
+        RegisterNativeRemappedType("TestModule.CustomValue", "Swift.CustomValue", "Foundation.NSCustom");
+        var protocolDecl = CreateProtocolWithProperty("RemappedCarrierProto", "endpoint",
+            hasGetter: true, hasSetter: false, new NamedTypeSpec("TestModule.CustomValue"));
+        var output = EmitProxyClass(protocolDecl);
+
+        var receiverIdx = output.IndexOf("private static IntPtr Receive_endpoint_get(");
+        Assert.True(receiverIdx >= 0, "Receive_endpoint_get function definition not found in output");
+        var receiverEnd = output.IndexOf("[UnmanagedCallersOnly", receiverIdx + 1);
+        if (receiverEnd < 0) receiverEnd = output.Length;
+        var receiverBody = output.Substring(receiverIdx, receiverEnd - receiverIdx);
+
+        Assert.Contains("Unsafe.SizeOf<Swift.CustomValue>()", receiverBody);
     }
 
     #endregion
@@ -411,7 +613,9 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public TestProtocolProxy(ITestProtocol implementation)", output);
+        // The ctor is unsafe because it takes a function-pointer address for the
+        // EveryProtocol deinit callback (&ProxyLifetimeTracker.OnEveryProtocolDeinit).
+        Assert.Contains("public unsafe TestProtocolProxy(ITestProtocol implementation)", output);
     }
 
     [Fact]
@@ -429,7 +633,19 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("SwiftObjectRegistry.RegisterStrong(_everyProtocol.Handle, this)", output);
+        Assert.Contains("SwiftObjectRegistry.RegisterStrong(_everyProtocolHandle, this)", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ConstructorWiresDeinitCallbackAndTracksImpl()
+    {
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+        var output = EmitProxyClass(protocolDecl);
+
+        // The proxy must wire the deinit callback AND anchor the +1 to impl lifetime.
+        Assert.Contains("NativeMethods.SetEveryProtocolDeinitCallback", output);
+        Assert.Contains("Swift.Runtime.ProxyLifetimeTracker.OnEveryProtocolDeinit", output);
+        Assert.Contains("Swift.Runtime.ProxyLifetimeTracker.Track(implementation, _everyProtocolHandle)", output);
     }
 
     #endregion
@@ -601,7 +817,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("public unsafe partial class EmptyProtocolProxy", output);
         Assert.Contains(": IEmptyProtocol, ISwiftObject, IDisposable", output);
         // Constructor and ISwiftObject implementation still emitted
-        Assert.Contains("public EmptyProtocolProxy(IEmptyProtocol implementation)", output);
+        Assert.Contains("public unsafe EmptyProtocolProxy(IEmptyProtocol implementation)", output);
         Assert.Contains("public EmptyProtocolProxy(ExistentialContainer1 container)", output);
         Assert.Contains("public static TypeMetadata GetTypeMetadata()", output);
     }
@@ -1590,19 +1806,31 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_DisposeUnregistersFromSwiftObjectRegistry()
     {
+        // Dispose unregisters the proxy from the strong registry. The Codex P1 #3
+        // concern (subsequent Swift callbacks throwing through [UnmanagedCallersOnly])
+        // is mitigated by the null-safe receiver guards added in the same fix —
+        // see EmitProxyClass_ReceiverGuardsAgainstDeadImpl.
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("SwiftObjectRegistry.Unregister(_everyProtocol.Handle)", output);
+        Assert.Contains("SwiftObjectRegistry.Unregister(_everyProtocolHandle)", output);
     }
 
     [Fact]
-    public void EmitProxyClass_DisposeDisposesEveryProtocol()
+    public void EmitProxyClass_DisposeDoesNotReleaseEveryProtocolHandle()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("_everyProtocol.Dispose()", output);
+        // ProxyLifetimeTracker (anchored on the impl) owns the +1 release path now.
+        // Dispose must NOT call Arc.Release on the handle — that would deallocate
+        // the Swift EveryProtocol while in-flight dispatches may still be running.
+        var disposeIndex = output.IndexOf("public void Dispose()");
+        Assert.NotEqual(-1, disposeIndex);
+        // Find the closing brace of Dispose by walking forward a bounded amount.
+        var disposeBody = output.Substring(disposeIndex, Math.Min(1200, output.Length - disposeIndex));
+        Assert.DoesNotContain("Arc.Release(_everyProtocolHandle)", disposeBody);
+        Assert.DoesNotContain("_everyProtocol.Dispose()", disposeBody);
     }
 
     [Fact]
@@ -1656,11 +1884,20 @@ public class ProtocolProxyEmitterTests
             closureSkippedPropertyNames: new HashSet<string> { "callback" });
         var output = stringWriter.ToString();
 
+        // Find the Callback property stub (skip past the weak-ref _csharpImpl
+        // property that is emitted first, before any interface members).
+        // The generator pascal-cases "callback" -> "Callback" for the C# name,
+        // but the exact member modifiers can vary — just search for " Callback".
+        var propertyIdx = output.IndexOf(" Callback\n");
+        if (propertyIdx < 0) propertyIdx = output.IndexOf(" Callback ");
+        Assert.True(propertyIdx >= 0, "Callback property not found in output");
+        var propertySection = output.Substring(propertyIdx, Math.Min(1500, output.Length - propertyIdx));
+
         // Find the property and verify ObjectDisposedException guard in getter
-        var getterIdx = output.IndexOf("get\n");
-        if (getterIdx < 0) getterIdx = output.IndexOf("get\r\n");
+        var getterIdx = propertySection.IndexOf("get\n");
+        if (getterIdx < 0) getterIdx = propertySection.IndexOf("get\r\n");
         Assert.True(getterIdx >= 0, "Property getter stub not found in output");
-        var getterSection = output.Substring(getterIdx, Math.Min(500, output.Length - getterIdx));
+        var getterSection = propertySection.Substring(getterIdx, Math.Min(500, propertySection.Length - getterIdx));
         Assert.Contains("ObjectDisposedException", getterSection);
         // Guard must appear before NotSupportedException
         var disposeIdx = getterSection.IndexOf("ObjectDisposedException");
@@ -1669,10 +1906,10 @@ public class ProtocolProxyEmitterTests
         Assert.True(disposeIdx < notSupportedIdx, "ObjectDisposedException guard must come before NotSupportedException in getter");
 
         // Verify ObjectDisposedException guard in setter
-        var setIdx = output.IndexOf("set\n");
-        if (setIdx < 0) setIdx = output.IndexOf("set\r\n");
+        var setIdx = propertySection.IndexOf("set\n");
+        if (setIdx < 0) setIdx = propertySection.IndexOf("set\r\n");
         Assert.True(setIdx >= 0, "Property setter stub not found in output");
-        var setterSection = output.Substring(setIdx, Math.Min(500, output.Length - setIdx));
+        var setterSection = propertySection.Substring(setIdx, Math.Min(500, propertySection.Length - setIdx));
         Assert.Contains("ObjectDisposedException", setterSection);
         var setDisposeIdx = setterSection.IndexOf("ObjectDisposedException");
         var setNotSupportedIdx = setterSection.IndexOf("NotSupportedException");
@@ -5085,39 +5322,20 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
-    #region F6: Proxy Finalizer Leak Detection Tests
+    #region Proxy Lifetime Ownership Tests
 
     [Fact]
-    public void Dispose_EmitsSuppressFinalize()
+    public void Proxy_HasNoFinalizer()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // GC.SuppressFinalize(this) must appear in the Dispose method
-        Assert.Contains("GC.SuppressFinalize(this)", output);
-    }
-
-    [Fact]
-    public void Finalizer_EmitsLeakWarning()
-    {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
-        var output = EmitProxyClass(protocolDecl);
-
-        // Finalizer should emit Debug.WriteLine with leak warning
-        Assert.Contains("~TestProtocolProxy()", output);
-        Assert.Contains("System.Diagnostics.Debug.WriteLine", output);
-        Assert.Contains("was finalized without Dispose()", output);
-        Assert.Contains("EveryProtocol handle and SwiftObjectRegistry strong reference were leaked", output);
-    }
-
-    [Fact]
-    public void Finalizer_OnlyWarnsWhenEveryProtocolExists()
-    {
-        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
-        var output = EmitProxyClass(protocolDecl);
-
-        // Finalizer body should have both _disposed and _everyProtocol guards
-        Assert.Contains("!_disposed && _everyProtocol != null", output);
+        // ProxyLifetimeTracker owns the +1 release path now. The proxy holds no
+        // unmanaged resources directly, so there is nothing for a finalizer to do.
+        Assert.DoesNotContain("~TestProtocolProxy()", output);
+        // No "was finalized without Dispose" leak warning either — missed Dispose
+        // is no longer a leak under the impl-anchored lifetime model.
+        Assert.DoesNotContain("was finalized without Dispose()", output);
     }
 
     #endregion

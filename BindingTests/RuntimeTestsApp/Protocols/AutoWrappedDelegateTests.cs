@@ -88,43 +88,57 @@ public class AutoWrappedDelegateTests : TestBase
     }
 
     /// <summary>
-    /// Weak-slot survival: assigns the impl to the **weak** `delegate` property
-    /// only — no strong fallback — drops every C# reference, forces GC, and asserts
-    /// that the weak slot still services <c>fire()</c>. This is the test that
-    /// actually proves <c>SwiftObjectRegistry.RegisterStrong</c> roots the
-    /// auto-generated proxy across GC pressure: if the proxy were collected, the
-    /// weak `delegate` slot would be nil, <c>fire()</c> would set
-    /// <c>LastNotifiedSlot = 0</c>, and the assertions below would fail.
+    /// Weak-slot survival under GC pressure: assigns the impl to the **weak**
+    /// <c>delegate</c> property only — no strong fallback — forces GC, and
+    /// asserts that the weak slot still services <c>fire()</c>.
+    ///
+    /// <para>
+    /// Under the impl-anchored lifetime model, the live <c>impl</c> local
+    /// anchors the auto-wrapped proxy via <c>ProxyLifetimeTracker</c>, which
+    /// keeps the Swift <c>EveryProtocol</c> container retained, which in turn
+    /// keeps the Swift-side <c>weak var delegate</c> slot resolvable. GC.Collect
+    /// must not sever this chain as long as <c>impl</c> is reachable.
+    /// </para>
+    ///
+    /// <para>
+    /// Pre-fix, this test validated the leak-as-feature behaviour: the auto-wrap
+    /// cache and <c>SwiftObjectRegistry.RegisterStrong</c> rooted the proxy
+    /// forever, so even an impl that was dropped and GC'd still routed fire()
+    /// correctly — at the cost of leaking one proxy per <c>(impl, protocol)</c>
+    /// pair for the rest of the process. The fix intentionally breaks that
+    /// behaviour; the collectibility invariant is covered by
+    /// <c>ProxyLifetimeTests</c>. This test now validates the remaining
+    /// (correct) invariant: while <c>impl</c> is alive, fire() still dispatches
+    /// through the Swift weak slot across a GC cycle.
+    /// </para>
     /// </summary>
     public void TestProxySurvivesBeyondLocalScope()
     {
         var monitor = new AutoWrappedMonitor();
-        AssignAndForget(monitor);
+        var impl = new AutoWrappedDelegateImpl();
+        // Deliberately NOT setting monitor.StrongDelegate — the weak slot is the
+        // only path that can keep the impl reachable from Swift's side. As long
+        // as `impl` stays alive in this test scope, ProxyLifetimeTracker keeps
+        // the proxy (and therefore the Swift weak slot) reachable across GC.
+        monitor.Delegate = impl;
 
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
         // After GC, the weak slot must still resolve and dispatch into the
-        // managed implementation.
+        // managed implementation because `impl` is still rooted by this frame.
         monitor.Fire();
         monitor.Fire();
 
         AssertEqual(2, monitor.LastFiredValue, "Two fires after GC reached the delegate (counter=2)");
         AssertEqual(1, monitor.LastNotifiedSlot,
-            "fire() routed through the weak slot — proxy survived GC even though no C# local references it");
-    }
+            "fire() routed through the weak slot — proxy survived GC while impl is rooted");
 
-    private static void AssignAndForget(AutoWrappedMonitor monitor)
-    {
-        var impl = new AutoWrappedDelegateImpl();
-        // Deliberately NOT setting monitor.StrongDelegate — the weak slot is the
-        // only path that can keep the impl reachable from Swift's side. If the
-        // proxy is collected, fire() will set LastNotifiedSlot = 0 and the test
-        // assertions in the caller will fail.
-        monitor.Delegate = impl;
-        // `impl` goes out of scope here — the generated proxy's RegisterStrong keeps
-        // it rooted so callbacks still reach the C# implementation.
+        // Anchor impl past the GC cycles above so the tracker keeps the proxy
+        // alive. Dropping this would be the collectibility scenario that
+        // ProxyLifetimeTests covers.
+        GC.KeepAlive(impl);
     }
 
     /// <summary>
