@@ -735,6 +735,46 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_GenericEnum_PayloadSizeFieldInitializerIsLazy()
+    {
+        // Regression: a non-lazy `_payloadSize` field initializer on a constrained-generic
+        // enum eagerly invokes the metadata accessor PInvoke during cctor. The eager
+        // [ModuleInitializer] registration in __SwiftFrameworkResolver_<Module> then
+        // touches the cctor at module-init time, which on iOS NativeAOT devices was
+        // crashing on PAC trap inside libswiftCore (the metadata cache key picked up a
+        // stale signed pointer in x2). Lottie's `ValueProviderStorage<T>` was the
+        // first reproducer — the lazy field initializer keeps the cctor body free of
+        // any Swift PInvoke so the registration loop can run safely on NativeAOT.
+        //
+        // The lazy emission MUST be preserved for constrained generics; reverting it
+        // brings back a hard SIGTRAP at app launch with no managed exception (PAC traps
+        // are hardware faults and bypass C# try/catch).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("ValueProviderStorage", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+
+        var boxedCase = CreateCase("boxed");
+        boxedCase.AssociatedValues.Add(new NamedTypeSpec("τ_0_0"));
+        enumDecl.Cases.Add(boxedCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The Lazy<nuint> wrapper must be present.
+        Assert.Contains("global::System.Lazy<nuint>", csOutput);
+        Assert.Contains("_payloadSizeLazy", csOutput);
+        Assert.Contains("_payloadSize => _payloadSizeLazy.Value", csOutput);
+        // The eager assignment form must NOT be emitted for constrained generics.
+        Assert.DoesNotContain(
+            "static nuint _payloadSize = ValueProviderStorage_PInvoke.PInvoke_getMetadata",
+            csOutput);
+    }
+
+    [Fact]
     public void Emit_NamespaceEnum_EmitsStaticClass()
     {
         // E12: Zero-case enums used as namespaces should emit as static classes

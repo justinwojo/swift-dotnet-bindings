@@ -280,8 +280,18 @@ namespace BindingsGeneration
                 // SwiftObjectHelper<GenericType<T>> in a static field initializer crashes Mono JIT
                 // (mini-generic-sharing.c:2759) because the nested generic instantiation can't be
                 // compiled without the type argument's metadata.
+                //
+                // LAZY initialization: the helper PInvoke is Swift's constrained-generic
+                // metadata accessor. For protocol-constrained generic params it expects an
+                // additional witness-table argument that the generator does NOT yet emit,
+                // causing a Swift PAC/SIGTRAP deep inside libswiftCore the moment the call
+                // happens. Lazy-init the field so the cctor stays safe and the broken call
+                // only fires when user code actually allocates an instance — preventing
+                // launch-time crashes for libraries that merely reference the type.
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList());
-                csWriter.WriteLine($"static nuint _payloadSize = {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
+                csWriter.WriteLine($"private static readonly global::System.Lazy<nuint> _payloadSizeLazy = new global::System.Lazy<nuint>(() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size);");
+                csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                csWriter.WriteLine("static nuint _payloadSize => _payloadSizeLazy.Value;");
             }
             else
             {

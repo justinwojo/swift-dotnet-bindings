@@ -1,11 +1,11 @@
 {
-  "git_sha": "21527c76",
+  "git_sha": "2bff30f5",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49420,
+        "lines": 49448,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12416,
+        "lines": 12418,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21822,
+        "lines": 21826,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 76104,
+        "lines": 76150,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58568,
+        "lines": 58570,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32046,
+        "lines": 32048,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,14 +110,14 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11976,
+        "lines": 11994,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10442,
+        "lines": 10446,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,7 +278,7 @@
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3833,
+        "lines": 3835,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6321,
+        "lines": 6323,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -355,14 +355,14 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3997,
+        "lines": 3999,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3332,
+        "lines": 3346,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18056,
+        "lines": 18072,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,7 +649,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 32,
-        "lines": 27241,
+        "lines": 27243,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -663,7 +663,7 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 30599,
+        "lines": 30601,
         "dep_compile": "none",
         "swift_compile": "ok"
       }

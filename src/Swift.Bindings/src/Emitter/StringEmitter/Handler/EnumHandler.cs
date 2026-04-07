@@ -188,8 +188,21 @@ namespace BindingsGeneration
                 {
                     // Generic enums: use helper class metadata accessor to avoid Mono JIT crash
                     // (mini-generic-sharing.c:2759 on SwiftObjectHelper<GenericEnum<T>>).
+                    //
+                    // LAZY initialization: the helper PInvoke is the constrained-generic Swift
+                    // metadata accessor (e.g. $s..StorageOMa). For protocol-constrained generic
+                    // params, that accessor expects an additional witness-table argument that
+                    // the generator does NOT yet emit, causing a Swift PAC/SIGTRAP crash deep
+                    // inside libswiftCore the moment the call is made. By lazily fetching the
+                    // size on first use (instead of in the field initializer), the cctor stays
+                    // safe and types like Lottie's `ValueProviderStorage<LottieVector3D>` no
+                    // longer abort the host process at module-init time. Direct user-code
+                    // access still triggers the underlying bug — that's a separate fix to the
+                    // metadata-accessor PInvoke emission.
                     var metadataArgs = string.Join(", ", ownPInvokeContext.GetMetadataArgumentList());
-                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
+                    csWriter.WriteLine($"private static readonly global::System.Lazy<nuint> _payloadSizeLazy = new global::System.Lazy<nuint>(() => {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size);");
+                    csWriter.WriteLine("[EditorBrowsable(EditorBrowsableState.Never)]");
+                    csWriter.WriteLine("static nuint _payloadSize => _payloadSizeLazy.Value;");
                 }
                 else
                 {
