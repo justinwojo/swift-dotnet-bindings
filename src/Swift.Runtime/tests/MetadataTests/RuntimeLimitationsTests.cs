@@ -169,6 +169,37 @@ public class RuntimeLimitationsTests
             "(nint does not conform to Swift.Error)");
     }
 
+    /// <summary>
+    /// Verifies that SwiftDictionary&lt;nint, nint&gt;.TryEagerInitialize() completes
+    /// without throwing. Mirrors the SwiftArray test — both runtime container types must
+    /// populate TypeMetadata.Cache during cctor on NativeAOT so that
+    /// SwiftOptional&lt;SwiftDictionary&lt;...&gt;&gt;.cctor field initializers can resolve
+    /// metadata via TypeMetadata.GetTypeMetadataOrThrow without falling back to reflection
+    /// (which fails on NativeAOT for explicit interface implementations on closed generics).
+    /// </summary>
+    [Fact]
+    public void SwiftDictionary_TryEagerInitialize_ReturnsGracefully()
+    {
+        // TryEagerInitialize() should never throw — it either succeeds (true) or
+        // catches internally and falls back to lazy init (false).
+        var result = Swift.SwiftDictionary<nint, nint>.TryEagerInitialize();
+        Assert.True(result,
+            "TryEagerInitialize should succeed for SwiftDictionary<nint, nint> on the current runtime");
+    }
+
+    /// <summary>
+    /// Verifies that SwiftSet&lt;nint&gt;.TryEagerInitialize() completes without throwing.
+    /// Same architectural reason as SwiftDictionary — eager metadata cache population for
+    /// NativeAOT explicit-interface-implementation closed generics.
+    /// </summary>
+    [Fact]
+    public void SwiftSet_TryEagerInitialize_ReturnsGracefully()
+    {
+        var result = Swift.SwiftSet<nint>.TryEagerInitialize();
+        Assert.True(result,
+            "TryEagerInitialize should succeed for SwiftSet<nint> on the current runtime");
+    }
+
     [Fact]
     public void SwiftArray_CachedMetadata_IsThreadSafe()
     {

@@ -69,6 +69,51 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         {
             { typeof(ISwiftCollection), "$sShyxGSlsMc" }
         };
+
+        // On NativeAOT, eagerly populate the type metadata cache during type init.
+        // Reflection on explicit interface implementations of generic types may fail
+        // on NativeAOT, so callers going through TypeMetadata.GetTypeMetadataOrThrow<
+        // SwiftSet<Element>>() (e.g., SwiftOptional<SwiftSet<...>>.cctor) cannot
+        // resolve metadata via reflection. Direct dispatch via SwiftObjectHelper<T>
+        // populates the cache without reflection.
+        // On Mono, skip this — calling Swift runtime during static construction can
+        // trigger JIT assertions when Element is an existential container type.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
+        {
+            TryEagerInitialize();
+        }
+    }
+
+    /// <summary>
+    /// Attempts eager initialization of metadata and factory registration for NativeAOT.
+    /// Mirrors SwiftArray.TryEagerInitialize. Returns true on success, false if it
+    /// fell back to lazy init (e.g., when Element metadata isn't yet available).
+    /// </summary>
+    internal static bool TryEagerInitialize()
+    {
+        try
+        {
+            NativeAotInitialize();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Element metadata may be unavailable during type init for certain types
+            // (e.g., ExistentialContainer types require protocol descriptor pointers).
+            // Fall back to lazy initialization — metadata will be fetched on first use.
+            System.Diagnostics.Debug.WriteLine(
+                $"SwiftSet<{typeof(Element).Name}>: NativeAotInitialize skipped, using lazy init");
+            return false;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotInitialize()
+    {
+        // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata():
+        // - Registers NewFromPayload factory in NewFromPayloadDispatcher
+        // - Caches metadata in TypeMetadata.Cache
+        var _ = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
     }
 
     IntPtr ISwiftObject.SwiftHandle

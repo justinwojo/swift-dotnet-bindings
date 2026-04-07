@@ -65,6 +65,52 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         {
             { typeof(ISwiftCollection), "$sSDyq_xGSlsMc" }
         };
+
+        // On NativeAOT, eagerly populate the type metadata cache during type init.
+        // Reflection on explicit interface implementations of generic types
+        // (ISwiftObject.GetTypeMetadata) may fail on NativeAOT, so callers that go
+        // through TypeMetadata.GetTypeMetadataOrThrow<SwiftDictionary<TKey,TValue>>()
+        // (e.g., SwiftOptional<SwiftDictionary<...>>.cctor field initializer) cannot
+        // resolve metadata via reflection. Direct dispatch via SwiftObjectHelper<T>
+        // populates the cache without reflection.
+        // On Mono, skip this — calling Swift runtime during static construction can
+        // trigger JIT assertions when TKey/TValue is an existential container type.
+        if (SwiftRuntimeInfo.IsNativeAotRuntime)
+        {
+            TryEagerInitialize();
+        }
+    }
+
+    /// <summary>
+    /// Attempts eager initialization of metadata and factory registration for NativeAOT.
+    /// Mirrors SwiftArray.TryEagerInitialize. Returns true on success, false if it
+    /// fell back to lazy init (e.g., when TKey/TValue metadata isn't yet available).
+    /// </summary>
+    internal static bool TryEagerInitialize()
+    {
+        try
+        {
+            NativeAotInitialize();
+            return true;
+        }
+        catch (Exception)
+        {
+            // TKey/TValue metadata may be unavailable during type init for certain types
+            // (e.g., ExistentialContainer types require protocol descriptor pointers).
+            // Fall back to lazy initialization — metadata will be fetched on first use.
+            System.Diagnostics.Debug.WriteLine(
+                $"SwiftDictionary<{typeof(TKey).Name}, {typeof(TValue).Name}>: NativeAotInitialize skipped, using lazy init");
+            return false;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void NativeAotInitialize()
+    {
+        // SwiftObjectHelper<T>.GetTypeMetadata() → DirectDispatchGetTypeMetadata():
+        // - Registers NewFromPayload factory in NewFromPayloadDispatcher
+        // - Caches metadata in TypeMetadata.Cache
+        var _ = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
     }
 
     IntPtr ISwiftObject.SwiftHandle
