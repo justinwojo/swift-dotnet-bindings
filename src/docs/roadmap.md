@@ -88,6 +88,7 @@ Remaining:
 | Item | Notes |
 |------|-------|
 | **Performance benchmarks** | Baseline P/Invoke overhead measurement. [`Future/interop-performance-validation-plan.md`](Future/interop-performance-validation-plan.md) |
+| **Bulk retain/release helpers for collections** | Replace per-element `DangerousAddRef`/`DangerousRelease` + P/Invoke loops in `SwiftArray`, `SwiftDictionary`, `SwiftSet` with Swift-side batch helpers (e.g. `SBW_RetainMany`/`SBW_ReleaseMany`) in the SwiftBindingsRuntime library. Cuts managed↔native transition cost on large collections. Low-medium effort, high perf impact. |
 | **API snapshot tooling** | Detect API surface drift between versions. [`Future/api-snapshot-tooling.md`](Future/api-snapshot-tooling.md) |
 | **SwiftUI beyond current level** | Wait for consumer feedback before investing further |
 | **Custom actor types** | Niche — requires async dispatch through actor's serial executor |
