@@ -200,6 +200,29 @@ public class MemberValidationPipeline
     /// </summary>
     public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context)
     {
+        // Constrained-extension multi-specialization conflict — see
+        // MemberEmissionValidator.CanEmitProperty for the full rationale. PropertyHandler.Emit
+        // routes through this pipeline (not CanEmitProperty), so the gate must be repeated here
+        // to keep the two paths in sync.
+        if (propertyDecl.ParentDecl is TypeDecl constrainedExtensionParent && constrainedExtensionParent.IsGeneric)
+        {
+            int siblingCount = 0;
+            foreach (var sibling in constrainedExtensionParent.Properties)
+            {
+                if (sibling.Name == propertyDecl.Name && sibling.IsStatic == propertyDecl.IsStatic)
+                {
+                    siblingCount++;
+                    if (siblingCount > 1)
+                        break;
+                }
+            }
+            if (siblingCount > 1)
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedType,
+                    $"Multiple constrained-extension specializations of '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' cannot be dispatched via C# generics.");
+            }
+        }
+
         // Bare generic usage (generic declaration used without type arguments)
         var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
         if (boundGenericsHandler.HasBareGenericUsage(propertyDecl.SwiftTypeSpec, propertyDecl.ModuleDecl))

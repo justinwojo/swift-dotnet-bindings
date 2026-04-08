@@ -414,6 +414,197 @@ public class MemberEmissionValidatorTests
         Assert.NotEqual(SkipReason.ModuleInternal, result ?? SkipReason.UnsupportedType);
     }
 
+    [Fact]
+    public void CanEmitProperty_ConstrainedExtensionConflict_AllSpecializationsSkipped()
+    {
+        // Bug #2 regression: multiple `extension Wrapper where T == Concrete` blocks each
+        // declare a property with the same Swift name. Each ABI Var node carries its own
+        // specialization-specific accessor symbol. C# generics have only one specialization,
+        // so emitting any of them silently dispatches the wrong symbol for the other closed
+        // generic instantiations. The validator must skip ALL conflicting copies.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildGenericConflictParent(
+            "VerificationResult", moduleDecl, "jwsRepresentation", specializationCount: 3);
+
+        foreach (var prop in parent.Properties)
+        {
+            var skipReason = MemberEmissionValidator.CanEmitProperty(
+                prop, typeDatabase, out var skipDetails, out _);
+
+            Assert.Equal(SkipReason.UnsupportedType, skipReason);
+            Assert.Contains("constrained-extension", skipDetails!);
+            Assert.Contains("jwsRepresentation", skipDetails!);
+        }
+    }
+
+    [Fact]
+    public void CanEmitProperty_ConstrainedExtensionConflict_PropertyOrderingDoesNotMatter()
+    {
+        // P2 regression: previous fix used "first wins" dedup at parser time. If the first
+        // copy was later filtered (unsupported type, internal visibility, etc.), the only
+        // viable specialization was already removed. With "skip all" semantics, ordering
+        // doesn't matter — every copy hits the gate independently.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildGenericConflictParent(
+            "Wrapper", moduleDecl, "data", specializationCount: 2);
+
+        var first = parent.Properties[0];
+        var second = parent.Properties[1];
+
+        // Verify both copies hit the gate, regardless of evaluation order. There is no
+        // "winner" — both are dropped, so a downstream pipeline change that filters one
+        // copy first cannot leak the other.
+        var firstReason = MemberEmissionValidator.CanEmitProperty(first, typeDatabase, out _, out _);
+        var secondReason = MemberEmissionValidator.CanEmitProperty(second, typeDatabase, out _, out _);
+
+        Assert.Equal(SkipReason.UnsupportedType, firstReason);
+        Assert.Equal(SkipReason.UnsupportedType, secondReason);
+    }
+
+    [Fact]
+    public void CanEmitProperty_GenericParentSinglePropertyName_NotBlockedByConflictGate()
+    {
+        // Single-occurrence properties on a generic type pass the constrained-extension gate.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildGenericConflictParent(
+            "Wrapper", moduleDecl, "uniqueProp", specializationCount: 1);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            parent.Properties[0], typeDatabase, out var skipDetails, out _);
+
+        // The conflict-specific message must NOT be present (other gates may still apply).
+        if (skipDetails != null)
+            Assert.DoesNotContain("constrained-extension", skipDetails);
+    }
+
+    [Fact]
+    public void CanEmitProperty_NonGenericParent_NoConflictGate()
+    {
+        // Constrained extensions can only exist on generic parents — non-generic parents
+        // must not be silently absorbed by this gate even if (hypothetically) they had
+        // duplicate PropertyDecls.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildBareStruct("Plain", moduleDecl, isGeneric: false);
+        var prop = new PropertyDecl
+        {
+            Name = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl
+        };
+        parent.Properties.Add(prop);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(prop, typeDatabase, out var skipDetails, out _);
+
+        if (skipDetails != null)
+            Assert.DoesNotContain("constrained-extension", skipDetails);
+    }
+
+    [Fact]
+    public void CanEmitProperty_StaticAndInstanceWithSameName_NoConflict()
+    {
+        // Instance and static properties with the same Swift name project to distinct C#
+        // members and must NOT collide on the constrained-extension gate.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildBareStruct("Holder", moduleDecl, isGeneric: true);
+        var instanceProp = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl
+        };
+        var staticProp = new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = true,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl
+        };
+        parent.Properties.Add(instanceProp);
+        parent.Properties.Add(staticProp);
+
+        var instanceReason = MemberEmissionValidator.CanEmitProperty(instanceProp, typeDatabase, out var instDetails, out _);
+        var staticReason = MemberEmissionValidator.CanEmitProperty(staticProp, typeDatabase, out var staticDetails, out _);
+
+        if (instDetails != null)
+            Assert.DoesNotContain("constrained-extension", instDetails);
+        if (staticDetails != null)
+            Assert.DoesNotContain("constrained-extension", staticDetails);
+    }
+
+    private static StructDecl BuildBareStruct(string typeName, ModuleDecl moduleDecl, bool isGeneric)
+    {
+        var decl = new StructDecl
+        {
+            Name = typeName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
+            MangledName = $"$sTestModule{typeName.Length}{typeName}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = string.Empty
+        };
+        if (isGeneric)
+        {
+            decl.GenericParameters.Add(new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        }
+        return decl;
+    }
+
+    private static StructDecl BuildGenericConflictParent(
+        string typeName,
+        ModuleDecl moduleDecl,
+        string propertyName,
+        int specializationCount)
+    {
+        var parent = BuildBareStruct(typeName, moduleDecl, isGeneric: true);
+        for (int i = 0; i < specializationCount; i++)
+        {
+            parent.Properties.Add(new PropertyDecl
+            {
+                Name = propertyName,
+                SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                IsStatic = false,
+                HasStorage = false,
+                Accessors = new List<AccessorDecl>(),
+                ParentDecl = parent,
+                ModuleDecl = moduleDecl
+            });
+        }
+        return parent;
+    }
+
     #endregion
 
     #region Helper Methods

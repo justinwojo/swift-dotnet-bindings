@@ -85,6 +85,40 @@ public static class MemberEmissionValidator
             return SkipReason.ModuleInternal;
         }
 
+        // Constrained-extension multi-specialization conflict.
+        // Multiple `extension Wrapper where T == ConcreteN` blocks each define a
+        // property with the same Swift name. The ABI dump emits one Var node per
+        // specialization (e.g., StoreKit's three `extension VerificationResult
+        // where SignedType == ...` blocks each contribute a copy of
+        // `jwsRepresentation`), and each carries its own specialization-specific
+        // mangled accessor symbol. C# generics have only one specialization at
+        // runtime, so the merged C# class cannot dispatch among them: emitting
+        // one would silently call its symbol for ALL closed generic instantiations
+        // (returning the wrong specialization's data — undefined behavior).
+        // Skip ALL conflicting copies; users who need a specific specialization
+        // must call the mangled symbol via direct P/Invoke. The PropertyWrapperEmitter
+        // already defers these in `CanEmitGenericClassPropertyWrapper`, so no Swift
+        // wrapper is generated either. See bug #2 in
+        // src/docs/0.8.0-storekit2-followup-bugs.md.
+        if (property.ParentDecl is TypeDecl constrainedExtensionParent && constrainedExtensionParent.IsGeneric)
+        {
+            int siblingCount = 0;
+            foreach (var sibling in constrainedExtensionParent.Properties)
+            {
+                if (sibling.Name == property.Name && sibling.IsStatic == property.IsStatic)
+                {
+                    siblingCount++;
+                    if (siblingCount > 1)
+                        break;
+                }
+            }
+            if (siblingCount > 1)
+            {
+                skipDetails = $"Multiple constrained-extension specializations of '{property.Name}' on generic type '{constrainedExtensionParent.Name}' cannot be dispatched via C# generics.";
+                return SkipReason.UnsupportedType;
+            }
+        }
+
         // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database)
         if (MemberEmissionValidator.ReferencesUnsupportedModule(property.SwiftTypeSpec, typeDatabase))
         {

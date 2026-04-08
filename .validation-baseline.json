@@ -1,11 +1,11 @@
 {
-  "git_sha": "0d708bcd",
+  "git_sha": "6166f176",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49446,
+        "lines": 49380,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58568,
+        "lines": 58528,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -670,9 +670,9 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10762,
-    "total_skipped_members": 1949,
-    "skip_rate_pct": 15.3,
+    "total_emitted_members": 10759,
+    "total_skipped_members": 1952,
+    "skip_rate_pct": 15.4,
     "skip_reasons": {
       "ModuleInternal": 722,
       "UnsupportedSignature": 349,
@@ -680,8 +680,8 @@
       "SynthesizedCodable": 178,
       "EveryProtocolConformanceSkipped": 138,
       "UnsupportedClosure": 131,
-      "UnsatisfiedGenericConstraint": 92,
-      "UnsupportedType": 68,
+      "UnsatisfiedGenericConstraint": 90,
+      "UnsupportedType": 73,
       "SwiftUIConstraint": 64,
       "GenericProtocolConstraint": 63,
       "SwiftUIView": 54,

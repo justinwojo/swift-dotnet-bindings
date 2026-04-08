@@ -439,4 +439,69 @@ public class BasicGenericTests : TestBase
     }
 
     #endregion
+
+    #region Bug #2 Regression — Constrained Extension Conflict Skip
+    // ConstrainedExtensionWitness<Marker> has two `where Marker == Concrete`
+    // extensions, both declaring `var markerLabel: String`. Pre-fix, the C#
+    // emit produced duplicate `MarkerLabel` properties on the merged class and
+    // failed compilation with CS0102/CS0111.
+    //
+    // The fix detects multi-specialization conflicts in
+    // MemberEmissionValidator.CanEmitProperty (and the symmetric check in
+    // MemberValidationPipeline.ValidatePropertyEmission) and skips ALL
+    // conflicting copies. We do not pick a "winner" because each specialization
+    // has its own per-monomorphization mangled accessor symbol — keeping one
+    // would make `<DedupMarkerBeta>.MarkerLabel` silently dispatch to the
+    // alpha specialization's symbol, returning wrong data. C# generics cannot
+    // discriminate between closed instantiations at the dispatch site, so the
+    // only correct behavior is to drop the property entirely.
+    //
+    // The structural assertion is that this test compiles (no CS0102/CS0111)
+    // and that the unconstrained `Value` property still round-trips. We also
+    // assert via reflection that `MarkerLabel` is NOT a public property on
+    // either specialization — the constrained-extension members must be
+    // genuinely absent, not silently emitted as a stub.
+
+    public void TestConstrainedExtensionConflict_TypeCompilesAndUnconstrainedAccessorWorks()
+    {
+        var alpha = new ConstrainedExtensionWitness<DedupMarkerAlpha>(value: 7);
+        AssertEqual(7, alpha.Value, "Alpha specialization stored value");
+
+        var beta = new ConstrainedExtensionWitness<DedupMarkerBeta>(value: 11);
+        AssertEqual(11, beta.Value, "Beta specialization stored value");
+
+        TestLogger.Info(
+            "ConstrainedExtensionWitness compiled cleanly across both specializations and Value round-trips.");
+    }
+
+    public void TestConstrainedExtensionConflict_MarkerLabelIsNotEmitted()
+    {
+        // The two constrained-extension `markerLabel` properties cannot be emitted
+        // because C# generics cannot dispatch among per-monomorphization symbols.
+        // Verify they are absent from both closed-generic types via reflection.
+        var alphaType = typeof(ConstrainedExtensionWitness<DedupMarkerAlpha>);
+        var betaType = typeof(ConstrainedExtensionWitness<DedupMarkerBeta>);
+
+        var alphaMarker = alphaType.GetProperty(
+            "MarkerLabel",
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Static);
+        var betaMarker = betaType.GetProperty(
+            "MarkerLabel",
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Static);
+
+        AssertTrue(alphaMarker is null,
+            "MarkerLabel must NOT be emitted on ConstrainedExtensionWitness<DedupMarkerAlpha> " +
+            "(constrained-extension specializations cannot be safely dispatched).");
+        AssertTrue(betaMarker is null,
+            "MarkerLabel must NOT be emitted on ConstrainedExtensionWitness<DedupMarkerBeta> " +
+            "(constrained-extension specializations cannot be safely dispatched).");
+
+        TestLogger.Info("ConstrainedExtensionWitness.MarkerLabel correctly absent from both specializations.");
+    }
+
+    #endregion
 }

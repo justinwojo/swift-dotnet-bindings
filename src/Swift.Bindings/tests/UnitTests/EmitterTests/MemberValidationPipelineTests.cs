@@ -462,6 +462,148 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    [Fact]
+    public void ValidatePropertyEmission_ConstrainedExtensionConflict_AllSpecializationsSkipped()
+    {
+        // Bug #2 regression: multiple `extension Wrapper where T == Concrete` blocks each
+        // declare a property with the same Swift name. The ABI dump emits one Var node per
+        // specialization (each with its own mangled accessor). C# generics have only one
+        // specialization, so emitting any of them silently dispatches the wrong symbol for
+        // the other closed generic instantiations. The validator must skip ALL of them.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildGenericStructWithConflictingExtensionProperties(
+            "VerificationResult",
+            propertyName: "jwsRepresentation",
+            specializationCount: 3);
+
+        // All three sibling PropertyDecls hit the gate.
+        foreach (var prop in parent.Properties)
+        {
+            var result = pipeline.ValidatePropertyEmission(prop, null!);
+
+            Assert.False(result.ShouldEmit);
+            Assert.Equal(SkipReason.UnsupportedType, result.Reason);
+            Assert.Contains("constrained-extension", result.Details!);
+            Assert.Contains("jwsRepresentation", result.Details!);
+            Assert.Contains("VerificationResult", result.Details!);
+        }
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_NonGenericParent_NoConflictGate()
+    {
+        // The constrained-extension gate must NOT fire on a non-generic parent type, even
+        // if (hypothetically) two PropertyDecls share a name — that's a different bug class
+        // and should not be silently absorbed by this gate.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var nonGenericParent = BuildBareStructDecl("Plain", isGeneric: false);
+        var prop = CreateProperty("count", new NamedTypeSpec("Swift.Int"));
+        prop.ParentDecl = nonGenericParent;
+        nonGenericParent.Properties.Add(prop);
+
+        var result = pipeline.ValidatePropertyEmission(prop, null!);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_GenericParentSinglePropertyName_NoSkip()
+    {
+        // Single-occurrence properties on a generic type are emittable. The conflict gate
+        // is keyed on duplicate (Name, IsStatic) — a unique name should pass through.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildGenericStructWithConflictingExtensionProperties(
+            "Wrapper",
+            propertyName: "uniqueProp",
+            specializationCount: 1);
+
+        var result = pipeline.ValidatePropertyEmission(parent.Properties[0], null!);
+
+        // Not blocked by the constrained-extension gate (other gates may apply but the
+        // conflict-specific message must NOT be present).
+        if (result.Details != null)
+            Assert.DoesNotContain("constrained-extension", result.Details);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_StaticAndInstanceWithSameName_NoConflict()
+    {
+        // Instance and static properties with the same Swift name project to distinct
+        // C# members and must NOT collide on the constrained-extension gate.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildBareStructDecl("Holder", isGeneric: true);
+        var instanceProp = CreateProperty("value", new NamedTypeSpec("Swift.Int"));
+        instanceProp.IsStatic = false;
+        instanceProp.ParentDecl = parent;
+        var staticProp = CreateProperty("value", new NamedTypeSpec("Swift.Int"));
+        staticProp.IsStatic = true;
+        staticProp.ParentDecl = parent;
+        parent.Properties.Add(instanceProp);
+        parent.Properties.Add(staticProp);
+
+        var instanceResult = pipeline.ValidatePropertyEmission(instanceProp, null!);
+        var staticResult = pipeline.ValidatePropertyEmission(staticProp, null!);
+
+        // Neither should be blocked by the constrained-extension gate.
+        if (instanceResult.Details != null)
+            Assert.DoesNotContain("constrained-extension", instanceResult.Details);
+        if (staticResult.Details != null)
+            Assert.DoesNotContain("constrained-extension", staticResult.Details);
+    }
+
+    private static StructDecl BuildBareStructDecl(string typeName, bool isGeneric)
+    {
+        var decl = new StructDecl
+        {
+            Name = typeName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{typeName}"),
+            MangledName = $"$sTestModule{typeName.Length}{typeName}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = false,
+            MetadataAccessor = string.Empty
+        };
+        if (isGeneric)
+        {
+            decl.GenericParameters.Add(new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+        }
+        return decl;
+    }
+
+    private static StructDecl BuildGenericStructWithConflictingExtensionProperties(
+        string typeName,
+        string propertyName,
+        int specializationCount)
+    {
+        var parent = BuildBareStructDecl(typeName, isGeneric: true);
+        for (int i = 0; i < specializationCount; i++)
+        {
+            var prop = CreateProperty(propertyName, new NamedTypeSpec("Swift.String"));
+            prop.ParentDecl = parent;
+            parent.Properties.Add(prop);
+        }
+        return parent;
+    }
+
     #endregion
 
     #region ValidateSubscriptEmission Tests

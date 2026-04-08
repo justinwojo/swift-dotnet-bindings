@@ -847,6 +847,20 @@ namespace BindingsGeneration
                 decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>());
                 decl.GenericParameters = genericParameters;
 
+                // NOTE: We intentionally do NOT dedup PropertyDecls collected from
+                // constrained extensions here. The ABI JSON emits one Var node per
+                // specialization (e.g., StoreKit's three `extension VerificationResult
+                // where SignedType == ...` blocks each contribute their own copy of
+                // `jwsRepresentation`), and each PropertyDecl carries its own
+                // specialization-specific accessor mangled symbol. Picking one and
+                // dropping the rest would silently miscompile the C# binding because
+                // a closed generic instantiation `Wrapper<Beta>.Property` would dispatch
+                // to the surviving Alpha specialization's symbol — undefined behavior.
+                // Instead, the multi-specialization conflict is detected at emission
+                // time in `MemberEmissionValidator.CanEmitProperty`, which skips ALL
+                // conflicting copies with a clear skip reason. See:
+                // src/docs/0.8.0-storekit2-followup-bugs.md Bug #2.
+
                 // Collect enum cases if this is an EnumDecl
                 if (decl is EnumDecl enumDecl)
                 {
