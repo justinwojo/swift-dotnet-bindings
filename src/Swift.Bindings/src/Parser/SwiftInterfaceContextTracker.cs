@@ -245,7 +245,28 @@ internal sealed class SwiftInterfaceContextTracker
         if (Regex.IsMatch(line, @"(?:public|open)\s+(?:static\s+)?subscript\s*[\(<]"))
             return ExtractSubscriptPrintedName(line);
 
+        var caseMatch = EnumCasePrintedNameRegex.Match(line);
+        if (caseMatch.Success)
+            return ExtractEnumCasePrintedName(line, caseMatch);
+
         return null;
+    }
+
+    private static readonly Regex EnumCasePrintedNameRegex = new(
+        @"^\s*case\s+(`?[A-Za-z_][A-Za-z0-9_]*`?)",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns the bare enum case name (e.g., "continuedWithExternalPurchaseToken"). The ABI JSON
+    /// stores enum cases as Var nodes with a bare-name `printedName` (no parens), so the
+    /// availability key uses the bare name as the suffix to match what the ABI parser looks up.
+    /// </summary>
+    private static string ExtractEnumCasePrintedName(string line, Match caseMatch)
+    {
+        var caseName = caseMatch.Groups[1].Value;
+        if (caseName.Length >= 2 && caseName[0] == '`' && caseName[caseName.Length - 1] == '`')
+            caseName = caseName.Substring(1, caseName.Length - 2);
+        return caseName;
     }
 
     private static string ExtractSubscriptPrintedName(string line)
@@ -345,8 +366,16 @@ internal sealed class SwiftInterfaceContextTracker
         return PublicFuncRegex.IsMatch(trimmedLine) ||
                PublicVarRegex.IsMatch(trimmedLine) ||
                PublicInitRegex.IsMatch(trimmedLine) ||
-               Regex.IsMatch(trimmedLine, @"(?:public|open)\s+(?:static\s+)?subscript\s*[\(<]");
+               Regex.IsMatch(trimmedLine, @"(?:public|open)\s+(?:static\s+)?subscript\s*[\(<]") ||
+               EnumCaseLineRegex.IsMatch(trimmedLine);
     }
+
+    // Matches enum case declarations like `case foo`, `case foo(Type)`, `case foo(label: Type, ...)`,
+    // and `case foo, bar` (multiple cases on one line — only the first is keyed). Used by
+    // GetAvailabilityAnnotations to associate per-case @available annotations with the case.
+    private static readonly Regex EnumCaseLineRegex = new(
+        @"^\s*case\s+[A-Za-z_][A-Za-z0-9_]*",
+        RegexOptions.Compiled);
 
     private static bool HasUnmatchedOpenParen(string line)
     {

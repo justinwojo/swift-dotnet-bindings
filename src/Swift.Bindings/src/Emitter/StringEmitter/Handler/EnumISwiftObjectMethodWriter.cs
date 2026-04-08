@@ -125,7 +125,7 @@ namespace BindingsGeneration
                 else
                 {
                     var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
-                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx, _enumDecl);
 
                     // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
                     // when the wrapper wasn't compiled for this module.

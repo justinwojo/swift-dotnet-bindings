@@ -351,7 +351,10 @@ public class AvailabilityAttributeEmitterTests
             new("iOS", "16.0", null, null, false, false, null, null)
         };
         var result = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, null);
-        Assert.Same(memberAnnotations, result);
+        Assert.NotNull(result);
+        Assert.Single(result!);
+        Assert.Equal("iOS", result![0].Platform);
+        Assert.Equal("16.0", result[0].IntroducedVersion);
     }
 
     [Fact]

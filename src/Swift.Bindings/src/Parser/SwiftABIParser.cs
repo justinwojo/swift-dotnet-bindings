@@ -1144,6 +1144,15 @@ namespace BindingsGeneration
                 }
             }
 
+            // Apply per-case @available annotations from swiftinterface so the @_cdecl wrapper
+            // for newly-introduced cases (e.g., StoreKit ExternalPurchase.NoticeResult.continuedWithExternalPurchaseToken
+            // — iOS 17.4) compiles against older deployment targets. The swiftinterface parser
+            // keys enum cases by their bare name (matching the ABI JSON Var node printedName).
+            if (parentDecl is TypeDecl enumParentType)
+            {
+                ApplyMemberAvailability(enumCaseDecl, enumParentType, enumCaseDecl.Name);
+            }
+
             return enumCaseDecl;
         }
 

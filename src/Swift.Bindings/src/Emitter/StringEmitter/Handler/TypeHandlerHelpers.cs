@@ -134,7 +134,7 @@ namespace BindingsGeneration
                 else
                 {
                     var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
-                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx, _structDecl);
 
                     // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
                     // when the wrapper wasn't compiled for this module.
@@ -635,8 +635,11 @@ namespace BindingsGeneration
             // redeclaration errors when multiple types share the same simple name.
             // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_structDecl, false);
+            // Carry availability from the struct (and any nested ancestors) so the wrapper
+            // compiles when the type is gated behind an OS version (e.g., iOS 16.4+).
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _structDecl);
             _swiftWriter.WriteLine();
-            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor);
+            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
             public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
                 let l = lhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee

@@ -1151,6 +1151,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             accessor.Method.IsAccessor = false;
             accessor.Method.Visibility = Visibility.Public;
 
+            // Propagate the property's @available annotations onto the synthesized async-property
+            // method so the @_cdecl wrapper carries them. The Swift parser only attaches
+            // availability to the property, not its synthesized accessor — without this,
+            // wrappers for newly-introduced async properties (e.g., StoreKit's iOS 26.2
+            // AppStore.ageRatingCode) fail to compile against older deployment targets.
+            if (propertyDecl.AvailabilityAnnotations is { Count: > 0 } propertyAvailability)
+            {
+                accessor.Method.AvailabilityAnnotations ??= new List<AvailabilityAnnotation>();
+                accessor.Method.AvailabilityAnnotations.AddRange(propertyAvailability);
+            }
+
             var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
             // Thread PInvokeHelperContext from parent type context
             if (context.PInvokeHelperContext != null && accessorEnv.PInvokeHelperContext == null)

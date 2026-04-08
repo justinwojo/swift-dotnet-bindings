@@ -151,7 +151,7 @@ namespace BindingsGeneration
                 var moduleQualified = enumDecl.SwiftTypeName.ModuleQualifiedName;
                 var swiftModuleName = enumDecl.SwiftTypeName.Module;
                 var metadataSymbol = MetadataWrapperEmitter.GetMetadataSymbolName(swiftModuleName, moduleQualified);
-                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, swiftModuleName, moduleQualified, metadataSymbol, metadataEmissionCtx);
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, swiftModuleName, moduleQualified, metadataSymbol, metadataEmissionCtx, enumDecl);
 
                 var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
                 metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName);

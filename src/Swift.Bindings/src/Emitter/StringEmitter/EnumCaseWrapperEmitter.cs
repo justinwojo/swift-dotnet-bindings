@@ -238,8 +238,12 @@ public static class EnumCaseWrapperEmitter
 
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             enumDecl, memberIsMainActorIsolated: false);
+        // Carry both the case's own availability AND the enclosing type's availability —
+        // a case can be introduced later than its enum (e.g., StoreKit
+        // ExternalPurchase.NoticeResult.continuedWithExternalPurchaseToken is iOS 17.4
+        // even though NoticeResult itself is iOS 15.4).
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
-            WrapperEmitterHelpers.MergeAvailability(null, enumDecl));
+            WrapperEmitterHelpers.MergeAvailabilityFromAncestors(caseDecl.AvailabilityAnnotations, enumDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 

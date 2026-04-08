@@ -1860,6 +1860,13 @@ namespace BindingsGeneration
             var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
             var annotation = _env.MethodDecl.UsesCdeclMethodWrapper ? "@_cdecl" : "@_silgen_name";
 
+            // Async @_cdecl wrappers don't inherit the enclosing type's availability,
+            // so emit @available lines explicitly when the method or any ancestor type
+            // is gated behind an OS version (e.g., StoreKit Product APIs gated to iOS 15+).
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                _env.MethodDecl.AvailabilityAnnotations, _env.ParentDecl);
+            var availabilityLines = BuildAvailabilityLines(availability, i);
+
             // Async property getters use property access syntax (no parens), not method call syntax.
             var asyncPropertyName = _env.MethodDecl.AsyncPropertyName;
             var callExpression = asyncPropertyName != null
@@ -1875,7 +1882,7 @@ namespace BindingsGeneration
             if (throws)
             {
                 funcBody = $$"""
-            {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
+            {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwTask, _entry)
@@ -1897,7 +1904,7 @@ namespace BindingsGeneration
             else
             {
                 funcBody = $$"""
-            {{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
+            {{availabilityLines}}{{mainActorLine}}{{i}}{{annotation}}("{{mangledName}}")
             {{i}}public {{staticModifier}}func {{pInvokeName}}{{genericParams}}({{parameters}}){{whereClause}}{
             {{readCodeBlock}}{{i}}    let _entry = _SBWTaskEntry()
             {{i}}    _sbwRegisterTask(_sbwTask, _entry)
@@ -1922,6 +1929,31 @@ namespace BindingsGeneration
             """;
             }
             return funcBody;
+        }
+
+        /// <summary>
+        /// Builds Swift @available annotation lines for the async wrapper template.
+        /// Returns a string with each annotation on its own line (terminated by a newline) so it can
+        /// be inlined directly in front of the @MainActor / @_cdecl line in the async wrapper template.
+        /// Returns an empty string when there are no annotations.
+        /// </summary>
+        private static string BuildAvailabilityLines(IReadOnlyList<AvailabilityAnnotation>? annotations, string indent)
+        {
+            if (annotations == null || annotations.Count == 0)
+                return "";
+
+            var sb = new System.Text.StringBuilder();
+            var emitted = new HashSet<string>();
+            foreach (var annotation in annotations)
+            {
+                if (annotation.Platform != null && annotation.IntroducedVersion != null)
+                {
+                    var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
+                    if (emitted.Add(key))
+                        sb.Append(indent).Append("@available(").Append(key).Append(", *)\n");
+                }
+            }
+            return sb.ToString();
         }
 
         /// <summary>

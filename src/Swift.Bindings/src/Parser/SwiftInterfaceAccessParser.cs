@@ -1371,8 +1371,8 @@ public static class SwiftInterfaceAccessParser
             if (extMatch.Success && openBraces > 0)
             {
                 var qualifiedName = extMatch.Groups[1].Value;
-                var dotIdx = qualifiedName.LastIndexOf('.');
-                var unqualifiedName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
+                var lastDotIdx = qualifiedName.LastIndexOf('.');
+                var unqualifiedName = lastDotIdx >= 0 ? qualifiedName.Substring(lastDotIdx + 1) : qualifiedName;
                 typeStack.Push((unqualifiedName, braceDepth));
                 pushedScope = true;
 
@@ -1380,11 +1380,16 @@ public static class SwiftInterfaceAccessParser
                 // 1. Has module qualifier AND module != current module
                 // 2. NOT a protocol of this module
                 // 3. NOT a type of this module (unqualified fallback)
+                //
+                // Module qualifier is the FIRST segment, not everything before the LAST dot.
+                // For nested types like "StoreKit.Product.SubscriptionPeriod", the module is
+                // "StoreKit" and "Product.SubscriptionPeriod" is the nested type path.
                 bool isForeign = false;
-                if (dotIdx >= 0)
+                int firstDotIdx = qualifiedName.IndexOf('.');
+                if (firstDotIdx >= 0)
                 {
-                    // Qualified name — check if module differs from current module
-                    var modulePrefix = qualifiedName.Substring(0, dotIdx);
+                    // Qualified name — first segment is the module qualifier
+                    var modulePrefix = qualifiedName.Substring(0, firstDotIdx);
                     isForeign = !string.Equals(modulePrefix, moduleName, StringComparison.Ordinal);
                 }
                 else

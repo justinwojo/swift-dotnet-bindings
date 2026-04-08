@@ -24,16 +24,23 @@ public static class MetadataWrapperEmitter
     /// Emits a @_cdecl Swift wrapper that returns type metadata as a raw pointer.
     /// Uses ModuleEmissionContext for dedup (each type emitted once).
     /// </summary>
+    /// <param name="typeDecl">The type declaration whose metadata is being accessed.
+    /// Used to compute the merged availability annotations from the type and its
+    /// ancestors so the emitted Swift wrapper compiles when the type (or an enclosing
+    /// type) is gated behind an OS version (e.g., iOS 16.4+).</param>
     public static void EmitIfNeeded(
         SwiftWriter swiftWriter, string moduleName,
         string moduleQualifiedSwiftName, string symbolName,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        BaseDecl? typeDecl = null)
     {
         if (!ctx.TryAddMetadataWrapperSymbol(symbolName))
             return;
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Metadata accessor @_cdecl wrapper for {moduleQualifiedSwiftName}.");
+        var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, typeDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
         swiftWriter.WriteLine($"public func _sbw_getMetadata_{EmitterUtility.DeterministicHash8(symbolName)}() -> UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;

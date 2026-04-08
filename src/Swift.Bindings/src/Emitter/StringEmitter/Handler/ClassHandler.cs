@@ -561,7 +561,7 @@ namespace BindingsGeneration
                 else
                 {
                     var symbol = MetadataWrapperEmitter.GetMetadataSymbolName(moduleName, moduleQualified);
-                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx);
+                    MetadataWrapperEmitter.EmitIfNeeded(_swiftWriter, moduleName, moduleQualified, symbol, _emissionCtx, _classDecl);
 
                     // Try wrapper DLL first (Cdecl), fall back to dylib (CallConvSwift)
                     // when the wrapper wasn't compiled for this module.
@@ -1064,8 +1064,11 @@ namespace BindingsGeneration
             // back to class instances (NOT assumingMemoryBound which is for structs).
             // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_classDecl, false);
+            // Carry availability from the class (and any nested ancestors) so the wrapper
+            // compiles when the type is gated behind an OS version.
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _classDecl);
             _swiftWriter.WriteLine();
-            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor);
+            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
             public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
                 let l = Unmanaged<AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}

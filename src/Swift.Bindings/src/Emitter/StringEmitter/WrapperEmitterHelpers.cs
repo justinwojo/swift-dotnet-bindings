@@ -60,21 +60,48 @@ public static class WrapperEmitterHelpers
     /// Merges member-level and parent-type availability annotations for a @_cdecl wrapper.
     /// @_cdecl wrappers are top-level Swift functions and do NOT inherit the enclosing
     /// type's availability, so both must be explicitly applied to the wrapper.
+    ///
+    /// Walks the full parent chain so that nested types like
+    /// <c>StoreKit.Product.SubscriptionInfo.RenewalInfo.AdvancedCommerceInfo.Item</c> pick up
+    /// availability declared on any ancestor (e.g., the iOS 18.4 annotation on
+    /// AdvancedCommerceInfo). EmitSwiftAvailability dedupes by platform+version key, so
+    /// repeated entries from intermediate ancestors are collapsed automatically.
     /// </summary>
     public static IReadOnlyList<AvailabilityAnnotation>? MergeAvailability(
         IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
         BaseDecl? parentDecl)
     {
-        var parentAnnotations = (parentDecl as TypeDecl)?.AvailabilityAnnotations;
-        if (parentAnnotations == null || parentAnnotations.Count == 0)
-            return memberAnnotations;
-        if (memberAnnotations == null || memberAnnotations.Count == 0)
-            return parentAnnotations;
+        return MergeAvailabilityFromAncestors(memberAnnotations, parentDecl);
+    }
 
-        // Merge both lists; EmitSwiftAvailability handles dedup
-        var merged = new List<AvailabilityAnnotation>(parentAnnotations.Count + memberAnnotations.Count);
-        merged.AddRange(parentAnnotations);
-        merged.AddRange(memberAnnotations);
+    /// <summary>
+    /// Walks the parent chain of <paramref name="parentDecl"/> and merges every TypeDecl's
+    /// availability annotations with <paramref name="memberAnnotations"/>. Returns null when
+    /// neither the member nor any ancestor declares availability.
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? MergeAvailabilityFromAncestors(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        BaseDecl? startDecl)
+    {
+        List<AvailabilityAnnotation>? merged = null;
+
+        BaseDecl? current = startDecl;
+        while (current is TypeDecl td)
+        {
+            if (td.AvailabilityAnnotations is { Count: > 0 } parentAnnotations)
+            {
+                merged ??= new List<AvailabilityAnnotation>();
+                merged.AddRange(parentAnnotations);
+            }
+            current = td.ParentDecl;
+        }
+
+        if (memberAnnotations is { Count: > 0 })
+        {
+            merged ??= new List<AvailabilityAnnotation>();
+            merged.AddRange(memberAnnotations);
+        }
+
         return merged;
     }
 
