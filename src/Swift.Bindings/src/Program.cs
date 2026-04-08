@@ -49,7 +49,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -59,27 +59,9 @@ namespace BindingsGeneration
             var typeDatabase = new TypeDatabase();
             typeDatabase.AsyncLibraryName = asyncLibraryName;
 
-            // Platform-aware database loading: skip databases for frameworks that are
-            // entirely absent on the target platform. Unused entries are harmless (lookup-based),
-            // but skipping them avoids spurious type resolution for unavailable frameworks.
-            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml" };
-            foreach (var database in builtInDatabases)
-            {
-                typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database)).Wait();
-            }
-            // UIKit: available on all platforms except macOS (Catalyst has UIKit)
-            if (platform != ApplePlatform.macOS)
-            {
-                typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "UIKitDatabase.xml")).Wait();
-            }
-            // AppKit: macOS and Catalyst only (Catalyst has AppKit compatibility layer)
-            if (platform == null || platform == ApplePlatform.macOS || platform == ApplePlatform.MacCatalyst)
-            {
-                typeDatabase.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "AppKitDatabase.xml")).Wait();
-            }
-
-            // Peek at current module name once for self-reference checks in both
-            // --module-database and --framework-dependency loading below.
+            // Peek at current module name once. Used by Apple-framework target mode
+            // (skip a colliding built-in database below) and the --module-database /
+            // --framework-dependency self-reference checks further down.
             string? currentModuleName = null;
             try
             {
@@ -88,6 +70,61 @@ namespace BindingsGeneration
             catch
             {
                 // Non-fatal: self-reference checks will be skipped
+            }
+
+            // Load a built-in dependency database, unless its module name collides
+            // with the input abi.json's module name (Apple-framework target mode).
+            //
+            // The built-in *Database.xml stubs were authored as dependency-resolution
+            // helpers for downstream third-party libraries that *reference* Apple
+            // framework types. When the input abi.json IS the framework (e.g.,
+            // generating real bindings for StoreKit), the pre-loaded stub collides
+            // with the parse-and-emit gate (`IsModuleProcessed`) and the generator
+            // silently skips the input. Auto-detect that case by peeking each
+            // candidate database's moduleName and skipping the matching entry. This
+            // can be disabled with --keep-builtin-database for the rare case where a
+            // third-party Swift module shares a name with an Apple framework AND the
+            // caller wants the legacy stub behavior.
+            //
+            // Follow-up (out of scope for this spike): TypeDatabase.IsModuleLoaded
+            // and IsModuleProcessed are aliased today. Splitting them into distinct
+            // predicates ("we have a dependency stub" vs "we have generated real
+            // bindings") would let us keep the stub loaded even when the input is
+            // the same module — a cleaner long-term shape than skip-and-replace.
+            void LoadBuiltInDatabase(string database)
+            {
+                var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", database);
+                if (currentModuleName != null && !keepBuiltinDatabaseForTargetModule)
+                {
+                    var dbModuleName = PeekModuleNameFromXml(dbPath);
+                    if (dbModuleName != null && dbModuleName == currentModuleName)
+                    {
+                        logger.LogInformation(
+                            "Apple-framework target mode: skipping built-in database '{Database}' because the input abi.json targets the same module '{Module}'. Pass --keep-builtin-database to disable this auto-detection.",
+                            database, currentModuleName);
+                        return;
+                    }
+                }
+                typeDatabase.LoadModuleDatabaseFromFile(dbPath).Wait();
+            }
+
+            // Platform-aware database loading: skip databases for frameworks that are
+            // entirely absent on the target platform. Unused entries are harmless (lookup-based),
+            // but skipping them avoids spurious type resolution for unavailable frameworks.
+            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml" };
+            foreach (var database in builtInDatabases)
+            {
+                LoadBuiltInDatabase(database);
+            }
+            // UIKit: available on all platforms except macOS (Catalyst has UIKit)
+            if (platform != ApplePlatform.macOS)
+            {
+                LoadBuiltInDatabase("UIKitDatabase.xml");
+            }
+            // AppKit: macOS and Catalyst only (Catalyst has AppKit compatibility layer)
+            if (platform == null || platform == ApplePlatform.macOS || platform == ApplePlatform.MacCatalyst)
+            {
+                LoadBuiltInDatabase("AppKitDatabase.xml");
             }
 
             // Load dependency module databases for cross-module type resolution
@@ -1615,7 +1652,7 @@ namespace BindingsGeneration
         /// Lightweight peek at the module name from an ABI JSON file.
         /// Returns null if the file cannot be parsed.
         /// </summary>
-        private static string? PeekModuleNameFromAbiJson(string abiPath)
+        internal static string? PeekModuleNameFromAbiJson(string abiPath)
         {
             try
             {

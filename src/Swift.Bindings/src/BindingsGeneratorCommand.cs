@@ -29,6 +29,12 @@ public static class BindingsGeneratorCommand
         var platformTargetStr = parseResult.GetValueForOption(options.PlatformTarget);
         var libraryName = parseResult.GetValueForOption(options.LibraryName);
         var asyncLibrary = parseResult.GetValueForOption(options.AsyncLibrary);
+        // Strip the documented "\@" CLI escape: System.CommandLine treats "@filename" as a
+        // response-file reference, so users escape "@rpath/..." values as "\@rpath/...". The
+        // backslash is a CLI-parsing artifact and must not survive into the C# string literal
+        // emitted in DllImport (which would produce CS1009 — invalid escape sequence).
+        libraryName = StripCliAtEscape(libraryName);
+        asyncLibrary = StripCliAtEscape(asyncLibrary);
         var swiftInterface = parseResult.GetValueForOption(options.SwiftInterface);
         var symbolGraph = parseResult.GetValueForOption(options.SymbolGraph);
         var noDocs = parseResult.GetValueForOption(options.NoDocs);
@@ -40,6 +46,7 @@ public static class BindingsGeneratorCommand
         var frameworkDependencies = parseResult.GetValueForOption(options.FrameworkDependency);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
+        var keepBuiltinDatabase = parseResult.GetValueForOption(options.KeepBuiltinDatabase);
         var objcForced = parseResult.GetValueForOption(options.ObjC);
         var skipWrapperCompilation = parseResult.GetValueForOption(options.SkipWrapperCompilation);
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
@@ -369,6 +376,30 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // Direct/manual-mode wrapper-library default. xcframework mode auto-wires
+        // --async-library above (line ~270) when wrapper compilation is gated on.
+        // Direct mode has no equivalent auto-wire, so SBW_ wrapper-helper P/Invokes
+        // would otherwise default to the module library path — which, when -l points
+        // at a system framework like StoreKit, is the system framework itself. The
+        // helpers do not exist there, so the validator emits SWIFTBIND093 (CC-003)
+        // and any runtime call would EntryPointNotFound. Default to the conventional
+        // "{Module}SwiftBindings" name (matching xcframework mode's behavior — see
+        // NukeSwiftBindings, etc.) so the binding correctly expresses its intent to
+        // call into a wrapper dylib. Producing that dylib is a separate concern;
+        // this default only fixes the binding's contract, not its deployability.
+        if (!hasXcframework && string.IsNullOrWhiteSpace(asyncLibrary))
+        {
+            var directModuleName = BindingsGenerator.PeekModuleNameFromAbiJson(swiftAbiPath);
+            if (!string.IsNullOrEmpty(directModuleName))
+            {
+                asyncLibrary = $"{directModuleName}SwiftBindings";
+                logger.LogInformation(
+                    "Direct mode: defaulting --async-library to '{Library}'. " +
+                    "Pass --async-library explicitly to override.",
+                    asyncLibrary);
+            }
+        }
+
         // Validate --module-database paths upfront (fail-fast for missing/invalid files)
         if (moduleDatabases?.Length > 0)
         {
@@ -394,7 +425,7 @@ public static class BindingsGeneratorCommand
             .Where(d => !d.IsObjCOnly)
             .Select(d => d.ModuleName)
             .ToList();
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase);
         if (!success)
         {
             context.ExitCode = 1;
@@ -667,6 +698,18 @@ public static class BindingsGeneratorCommand
         }
     }
 
+    /// <summary>
+    /// Strip the leading "\" from a CLI value of the form "\@..." — the documented escape
+    /// for passing "@rpath/..." names without triggering System.CommandLine's response-file
+    /// handling. The stripped value is what flows into emitted DllImport string literals.
+    /// </summary>
+    private static string? StripCliAtEscape(string? value)
+    {
+        if (value != null && value.StartsWith("\\@", StringComparison.Ordinal))
+            return value.Substring(1);
+        return value;
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Usage:");
@@ -690,6 +733,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
         Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");
         Console.WriteLine("  --no-auto-detect     Optional. Disable automatic dependency detection from binary linkage.");
+        Console.WriteLine("  --keep-builtin-database  Optional. Disable Apple-framework target mode auto-detection (keeps the built-in stub when the input module name matches).");
         Console.WriteLine("  --objc               Optional. Force ObjC binding pipeline (auto-detected if not specified).");
         Console.WriteLine("  --skip-wrapper-compilation  Optional. Skip wrapper compilation (SDK defers to _CompileSwiftWrapper target).");
         Console.WriteLine("  --skip-thunk-compilation    Optional. Skip native thunk assembly compilation.");

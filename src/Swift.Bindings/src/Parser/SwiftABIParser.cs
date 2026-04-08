@@ -131,6 +131,17 @@ namespace BindingsGeneration
         private readonly ConformanceGraph _conformanceGraph = new();
 
         /// <summary>
+        /// Per-method capture for synthetic generic parameters introduced to lower
+        /// parameter-position opaque types (<c>some P</c>). Non-null only while
+        /// <see cref="CreateMethodDecl"/> is iterating a method's parameter children.
+        /// <see cref="CreateTypeSpec"/> appends to this list when it encounters an
+        /// opaque parameter; <see cref="CreateMethodDecl"/> then merges the captured
+        /// entries into the resulting <see cref="MethodDecl.GenericParameters"/>.
+        /// Saved/restored around each method so nested parses don't interfere.
+        /// </summary>
+        private List<GenericArgumentDecl>? _opaqueParamCapture;
+
+        /// <summary>
         /// The Swift demangler.
         /// </summary>
         private readonly Swift5Demangler demangler = new();
@@ -1461,32 +1472,51 @@ namespace BindingsGeneration
                 }
             }
 
-            for (int i = 0; i < node.Children.Count(); i++)
+            // Install a fresh opaque-parameter capture for this method. CreateTypeSpec
+            // will append synthetic GenericArgumentDecl entries here for any parameter
+            // whose ABI node is GenericTypeParam with a "some ..." printedName. After
+            // the loop finishes we merge them into methodDecl.GenericParameters so the
+            // existing generic-method emission path handles them.
+            var prevOpaqueCapture = _opaqueParamCapture;
+            _opaqueParamCapture = new List<GenericArgumentDecl>();
+            try
             {
-                var typeSpec = CreateTypeSpec(node.Children.ElementAt(i));
-
-                var childNode = node.Children.ElementAt(i);
-
-                // Populate PrivateName from swiftinterface data.
-                // i=0 is the return type in paramNames (no corresponding internal name).
-                // i>=1 are actual parameters; internalParamNames index is (i-1).
-                var privateName = string.Empty;
-                if (internalParamNames != null && i >= 1 && (i - 1) < internalParamNames.Count)
+                for (int i = 0; i < node.Children.Count(); i++)
                 {
-                    privateName = internalParamNames[i - 1];
+                    var typeSpec = CreateTypeSpec(node.Children.ElementAt(i));
+
+                    var childNode = node.Children.ElementAt(i);
+
+                    // Populate PrivateName from swiftinterface data.
+                    // i=0 is the return type in paramNames (no corresponding internal name).
+                    // i>=1 are actual parameters; internalParamNames index is (i-1).
+                    var privateName = string.Empty;
+                    if (internalParamNames != null && i >= 1 && (i - 1) < internalParamNames.Count)
+                    {
+                        privateName = internalParamNames[i - 1];
+                    }
+
+                    methodDecl.CSSignature.Add(new ArgumentDecl
+                    {
+                        SwiftTypeSpec = typeSpec,
+                        Name = paramNames[i],
+                        PrivateName = privateName,
+                        IsInOut = childNode.paramValueOwnership == "InOut",
+                        IsGeneric = childNode.Name == "GenericTypeParam",
+                        HasDefaultArg = childNode.hasDefaultArg == true,
+                        ParentDecl = methodDecl,
+                        ModuleDecl = moduleDecl
+                    });
                 }
 
-                methodDecl.CSSignature.Add(new ArgumentDecl
+                if (_opaqueParamCapture.Count > 0)
                 {
-                    SwiftTypeSpec = typeSpec,
-                    Name = paramNames[i],
-                    PrivateName = privateName,
-                    IsInOut = childNode.paramValueOwnership == "InOut",
-                    IsGeneric = childNode.Name == "GenericTypeParam",
-                    HasDefaultArg = childNode.hasDefaultArg == true,
-                    ParentDecl = methodDecl,
-                    ModuleDecl = moduleDecl
-                });
+                    methodDecl.GenericParameters.AddRange(_opaqueParamCapture);
+                }
+            }
+            finally
+            {
+                _opaqueParamCapture = prevOpaqueCapture;
             }
 
             // Detect variadic parameters from swiftinterface data.
@@ -2151,6 +2181,24 @@ namespace BindingsGeneration
                     {
                         return new AssociatedTypeReferenceSpec(node.PrintedName);
                     }
+                    // Handle parameter-position opaque types (`some P`, `some P<T>`).
+                    // swift-api-digester emits these as TypeNominal with name="GenericTypeParam"
+                    // and printedName starting with "some " — with NO children, so the
+                    // OpaqueTypeArchetype branch (which is used for return-position opaque
+                    // types) does not catch them. We lower them to a synthetic per-method
+                    // generic parameter, mirroring the Swift compiler's own desugaring of
+                    // `some P` in parameter position to an unnamed generic `<T: P>`.
+                    // Only applies when we're inside CreateMethodDecl's param loop
+                    // (_opaqueParamCapture != null); otherwise fall through to the default
+                    // parser (which will still produce a broken NamedTypeSpec("some"),
+                    // but that's no worse than pre-fix behavior and shouldn't occur in
+                    // practice — opaque types only appear at method signature boundaries).
+                    if (node.Name == kGenericTypeParam &&
+                        node.PrintedName.StartsWith("some ", StringComparison.Ordinal) &&
+                        _opaqueParamCapture != null)
+                    {
+                        return SynthesizeOpaqueParameter(node);
+                    }
                     var spec = TypeSpecParser.Parse(node.PrintedName);
                     if (spec is null)
                     {
@@ -2251,6 +2299,90 @@ namespace BindingsGeneration
                 }
             }
             return new ProtocolListTypeSpec(protocols) { IsOpaque = true };
+        }
+
+        /// <summary>
+        /// Lowers a parameter-position opaque type (<c>some P</c>) into a synthetic
+        /// per-method generic parameter. Returns a <see cref="NamedTypeSpec"/> that
+        /// references the synthetic parameter so the ArgumentDecl threads through the
+        /// existing generic-method machinery (GenericTypeMapping lookup in
+        /// MethodSignature, where-clause construction in WrapperEmitter.Signature).
+        /// </summary>
+        /// <remarks>
+        /// Swift semantics: a parameter typed <c>some P</c> is sugar for an unnamed
+        /// generic parameter with a <c>: P</c> conformance, chosen by the caller at
+        /// the call site. Functionally this is indistinguishable from writing
+        /// <c>&lt;T: P&gt;(arg: T)</c>, so the lowering is exact.
+        ///
+        /// The synthetic TypeName uses a <c>τ_</c> prefix so <see cref="NameProvider.GetCSharpGenericParameterName"/>
+        /// falls into the positional <c>T{index}</c> naming branch. The index is the
+        /// param's final position in <see cref="MethodDecl.GenericParameters"/>, so
+        /// multiple opaque parameters and any pre-existing real generics all get
+        /// distinct C# names.
+        ///
+        /// Conformance extraction: the constraint protocol is read by stripping the
+        /// <c>some</c> keyword and parsing the remainder. Only a single
+        /// <see cref="NamedTypeSpec"/> constraint is carried through; protocol
+        /// compositions (<c>some P1 &amp; P2</c>) and other complex shapes fall back
+        /// to a bare synthetic param (the downstream where-clause emitter will still
+        /// apply the default <c>ISwiftObject</c> constraint). If the constraint is a
+        /// protocol with associated types (a PAT), the MemberValidationPipeline's
+        /// <c>HasUnsupportedProtocolConstraints</c> gate will suppress the method
+        /// cleanly — same behavior as any hand-written <c>&lt;T: Collection&gt;</c>
+        /// method today.
+        /// </remarks>
+        private NamedTypeSpec SynthesizeOpaqueParameter(Node node)
+        {
+            // Assign a unique TypeName based on the current capture length so repeated
+            // opaque params in the same signature don't collide.
+            int captureIndex = _opaqueParamCapture!.Count;
+            string syntheticTypeName = $"τ_opaque_{captureIndex}";
+
+            // Strip "some " prefix. Constraint parsing is best-effort — if anything
+            // unexpected comes back we fall through to a bare synthetic param and
+            // rely on the default ISwiftObject base constraint.
+            string constraintText = node.PrintedName.Substring("some ".Length).Trim();
+            var conformances = new List<GenericParameterConformance>();
+            if (!string.IsNullOrEmpty(constraintText))
+            {
+                TypeSpec? constraintSpec = null;
+                try
+                {
+                    constraintSpec = TypeSpecParser.Parse(constraintText);
+                }
+                catch
+                {
+                    // Parser can throw on unfamiliar shapes — treat as unparsable.
+                }
+
+                if (constraintSpec is NamedTypeSpec constraintNamed &&
+                    !string.IsNullOrEmpty(constraintNamed.Name))
+                {
+                    conformances.Add(new GenericParameterConformance(
+                        new[] { syntheticTypeName },
+                        SwiftTypeName.FromModuleQualifiedName(constraintNamed.Name),
+                        ConformanceKind.Protocol));
+                }
+                else
+                {
+                    // Composition (`some P1 & P2`), PAT, or other shape we can't represent
+                    // as a single NamedTypeSpec conformance. The synthetic param falls back
+                    // to the default ISwiftObject base constraint downstream. Log so the
+                    // degradation is visible during generation rather than silent.
+                    _logger.LogDebug(
+                        "Opaque parameter constraint '{Constraint}' not representable as a single NamedTypeSpec; " +
+                        "synthetic generic '{Synthetic}' will fall back to the default ISwiftObject constraint.",
+                        constraintText, syntheticTypeName);
+                }
+            }
+
+            _opaqueParamCapture.Add(new GenericArgumentDecl(
+                TypeName: syntheticTypeName,
+                SugaredTypeName: syntheticTypeName,
+                GenericConformances: conformances,
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+
+            return new NamedTypeSpec(syntheticTypeName);
         }
 
         /// <summary>

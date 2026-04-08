@@ -101,6 +101,14 @@ public class CliOptions
         description: "Disable automatic dependency detection from binary linkage.",
         getDefaultValue: () => false);
 
+    public Option<bool> KeepBuiltinDatabase { get; } = new(
+        aliases: new[] { "--keep-builtin-database" },
+        description: "Disable Apple-framework target mode auto-detection. By default, when the input " +
+                     "abi.json's module name matches a built-in dependency database (e.g., generating " +
+                     "real bindings for StoreKit), the colliding stub is skipped so the parse-and-emit " +
+                     "gate fires. Pass this flag to keep the legacy stub and let the gate skip the input.",
+        getDefaultValue: () => false);
+
     public Option<bool> ObjC { get; } = new(
         aliases: new[] { "--objc" },
         description: "Force ObjC binding pipeline (auto-detected if not specified).",
@@ -164,6 +172,7 @@ public class CliOptions
             FrameworkDependency,
             ModuleDatabase,
             NoAutoDetect,
+            KeepBuiltinDatabase,
             ObjC,
             SkipWrapperCompilation,
             SkipThunkCompilation,
