@@ -2344,15 +2344,21 @@ namespace BindingsGeneration
         /// distinct C# names.
         ///
         /// Conformance extraction: the constraint protocol is read by stripping the
-        /// <c>some</c> keyword and parsing the remainder. Only a single
-        /// <see cref="NamedTypeSpec"/> constraint is carried through; protocol
-        /// compositions (<c>some P1 &amp; P2</c>) and other complex shapes fall back
-        /// to a bare synthetic param (the downstream where-clause emitter will still
-        /// apply the default <c>ISwiftObject</c> constraint). If the constraint is a
-        /// protocol with associated types (a PAT), the MemberValidationPipeline's
-        /// <c>HasUnsupportedProtocolConstraints</c> gate will suppress the method
-        /// cleanly — same behavior as any hand-written <c>&lt;T: Collection&gt;</c>
-        /// method today.
+        /// <c>some</c> keyword and parsing the remainder.
+        /// <list type="bullet">
+        ///   <item>A single <see cref="NamedTypeSpec"/> constraint is carried through as-is.</item>
+        ///   <item>Protocol compositions (<c>some P1 &amp; P2</c>) parse to a
+        ///   <see cref="ProtocolListTypeSpec"/>; each protocol in the list is added as a
+        ///   separate conformance so the where-clause emitters produce
+        ///   <c>where T : P1, P2</c> on both the C# and Swift sides.</item>
+        ///   <item>If any extracted protocol has associated types (a PAT), the
+        ///   MemberValidationPipeline's <c>HasUnsupportedProtocolConstraints</c> gate
+        ///   suppresses the method cleanly — same behavior as any hand-written
+        ///   <c>&lt;T: Collection&gt;</c> method today. This relies on the conformance
+        ///   actually being added; an unrepresentable constraint (parse failure)
+        ///   silently falls back to <c>ISwiftObject</c> only and the resulting wrapper
+        ///   may not match the original API.</item>
+        /// </list>
         /// </remarks>
         private NamedTypeSpec SynthesizeOpaqueParameter(Node node)
         {
@@ -2386,14 +2392,30 @@ namespace BindingsGeneration
                         SwiftTypeName.FromModuleQualifiedName(constraintNamed.Name),
                         ConformanceKind.Protocol));
                 }
+                else if (constraintSpec is ProtocolListTypeSpec compositionSpec &&
+                         compositionSpec.Protocols.Count > 0)
+                {
+                    // Protocol composition: `some P1 & P2`. Add one conformance per
+                    // protocol so both the C# and Swift where-clause emitters produce
+                    // `where T : P1, P2`. If any protocol is a PAT/Self-requirement,
+                    // the validation pipeline will still suppress the method.
+                    foreach (var protoSpec in compositionSpec.Protocols.Keys)
+                    {
+                        if (string.IsNullOrEmpty(protoSpec.Name))
+                            continue;
+                        conformances.Add(new GenericParameterConformance(
+                            new[] { syntheticTypeName },
+                            SwiftTypeName.FromModuleQualifiedName(protoSpec.Name),
+                            ConformanceKind.Protocol));
+                    }
+                }
                 else
                 {
-                    // Composition (`some P1 & P2`), PAT, or other shape we can't represent
-                    // as a single NamedTypeSpec conformance. The synthetic param falls back
+                    // Unparsable or unrepresentable shape. The synthetic param falls back
                     // to the default ISwiftObject base constraint downstream. Log so the
                     // degradation is visible during generation rather than silent.
                     _logger.LogDebug(
-                        "Opaque parameter constraint '{Constraint}' not representable as a single NamedTypeSpec; " +
+                        "Opaque parameter constraint '{Constraint}' not representable as a NamedTypeSpec or ProtocolListTypeSpec; " +
                         "synthetic generic '{Synthetic}' will fall back to the default ISwiftObject constraint.",
                         constraintText, syntheticTypeName);
                 }

@@ -2894,14 +2894,34 @@ public static class SwiftInterfaceAccessParser
                     // Use the completed multi-line text when available (multi-line continuations),
                     // otherwise use the current trimmed line.
                     var memberText = tracker.CompletedMultiLine ?? trimmed;
-                    var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
-                    if (printedName != null)
+
+                    // Grouped enum case declarations (`case foo, bar(Int)`) expose each case as a
+                    // separate Var node in the ABI JSON, so every name on the line needs the same
+                    // availability metadata — not just the first.
+                    var groupedCaseNames = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(memberText);
+                    if (groupedCaseNames.Count > 0)
                     {
                         var annotations = CollectAvailabilityAnnotations(memberText, tracker);
                         if (annotations.Count > 0)
                         {
-                            var key = tracker.BuildMemberKey(printedName);
-                            AddAnnotations(result, key, annotations);
+                            foreach (var caseName in groupedCaseNames)
+                            {
+                                var key = tracker.BuildMemberKey(caseName);
+                                AddAnnotations(result, key, annotations);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                        if (printedName != null)
+                        {
+                            var annotations = CollectAvailabilityAnnotations(memberText, tracker);
+                            if (annotations.Count > 0)
+                            {
+                                var key = tracker.BuildMemberKey(printedName);
+                                AddAnnotations(result, key, annotations);
+                            }
                         }
                     }
                     tracker.ConsumePendingAnnotations();

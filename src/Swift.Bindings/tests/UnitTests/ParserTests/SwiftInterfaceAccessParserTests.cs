@@ -1073,6 +1073,86 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetAvailabilityAnnotations_InlineAvailableOnEnumCase()
+    {
+        // `@available(...) case foo` on a single line must be recognized as a member
+        // declaration, not a pure annotation. Otherwise the case is silently dropped
+        // and its annotation leaks onto the following declaration.
+        var swiftInterface = """
+            public enum Status {
+              @available(iOS 16.0, *) case freshlyAdded
+              public func describe() -> Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("Status.freshlyAdded"),
+                "freshlyAdded enum case should have its inline @available annotation");
+            Assert.Contains(result["Status.freshlyAdded"],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+            // The describe() method should NOT have inherited the case's annotation.
+            Assert.False(result.ContainsKey("Status.describe()"),
+                "describe() should not inherit the case's @available annotation");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_InlineAvailableOnEnumCaseWithStringPayload()
+    {
+        // Attribute payload contains a string literal with parens (`renamed: "foo(_:)"`).
+        // The classifier must skip the entire attribute, not stop at the first `)` in the
+        // string. Otherwise the case is dropped and the annotation leaks to the next decl.
+        var swiftInterface = """
+            public enum Status {
+              @available(*, deprecated, renamed: "foo(_:)") case old
+              public func describe() -> Swift.String
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("Status.old"),
+                "old case should have its inline @available annotation");
+            Assert.Contains(result["Status.old"],
+                a => a.IsUnconditionallyDeprecated && a.Renamed == "foo(_:)");
+            Assert.False(result.ContainsKey("Status.describe()"),
+                "describe() should not inherit the case's @available annotation");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetAvailabilityAnnotations_GroupedEnumCases()
+    {
+        // `case foo, bar(Int), baz` exposes each case as a separate Var node in the ABI
+        // JSON. The pending @available must be applied to every case on the line, not
+        // just the first.
+        var swiftInterface = """
+            public enum Status {
+              @available(iOS 16.0, *)
+              case freshlyAdded, anotherFresh, yetAnotherFresh(Swift.Int)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            foreach (var name in new[] { "freshlyAdded", "anotherFresh", "yetAnotherFresh" })
+            {
+                var key = $"Status.{name}";
+                Assert.True(result.ContainsKey(key), $"{key} should have annotations");
+                Assert.Contains(result[key],
+                    a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 
     // ===== GetDefaultParameterValues Tests =====

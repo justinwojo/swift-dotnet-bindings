@@ -160,4 +160,117 @@ public class SwiftInterfaceContextTrackerTests
         Assert.Equal("subscript(_:)", SwiftInterfaceContextTracker.ExtractMemberPrintedName(
             "  public subscript(_ index: Swift.Int) -> Swift.String { get }"));
     }
+
+    [Fact]
+    public void InlineAvailableOnEnumCase_ClassifiedAsMemberLine()
+    {
+        // `@available(...) case foo` is a single-line declaration. It must NOT be classified
+        // as a pure annotation line (which would leak the case text into the next decl's
+        // pending annotations and skip the case entirely).
+        var tracker = new SwiftInterfaceContextTracker();
+        tracker.ProcessLine("public enum E {", "public enum E {");
+        var kind = tracker.ProcessLine(
+            "@available(iOS 16.0, *) case foo",
+            "@available(iOS 16.0, *) case foo");
+        Assert.Equal(SwiftInterfaceContextTracker.LineKind.MemberLine, kind);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_SingleCase()
+    {
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames("  case foo");
+        Assert.Equal(new[] { "foo" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_GroupedCases()
+    {
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames("  case foo, bar, baz");
+        Assert.Equal(new[] { "foo", "bar", "baz" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_GroupedWithAssociatedValues()
+    {
+        // Commas inside (...) must not split the parts.
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "  case foo(Int), bar(label: Int, String), baz");
+        Assert.Equal(new[] { "foo", "bar", "baz" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_GroupedWithRawValues()
+    {
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "  case foo = 1, bar = 2, baz = 3");
+        Assert.Equal(new[] { "foo", "bar", "baz" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_BacktickEscapedNames()
+    {
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames("  case `default`, foo");
+        Assert.Equal(new[] { "default", "foo" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_NonCaseLine_ReturnsEmpty()
+    {
+        Assert.Empty(SwiftInterfaceContextTracker.ExtractAllEnumCaseNames("  public func foo()"));
+        Assert.Empty(SwiftInterfaceContextTracker.ExtractAllEnumCaseNames("  public var bar: Int"));
+        Assert.Empty(SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(""));
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_AttributePayloadContainsParens()
+    {
+        // `@available(*, deprecated, renamed: "foo(_:)") case old` — the attribute payload
+        // contains balanced parens inside a string literal. The scanner must skip the entire
+        // attribute, not stop at the first inner `)`.
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "@available(*, deprecated, renamed: \"foo(_:)\") case old");
+        Assert.Equal(new[] { "old" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_RawValueStringContainsComma()
+    {
+        // The splitter must track string-literal state — commas inside `"..."` raw values
+        // are not case separators. Otherwise `"use foo, bar"` would split into bogus segments.
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "case old = \"use foo, bar\", newer = \"current\"");
+        Assert.Equal(new[] { "old", "newer" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_RawValueStringWithEscapedQuote()
+    {
+        // A backslash-escaped `\"` inside a string must not end the literal early.
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "case quoted = \"a \\\"b\\\", c\", trailing");
+        Assert.Equal(new[] { "quoted", "trailing" }, names);
+    }
+
+    [Fact]
+    public void ExtractAllEnumCaseNames_AttributeMessageWithUnbalancedParenInString()
+    {
+        // A string literal containing `)` (unbalanced relative to its context) must not
+        // close the attribute argument list early.
+        var names = SwiftInterfaceContextTracker.ExtractAllEnumCaseNames(
+            "@available(*, deprecated, message: \"use init(opts:) instead\") case old, replaced");
+        Assert.Equal(new[] { "old", "replaced" }, names);
+    }
+
+    [Fact]
+    public void InlineAvailableOnEnumCase_StringPayloadWithParens_ClassifiedAsMember()
+    {
+        // End-to-end through ProcessLine to confirm the IsDeclarationLine gate accepts the
+        // form (so the line doesn't fall into the AnnotationOnly path).
+        var tracker = new SwiftInterfaceContextTracker();
+        tracker.ProcessLine("public enum E {", "public enum E {");
+        var kind = tracker.ProcessLine(
+            "@available(*, deprecated, renamed: \"foo(_:)\") case old",
+            "@available(*, deprecated, renamed: \"foo(_:)\") case old");
+        Assert.Equal(SwiftInterfaceContextTracker.LineKind.MemberLine, kind);
+    }
 }
