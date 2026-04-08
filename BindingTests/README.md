@@ -152,8 +152,6 @@ Known-unsupported features: 47/52 have tests (5 compiled out)
 - **must_pass / missing**: No test file exists (should not happen).
 - **known_unsupported**: Features the generator intentionally doesn't handle yet (actors, property wrappers, etc.).
 
-See `src/docs/Completed/bindingtests-enhancement-plan.md` for the full contract matrix and skip reason reference.
-
 ## Test Profiles
 
 | Profile | Command | What Runs | Crash Tolerance |

@@ -129,4 +129,3 @@ If a gate fails, fix the regressions before signing off. Do not run gates that a
 ## Key References
 
 - `src/docs/roadmap.md` — Single consolidated roadmap (remaining work to ship + post-ship improvements)
-- `src/docs/Completed/` — All archived design docs, roadmaps, reviews, session notes
