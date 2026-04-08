@@ -90,11 +90,13 @@ All validation libraries are declared in `build/validation-libraries.json`. For 
 - When fixing a bug pattern, grep the entire codebase for ALL instances before finishing.
 - After code gen changes, verify generated output compiles — don't assume correctness.
 - Do NOT commit unless the user explicitly asks.
+- **Keep commit messages short.** Subject line + 1-3 sentences on the *why*. The diff already shows the *what*. No numbered breakdowns of every sub-change, no "Session N handoff" sections, no "Gates: ... passing" footers, no per-file change logs. Only expand past a short paragraph when the change is genuinely sprawling and a future reader truly cannot reconstruct the intent from the diff.
 - **Mid-session iteration**: Use `nuke test` per sub-task for fast feedback. Save `nuke validate` and `nuke binding-tests` for end-of-session gates — running 5+ minute commands repeatedly destroys productivity.
 - NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
 - Test files are organized by domain, not by milestone/session/SDK version. Place tests in their respective domain test files (e.g., closure tests go in closure test files, not in a "phase-15" file).
 - **Test quality**: Assert behavior, not implementation details. Prefer assertions on semantic correctness (e.g., "output contains CallConvCdecl", "method compiles", "round-trip marshalling preserves value") over exact string matching of generated code. This prevents tests from breaking when emitter internals change (e.g., extracting helper methods) while the behavior remains correct. Use `[Theory]`/`[InlineData]` when multiple tests differ only in input values.
 - **Bug-first testing**: When writing tests for untested code, read and understand the code BEFORE writing tests. Don't assume existing behavior is correct — look for bugs first. Flag suspected bugs explicitly so they can be triaged.
+- **Keep the main context window clean**: Offload heavy searching, exploration, and multi-file investigation to subagents (`Explore` for codebase questions, general-purpose `Agent` for broader research). The main agent should stay focused on the goal, not get buried in raw file dumps and grep output. Reach for `Explore` whenever a task needs more than ~3 searches or spans multiple files — fewer compactions, sharper focus.
 
 ### Final Validation Gates (only when code changes warrant it)
 
