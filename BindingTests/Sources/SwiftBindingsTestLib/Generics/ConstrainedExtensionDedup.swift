@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Bug #2 regression: Constrained-extension property name conflict
+// MARK: - Regression: Constrained-extension property name conflict
 //
 // Multiple `extension X where Marker == Concrete` blocks on the same generic
 // type each declare properties with the same Swift name. Each Swift
@@ -28,8 +28,6 @@ import Foundation
 //   3. `markerLabel` is NOT emitted on either specialization (reflection
 //      asserts the property is absent — i.e., the conflict is genuinely
 //      skipped, not silently stubbed).
-//
-// See: src/docs/0.8.0-storekit2-followup-bugs.md Bug #2
 
 public struct DedupMarkerAlpha {
     public init() {}

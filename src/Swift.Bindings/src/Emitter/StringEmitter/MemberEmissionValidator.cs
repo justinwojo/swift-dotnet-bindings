@@ -98,8 +98,8 @@ public static class MemberEmissionValidator
         // Skip ALL conflicting copies; users who need a specific specialization
         // must call the mangled symbol via direct P/Invoke. The PropertyWrapperEmitter
         // already defers these in `CanEmitGenericClassPropertyWrapper`, so no Swift
-        // wrapper is generated either. See bug #2 in
-        // src/docs/0.8.0-storekit2-followup-bugs.md.
+        // wrapper is generated either. Regression coverage lives in
+        // BindingTests/.../Generics/ConstrainedExtensionDedup.swift.
         if (property.ParentDecl is TypeDecl constrainedExtensionParent && constrainedExtensionParent.IsGeneric)
         {
             int siblingCount = 0;

@@ -858,8 +858,8 @@ namespace BindingsGeneration
                 // to the surviving Alpha specialization's symbol — undefined behavior.
                 // Instead, the multi-specialization conflict is detected at emission
                 // time in `MemberEmissionValidator.CanEmitProperty`, which skips ALL
-                // conflicting copies with a clear skip reason. See:
-                // src/docs/0.8.0-storekit2-followup-bugs.md Bug #2.
+                // conflicting copies with a clear skip reason. Regression coverage
+                // lives in BindingTests/.../Generics/ConstrainedExtensionDedup.swift.
 
                 // Collect enum cases if this is an EnumDecl
                 if (decl is EnumDecl enumDecl)
