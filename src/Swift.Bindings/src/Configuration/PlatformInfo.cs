@@ -14,6 +14,21 @@ namespace BindingsGeneration
         /// <summary>"net10.0-ios", "net10.0-macos", etc.</summary>
         public required string Tfm { get; init; }
 
+        /// <summary>
+        /// Platform-versioned form of <see cref="Tfm"/> (e.g. "net10.0-ios26.0")
+        /// used when emitting `&lt;None Pack="true" PackagePath="buildTransitive/{tfm}/" /&gt;`
+        /// items into a generator-emitted binding csproj. NuGet rejects the plain
+        /// <see cref="Tfm"/> form (without a platform version) for any item under
+        /// `buildTransitive/` with NU1012, so the emitter must use this versioned
+        /// form. Hardcoded against the .NET 10 Apple workload default — when that
+        /// workload bumps its default platform version, bump this. The
+        /// SwiftBindings.Sdk pack target resolves `$(TargetPlatformVersion)`
+        /// dynamically; the generator-emitted csproj does not, so it relies on
+        /// this constant. See `roadmap.md` for the follow-up to make the
+        /// generator-emitted csproj compute the pack TFM dynamically too.
+        /// </summary>
+        public required string LibTfm { get; init; }
+
         /// <summary>NuGet RID for native pack paths: "ios-arm64", "osx-arm64", etc.</summary>
         public required string NuGetRid { get; init; }
 
@@ -53,6 +68,6 @@ namespace BindingsGeneration
         public string GetDefaultSwiftPackageId(string moduleName) => $"{moduleName}{SwiftPackageIdSuffix}";
         public string GetDefaultObjCPackageId(string moduleName) => $"{moduleName}{ObjCPackageIdSuffix}";
         public string GetNativePackPath(string frameworkName) => $"runtimes/{NuGetRid}/native/{frameworkName}/";
-        public string GetBuildTransitivePath() => $"buildTransitive/{Tfm}/";
+        public string GetBuildTransitivePath() => $"buildTransitive/{LibTfm}/";
     }
 }

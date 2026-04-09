@@ -298,10 +298,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "buildTransitive/net10.0-ios/")]
-        [InlineData(ApplePlatform.macOS, "buildTransitive/net10.0-macos/")]
-        [InlineData(ApplePlatform.tvOS, "buildTransitive/net10.0-tvos/")]
-        [InlineData(ApplePlatform.MacCatalyst, "buildTransitive/net10.0-maccatalyst/")]
+        [InlineData(ApplePlatform.iOS, "buildTransitive/net10.0-ios26.0/")]
+        [InlineData(ApplePlatform.macOS, "buildTransitive/net10.0-macos26.0/")]
+        [InlineData(ApplePlatform.tvOS, "buildTransitive/net10.0-tvos26.0/")]
+        [InlineData(ApplePlatform.MacCatalyst, "buildTransitive/net10.0-maccatalyst26.0/")]
         public void GetBuildTransitivePath_PerPlatform(ApplePlatform platform, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
@@ -607,7 +607,7 @@ namespace BindingsGeneration.Tests
                 Assert.Contains($"<TargetFramework>{expectedTfm}</TargetFramework>", content);
                 Assert.Contains($"<PackageId>{expectedPackageId}</PackageId>", content);
                 Assert.Contains($"runtimes/{pi.NuGetRid}/native/", content);
-                Assert.Contains($"buildTransitive/{expectedTfm}/", content);
+                Assert.Contains($"buildTransitive/{pi.LibTfm}/", content);
             }
             finally
             {

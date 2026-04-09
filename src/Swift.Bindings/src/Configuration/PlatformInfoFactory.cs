@@ -75,6 +75,7 @@ namespace BindingsGeneration
             {
                 Platform = ApplePlatform.iOS,
                 Tfm = "net10.0-ios",
+                LibTfm = "net10.0-ios26.0",
                 NuGetRid = "ios-arm64",
                 SwiftPackageIdSuffix = ".Swift.iOS",
                 ObjCPackageIdSuffix = ".ObjC.iOS",
@@ -104,6 +105,7 @@ namespace BindingsGeneration
             {
                 Platform = ApplePlatform.macOS,
                 Tfm = "net10.0-macos",
+                LibTfm = "net10.0-macos26.0",
                 NuGetRid = "osx-arm64",
                 SwiftPackageIdSuffix = ".Swift.macOS",
                 ObjCPackageIdSuffix = ".ObjC.macOS",
@@ -143,6 +145,7 @@ namespace BindingsGeneration
             {
                 Platform = ApplePlatform.tvOS,
                 Tfm = "net10.0-tvos",
+                LibTfm = "net10.0-tvos26.0",
                 NuGetRid = "tvos-arm64",
                 SwiftPackageIdSuffix = ".Swift.tvOS",
                 ObjCPackageIdSuffix = ".ObjC.tvOS",
@@ -172,6 +175,7 @@ namespace BindingsGeneration
             {
                 Platform = ApplePlatform.MacCatalyst,
                 Tfm = "net10.0-maccatalyst",
+                LibTfm = "net10.0-maccatalyst26.0",
                 NuGetRid = "maccatalyst-arm64",
                 SwiftPackageIdSuffix = ".Swift.MacCatalyst",
                 ObjCPackageIdSuffix = ".ObjC.MacCatalyst",

@@ -372,7 +372,7 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "Nuke", hasWrapper: false);
                 Assert.Contains("Nuke.Swift.iOS.targets", content);
-                Assert.Contains("buildTransitive/net10.0-ios/", content);
+                Assert.Contains("buildTransitive/net10.0-ios26.0/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -549,7 +549,7 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitDirect(dir, "StoreKit");
                 Assert.Contains("StoreKit.Swift.iOS.targets", content);
-                Assert.Contains("buildTransitive/net10.0-ios/", content);
+                Assert.Contains("buildTransitive/net10.0-ios26.0/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
