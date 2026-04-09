@@ -1,11 +1,11 @@
 {
-  "git_sha": "748a7587",
+  "git_sha": "aa5e485c",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49380,
+        "lines": 49629,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 76234,
+        "lines": 76479,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -670,8 +670,8 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10759,
-    "total_skipped_members": 1952,
+    "total_emitted_members": 10761,
+    "total_skipped_members": 1954,
     "skip_rate_pct": 15.4,
     "skip_reasons": {
       "ModuleInternal": 722,
@@ -687,7 +687,7 @@
       "SwiftUIView": 54,
       "UnsupportedExistential": 44,
       "StaticProtocolMember": 22,
-      "GenericTypeCallback": 17,
+      "GenericTypeCallback": 19,
       "DuplicateSignature": 4,
       "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2,

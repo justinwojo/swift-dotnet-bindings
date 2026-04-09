@@ -896,9 +896,30 @@ namespace BindingsGeneration
 
         private TypeConformance HandleConformance(Node node, SwiftTypeName typeName)
         {
-            var reduction = demangler.Run(node.MangledName) as TypeSpecReduction ?? throw new InvalidOperationException($"Invalid demangling result for '{node.MangledName}'.");
-            var protocolTypeSpec = reduction.TypeSpec as NamedTypeSpec ?? throw new InvalidOperationException($"TypeSpec '{reduction.TypeSpec}' is not a NamedTypeSpec");
-            SwiftTypeName protocolName = SwiftTypeName.FromTypeSpec(protocolTypeSpec);
+            // Demangle the conformance's protocol mangled name. The demangler does not
+            // yet recognize every standard library short substitution (notably the
+            // `Sc*` family used by `_Concurrency` types — `$sSci` for AsyncSequence,
+            // `$sScI` for AsyncIteratorProtocol, etc.), and a crash here would propagate
+            // up through the conformance list select in CreateStructDecl/CreateClassDecl
+            // and kill the entire enclosing TypeDecl via HandleNode's catch-all. Wrap
+            // the call so a missing substitution merely degrades the conformance to a
+            // best-effort identity built from the ABI JSON's printedName.
+            SwiftTypeName protocolName;
+            try
+            {
+                var reduction = demangler.Run(node.MangledName) as TypeSpecReduction
+                    ?? throw new InvalidOperationException($"Invalid demangling result for '{node.MangledName}'.");
+                var protocolTypeSpec = reduction.TypeSpec as NamedTypeSpec
+                    ?? throw new InvalidOperationException($"TypeSpec '{reduction.TypeSpec}' is not a NamedTypeSpec");
+                protocolName = SwiftTypeName.FromTypeSpec(protocolTypeSpec);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    $"Failed to demangle conformance '{node.Name}' ({node.MangledName}) on '{typeName}': {ex.Message}. " +
+                    $"Falling back to printedName-derived protocol identity.");
+                protocolName = BuildFallbackProtocolName(node);
+            }
             string protocolConformanceDescriptor = string.Empty;
 
             try
@@ -1272,9 +1293,32 @@ namespace BindingsGeneration
                 {
                     if (string.IsNullOrEmpty(conformance.MangledName))
                         continue;
-                    var reduction = demangler.Run(conformance.MangledName);
-                    if (reduction is TypeSpecReduction typeSpecReduction &&
-                        typeSpecReduction.TypeSpec is NamedTypeSpec namedTypeSpec)
+
+                    // Mirror the HandleConformance guard: an unsupported demangler
+                    // substitution (e.g. `$sSci` for `_Concurrency.AsyncSequence`) would
+                    // otherwise throw and HandleNode's catch-all would silently drop the
+                    // entire enclosing ProtocolDecl. Fall back to the printedName-derived
+                    // identity so the inherited protocol is still recorded.
+                    NamedTypeSpec? namedTypeSpec = null;
+                    try
+                    {
+                        var reduction = demangler.Run(conformance.MangledName);
+                        if (reduction is TypeSpecReduction typeSpecReduction &&
+                            typeSpecReduction.TypeSpec is NamedTypeSpec demangledSpec)
+                        {
+                            namedTypeSpec = demangledSpec;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            $"Failed to demangle inherited protocol '{conformance.Name}' ({conformance.MangledName}) on protocol '{node.Name}': {ex.Message}. " +
+                            $"Falling back to printedName-derived protocol identity.");
+                        var fallbackName = BuildFallbackProtocolName(conformance);
+                        namedTypeSpec = new NamedTypeSpec(fallbackName.ModuleQualifiedName);
+                    }
+
+                    if (namedTypeSpec != null)
                     {
                         // Skip compiler-internal marker protocols that have no C# binding
                         var simpleName = namedTypeSpec.NameWithoutModule;
@@ -2508,6 +2552,25 @@ namespace BindingsGeneration
                 TypeDecl typeDecl => SwiftTypeName.FromModuleQualifiedName($"{typeDecl.SwiftTypeName.ModuleQualifiedName}.{name}"),
                 _ => throw new InvalidOperationException("Parent declaration is not a module or type.")
             };
+
+        /// <summary>
+        /// Builds a best-effort SwiftTypeName for a conformance whose mangled name the
+        /// demangler could not handle. Prefers the dotted printedName when present, else
+        /// synthesizes a Swift-module-qualified name from the unqualified protocol name.
+        /// Returns a placeholder name when the node carries no usable identifier — the
+        /// resulting conformance entry is harmless because downstream code keys
+        /// conformance lookups on specific stdlib protocol names (Equatable, Copyable,
+        /// Escapable, Hashable, CaseIterable, etc.) and ignores unknown ones.
+        /// </summary>
+        private static SwiftTypeName BuildFallbackProtocolName(Node node)
+        {
+            var raw = !string.IsNullOrEmpty(node.PrintedName) ? node.PrintedName
+                    : !string.IsNullOrEmpty(node.Name) ? node.Name
+                    : "UnknownProtocol";
+            if (raw.Contains('.'))
+                return SwiftTypeName.FromModuleQualifiedName(raw);
+            return SwiftTypeName.FromModuleQualifiedName($"Swift.{raw}");
+        }
 
         /// <summary>
         /// Check if the name is an operator.

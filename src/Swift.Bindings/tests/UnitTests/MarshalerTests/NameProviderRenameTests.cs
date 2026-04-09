@@ -376,6 +376,150 @@ public class NameProviderRenameTests
     }
 
     [Fact]
+    public void ComputePropertyRenames_TwoCollisions_AvoidsSecondaryRenameClash()
+    {
+        // Regression for the StoreKit Transaction case (CS0102):
+        //   struct Transaction {
+        //     var offer: Offer
+        //     var offerType: OfferType
+        //     struct Offer { ... }
+        //     struct OfferType { ... }
+        //   }
+        // Naive rename: Offer→OfferType (collides with sibling OfferType→OfferTypeType).
+        // The "OfferType" rename target itself collides with the *other* nested type that
+        // was just renamed away, producing CS0102 ("type already contains a definition for OfferType").
+        // The fix loops on "+ Type" until the new leaf name is unique among all members + nested types.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+
+        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Transaction");
+        module.RegisterType(parentSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Transaction"),
+            SwiftTypeName = parentSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var offerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Transaction.Offer");
+        module.RegisterType(offerSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Transaction.Offer"),
+            SwiftTypeName = offerSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var offerTypeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Transaction.OfferType");
+        module.RegisterType(offerTypeSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Transaction.OfferType"),
+            SwiftTypeName = offerTypeSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        typeDatabase.AddModuleDatabase(module);
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var offerDecl = CreateStructDecl("Offer", offerSwiftName, moduleDecl);
+        var offerTypeDecl = CreateStructDecl("OfferType", offerTypeSwiftName, moduleDecl);
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Transaction",
+            SwiftTypeName = parentSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "offer",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Transaction")
+                    {
+                        InnerType = new NamedTypeSpec("Offer")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new()
+                {
+                    Name = "offerType",
+                    SwiftTypeSpec = new NamedTypeSpec("TestModule.Transaction")
+                    {
+                        InnerType = new NamedTypeSpec("OfferType")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { offerDecl, offerTypeDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        offerDecl.ParentDecl = parentDecl;
+        offerTypeDecl.ParentDecl = parentDecl;
+        moduleDecl.Types.Add(parentDecl);
+
+        // Pre-pass applies the CSharpTypeName renames for both nested types.
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(offerSwiftName, out var offerRecord));
+        Assert.True(typeDatabase.TryGetTypeRecord(offerTypeSwiftName, out var offerTypeRecord));
+
+        // Both renamed leaf names must be distinct (otherwise CS0102 in generated C#).
+        Assert.NotEqual(offerRecord!.CSharpTypeName.Name, offerTypeRecord!.CSharpTypeName.Name);
+
+        // Neither rename may collide with the original sibling leaf names.
+        var offerLeaf = LeafName(offerRecord.CSharpTypeName.Name);
+        var offerTypeLeaf = LeafName(offerTypeRecord.CSharpTypeName.Name);
+        Assert.NotEqual("Offer", offerLeaf);
+        Assert.NotEqual("OfferType", offerLeaf);
+        Assert.NotEqual("OfferType", offerTypeLeaf);
+        Assert.NotEqual("Offer", offerTypeLeaf);
+
+        // Both rename targets must still start with the matching property's PascalCase name +
+        // at least one "Type" suffix, since the loop only appends "Type".
+        Assert.StartsWith("Offer", offerLeaf);
+        Assert.EndsWith("Type", offerLeaf);
+        Assert.StartsWith("OfferType", offerTypeLeaf);
+        Assert.EndsWith("Type", offerTypeLeaf);
+    }
+
+    private static string LeafName(string fullName)
+    {
+        var lastDot = fullName.LastIndexOf('.');
+        return lastDot >= 0 ? fullName.Substring(lastDot + 1) : fullName;
+    }
+
+    [Fact]
     public void ComputePropertyRenames_CollidingProperty_ReturnsRename_DoesNotModifyTypeDatabase()
     {
         // Scenario: ImagePipeline has property "cache" (PascalCase: "Cache")

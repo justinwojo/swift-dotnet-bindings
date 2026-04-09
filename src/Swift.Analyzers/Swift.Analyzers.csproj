@@ -11,6 +11,16 @@
     <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
     <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
   </ItemGroup>
+  <!-- Explicit Compile items so this project still builds when a consumer
+       passes the global property -p:EnableDefaultCompileItems=false (e.g.
+       CLI-generated binding csprojs). Without this, the analyzer DLL ships
+       with zero DiagnosticAnalyzer types and RS2002 fires on every consumer.
+       The condition keeps the default item provider active when no global
+       override is in play, avoiding NETSDK1022 duplicate-item errors. -->
+  <ItemGroup Condition="'$(EnableDefaultCompileItems)' == 'false'">
+    <Compile Include="SwiftObjectDisposeAnalyzer.cs" />
+    <Compile Include="SwiftObjectDisposeCodeFixProvider.cs" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.8.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />

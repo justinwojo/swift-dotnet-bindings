@@ -57,8 +57,11 @@ dotnet run --project src/Swift.Bindings/src -- \
   --xcframework /path/to/Library.xcframework \
   -o /path/to/output/
 
-# Verify generated bindings compile (need -p:EnableDefaultCompileItems=false for CLI-generated .csproj)
-cd /path/to/output && dotnet build {Module}.Swift.iOS.csproj -p:EnableDefaultCompileItems=false
+# Verify generated bindings compile. The CLI-generated csproj already sets
+# EnableDefaultCompileItems=false locally — DO NOT pass -p:EnableDefaultCompileItems=false
+# on the command line, that propagates as a global property and breaks Swift.Runtime
+# (which relies on default Compile items).
+cd /path/to/output && dotnet build {Module}.Swift.iOS.csproj
 ```
 
 All CLI options (including manual mode, ObjC framework detection): `dotnet run --project src/Swift.Bindings/src -- --help`

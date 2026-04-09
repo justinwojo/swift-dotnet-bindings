@@ -1023,6 +1023,16 @@ public static class NameProvider
         var nestedTypeNameSet = new HashSet<string>(typeDecl.Types.Select(t => t.Name));
         var parentFullName = typeDecl.SwiftTypeName.ToString();
 
+        // Build the set of names that are already taken in this container, so we can avoid
+        // creating a new collision when we add the "Type" suffix. Includes:
+        //   - Original Swift nested type leaf names
+        //   - Pascal-cased property/member names
+        // Updated as we apply renames so a later rename can detect collisions with an
+        // earlier rename's chosen name.
+        var takenNames = new HashSet<string>(nestedTypeNameSet);
+        foreach (var prop in emittableProperties)
+            takenNames.Add(GetPropertyName(prop.Name, typeDecl.Name));
+
         foreach (var p in emittableProperties)
         {
             var csPropertyName = GetPropertyName(p.Name, typeDecl.Name);
@@ -1042,17 +1052,29 @@ public static class NameProvider
                 var nestedType = typeDecl.Types.FirstOrDefault(t => t.Name == csPropertyName);
                 if (nestedType != null && typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var nestedRecord))
                 {
-                    var newTypeSuffix = "Type";
+                    // Pick a new leaf name by appending "Type" until it does not collide with
+                    // any existing member name, original nested type name, or earlier rename.
+                    // Without this check, e.g. `Transaction.Offer` (which collides with the
+                    // `offer` property) would rename to `OfferType` and clash with the existing
+                    // sibling `Transaction.OfferType` struct that is itself the renamed target
+                    // of the `offerType` property — yielding CS0102 / CS0542.
+                    var newLeafName = csPropertyName + "Type";
+                    while (takenNames.Contains(newLeafName))
+                        newLeafName += "Type";
+
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;
                     // Replace only the trailing segment (leaf name), not all occurrences.
                     // e.g., "Parent.Configuration" → "Parent.ConfigurationType",
                     // NOT "Configuration.Configuration" → "ConfigurationType.ConfigurationType"
                     var lastDot = oldCSharpName.LastIndexOf('.');
                     var newCSharpName = lastDot >= 0
-                        ? oldCSharpName.Substring(0, lastDot + 1) + csPropertyName + newTypeSuffix
-                        : csPropertyName + newTypeSuffix;
+                        ? oldCSharpName.Substring(0, lastDot + 1) + newLeafName
+                        : newLeafName;
                     nestedRecord.CSharpTypeName = CSharpTypeName.FromNamespaceAndName(
                         nestedRecord.CSharpTypeName.Namespace, newCSharpName);
+
+                    // Reserve the chosen name so a subsequent rename in this loop sees it.
+                    takenNames.Add(newLeafName);
 
                     // Cascade rename to all descendant types in the TypeDatabase.
                     CascadeTypeRename(nestedType, oldCSharpName, newCSharpName,
