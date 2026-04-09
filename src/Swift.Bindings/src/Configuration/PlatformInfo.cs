@@ -10,17 +10,20 @@ namespace BindingsGeneration
     public sealed record PlatformInfo
     {
         /// <summary>
-        /// Shared Apple-workload platform version appended to <see cref="Tfm"/> to produce
+        /// Fallback Apple-workload platform version used when no <c>--platform-version</c>
+        /// CLI override is supplied. Appended to <see cref="Tfm"/> to produce
         /// <see cref="PackTfm"/>. NuGet rejects items under <c>buildTransitive/</c> with a
         /// platform-version-less TFM (NU1012), so the generator-emitted csproj's pack paths
-        /// must be platform-versioned. All four Apple platforms currently share the same
-        /// value (the .NET 10 Apple workload default); keeping it in one place means bumping
-        /// the workload version is a single-line change instead of four parallel string edits
-        /// in <see cref="PlatformInfoFactory"/>. The SwiftBindings.Sdk pack target resolves
-        /// <c>$(TargetPlatformVersion)</c> dynamically at SDK-consumer build time; the
-        /// generator-emitted csproj does NOT (it's a static template), so it relies on this
-        /// constant. See <c>roadmap.md</c> for the follow-up to make the generator-emitted
-        /// csproj compute the pack TFM dynamically too.
+        /// must be platform-versioned. The same value also drives the explicit
+        /// <c>&lt;TargetFramework&gt;net10.0-iosX.Y&lt;/TargetFramework&gt;</c> emission so a
+        /// generated library project doesn't fall victim to .NET 10's "libraries default to
+        /// the oldest installed TPV" rule on multi-workload machines.
+        ///
+        /// Per-instance overrides flow in via <see cref="PlatformVersion"/>, populated by
+        /// <see cref="PlatformInfoFactory.Create(ApplePlatform, string?)"/>. The SwiftBindings.Sdk
+        /// pack target still resolves <c>$(TargetPlatformVersion)</c> dynamically at
+        /// SDK-consumer build time; the generator-emitted csproj does NOT (it's a static
+        /// template), so it relies on the value baked in here at generator-runtime.
         /// </summary>
         public const string DefaultPlatformVersion = "26.0";
 
@@ -30,16 +33,26 @@ namespace BindingsGeneration
         public required string Tfm { get; init; }
 
         /// <summary>
-        /// Platform-versioned form of <see cref="Tfm"/> (e.g. "net10.0-ios26.0") used when
-        /// emitting <c>&lt;None Pack="true" PackagePath="buildTransitive/{PackTfm}/" /&gt;</c>
-        /// items into a generator-emitted binding csproj. Derived from
-        /// <see cref="Tfm"/> + <see cref="DefaultPlatformVersion"/> — do NOT set
-        /// independently in <see cref="PlatformInfoFactory"/>, or the two can drift.
+        /// Apple-workload platform version this PlatformInfo was created with (e.g. "26.0",
+        /// "26.2"). Defaults to <see cref="DefaultPlatformVersion"/>; overridden by the CLI
+        /// <c>--platform-version</c> flag via <see cref="PlatformInfoFactory.Create(ApplePlatform, string?)"/>.
+        /// Both <see cref="PackTfm"/> and the generator-emitted <c>&lt;TargetFramework&gt;</c>
+        /// element source from this single value, so they cannot drift.
+        /// </summary>
+        public string PlatformVersion { get; init; } = DefaultPlatformVersion;
+
+        /// <summary>
+        /// Platform-versioned form of <see cref="Tfm"/> (e.g. "net10.0-ios26.0") used both
+        /// for the generator-emitted csproj's <c>&lt;TargetFramework&gt;</c> element and for
+        /// <c>&lt;None Pack="true" PackagePath="buildTransitive/{PackTfm}/" /&gt;</c>
+        /// items. Derived from <see cref="Tfm"/> + <see cref="PlatformVersion"/> — do NOT
+        /// set independently in <see cref="PlatformInfoFactory"/>, or the two can drift.
         /// Was previously named <c>LibTfm</c> and assigned per-platform; the rename +
         /// derivation was a Codex-review response to collapse the drift surface down
-        /// to a single constant.
+        /// to a single source. The CLI flag plumbing came in via Session 1 of the 0.8.0
+        /// Apple-framework publishing release.
         /// </summary>
-        public string PackTfm => $"{Tfm}{DefaultPlatformVersion}";
+        public string PackTfm => $"{Tfm}{PlatformVersion}";
 
         /// <summary>NuGet RID for native pack paths: "ios-arm64", "osx-arm64", etc.</summary>
         public required string NuGetRid { get; init; }

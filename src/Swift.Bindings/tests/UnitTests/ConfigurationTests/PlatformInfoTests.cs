@@ -346,6 +346,46 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Theory]
+        [InlineData(ApplePlatform.iOS, "26.2", "net10.0-ios26.2", "buildTransitive/net10.0-ios26.2/")]
+        [InlineData(ApplePlatform.iOS, "27.0", "net10.0-ios27.0", "buildTransitive/net10.0-ios27.0/")]
+        [InlineData(ApplePlatform.macOS, "26.4", "net10.0-macos26.4", "buildTransitive/net10.0-macos26.4/")]
+        [InlineData(ApplePlatform.tvOS, "26.2", "net10.0-tvos26.2", "buildTransitive/net10.0-tvos26.2/")]
+        [InlineData(ApplePlatform.MacCatalyst, "26.2", "net10.0-maccatalyst26.2", "buildTransitive/net10.0-maccatalyst26.2/")]
+        public void Create_WithPlatformVersionOverride_FlowsToPackTfmAndBuildTransitive(
+            ApplePlatform platform, string overrideVersion, string expectedPackTfm, string expectedBuildTransitive)
+        {
+            // Pin the --platform-version flag plumbing: the override must reach BOTH
+            // PackTfm (used by the generator-emitted <TargetFramework>) and the
+            // buildTransitive/ pack path. Both must come from the same source so they
+            // cannot drift on multi-workload machines. The default DefaultPlatformVersion
+            // value must NOT leak through when an override is supplied.
+            var pi = PlatformInfoFactory.Create(platform, overrideVersion);
+            Assert.Equal(overrideVersion, pi.PlatformVersion);
+            Assert.Equal(expectedPackTfm, pi.PackTfm);
+            Assert.Equal(expectedBuildTransitive, pi.GetBuildTransitivePath());
+            Assert.DoesNotContain(PlatformInfo.DefaultPlatformVersion, pi.PackTfm);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("\t")]
+        public void Create_WithNullEmptyOrWhitespacePlatformVersion_FallsBackToDefault(string? overrideVersion)
+        {
+            // Null/empty/whitespace overrides must fall back to DefaultPlatformVersion
+            // so (a) callers that don't pass --platform-version see today's behavior
+            // unchanged, and (b) a poorly-quoted shell invocation that passes "   " can't
+            // produce <TargetFramework>net10.0-ios   </TargetFramework>. The factory uses
+            // string.IsNullOrWhiteSpace specifically to handle the whitespace case.
+            var pi = PlatformInfoFactory.Create(ApplePlatform.iOS, overrideVersion);
+            var piDefault = PlatformInfoFactory.Create(ApplePlatform.iOS);
+
+            Assert.Equal(PlatformInfo.DefaultPlatformVersion, pi.PlatformVersion);
+            Assert.Equal(piDefault.PackTfm, pi.PackTfm);
+        }
+
         #endregion
 
         #region GetSlice() + AllSlices
@@ -608,11 +648,11 @@ namespace BindingsGeneration.Tests
         private static readonly ILogger Logger = NullLogger.Instance;
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "net10.0-ios", "Nuke.Swift.iOS")]
-        [InlineData(ApplePlatform.macOS, "net10.0-macos", "Nuke.Swift.macOS")]
-        [InlineData(ApplePlatform.tvOS, "net10.0-tvos", "Nuke.Swift.tvOS")]
-        [InlineData(ApplePlatform.MacCatalyst, "net10.0-maccatalyst", "Nuke.Swift.MacCatalyst")]
-        public void Emit_CorrectTfmAndPackageId_PerPlatform(ApplePlatform platform, string expectedTfm, string expectedPackageId)
+        [InlineData(ApplePlatform.iOS, "Nuke.Swift.iOS")]
+        [InlineData(ApplePlatform.macOS, "Nuke.Swift.macOS")]
+        [InlineData(ApplePlatform.tvOS, "Nuke.Swift.tvOS")]
+        [InlineData(ApplePlatform.MacCatalyst, "Nuke.Swift.MacCatalyst")]
+        public void Emit_CorrectTfmAndPackageId_PerPlatform(ApplePlatform platform, string expectedPackageId)
         {
             var pi = PlatformInfoFactory.Create(platform);
             var tempDir = Path.Combine(Path.GetTempPath(), $"emitter_test_{Guid.NewGuid():N}");
@@ -642,7 +682,11 @@ namespace BindingsGeneration.Tests
                 Assert.True(File.Exists(csprojPath), $"Expected {expectedPackageId}.csproj to exist");
 
                 var content = File.ReadAllText(csprojPath);
-                Assert.Contains($"<TargetFramework>{expectedTfm}</TargetFramework>", content);
+                // <TargetFramework> and buildTransitive/ both source from pi.PackTfm so they
+                // cannot drift on multi-workload machines. Test asserts both directly off pi
+                // (not a hardcoded string) so future bumps to DefaultPlatformVersion don't
+                // cascade into per-platform inline-data updates.
+                Assert.Contains($"<TargetFramework>{pi.PackTfm}</TargetFramework>", content);
                 Assert.Contains($"<PackageId>{expectedPackageId}</PackageId>", content);
                 Assert.Contains($"runtimes/{pi.NuGetRid}/native/", content);
                 Assert.Contains($"buildTransitive/{pi.PackTfm}/", content);

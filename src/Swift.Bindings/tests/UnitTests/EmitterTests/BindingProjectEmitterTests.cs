@@ -40,13 +40,81 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Emit_TargetFramework_IsNet10iOS()
+        public void Emit_TargetFramework_IsExplicitlyVersioned()
         {
+            // The generator-emitted csproj must NOT use a versionless
+            // <TargetFramework>net10.0-ios</TargetFramework>: .NET 10 library projects
+            // default to the OLDEST installed Apple TPV (apps float, libraries don't),
+            // which would silently desync from the version-qualified buildTransitive/
+            // pack path on any multi-workload machine. The TFM and pack path must both
+            // source from PlatformInfo.PackTfm.
             var dir = CreateTempDir();
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0");
-                Assert.Contains("<TargetFramework>net10.0-ios</TargetFramework>", content);
+                var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
+                Assert.Contains($"<TargetFramework>{defaultPi.PackTfm}</TargetFramework>", content);
+                Assert.DoesNotContain("<TargetFramework>net10.0-ios</TargetFramework>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_TargetFramework_AndBuildTransitive_AreConsistent()
+        {
+            // Regression gate for the Session 7 trap: today's pack flow only produced an
+            // internally-consistent nupkg by coincidence (single Apple workload installed),
+            // because the TFM came from pi.Tfm (versionless) and the buildTransitive path
+            // came from pi.PackTfm (version-qualified). Both must now source from the same
+            // PackTfm value so they cannot drift.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0");
+                var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
+                Assert.Contains($"<TargetFramework>{defaultPi.PackTfm}</TargetFramework>", content);
+                Assert.Contains($"buildTransitive/{defaultPi.PackTfm}/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_PlatformVersionOverride_FlowsThroughBothFragments()
+        {
+            // The --platform-version CLI flag (threaded through PlatformInfoFactory.Create)
+            // must rewrite BOTH the <TargetFramework> element and the buildTransitive/ pack
+            // path to the same overridden value. The Session 7 reproducer at
+            // 0.8.0-storekit2-exploration.md uses 26.2 — pin that here.
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "StoreKit.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+                var pi262 = PlatformInfoFactory.Create(ApplePlatform.iOS, "26.2");
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "StoreKit",
+                    Metadata = new XCFrameworkMetadata
+                    {
+                        LibraryVersion = "26.2.0",
+                        PackageVersion = "26.2.0",
+                        IsVersionPlaceholder = false,
+                        MinimumOSVersion = "16.0",
+                        EffectiveMinimumOSVersion = "16.0",
+                        SdkVersion = null,
+                        ModuleName = "StoreKit",
+                        Platforms = new List<string>()
+                    },
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                    SwiftRuntimeVersion = "0.8.0",
+                    PlatformInfo = pi262,
+                }, _logger);
+                var content = File.ReadAllText(Path.Combine(dir, "StoreKit.Swift.iOS.csproj"));
+                Assert.Contains("<TargetFramework>net10.0-ios26.2</TargetFramework>", content);
+                Assert.Contains("buildTransitive/net10.0-ios26.2/", content);
+                // The default 26.0 form must NOT leak through.
+                Assert.DoesNotContain("net10.0-ios26.0", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -674,19 +742,60 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Emit_PublishedVersion_EmitsPlainPackageReferenceWithoutProjectReference()
+        public void Emit_PublishedVersion_EmitsBoundedPackageReferenceWithoutProjectReference()
         {
-            // Real published versions go through the unchanged PackageReference path —
-            // the dev-sentinel branches must NOT appear, otherwise external consumers
-            // would see a dangling SwiftBindingsRepoRoot reference and a phantom
+            // Real published versions go through the published-path PackageReference. The
+            // version is emitted as a bounded NuGet range (e.g. "[0.8.0,0.9.0)") so future
+            // ABI-compatible patch releases of SwiftBindings.Runtime float forward through
+            // existing Apple-framework consumers without a republish, but a future minor
+            // bump (which is allowed to break ABI) cannot silently resolve into older
+            // bindings. The dev-sentinel branches must also NOT appear, otherwise external
+            // consumers would see a dangling SwiftBindingsRepoRoot reference and a phantom
             // ProjectReference that can't resolve outside the repo.
             var content = EmitWithRuntimeVersion("0.8.0");
             Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.8.0,0.9.0)\" />",
+                content);
+            // Reject the previous unbounded shape — `Version="0.8.0"` is minimum-only and
+            // would let a hypothetical 0.9.0 with a different struct layout silently satisfy
+            // the request.
+            Assert.DoesNotContain(
                 "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"0.8.0\" />",
                 content);
             Assert.DoesNotContain("<HintPath>", content);
             Assert.DoesNotContain("SwiftBindingsRepoRoot", content);
             Assert.DoesNotContain("Swift.Runtime.csproj", content);
+        }
+
+        [Theory]
+        [InlineData("0.8.0", "[0.8.0,0.9.0)")]
+        [InlineData("0.10.0", "[0.10.0,0.11.0)")]
+        [InlineData("1.2.3", "[1.2.3,1.3.0)")]
+        [InlineData("0.8.0-preview.1", "[0.8.0-preview.1,0.9.0)")]
+        public void BuildBoundedRuntimeVersionRange_FloatsPatchSlamsAtNextMinor(string version, string expected)
+        {
+            // Pin the bounded range shape: lower bound is the exact version (so prerelease
+            // suffixes survive), upper bound is the next minor with a `.0` patch and an
+            // exclusive `)`. The float-up-to-but-not-including-next-minor shape is what
+            // matches the "patch is ABI-compatible, minor is allowed to break" contract.
+            Assert.Equal(expected, BindingProjectEmitter.BuildBoundedRuntimeVersionRange(version));
+        }
+
+        [Theory]
+        [InlineData("garbage")]
+        [InlineData("1")]
+        [InlineData("not.a.semver")]
+        [InlineData("x.8.0")]   // non-integer major — would otherwise produce "[x.8.0,x.9.0)"
+        [InlineData(".8.0")]    // empty major
+        public void BuildBoundedRuntimeVersionRange_FallsBackOnUnparseableInput(string version)
+        {
+            // Defensive: an upstream tool that hands the emitter a malformed version
+            // string should not crash the emit. The fallback is to emit the raw value;
+            // NuGet will surface its own restore-time error if the value is unusable.
+            // Both major AND minor must parse cleanly as integers — otherwise the
+            // computed upper bound would itself be a non-numeric string and NuGet
+            // would reject the resulting range with no actionable diagnostic.
+            Assert.Equal(version, BindingProjectEmitter.BuildBoundedRuntimeVersionRange(version));
         }
 
         private static string EmitWithRuntimeVersion(string runtimeVersion)

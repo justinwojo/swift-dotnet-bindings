@@ -26,6 +26,7 @@ public static class BindingsGeneratorCommand
         var outputDirectory = parseResult.GetValueForOption(options.OutputDirectory);
         var xcframeworkPath = parseResult.GetValueForOption(options.XCFramework);
         var platformStr = parseResult.GetValueForOption(options.Platform);
+        var platformVersionOverride = parseResult.GetValueForOption(options.PlatformVersion);
         var platformTargetStr = parseResult.GetValueForOption(options.PlatformTarget);
         var libraryName = parseResult.GetValueForOption(options.LibraryName);
         var asyncLibrary = parseResult.GetValueForOption(options.AsyncLibrary);
@@ -74,7 +75,23 @@ public static class BindingsGeneratorCommand
             context.ExitCode = 1;
             return;
         }
-        var platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value);
+
+        // Reject malformed --platform-version up front. The override flows straight into
+        // <TargetFramework>net10.0-ios{value}</TargetFramework> and the buildTransitive/
+        // pack path; a typo like "26.two" or an unwanted pre-release tail like
+        // "26.2-preview" would only fail later with an opaque MSBuild/NuGet error that
+        // gives the user no pointer back at the flag they typed.
+        if (!string.IsNullOrWhiteSpace(platformVersionOverride) &&
+            !IsValidPlatformVersion(platformVersionOverride))
+        {
+            logger.LogError(
+                "Error: Invalid --platform-version '{Value}'. Expected '<major>.<minor>' (e.g. '26.0', '26.2').",
+                platformVersionOverride);
+            context.ExitCode = 1;
+            return;
+        }
+
+        var platformInfo = PlatformInfoFactory.Create(parsedPlatform.Value, platformVersionOverride);
 
         // Validate --platform + --platform-target combinations
         if (!platformInfo.HasSimulatorVariant &&
@@ -129,6 +146,30 @@ public static class BindingsGeneratorCommand
             context.ExitCode = BindingsGenerator.RunCompileBridgeOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo);
+            return;
+        }
+
+        // Enforce --platform-version on the publishable path. The emitted csproj is
+        // packable iff --swift-runtime-version is set to a non-sentinel value (see
+        // BindingProjectEmitter's isPackable gate). On that path the TFM MUST be explicit
+        // — silently falling back to PlatformInfo.DefaultPlatformVersion would label the
+        // published nupkg for the wrong SDK cut, and the failure mode would only show up
+        // later as a NETSDK1005 / TPV mismatch on whoever consumes it.
+        //
+        // Positioned AFTER the --compile-wrapper-only / --compile-bridge-only fast paths
+        // because those modes never emit or pack a csproj — `swiftRuntimeVersion` is a
+        // no-op on those branches and demanding `--platform-version` would be a false
+        // positive. Catching it here still fires before any binding-emit work.
+        if (RequiresExplicitPlatformVersion(swiftRuntimeVersion) &&
+            string.IsNullOrWhiteSpace(platformVersionOverride))
+        {
+            logger.LogError(
+                "Error: --platform-version is required when --swift-runtime-version is set to a published " +
+                "value (got --swift-runtime-version '{Value}'). Pass --platform-version <major.minor> " +
+                "(e.g. '26.2' for net10.0-ios26.2) so the emitted csproj is labeled for an explicit Apple " +
+                "workload version instead of silently inheriting the in-tree default.",
+                swiftRuntimeVersion);
+            context.ExitCode = 1;
             return;
         }
 
@@ -911,11 +952,39 @@ public static class BindingsGeneratorCommand
             || libraryName.StartsWith("/System/Library/", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Validate the <c>--platform-version</c> CLI value against the canonical Apple TPV
+    /// shape "&lt;major&gt;.&lt;minor&gt;" (e.g. "26.0", "26.2"). The version segment of a
+    /// .NET Apple TFM only accepts this two-integer form — anything else (a typo like
+    /// "26.two", an unwanted pre-release tail like "26.2-preview", trailing whitespace
+    /// from a poorly-quoted shell invocation) would propagate into the emitted
+    /// <c>&lt;TargetFramework&gt;</c> element and only fail later with an opaque
+    /// MSBuild/NuGet error.
+    /// </summary>
+    internal static bool IsValidPlatformVersion(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(value, @"^\d+\.\d+$");
+    }
+
+    /// <summary>
+    /// Returns true when the run is on the publishable path and therefore requires an
+    /// explicit <c>--platform-version</c>. The emitted csproj is packable iff
+    /// <c>--swift-runtime-version</c> is set to anything other than the dev sentinel
+    /// (matches <see cref="BindingProjectEmitter"/>'s <c>isPackable</c> gate). On that
+    /// path, silently inheriting <c>PlatformInfo.DefaultPlatformVersion</c> would label
+    /// the published nupkg for the wrong SDK cut.
+    /// </summary>
+    internal static bool RequiresExplicitPlatformVersion(string? swiftRuntimeVersion) =>
+        !string.IsNullOrWhiteSpace(swiftRuntimeVersion) &&
+        swiftRuntimeVersion != BindingProjectEmitter.DefaultSwiftRuntimeVersion;
+
     private static void PrintHelp()
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  --xcframework        Path to xcframework directory. Replaces -a, -d, -t.");
         Console.WriteLine("  --platform           Apple platform: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.");
+        Console.WriteLine("  --platform-version   Optional. Apple workload platform version baked into the emitted csproj (e.g. '26.2' for net10.0-ios26.2). Required when packing for nuget.org so library-default 'oldest TPV' resolution can't desync TFM from buildTransitive/ paths. Default falls back to the in-tree value.");
         Console.WriteLine("  --platform-target    Platform target: 'simulator' (default) or 'device'. Used with --xcframework.");
         Console.WriteLine("  -a, --swiftabi       Path to the Swift ABI file. Required if --xcframework not used.");
         Console.WriteLine("  -d, --dylib          Path to the dynamic library. Required if --xcframework not used.");

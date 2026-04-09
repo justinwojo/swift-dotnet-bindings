@@ -205,6 +205,60 @@ public class ObjCBindingProjectEmitterTests
     }
 
     [Fact]
+    public void Contains_ExplicitVersionQualifiedTargetFramework()
+    {
+        // Mixed-framework Swift binding csprojs ProjectReference this ObjC csproj.
+        // The Swift side now sources <TargetFramework> from PlatformInfo.PackTfm
+        // (version-qualified, e.g. net10.0-ios26.0) so the ObjC side MUST match —
+        // otherwise the ProjectReference resolution fails restore with NETSDK1005
+        // ("Assets file ... doesn't have a target for 'net10.0-ios'"). Pin the
+        // explicit form so a future revert is caught here, not by the validation
+        // gate's BlinkID/BRLMPrinterKit infra failures.
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            ObjCBindingProjectEmitter.Emit(CreateOptions(tmpDir), Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
+            Assert.Contains($"<TargetFramework>{defaultPi.PackTfm}</TargetFramework>", content);
+            Assert.DoesNotContain("<TargetFramework>net10.0-ios</TargetFramework>", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
+    public void TargetFramework_HonorsPlatformVersionOverride()
+    {
+        // The --platform-version CLI override flows into PlatformInfo.PlatformVersion
+        // and must reach the ObjC csproj's <TargetFramework> element so the parallel
+        // Swift/ObjC ProjectReference pair stays consistent under non-default Apple
+        // workload versions (e.g. iOS 26.2 publishing).
+        var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            var pi262 = PlatformInfoFactory.Create(ApplePlatform.iOS, "26.2");
+            var opts = new ObjCBindingProjectOptions
+            {
+                OutputDirectory = tmpDir,
+                ModuleName = "TestModule",
+                SourceXCFrameworkPath = Path.Combine(tmpDir, "..", "TestModule.xcframework"),
+                PlatformInfo = pi262,
+            };
+            ObjCBindingProjectEmitter.Emit(opts, Logger);
+            var content = File.ReadAllText(Path.Combine(tmpDir, "TestModule.ObjC.iOS.csproj"));
+            Assert.Contains("<TargetFramework>net10.0-ios26.2</TargetFramework>", content);
+            Assert.DoesNotContain("net10.0-ios26.0", content);
+        }
+        finally
+        {
+            if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
     public void FileWrittenToCorrectPath()
     {
         var tmpDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

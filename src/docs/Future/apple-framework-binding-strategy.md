@@ -55,7 +55,7 @@ These are the twelve questions in `0.8.0-plan.md` § "Strategy questions to answ
 - `EnableDefaultCompileItems=false` in the emitted csproj (same)
 - `SwiftWrapperPostProcessor.RemoveTrailingWrapperPreamble` walk-back (same) — strips dangling preamble comments after stripping broken wrappers
 - `SwiftFrameworkResolver` dyld-style path passthrough (`IsDyldStylePath`, Session 5)
-- Generator-emitted csproj uses `PlatformInfo.PackTfm` (derived as `Tfm + PlatformInfo.DefaultPlatformVersion`, e.g. `net10.0-ios26.0`) for `buildTransitive/<tfm>/` pack paths to avoid NU1012 (Session 7, this session — originally introduced as per-platform `LibTfm`; renamed and collapsed to a single derived constant during the Codex-review pass)
+- Generator-emitted csproj uses `PlatformInfo.PackTfm` (derived as `Tfm + PlatformInfo.PlatformVersion`, e.g. `net10.0-ios26.2`) for BOTH the `<TargetFramework>` element and the `buildTransitive/<tfm>/` pack path so they cannot drift on multi-workload machines. `PlatformVersion` is sourced from the `--platform-version <X.Y>` CLI flag with a `DefaultPlatformVersion` fallback for in-tree local-dev callers (Session 7 introduced `LibTfm`; the Codex-review pass collapsed it to a single derived field; Session 1 of the 0.8.0 publishing release added the CLI flag and lifted the explicit TFM into `<TargetFramework>` after it surfaced that .NET 10 library projects default to the OLDEST installed TPV, not the newest).
 
 **Evidence**: `0.8.0-storekit2-exploration.md` § Session 1 outcome (target mode + opaque param fix), § Session 2 outcome (availability propagation + four C# emit bugs subsequently fixed), § Session 4 outcome (mutating async + ProjectReference fallback), § Session 5 outcome (resolver dyld passthrough), § Session 7 outcome (pack-time `PackTfm`).
 
@@ -77,18 +77,22 @@ These are the twelve questions in `0.8.0-plan.md` § "Strategy questions to answ
 
 ### 4. NuGet package layout
 
-**Decided**: One Apple framework, one NuGet package, `<Module>.Swift.iOS` (e.g. `StoreKit.Swift.iOS`). Package contents:
+**Decided**: One Apple framework, one NuGet package, `<Module>.Swift.iOS` (e.g. `StoreKit.Swift.iOS`). Package contents (where `iosX.Y` is the explicit Apple-workload platform version the binding was generated against — see `--platform-version` below):
 
 ```
-lib/net10.0-ios26.0/<Module>.Swift.iOS.dll                                 # Generated C# bindings
-buildTransitive/net10.0-ios26.0/<Module>.Swift.iOS.targets                 # Consumer-side targets (extern alias hints, etc.)
+lib/net10.0-iosX.Y/<Module>.Swift.iOS.dll                                  # Generated C# bindings
+buildTransitive/net10.0-iosX.Y/<Module>.Swift.iOS.targets                  # Consumer-side targets (extern alias hints, etc.)
 runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/Info.plist     # Wrapper xcframework root
 runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/ios-arm64-simulator/<Module>SwiftBindings.framework/<Module>SwiftBindings  # The actual dylib
 ```
 
-`SwiftBindings.Runtime` is a published `<PackageReference>` dependency on the framework package — not bundled. Versioning: each Apple-framework package floats its own version independently of `SwiftBindings.Runtime`'s version. The framework package declares the minimum compatible Runtime version it was built against.
+`SwiftBindings.Runtime` is a published `<PackageReference>` dependency on the framework package — not bundled — emitted as a bounded version range (e.g. `[0.8.0,0.9.0)`) so ABI-compatible patch releases reach consumers without re-publishing the framework matrix while a future minor bump (allowed to break ABI) cannot silently resolve into older bindings. Versioning: each Apple-framework package floats its own version independently of `SwiftBindings.Runtime`'s version. The framework package declares the bounded Runtime range it was built against.
 
-**Why `net10.0-ios26.0` and not `net10.0-ios`**: NuGet's NU1012 rejects `<None>` items under `buildTransitive/<tfm>/` when the TFM lacks a platform version. The generator now hardcodes the canonical platform-versioned form via `PlatformInfo.LibTfm` (added in Session 7). Bumping the workload's default platform version means bumping `PlatformInfo.LibTfm` in the generator. The `<TargetFramework>net10.0-ios</TargetFramework>` property in the csproj stays versionless so `dotnet build` resolves the workload's current platform version automatically.
+**Why explicit `net10.0-iosX.Y` and not versionless `net10.0-ios`**: two distinct traps drive both the `<TargetFramework>` element and the `buildTransitive/` pack path to the same explicit, version-qualified TFM:
+1. **NuGet NU1012**: rejects `<None>` items under `buildTransitive/<tfm>/` when the TFM lacks a platform version, so the pack path *must* be `iosX.Y`.
+2. **.NET 10 library-project TPV defaults**: a library project that declares `<TargetFramework>net10.0-ios</TargetFramework>` (versionless) does NOT float to the newest installed Apple workload — that's app behavior, not library behavior. Libraries default to the **oldest** installed TPV unless `UseFloatingTargetPlatformVersion=true` is set, so on a multi-workload build machine the library half (`lib/`) and the buildTransitive half can desync. Today's pack flow only produced an internally-consistent nupkg by coincidence (single Apple workload installed on the build machine).
+
+The fix (Session 1 of the 0.8.0 Apple-framework publishing release) is an explicit `--platform-version <X.Y>` CLI flag on the generator, threaded through `PlatformInfoFactory.Create` into `PlatformInfo.PlatformVersion`. Both `<TargetFramework>` and the `buildTransitive/` pack path source from the same `PlatformInfo.PackTfm` (= `Tfm + PlatformVersion`), so they cannot drift. The default value (no flag passed) keeps the in-tree fallback so existing local-dev callers don't break, but **publishing for nuget.org requires passing the explicit flag** (e.g. `--platform-version 26.2` for an iOS 26.2 SDK cut). The SDK pack target's dynamic `$(TargetPlatformVersion)` resolution (`Sdk.targets`) is intentionally NOT mirrored here — it's the right shape for SDK-consumer projects (apps) but the wrong shape for generator-emitted library projects (which would need `UseFloatingTargetPlatformVersion=true` contortions to reach a usable result, and would still produce an unauditable static nupkg). See `roadmap.md` ("explicit TPV in generator-emitted csproj") for the full reasoning trail.
 
 **iOS-only initially**: the Session 7 nupkg is iOS only because Sessions 1–7 only validated iOS. macOS / Mac Catalyst / tvOS slices exist in `PlatformInfoFactory` and the emitter produces them, but they have not been exercised against StoreKit 2 end-to-end. Phase 2 (`0.8.0-plan.md` § "Multi-Platform Validation") covers that work; the framework #2 checklist below has it as a checkpoint.
 
@@ -165,7 +169,7 @@ The fresh consumer is NOT a real product app — it's a smoke-level "the publish
 
 **The pattern when framework #2 wants macOS support**: `--platform macos --platform-target device` instead of `--platform ios --platform-target simulator` in the direct-mode invocation. The emitter produces a `<Module>.Swift.macOS.csproj` with the `osx-arm64` RID baked in. NuGet packs ship one xcframework slice per platform under `runtimes/<rid>/native/`. There is no per-platform binding code divergence — same generated `.cs`, same generated `.Wrapper.swift`, just compiled against a different SDK.
 
-**Open**: `PackTfm` for macOS / tvOS / Mac Catalyst is derived in `PlatformInfo` as `Tfm + DefaultPlatformVersion` (`"26.0"`), matching the iOS form. This needs verification when a non-iOS Apple framework actually packs — the `26.0` value tracks whatever SwiftBindings.Runtime's `lib/<tfm>/` directory is named at, and bumping the platform version is now a single-line change to `PlatformInfo.DefaultPlatformVersion`. Filed in the framework #2 checklist as a checkpoint.
+**Open**: `PackTfm` for macOS / tvOS / Mac Catalyst is derived in `PlatformInfo` as `Tfm + PlatformVersion`, matching the iOS form, with `PlatformVersion` sourced from the `--platform-version` CLI flag (default `DefaultPlatformVersion` = `"26.0"`). This needs verification when a non-iOS Apple framework actually packs — the four platforms share the same `PlatformVersion` field today, but a future Apple workload that diverges versioning across platforms would need a per-platform override. Filed in the framework #2 checklist as a checkpoint.
 
 ---
 

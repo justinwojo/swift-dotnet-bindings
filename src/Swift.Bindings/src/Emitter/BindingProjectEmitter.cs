@@ -218,8 +218,19 @@ namespace BindingsGeneration
                                       Condition="'$(SwiftBindingsRepoRoot)' != ''" />
                     <PackageReference Include="SwiftBindings.Runtime" Version="[{runtimeVersion}]" Condition="'$(SwiftBindingsRepoRoot)' == ''" />
                 """
+                // Published path: emit a bounded version range that floats forward across
+                // SwiftBindings.Runtime patch releases (so a 0.8.1 ABI-compatible bug fix
+                // reaches every Apple-framework consumer without re-publishing the framework
+                // package matrix) but slams shut at the next minor (so a future 0.9.0 with
+                // any ABI/struct-layout/P/Invoke break can't silently hose older bindings'
+                // consumers). Patch-level ABI compatibility is a strict internal rule —
+                // only bug-fix implementations land in 0.X.Y, never struct layout or
+                // P/Invoke signature changes. The plain `Version="{runtimeVersion}"` shape
+                // we used to emit was minimum-only and would have happily resolved a
+                // future-incompatible 0.9.0 cached locally, producing the kind of silent
+                // breakage this constraint exists to prevent.
                 : $"""
-                    <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />
+                    <PackageReference Include="SwiftBindings.Runtime" Version="{BuildBoundedRuntimeVersionRange(runtimeVersion)}" />
                 """;
 
             // ObjC binding project reference for mixed frameworks
@@ -261,7 +272,14 @@ namespace BindingsGeneration
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <OutputType>Library</OutputType>
-                    <TargetFramework>{pi.Tfm}</TargetFramework>
+                    <!-- Explicit, version-qualified TFM. .NET 10 library projects default to
+                         the OLDEST installed TPV (apps float, libraries don't unless
+                         UseFloatingTargetPlatformVersion=true), so a versionless
+                         "net10.0-ios" emission would silently desync from the version-qualified
+                         buildTransitive/ pack path on any multi-workload machine. Both fragments
+                         now source from PlatformInfo.PackTfm so they cannot drift. Override
+                         the version via the generator CLI's platform-version flag. -->
+                    <TargetFramework>{pi.PackTfm}</TargetFramework>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <Nullable>enable</Nullable>
                     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -321,6 +339,37 @@ namespace BindingsGeneration
 
             File.WriteAllText(csprojPath, content);
             logger.LogInformation("Wrote binding project to {Path}", csprojPath);
+        }
+
+        /// <summary>
+        /// Builds a NuGet bounded version range that floats forward across patch releases of
+        /// SwiftBindings.Runtime but slams shut at the next minor. Pre-1.0 SwiftBindings.Runtime
+        /// patch releases are an internal ABI-stable contract; minor bumps are explicitly
+        /// allowed to break ABI. Examples:
+        ///   "0.8.0"          → "[0.8.0,0.9.0)"
+        ///   "0.10.0"         → "[0.10.0,0.11.0)"
+        ///   "0.8.0-preview.1" → "[0.8.0-preview.1,0.9.0)"
+        /// Falls back to the raw version string if the input doesn't look like a parseable
+        /// SemVer (e.g. someone passes "1" or "garbage") — defensive, so we never crash
+        /// the emitter on a malformed input from a downstream tool.
+        /// </summary>
+        internal static string BuildBoundedRuntimeVersionRange(string version)
+        {
+            var firstDot = version.IndexOf('.');
+            if (firstDot <= 0) return version;
+            var majorStr = version.Substring(0, firstDot);
+            // Validate the major component is a plain integer too — `"x.8.0"` would
+            // otherwise produce `[x.8.0,x.9.0)`, which NuGet rejects at restore time.
+            // Both halves must parse cleanly or the range is meaningless.
+            if (!int.TryParse(majorStr, out _)) return version;
+            var rest = version.Substring(firstDot + 1);
+            var secondDot = rest.IndexOf('.');
+            // The substring before the second dot may carry a pre-release suffix (e.g. "8-preview"),
+            // but minor must be a plain integer for the +1 to make sense — so strip nothing,
+            // and reject the input via TryParse below if it isn't a clean integer.
+            var minorStr = secondDot < 0 ? rest : rest.Substring(0, secondDot);
+            if (!int.TryParse(minorStr, out var minor)) return version;
+            return $"[{version},{majorStr}.{minor + 1}.0)";
         }
     }
 }

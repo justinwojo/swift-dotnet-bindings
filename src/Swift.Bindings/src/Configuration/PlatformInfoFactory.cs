@@ -9,15 +9,32 @@ namespace BindingsGeneration
     /// </summary>
     public static class PlatformInfoFactory
     {
-        /// <summary>Create PlatformInfo for a given platform.</summary>
-        public static PlatformInfo Create(ApplePlatform platform) => platform switch
+        /// <summary>
+        /// Create PlatformInfo for a given platform. Optional <paramref name="platformVersion"/>
+        /// overrides <see cref="PlatformInfo.DefaultPlatformVersion"/> for both
+        /// <see cref="PlatformInfo.PackTfm"/> and the generator-emitted
+        /// <c>&lt;TargetFramework&gt;</c> element. Pass null (or omit) to keep the
+        /// build-machine default.
+        /// </summary>
+        public static PlatformInfo Create(ApplePlatform platform, string? platformVersion = null)
         {
-            ApplePlatform.iOS => CreateiOS(),
-            ApplePlatform.macOS => CreatemacOS(),
-            ApplePlatform.tvOS => CreatetvOS(),
-            ApplePlatform.MacCatalyst => CreateMacCatalyst(),
-            _ => throw new ArgumentOutOfRangeException(nameof(platform)),
-        };
+            var pi = platform switch
+            {
+                ApplePlatform.iOS => CreateiOS(),
+                ApplePlatform.macOS => CreatemacOS(),
+                ApplePlatform.tvOS => CreatetvOS(),
+                ApplePlatform.MacCatalyst => CreateMacCatalyst(),
+                _ => throw new ArgumentOutOfRangeException(nameof(platform)),
+            };
+            // IsNullOrWhiteSpace (not IsNullOrEmpty): a `--platform-version "   "` from a
+            // poorly-quoted shell invocation would otherwise propagate as the literal
+            // whitespace string into <TargetFramework>net10.0-ios   </TargetFramework>,
+            // producing a project that fails restore with no clear pointer back to the
+            // CLI argument. Fall back to DefaultPlatformVersion in that case.
+            return string.IsNullOrWhiteSpace(platformVersion)
+                ? pi
+                : pi with { PlatformVersion = platformVersion };
+        }
 
         /// <summary>
         /// Parse platform from CLI string. Accepts: "ios", "macos", "tvos", "maccatalyst".

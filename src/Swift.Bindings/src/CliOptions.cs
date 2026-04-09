@@ -27,6 +27,18 @@ public class CliOptions
         description: "Apple platform target: 'ios' (default), 'macos', 'tvos', 'maccatalyst'.",
         getDefaultValue: () => "ios");
 
+    public Option<string?> PlatformVersion { get; } = new(
+        aliases: new[] { "--platform-version" },
+        description: "Apple-workload platform version (e.g. '26.0', '26.2') baked into the " +
+                     "generator-emitted csproj's <TargetFramework> and buildTransitive/ pack " +
+                     "path. .NET 10 library projects default to the OLDEST installed TPV " +
+                     "(unlike apps, which float to the newest), so a versionless " +
+                     "<TargetFramework>net10.0-ios</TargetFramework> would silently desync " +
+                     "from the buildTransitive/ pack path on multi-workload machines. Pass " +
+                     "the explicit form (e.g. '--platform-version 26.2' for net10.0-ios26.2) " +
+                     "when packing for nuget.org. Default keeps the in-tree fallback so " +
+                     "existing local-dev callers don't break.");
+
     public Option<string> PlatformTarget { get; } = new(
         aliases: new[] { "--platform-target" },
         description: "Platform target for xcframework slice selection: 'simulator' (default) or 'device'. " +
@@ -165,6 +177,7 @@ public class CliOptions
             OutputDirectory,
             XCFramework,
             Platform,
+            PlatformVersion,
             PlatformTarget,
             LibraryName,
             AsyncLibrary,

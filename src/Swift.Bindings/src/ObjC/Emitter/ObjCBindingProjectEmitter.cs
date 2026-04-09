@@ -35,7 +35,13 @@ public static class ObjCBindingProjectEmitter
         var content = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
-                <TargetFramework>{pi.Tfm}</TargetFramework>
+                <!-- Explicit, version-qualified TFM. Mixed frameworks (BlinkID, BRLMPrinterKit,
+                     etc.) emit a Swift binding csproj that ProjectReferences this ObjC binding
+                     csproj. The Swift side now uses pi.PackTfm so the ObjC side MUST match,
+                     or the ProjectReference resolution fails restore with NETSDK1005 ("Assets
+                     file ... doesn't have a target for 'net10.0-ios'"). Both fragments source
+                     from PlatformInfo.PackTfm so they cannot drift. -->
+                <TargetFramework>{pi.PackTfm}</TargetFramework>
                 <Nullable>enable</Nullable>
                 <IsBindingProject>true</IsBindingProject>
                 <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
