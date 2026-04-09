@@ -560,6 +560,9 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.JSONDecoder")]
     [InlineData("Foundation.NSNotification.Name")]
     [InlineData("Foundation.objc_AssociationPolicy")]
+    [InlineData("Foundation.Date.ComponentsFormatStyle")]
+    [InlineData("Foundation.Decimal.FormatStyle.Currency")]
+    [InlineData("Foundation.Locale.Currency")]
     public void GetTypeRecordOrAnyType_FoundationValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();

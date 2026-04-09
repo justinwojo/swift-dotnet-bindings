@@ -112,6 +112,18 @@ public class AppleFrameworkRegistryTests
     [InlineData("UIKit.NSUnderlineStyle", true)]
     [InlineData("Photos.PHImageContentMode", true)]
     [InlineData("Foundation.URLSessionWebSocketTask.CloseCode", true)]
+    // Foundation Swift-only nested format styles. Without these entries
+    // the synthetic ObjC bridge path flattens them into bogus
+    // Foundation.DateComponentsFormatStyle / Foundation.DecimalFormatStyleCurrency
+    // names that don't exist in Microsoft.iOS (StoreKit 2 follow-up bug #4).
+    [InlineData("Foundation.Date.ComponentsFormatStyle", true)]
+    [InlineData("Foundation.Decimal.FormatStyle.Currency", true)]
+    // Foundation.Locale.Currency is a Swift-only nested struct with no
+    // ObjC equivalent in Microsoft.iOS. Without this entry the synthetic
+    // bridge produces a non-existent Foundation.LocaleCurrency, BoundGenericsHandler
+    // collapses it to IntPtr, and StoreKit ends up with public
+    // Swift.SwiftOptional<IntPtr> Currency leaks (Bug #4 follow-up).
+    [InlineData("Foundation.Locale.Currency", true)]
     // Newly added value types for expanded modules
     [InlineData("CoreLocation.CLLocationCoordinate2D", true)]
     [InlineData("CoreLocation.CLAuthorizationStatus", true)]
