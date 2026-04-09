@@ -194,6 +194,37 @@ public struct AsyncComplexWorker {
     }
 }
 
+// MARK: - Async Optional Container Returns with ObjC bridge
+
+/// Bug #5 regression: async wrappers returning Optional<Array<ObjCBridgeable>> previously
+/// emitted `SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftArray<IntPtr>>>(...).ToNullable()`
+/// which produced a SwiftArray<IntPtr>? where the TaskCompletionSource expected
+/// IReadOnlyList<NSUrl>?. Two CS1503 errors blocked StoreKit.ExternalPurchaseLink.getEligibleURLs.
+/// The fix routes Optional<Container<ObjCBridgeable>> through the nullable-pointer ABI: read
+/// the storage pointer (toll-free bridged to NSArray/NSDict/NSSet), check IntPtr.Zero, and
+/// hand the pointer to ArrayFromHandle / GetNSObject.
+public class AsyncOptionalContainerWorker {
+    public init() {}
+
+    /// Async method returning Optional<Array<URL>> with two URLs.
+    public func asyncGetURLArray() async -> [URL]? {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return [URL(string: "https://example.com")!, URL(string: "https://test.com")!]
+    }
+
+    /// Async method returning Optional<Array<URL>> with no URLs (empty array, not nil).
+    public func asyncGetEmptyURLArray() async -> [URL]? {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return []
+    }
+
+    /// Async method returning Optional<Array<URL>> with nil.
+    public func asyncGetNilURLArray() async -> [URL]? {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return nil
+    }
+}
+
 // MARK: - Async Tuple Returns with Foundation.Data
 
 /// Class with async methods returning tuples containing Foundation.Data.

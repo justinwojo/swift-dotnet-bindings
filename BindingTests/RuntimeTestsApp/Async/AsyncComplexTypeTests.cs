@@ -119,6 +119,45 @@ public class AsyncComplexTypeTests : TestBase
 
     #endregion
 
+    #region Bug #5 Regression: Optional<Array<ObjCBridgeable>> async returns
+
+    // Async wrappers for Optional<Array<URL>> previously emitted
+    //   var result = SwiftMarshal.MarshalFromSwift<SwiftOptional<SwiftArray<IntPtr>>>(...).ToNullable();
+    // which produced a SwiftArray<IntPtr>? where the TaskCompletionSource expected
+    // IReadOnlyList<NSUrl>?. The fix routes Optional<Container<ObjCBridgeable>> through the
+    // nullable-pointer ABI: read the storage pointer (toll-free bridged to NSArray) and
+    // hand it to ArrayFromHandle. These tests cover Some-with-elements, Some-empty, and None.
+
+    public async Task TestAsyncGetOptionalURLArraySome()
+    {
+        var worker = new AsyncOptionalContainerWorker();
+        var result = await WithTimeout(worker.GetURLArrayAsync(), DefaultAsyncTimeout);
+        AssertNotNull(result, "Optional<[URL]> Some should not be null");
+        AssertEqual(2, result!.Count, "Two URLs returned");
+        AssertEqual("https://example.com", result[0]!.AbsoluteString, "First URL preserved");
+        AssertEqual("https://test.com", result[1]!.AbsoluteString, "Second URL preserved");
+        TestLogger.Info($"AsyncOptionalContainerWorker.GetURLArrayAsync() = Some({result.Count} URLs)");
+    }
+
+    public async Task TestAsyncGetOptionalURLArrayEmpty()
+    {
+        var worker = new AsyncOptionalContainerWorker();
+        var result = await WithTimeout(worker.GetEmptyURLArrayAsync(), DefaultAsyncTimeout);
+        AssertNotNull(result, "Optional<[URL]> Some-empty should not be null");
+        AssertEqual(0, result!.Count, "Empty array has zero elements");
+        TestLogger.Info("AsyncOptionalContainerWorker.GetEmptyURLArrayAsync() = Some([])");
+    }
+
+    public async Task TestAsyncGetOptionalURLArrayNil()
+    {
+        var worker = new AsyncOptionalContainerWorker();
+        var result = await WithTimeout(worker.GetNilURLArrayAsync(), DefaultAsyncTimeout);
+        AssertNull(result, "Optional<[URL]> None should be null");
+        TestLogger.Info("AsyncOptionalContainerWorker.GetNilURLArrayAsync() = null");
+    }
+
+    #endregion
+
     #region X1: AsyncStream<Int32> (primitive element type)
     // The real coverage for this fix is the compile-check step: generated code references
     // SwiftAsyncStream<int> which wouldn't compile without removing the ISwiftObject constraint.

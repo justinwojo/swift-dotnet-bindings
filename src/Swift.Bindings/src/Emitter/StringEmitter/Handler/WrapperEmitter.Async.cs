@@ -566,6 +566,16 @@ namespace BindingsGeneration
                     bool isOptionalClassType = !isClassType &&
                         CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeSpec, _env.TypeDatabase);
 
+                    // Optional<Container<ObjCBridgeable>> (Bug #5): bridges through `as AnyObject` to
+                    // NSArray/NSDictionary/NSSet exactly the way sync ObjCBridge container returns
+                    // already do. Shares the Swift wrapper code with isOptionalClassType — both produce
+                    // a +1 retained pointer or 0 for nil. The C# side branches on TryGetOptionalMarshalType
+                    // returning containerBridgeConversion. Without this branch the wrapper would emit a
+                    // raw copyMemory of Swift's Array<URL> storage pointer, which is Foundation._SwiftURL
+                    // — not an NSObject — so ArrayFromHandle crashes the ObjC registrar at runtime.
+                    bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
+                        IsOptionalObjCBridgeContainerReturn(returnTypeSpec);
+
                     // Determine whether C#'s NewFromPayload takes ownership of the buffer
                     // (non-frozen structs/enums projected as C# classes with SwiftSafeHandle).
                     // When NewFromPayload takes ownership, we must use initializeMemory to properly
@@ -629,10 +639,14 @@ namespace BindingsGeneration
                               $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
                               $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
                               $"                            _rawPtr.storeBytes(of: Unmanaged.passRetained({resultVar} as AnyObject).toOpaque(), as: UnsafeMutableRawPointer.self)\n"
-                            : isOptionalClassType
-                              ? // Optional<ClassType>: unwrap, retain if .some, store zero (nil) if .none.
-                                // Matches sync @_cdecl pattern: result.map { Unmanaged.passRetained($0).toOpaque() }
-                                // C# reads pointer from buffer, checks for IntPtr.Zero (nil), then MarshalFromSwift.
+                            : (isOptionalClassType || isOptionalObjCContainer)
+                              ? // Optional<ClassType> and Optional<Container<ObjCBridgeable>> share this shape:
+                                // unwrap, retain if .some, store zero (nil) if .none. The `as AnyObject` cast
+                                // is the bridging hook — for class inners it's a no-op pointer cast, for
+                                // ObjC-bridge containers it dispatches through _ObjectiveCBridgeable to produce
+                                // a real NSArray/NSDictionary/NSSet with +1 retain (NOT the raw Swift storage
+                                // class). C# reads pointer from buffer, checks for IntPtr.Zero (nil), then
+                                // either MarshalFromSwift (class inner) or ArrayFromHandle (container inner).
                                 $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
                                 $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
                                 $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
@@ -1410,9 +1424,24 @@ namespace BindingsGeneration
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion))
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion))
             {
-                if (objcBridgeConversion != null)
+                if (containerBridgeConversion != null)
+                {
+                    // Optional<Array/Set/Dictionary<ObjCBridgeable>>: paired with the Swift-side
+                    // `isOptionalObjCContainer` branch in EmitAsync. The Swift wrapper unwraps the
+                    // Optional and calls `_unwrapped as AnyObject`, which dispatches through
+                    // `_ObjectiveCBridgeable` to produce a real NSArray/NSDictionary/NSSet (NOT the
+                    // raw `_ContiguousArrayStorage<T>` / `Foundation._SwiftURL` storage class — those
+                    // are NOT toll-free bridged, and feeding their pointers into ArrayFromHandle /
+                    // GetNSObject crashes in Class.Lookup). The carrier buffer holds the +1 retained
+                    // NS collection pointer (or 0 for nil, via Optional's extra-inhabitant encoding).
+                    // We bypass SwiftOptional<SwiftArray<>> here because its .Some would be a
+                    // SwiftArray<IntPtr>, which is the wrong logical shape for the TCS<IReadOnlyList<NSUrl>?>.
+                    // DO NOT remove the Swift-side half of this fix — both sides are load-bearing.
+                    marshalResultCode = $"IntPtr _ptr = *(IntPtr*)resultPtr;\n                                var result = _ptr == IntPtr.Zero ? null : {containerBridgeConversion};";
+                }
+                else if (objcBridgeConversion != null)
                     marshalResultCode = $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n                                var result = _rawResult.Case == SwiftOptionalCases.Some ? {objcBridgeConversion} : null;";
                 else
                     marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
@@ -1511,13 +1540,25 @@ namespace BindingsGeneration
         /// Checks if the method's return type is Optional and resolves the correct runtime/marshal
         /// type for MarshalFromSwift. Uses TypeProjectionFactory to get the projection-resolved
         /// container type (e.g., SwiftOptional&lt;SwiftString&gt; not SwiftOptional&lt;string&gt;).
+        ///
+        /// Three result shapes (mutually exclusive, the marshalResultCode caller picks the branch):
+        ///   1. <paramref name="containerBridgeConversion"/> set: inner is Array/Set/Dict whose elements
+        ///      use ObjC container bridge (e.g., <c>Optional&lt;Array&lt;URL&gt;&gt;</c>). Caller reads the
+        ///      buffer as a nullable IntPtr (the Swift wrapper stores a +1 retained NSArray /
+        ///      NSDictionary / NSSet pointer via <c>as AnyObject</c>) and applies the bridge conversion.
+        ///   2. <paramref name="objcBridgeConversion"/> set: inner is an ObjC-bridgeable scalar
+        ///      (e.g., <c>Optional&lt;URLRequest&gt;</c>). Caller reads via SwiftOptional&lt;IntPtr&gt;
+        ///      then bridges the Some payload through GetNSObject.
+        ///   3. Neither set: ordinary value-type optional. Caller reads via SwiftOptional&lt;T&gt;.ToNullable().
         /// </summary>
         private bool TryGetOptionalMarshalType(
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType,
-            out string? objcBridgeConversion)
+            out string? objcBridgeConversion,
+            out string? containerBridgeConversion)
         {
             marshalType = null;
             objcBridgeConversion = null;
+            containerBridgeConversion = null;
             var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
                 return false;
@@ -1542,21 +1583,61 @@ namespace BindingsGeneration
                 }
             }
 
+            var projection = ProjectReturn(returnSpec);
+            if (projection is OptionalProjection op)
+            {
+                marshalType = op.ContainerTypeName;
+
+                // Optional<Container<ObjCBridgeable>>: the inner container projection bridges to
+                // NSArray / NSDictionary / NSSet. The Swift @_cdecl wrapper coerces the unwrapped
+                // value via `as AnyObject` (which dispatches through _ObjectiveCBridgeable to
+                // produce a real NSArray/NSDictionary/NSSet, NOT the raw Swift storage class —
+                // Foundation._SwiftURL is not an NSObject subclass and would crash the ObjC
+                // registrar) and stores the resulting +1 retained pointer in the carrier buffer.
+                // The C# side reads the IntPtr and hands it to the container projection's
+                // GetReturnContainerConversion which expects an IntPtr-typed variable name.
+                if (op.InnerProjection.UsesObjCContainerBridge)
+                {
+                    containerBridgeConversion = op.InnerProjection.GetReturnContainerConversion("_ptr");
+                    // Drop the no-longer-used objcBridgeConversion guard — we're switching strategies.
+                    objcBridgeConversion = null;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true when the method's async return is <c>Optional&lt;Array/Set/Dictionary&lt;ObjCBridgeable&gt;&gt;</c>.
+        /// Used by the Swift @_cdecl wrapper emitter to pick the nullable-pointer ABI shape
+        /// (bridge to NS collection via <c>as AnyObject</c>) instead of the raw <c>copyMemory</c>
+        /// path, which would store a Swift storage class pointer that the C# side cannot use
+        /// as an NSArray handle (Foundation._SwiftURL crashes ObjC registrar lookup).
+        /// </summary>
+        private bool IsOptionalObjCBridgeContainerReturn(TypeSpec returnSpec)
+        {
+            if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 })
+                return false;
+            return ProjectReturn(returnSpec) is OptionalProjection op
+                && op.InnerProjection.UsesObjCContainerBridge;
+        }
+
+        /// <summary>
+        /// Builds the standard return-projection context for the current async method.
+        /// Centralizes the <c>IsParameter=false, IsAsync=false</c> setup so callers don't have
+        /// to duplicate it (and so the projection-cache key stays consistent across uses).
+        /// </summary>
+        private ITypeProjection? ProjectReturn(TypeSpec returnSpec)
+        {
             var ctx = new ProjectionContext
             {
                 TypeDatabase = _env.TypeDatabase,
                 IsParameter = false,
                 IsAsync = false
             };
-
-            var projection = s_projectionFactory.Project(returnSpec, ctx);
-            if (projection is OptionalProjection op)
-            {
-                marshalType = op.ContainerTypeName;
-                return true;
-            }
-
-            return false;
+            return s_projectionFactory.Project(returnSpec, ctx);
         }
 
         /// <summary>
