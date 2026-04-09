@@ -308,6 +308,44 @@ namespace BindingsGeneration.Tests
             Assert.Equal(expected, pi.GetBuildTransitivePath());
         }
 
+        [Theory]
+        [InlineData(ApplePlatform.iOS, "net10.0-ios", "net10.0-ios26.0")]
+        [InlineData(ApplePlatform.macOS, "net10.0-macos", "net10.0-macos26.0")]
+        [InlineData(ApplePlatform.tvOS, "net10.0-tvos", "net10.0-tvos26.0")]
+        [InlineData(ApplePlatform.MacCatalyst, "net10.0-maccatalyst", "net10.0-maccatalyst26.0")]
+        public void PackTfm_IsDerivedFromTfmAndSharedConstant(ApplePlatform platform, string expectedTfm, string expectedPackTfm)
+        {
+            // Pins the Codex-review rename + derive refactor: PackTfm must equal
+            // Tfm + PlatformInfo.DefaultPlatformVersion exactly. If either half of the
+            // derivation drifts (the workload bumps its default platform version and
+            // only DefaultPlatformVersion is updated without re-running the pack, or
+            // a future maintainer adds per-platform override back in), this test
+            // catches it immediately rather than at `dotnet pack` time.
+            var pi = PlatformInfoFactory.Create(platform);
+            Assert.Equal(expectedTfm, pi.Tfm);
+            Assert.Equal(expectedPackTfm, pi.PackTfm);
+            Assert.Equal(pi.Tfm + PlatformInfo.DefaultPlatformVersion, pi.PackTfm);
+        }
+
+        [Fact]
+        public void DefaultPlatformVersion_IsSingleSourceOfTruthAcrossAllPlatforms()
+        {
+            // PackTfm must be derived from the single DefaultPlatformVersion constant
+            // for all four platforms — if someone accidentally reintroduces a per-
+            // platform LibTfm override in PlatformInfoFactory, PackTfm will diverge
+            // from the Tfm+constant formula and this assertion will fail. Pair with
+            // PackTfm_IsDerivedFromTfmAndSharedConstant to lock the contract from
+            // both sides.
+            foreach (ApplePlatform platform in new[] {
+                ApplePlatform.iOS, ApplePlatform.macOS,
+                ApplePlatform.tvOS, ApplePlatform.MacCatalyst })
+            {
+                var pi = PlatformInfoFactory.Create(platform);
+                Assert.EndsWith(PlatformInfo.DefaultPlatformVersion, pi.PackTfm);
+                Assert.Equal(pi.Tfm + PlatformInfo.DefaultPlatformVersion, pi.PackTfm);
+            }
+        }
+
         #endregion
 
         #region GetSlice() + AllSlices
@@ -607,7 +645,7 @@ namespace BindingsGeneration.Tests
                 Assert.Contains($"<TargetFramework>{expectedTfm}</TargetFramework>", content);
                 Assert.Contains($"<PackageId>{expectedPackageId}</PackageId>", content);
                 Assert.Contains($"runtimes/{pi.NuGetRid}/native/", content);
-                Assert.Contains($"buildTransitive/{pi.LibTfm}/", content);
+                Assert.Contains($"buildTransitive/{pi.PackTfm}/", content);
             }
             finally
             {

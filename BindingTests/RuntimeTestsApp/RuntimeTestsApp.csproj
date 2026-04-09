@@ -142,25 +142,63 @@
     </NativeReference>
   </ItemGroup>
 
-  <!-- Session 5 StoreKit 2 smoke test (Apple-framework direct-mode pipeline).
-       Optional: gated on the Session 4 artifacts existing at /tmp/storekit2-session4.
-       When present, we reference StoreKit.Swift.iOS.dll as a managed reference and
-       embed StoreKitSwiftBindings.xcframework as a native framework. The test class
-       itself is wrapped in #if STOREKIT_SMOKE so it simply disappears when the
-       artifacts are missing (CI runs, fresh checkouts, etc.) — this keeps the gate
-       zero-regression. To regenerate the artifacts, see the Session 4 reproducer in
-       src/docs/0.8.0-storekit2-exploration.md. Simulator-only for now; the xcframework
-       currently ships a single simulator slice. -->
+  <!-- StoreKit 2 smoke test (Apple-framework direct-mode pipeline) — Option B.
+       The snapshot lives in-tree at BindingTests/obj/StoreKit2Snapshot/ (gitignored
+       via the top-level obj/ rule) and is regenerated either on-demand via
+       `nuke regenerate-storekit-snapshot` or automatically as a conditional
+       prerequisite of the runtime-tests-simulator target when the
+       enable-storekit-smoke flag is passed. See Build.RuntimeTests.cs
+       RegenerateStoreKit2Snapshot() for the pipeline.
+
+       The old path consumed StoreKit.Swift.iOS.dll via a raw Reference HintPath
+       pointing at /tmp/storekit2-session4, which MSBuild could not invalidate when
+       Swift.Runtime.dll changed — producing the stale-AOT footgun that SIGABRTs
+       during xamarin_bridge_initialize. The in-tree path uses a real ProjectReference
+       plus a conditional Import of the generator-emitted .ProjectReference.targets,
+       so the incremental-build graph stays coherent across Swift.Runtime rebuilds.
+
+       Opt in from the CLI:
+         dotnet build RuntimeTestsApp.csproj
+             -p:EnableStoreKitSmoke=true
+             -p:SwiftBindingsRepoRoot=/path/to/swift-bindings
+
+       Or more commonly via nuke (which plumbs SwiftBindingsRepoRoot automatically):
+         nuke runtime-tests-simulator enable-storekit-smoke
+
+       Simulator-only for now; the snapshot's wrapper xcframework currently ships a
+       single simulator slice (wrapper-architectures=simulator in the regen step). -->
+
   <PropertyGroup>
-    <!-- Root directory for Session 4's StoreKit 2 direct-mode artifacts. Override by
-         setting $(StoreKitSmokeRoot) in the environment or on the dotnet CLI:
-           dotnet build -p:StoreKitSmokeRoot=/path/to/storekit2-session4
-         The default matches the reproducer command in the Session 4 doc. -->
-    <StoreKitSmokeRoot Condition="'$(StoreKitSmokeRoot)' == ''">/tmp/storekit2-session4</StoreKitSmokeRoot>
-    <StoreKitSmokeDll>$(StoreKitSmokeRoot)/bin/Debug/net10.0-ios/StoreKit.Swift.iOS.dll</StoreKitSmokeDll>
-    <StoreKitSmokeXcframework>$(StoreKitSmokeRoot)/StoreKitSwiftBindings.xcframework</StoreKitSmokeXcframework>
-    <StoreKitSmokeEnabled Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(StoreKitSmokeDll)') AND Exists('$(StoreKitSmokeXcframework)/ios-arm64-simulator')">true</StoreKitSmokeEnabled>
+    <StoreKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/StoreKit2Snapshot/</StoreKitSnapshotDir>
+    <StoreKitSnapshotCsproj>$(StoreKitSnapshotDir)StoreKit.Swift.iOS.csproj</StoreKitSnapshotCsproj>
+    <StoreKitSnapshotProjectRefTargets>$(StoreKitSnapshotDir)StoreKit.Swift.iOS.ProjectReference.targets</StoreKitSnapshotProjectRefTargets>
+    <StoreKitSnapshotXcframework>$(StoreKitSnapshotDir)StoreKitSwiftBindings.xcframework</StoreKitSnapshotXcframework>
+    <!-- Gate requires ALL of:
+         (1) explicit $(EnableStoreKitSmoke)=true opt-in on the CLI / pipeline
+         (2) iOS Simulator RID (only slice the snapshot's wrapper xcframework carries)
+         (3) the generator-emitted snapshot csproj exists (regeneration has run)
+         (4) the simulator slice of the wrapper xcframework exists
+         (5) the generator-emitted ProjectReference.targets file exists (consumed
+             by the conditional <Import> below — without it the wrapper
+             NativeReference is silently skipped and the failure moves to runtime
+             instead of the gate)
+         Drop any one and the smoke test disappears from the build, which matches
+         the #if STOREKIT_SMOKE wrapping in StoreKitSmokeTests.cs. -->
+    <StoreKitSmokeEnabled Condition="'$(EnableStoreKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(StoreKitSnapshotCsproj)') AND Exists('$(StoreKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(StoreKitSnapshotProjectRefTargets)')">true</StoreKitSmokeEnabled>
   </PropertyGroup>
+  <!-- Loud failure when the user asked for the smoke test but the prerequisites
+       aren't satisfied — silently dropping the test defeats the opt-in safety net. -->
+  <Target Name="_StoreKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableStoreKitSmoke)' == 'true' AND '$(StoreKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableStoreKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(StoreKitSnapshotCsproj)')"
+           Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotCsproj) does not exist. Run `nuke regenerate-storekit-snapshot` (or `nuke runtime-tests-simulator --enable-storekit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(StoreKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-storekit-snapshot` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(StoreKitSnapshotProjectRefTargets)')"
+           Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-storekit-snapshot`." />
+  </Target>
   <PropertyGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
     <DefineConstants>$(DefineConstants);STOREKIT_SMOKE</DefineConstants>
   </PropertyGroup>
@@ -174,15 +212,47 @@
          walks every globally-visible type and collides with the Swift-side
          StoreKit.AppStore. The extern-alias-only binding hides these types from
          default discovery, which is exactly the point. -->
-    <Reference Include="StoreKit.Swift.iOS">
-      <HintPath>$(StoreKitSmokeDll)</HintPath>
-      <Private>true</Private>
+    <ProjectReference Include="$(StoreKitSnapshotCsproj)">
       <Aliases>StoreKitSwift</Aliases>
-    </Reference>
-    <NativeReference Include="$(StoreKitSmokeXcframework)">
-      <Kind>Framework</Kind>
-    </NativeReference>
+      <!-- Push IncludeSwiftBindingsRuntimeNative=false through the snapshot's
+           own (transitive) Swift.Runtime ProjectReference. AdditionalProperties
+           on a ProjectReference becomes the global property bag for the
+           referenced build, and global properties cascade through transitive
+           ProjectReferences — so this single line propagates the override all
+           the way down to Swift.Runtime as it's loaded by the snapshot.
+
+           This matches the AdditionalProperties on RuntimeTestsApp's own direct
+           Swift.Runtime ProjectReference up top, so MSBuild dedupes both call
+           sites onto the same Swift.Runtime build node. Without it, MSBuild
+           would build Swift.Runtime twice with mismatched property bags and
+           the second build's `nativelibraries/libSwiftBindingsRuntime.dylib.tmp`
+           would never get renamed, breaking InstallNameTool's later resolve
+           pass — exactly the failure mode the documented raw
+           `dotnet build -p:EnableStoreKitSmoke=true -p:SwiftBindingsRepoRoot=...`
+           command used to hit before this property landed here. With it, the
+           smoke build no longer depends on Nuke layering an extra global
+           `-p:IncludeSwiftBindingsRuntimeNative=false` on every dotnet
+           invocation. -->
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
   </ItemGroup>
+  <!-- Import the generator-emitted ProjectReference consumer targets.
+       NativeReference items do NOT propagate through ProjectReference in .NET Apple
+       builds, so the snapshot csproj emits a .targets file we import here to inject
+       the wrapper xcframework as a NativeReference at the consumer level.
+
+       CRITICAL: the Import is gated on BOTH EnableStoreKitSmoke=true AND Exists() of
+       the targets file, because MSBuild Imports evaluate at project load time —
+       BEFORE any PropertyGroup logic runs — so we cannot use the derived
+       $(StoreKitSmokeEnabled) property here. Without the Exists() guard a fresh
+       non-smoke build on a clean tree (where BindingTests/obj/StoreKit2Snapshot/
+       does not yet exist) would fail at evaluation with "imported project not found".
+       With it, the non-smoke path sees an empty Condition and skips the Import
+       entirely, exactly the behavior we want. -->
+  <Import Project="$(StoreKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableStoreKitSmoke)' == 'true' AND Exists('$(StoreKitSnapshotProjectRefTargets)')" />
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">

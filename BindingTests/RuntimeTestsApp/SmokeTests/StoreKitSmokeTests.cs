@@ -152,7 +152,12 @@ public class StoreKitSmokeTests : TestBase
             using var seq = StoreKitSwift::StoreKit.Transaction.Unfinished;
             using var iter = seq.MakeAsyncIterator();
             using var cts = new CancellationTokenSource(passTimeout);
-            var first = await iter.NextAsync(cts.Token);
+            // VerificationResult<Transaction> is IDisposable (SwiftSafeHandle over a
+            // Swift ARC ref-counted payload) — not disposing it leaks a native
+            // ref-count until the managed finalizer runs, which also poisons
+            // pass 3's memory delta measurement. Always `using var` non-null
+            // iterator results, even when we only inspect for null.
+            using var first = await iter.NextAsync(cts.Token);
             TestLogger.Info($"    first NextAsync returned: {(first is null ? "null (empty stream)" : "non-null VerificationResult")}");
             // Dispose scopes fall out of the using blocks here — early termination.
         }
@@ -175,15 +180,18 @@ public class StoreKitSmokeTests : TestBase
             using var cts = new CancellationTokenSource(passTimeout);
             while (count < IterationCeiling)
             {
-                var result = await iter.NextAsync(cts.Token);
+                // `using var` so the yielded VerificationResult's SwiftSafeHandle
+                // is disposed as soon as we're done counting it (we never inspect
+                // properties — see foreign value-type metadata gap note above).
+                // Without this, a seeded simulator with N transactions would leak
+                // N native ref-counts across pass 2 alone.
+                using var result = await iter.NextAsync(cts.Token);
                 if (result is null)
                 {
                     reachedTerminalNil = true;
                     break;
                 }
                 count++;
-                // Deliberately do NOT touch any property on `result` — see foreign
-                // value-type metadata gap note in the XML doc above. Just count.
             }
         }
         TestLogger.Info($"    enumerated {count} VerificationResult entries before terminal completion");
@@ -196,43 +204,92 @@ public class StoreKitSmokeTests : TestBase
 
         ForceGC();
 
-        // === Pass 3: managed-memory delta check ===
-        // Run the same full empty-complete loop a third time inside a memory tracker.
-        // We can't measure native ARC ref counts without dropping into SafeHandle
-        // internals, but we can confirm the managed allocation footprint of running
-        // an additional pass doesn't grow unboundedly. A small or negative delta is
-        // the success signal — large positive growth across an empty-complete loop
-        // would indicate a managed-side leak (SafeHandle not disposed, GCHandle
-        // still pinned, etc.).
-        TestLogger.Info("  pass 3: managed-memory delta check on a fresh empty-complete pass");
-        // Measure inline around `await` rather than wrapping in TrackMemory(Action) —
-        // the latter would force a `.GetAwaiter().GetResult()` on the iOS main thread,
-        // which sync-over-async-deadlocks the test runner.
+        // === Pass 3: amplified managed-memory delta check ===
+        //
+        // Previously this pass ran a single empty-complete loop and asserted that
+        // the managed-memory delta stayed below a 256 KB ceiling. That was far too
+        // loose: a measured baseline of ~264 bytes per loop means a single-loop
+        // per-iteration GCHandle or SafeHandle leak could grow by ~24-200 bytes
+        // per NextAsync call and stay comfortably below the 256 KB cap. Codex-review
+        // pass flagged it: "the comment's claim that even a small per-iteration
+        // handle leak would dwarf the ceiling is not defensible."
+        //
+        // New design — amplify the signal and assert on *per-loop growth*:
+        //   1. Warm up the JIT / AOT caches with a couple of loops that are NOT
+        //      measured. Without this, the first measured loop carries JIT/AOT
+        //      compile cost on Mono and skews the baseline high.
+        //   2. Run MeasuredLoops of the full empty-complete iteration inside one
+        //      ForceGC'd memory window.
+        //   3. Compute per-loop growth = (memoryAfter - memoryBefore) / MeasuredLoops.
+        //   4. Assert per-loop growth < PerLoopGrowthCeilingBytes, a tight bound
+        //      anchored on baseline. With N=32 loops and a 1 KB per-loop budget,
+        //      the total ceiling is 32 KB — an order of magnitude tighter than
+        //      256 KB, and a single-handle-per-iteration leak would now register
+        //      as ~6-8 KB total (well above baseline noise) instead of being
+        //      lost under a generous flat cap.
+        //
+        // The per-loop framing also survives a future change that raises the
+        // per-iteration Swift ARC cost (e.g. adding a new SafeHandle to the
+        // iterator wrapper) as long as the cost stays bounded and drops back
+        // after the loop exits; only a *monotonically growing* leak trips it.
+        TestLogger.Info("  pass 3: amplified managed-memory delta check on an empty-complete loop");
+
+        // JIT/AOT warmup — two full empty-complete runs that we deliberately do
+        // NOT measure. Leaves Mono's method-table, delegate thunk, and Task state
+        // machine caches fully populated so the measured loops reflect steady
+        // state rather than first-touch cost.
+        const int WarmupLoops = 2;
+        for (int w = 0; w < WarmupLoops; w++)
+        {
+            await EnumerateUnfinishedToCompletionAsync(IterationCeiling, passTimeout);
+        }
         ForceGC();
+
+        // Measured window — N loops inside one memory window, then divide by N
+        // to get per-loop growth. 32 loops with a 1 KB per-loop cap gives a 32 KB
+        // total ceiling, which is ~8x the empirical noise floor across a handful
+        // of simulator runs but comfortably catches a 200-byte-per-iteration
+        // SafeHandle leak (amplified across 32 loops × 16 iterations = ~100 KB)
+        // or a 24-byte-per-iteration GCHandle pinning a small Task state machine
+        // (amplified across 32 × 16 = ~12 KB).
+        const int MeasuredLoops = 32;
         long memoryBefore = GC.GetTotalMemory(forceFullCollection: true);
-        int pass3Count = await EnumerateUnfinishedToCompletionAsync(IterationCeiling, passTimeout);
+        int pass3Count = 0;
+        for (int m = 0; m < MeasuredLoops; m++)
+        {
+            pass3Count += await EnumerateUnfinishedToCompletionAsync(IterationCeiling, passTimeout);
+        }
         ForceGC();
         long memoryAfter = GC.GetTotalMemory(forceFullCollection: true);
         long memoryDelta = memoryAfter - memoryBefore;
-        TestLogger.Info($"    pass 3 enumerated {pass3Count} VerificationResult entries");
-        TestLogger.Info($"    managed memory: before={memoryBefore} after={memoryAfter} delta={memoryDelta} bytes");
+        long perLoopGrowth = memoryDelta / MeasuredLoops;
 
-        // Soft cap on the managed-memory delta: 256 KB. Empirically pass 3 sees
-        // a delta of ~264 bytes on an empty-complete loop on a fresh simulator,
-        // so a 256 KB ceiling leaves three orders of magnitude of headroom for
-        // legitimate noise (Mono GC heuristics, JIT cache, etc.) while still
-        // catching a real leak — a per-iteration SafeHandle leak across 16
-        // iterations would dwarf this even with small handles.
-        const long MemoryDeltaCeilingBytes = 256 * 1024;
-        AssertTrue(memoryDelta < MemoryDeltaCeilingBytes,
-            $"managed memory grew by {memoryDelta} bytes across an empty-complete async-iterator pass (ceiling: {MemoryDeltaCeilingBytes} bytes) — possible SafeHandle/GCHandle leak");
+        TestLogger.Info($"    pass 3: warmup={WarmupLoops} measured={MeasuredLoops} loops, totalResults={pass3Count}");
+        TestLogger.Info($"    managed memory: before={memoryBefore} after={memoryAfter} delta={memoryDelta} bytes");
+        TestLogger.Info($"    per-loop growth: {perLoopGrowth} bytes (ceiling: {PerLoopGrowthCeilingBytes})");
+
+        AssertTrue(perLoopGrowth < PerLoopGrowthCeilingBytes,
+            $"managed memory grew by {perLoopGrowth} bytes/loop across {MeasuredLoops} empty-complete async-iterator passes " +
+            $"(ceiling: {PerLoopGrowthCeilingBytes} bytes/loop, total delta: {memoryDelta} bytes) — possible SafeHandle/GCHandle leak");
 
         // The remainder of the success bar matches Session 5: the calls completed
         // without throwing. We don't assert on `count` / `pass3Count` because
         // empty-complete is a valid result on a fresh simulator with no sandbox
         // account configured.
-        AssertTrue(true, "Transaction.Unfinished AsyncSequence enumerated cleanly across early-termination, full empty-complete, and memory-tracked passes");
+        AssertTrue(true, "Transaction.Unfinished AsyncSequence enumerated cleanly across early-termination, full empty-complete, and amplified memory-tracked passes");
     }
+
+    /// <summary>
+    /// Per-loop managed-memory growth ceiling for pass 3 of
+    /// <see cref="TestTransactionUnfinishedAsyncSequenceEnumerates"/>. Tightened
+    /// from a single-pass 256 KB flat ceiling to a per-loop 1 KB ceiling after
+    /// Codex-review flagged that the original bound was ~1000x looser than the
+    /// empirical baseline and would have missed a small GCHandle or SafeHandle
+    /// leak in the iterator wrapper. Baseline on a fresh iOS Simulator with no
+    /// seeded transactions is 0-200 bytes per loop; 1 KB is ~5x that budget,
+    /// enough to absorb Mono GC heuristic drift without masking a real leak.
+    /// </summary>
+    private const long PerLoopGrowthCeilingBytes = 1024;
 
     /// <summary>
     /// Helper for pass 3 of <see cref="TestTransactionUnfinishedAsyncSequenceEnumerates"/>.
@@ -249,7 +306,10 @@ public class StoreKitSmokeTests : TestBase
         int count = 0;
         while (count < ceiling)
         {
-            var result = await iter.NextAsync(cts.Token);
+            // Dispose each yielded VerificationResult as soon as we're done with
+            // it so pass 3's managed-memory delta reflects steady-state behavior,
+            // not transient ref-counted handles waiting on the finalizer queue.
+            using var result = await iter.NextAsync(cts.Token);
             if (result is null)
             {
                 break;

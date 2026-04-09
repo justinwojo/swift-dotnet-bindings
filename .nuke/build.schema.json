@@ -36,6 +36,7 @@
         "Fetch",
         "Pack",
         "RegenerateBindings",
+        "RegenerateStoreKitSnapshot",
         "RuntimeTestsDevice",
         "RuntimeTestsMacOS",
         "RuntimeTestsSimulator",
@@ -124,6 +125,10 @@
         "DeviceUdid": {
           "type": "string",
           "description": "Pre-booted simulator or device UDID"
+        },
+        "EnableStoreKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the StoreKit 2 smoke tests (regenerates BindingTests/obj/StoreKit2Snapshot/ in-tree)"
         },
         "FetchFirst": {
           "type": "boolean",
