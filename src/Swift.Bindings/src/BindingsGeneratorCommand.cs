@@ -387,10 +387,14 @@ public static class BindingsGeneratorCommand
         // NukeSwiftBindings, etc.) so the binding correctly expresses its intent to
         // call into a wrapper dylib. Producing that dylib is a separate concern;
         // this default only fixes the binding's contract, not its deployability.
-        if (!hasXcframework && string.IsNullOrWhiteSpace(asyncLibrary))
+        // Hoisted out of the asyncLibrary fall-through so direct-mode wrapper
+        // compilation and csproj emission can reuse the peeked module name without
+        // re-reading the abi.json.
+        string? directModuleName = null;
+        if (!hasXcframework)
         {
-            var directModuleName = BindingsGenerator.PeekModuleNameFromAbiJson(swiftAbiPath);
-            if (!string.IsNullOrEmpty(directModuleName))
+            directModuleName = BindingsGenerator.PeekModuleNameFromAbiJson(swiftAbiPath);
+            if (string.IsNullOrWhiteSpace(asyncLibrary) && !string.IsNullOrEmpty(directModuleName))
             {
                 asyncLibrary = $"{directModuleName}SwiftBindings";
                 logger.LogInformation(
@@ -445,6 +449,37 @@ public static class BindingsGeneratorCommand
             logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
             context.ExitCode = 1;
             return;
+        }
+
+        // Detect system-framework intent in direct mode. The new direct-mode wrapper-compile
+        // and csproj-emit branches assume an Apple SDK framework whose binary lives on-device
+        // under /System/Library/Frameworks/ and resolves at runtime via dyld @rpath. That
+        // assumption only holds when -l explicitly points there. For non-system manual
+        // workflows (a local third-party .framework, a custom dylib path), preserve the
+        // pre-existing behavior: emit C# bindings + Wrapper.swift only, no auto wrapper
+        // compilation, no csproj — the user owns the build harness in that case.
+        var isSystemFrameworkTarget = !hasXcframework
+            && !string.IsNullOrEmpty(libraryName)
+            && (libraryName.StartsWith("@rpath/", StringComparison.Ordinal)
+                || libraryName.StartsWith("/System/Library/", StringComparison.Ordinal));
+
+        // Direct/system-framework mode: wrapper compilation is gated only on
+        // --skip-wrapper-compilation. There is no slice-availability check (no xcframework).
+        // Multi-arch (`all`) requires both simulator and device swiftinterfaces; the direct
+        // CLI only accepts a single -s, so reject `all` here with a clear error rather than
+        // silently producing one slice.
+        if (isSystemFrameworkTarget)
+        {
+            if (wrapperArchNormalized == "all")
+            {
+                logger.LogError(
+                    "Error: --wrapper-architectures all is not supported in direct mode. " +
+                    "Pass 'simulator' or 'device' (default: simulator) and rerun the generator " +
+                    "once per slice with the matching swiftinterface (-s).");
+                context.ExitCode = 1;
+                return;
+            }
+            shouldCompileWrapper = !skipWrapperCompilation;
         }
 
         // Compile Swift wrapper (xcframework mode only)
@@ -561,6 +596,93 @@ public static class BindingsGeneratorCommand
             }
 
             // Co-gate C# bindings: suppress members targeting stripped wrapper symbols
+            if (compilationResult?.StrippedSymbols.Count > 0)
+            {
+                var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                    outputDirectory, compilationResult.StrippedSymbols, logger);
+                if (coGated > 0)
+                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
+            }
+        }
+        else if (shouldCompileWrapper && isSystemFrameworkTarget && !string.IsNullOrEmpty(directModuleName))
+        {
+            // Direct-mode wrapper compilation. The xcframework branch above resolves
+            // frameworkSearchPath/dylibPath from the xcframework slice; in direct mode
+            // we synthesize them from the CLI's --tbd input. The TBD lives at
+            //   <SDK>/.../<Module>.framework/<Module>.tbd
+            // so the framework directory is the TBD's parent and the framework search
+            // path (-F target) is the framework directory's parent. For Apple system
+            // frameworks this is `<sdk>/System/Library/Frameworks`, which swiftc would
+            // already have searched implicitly via -sdk — passing it explicitly is
+            // harmless and works uniformly for any SDK-resident framework.
+            var frameworkDir = Path.GetDirectoryName(tbdPath);
+            var frameworkSearchPath = !string.IsNullOrEmpty(frameworkDir)
+                ? Path.GetDirectoryName(frameworkDir)
+                : null;
+            if (string.IsNullOrEmpty(frameworkSearchPath))
+            {
+                logger.LogError(
+                    "Direct mode: cannot derive framework search path from TBD '{Tbd}'. " +
+                    "Expected layout: <SDK>/.../<Module>.framework/<Module>.tbd.",
+                    tbdPath);
+                context.ExitCode = 1;
+                return;
+            }
+
+            // Resolve the slice variant to compile against. wrapperArchNormalized is
+            // already validated above and `all` is rejected for direct mode, so we only
+            // need the simulator/device choice. Both fall back to the device slice on
+            // platforms with no simulator variant (macOS, Mac Catalyst).
+            var directSlice = wrapperArchNormalized == "device"
+                ? platformInfo.DeviceSlice
+                : platformInfo.GetSlice(true);
+
+            // ResolveDeploymentTarget reads <frameworkDir>/Info.plist for MinimumOSVersion;
+            // Apple system frameworks ship one. dylibPath argument is the TBD path — the
+            // wrapper compiler only uses it for the Info.plist read and a (no-op-on-text)
+            // resource bundle scan. Passing tbdPath here matches what direct-mode users
+            // already pass to -d at the CLI.
+            SwiftWrapperCompilationResult? directResult = null;
+            Exception? directException = null;
+            try
+            {
+                directResult = SwiftWrapperCompiler.CompileSlice(
+                    outputDirectory, directModuleName,
+                    frameworkSearchPath!, tbdPath,
+                    directSlice, logger,
+                    internalTypeNames: internalTypeNames,
+                    moduleNameForCollision: moduleNameForCollision,
+                    nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                    swiftInterfacePath: swiftInterface,
+                    skipThunkCompilation: skipThunkCompilation);
+            }
+            catch (Exception ex)
+            {
+                directException = ex;
+            }
+
+            // Direct mode never auto-wires --async-library inside the xcframework
+            // helper, so failures are always treated as Warnings (not Fatal). Surface
+            // them and continue — the C# bindings are still correct on disk and the
+            // user can rerun with --skip-wrapper-compilation to bypass.
+            var directRawOutcome = SwiftWrapperCompiler.EvaluateResult(
+                directResult, asyncLibraryAutoWired: false, directException);
+            var (directExitCode, directDiagnosticCode, directMessage) =
+                BindingsGenerator.HandleWrapperCompilationOutcome(directRawOutcome, sdkMode, directException, directResult);
+            if (directExitCode != 0)
+            {
+                logger.LogError("{Message}", directMessage);
+                context.ExitCode = directExitCode;
+                return;
+            }
+            else if (directDiagnosticCode == "SWIFTBIND050"
+                || directRawOutcome == WrapperCompilationOutcome.Warning)
+            {
+                logger.LogWarning("{Message}", directMessage);
+            }
+
+            compilationResult = directResult;
+
             if (compilationResult?.StrippedSymbols.Count > 0)
             {
                 var coGated = CSharpWrapperCoGater.ProcessDirectory(
@@ -692,6 +814,67 @@ public static class BindingsGeneratorCommand
             catch (Exception ex)
             {
                 logger.LogError("Failed to emit binding project: {Message}", ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
+        }
+        else if (isSystemFrameworkTarget && !sdkMode && !string.IsNullOrEmpty(directModuleName))
+        {
+            // Direct-mode binding project emission. There is no source xcframework —
+            // for Apple system frameworks the binary lives on-device under
+            // /System/Library/Frameworks/ and is resolved at runtime by dyld via the
+            // @rpath library name passed at -l. The csproj therefore omits the source
+            // NativeReference and pack item, but still references SwiftBindings.Runtime
+            // and the wrapper xcframework so the consumer pulls in the SBW_ helpers.
+            try
+            {
+                // The TBD's containing directory is the .framework, which has the same
+                // Info.plist layout as a packaged .xcframework slice — Extract works
+                // unchanged. ReadPlatforms gracefully returns empty when xcframeworkPath
+                // points at nothing.
+                var metadata = XCFrameworkMetadataExtractor.Extract(
+                    tbdPath, xcframeworkPath: "", directModuleName, logger);
+
+                var hasWrapperXcfw = compilationResult?.XCFrameworkPath != null
+                    && Directory.Exists(compilationResult.XCFrameworkPath);
+                var wrapperModuleName = $"{directModuleName}SwiftBindings";
+                var directPackageId = packageId ?? platformInfo.GetDefaultSwiftPackageId(directModuleName);
+
+                var projectFrameworkName = BindingsGenerator.InferFrameworkName(tbdPath, directModuleName);
+                var projectResolver = new NamespacePatternResolver(effectiveNamespacePattern, projectFrameworkName);
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = outputDirectory,
+                    ModuleName = directModuleName,
+                    Metadata = metadata,
+                    SourceXCFrameworkPath = null,
+                    WrapperXCFrameworkPath = hasWrapperXcfw ? compilationResult!.XCFrameworkPath : null,
+                    PlatformInfo = platformInfo,
+                    ResolvedNamespace = projectResolver.ResolveNamespace(directModuleName),
+                }, logger);
+
+                // Emit consumer targets too — BindingProjectEmitter unconditionally packs
+                // {PackageId}.targets, so dotnet pack would fail without this file. The
+                // existing emitter handles the system-framework case naturally because the
+                // source NativeReference uses an Exists() condition (the runtimes/<rid>/native
+                // path is empty for system frameworks).
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = outputDirectory,
+                    ModuleName = directModuleName,
+                    PackageId = directPackageId,
+                    EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
+                    HasWrapperXCFramework = hasWrapperXcfw,
+                    HasBridgeXCFramework = false,
+                    XcframeworkPath = null,
+                    PlatformInfo = platformInfo,
+                }, logger);
+
+                logger.LogInformation("Direct-mode binding project emitted successfully.");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Failed to emit direct-mode binding project: {Message}", ex.Message);
                 context.ExitCode = 1;
                 return;
             }

@@ -13,7 +13,12 @@ namespace BindingsGeneration
         public required string OutputDirectory { get; init; }
         public required string ModuleName { get; init; }
         public required XCFrameworkMetadata Metadata { get; init; }
-        public required string SourceXCFrameworkPath { get; init; }
+        /// <summary>
+        /// Path to the source xcframework. Null in direct mode (Apple system frameworks),
+        /// where the runtime resolves the binary against the on-device system framework
+        /// via dyld @rpath rather than a packaged xcframework.
+        /// </summary>
+        public string? SourceXCFrameworkPath { get; init; }
         public string? WrapperXCFrameworkPath { get; init; }
         /// <summary>
         /// Path to the bridge xcframework (for SwiftUI views). Null if no bridge.
@@ -67,10 +72,16 @@ namespace BindingsGeneration
             var resolvedNamespace = options.ResolvedNamespace ?? options.ModuleName;
             var csprojPath = Path.Combine(options.OutputDirectory, $"{packageId}.csproj");
 
-            // Compute relative path from output dir to source xcframework
+            // Compute relative path from output dir to source xcframework.
+            // Null in direct mode — Apple system frameworks have no packaged xcframework;
+            // the binary lives on-device under /System/Library/Frameworks/ and is resolved
+            // via dyld @rpath at runtime, so the project file omits the source NativeReference
+            // and the source pack item entirely.
+            var hasSourceXcfw = !string.IsNullOrEmpty(options.SourceXCFrameworkPath);
             var outputDirFull = Path.GetFullPath(options.OutputDirectory);
-            var sourceXcfwFull = Path.GetFullPath(options.SourceXCFrameworkPath);
-            var relativeSourceXcfw = Path.GetRelativePath(outputDirFull, sourceXcfwFull);
+            var relativeSourceXcfw = hasSourceXcfw
+                ? Path.GetRelativePath(outputDirFull, Path.GetFullPath(options.SourceXCFrameworkPath!))
+                : null;
 
             // Version placeholder warning comment
             var versionComment = options.Metadata.IsVersionPlaceholder
@@ -221,10 +232,12 @@ namespace BindingsGeneration
                   </ItemGroup>
 
                   <!-- NativeReference for local build -->
-                  <ItemGroup>
+                  <ItemGroup>{(hasSourceXcfw ? $"""
+
                     <NativeReference Include="{relativeSourceXcfw}">
                       <Kind>Framework</Kind>
-                    </NativeReference>{wrapperNativeRef}{bridgeNativeRef}
+                    </NativeReference>
+                """ : "")}{wrapperNativeRef}{bridgeNativeRef}
                   </ItemGroup>{(resourceBundleItems != "" ? $"""
 
                   <!-- SPM resource bundles (included in app bundle at runtime) -->
@@ -235,9 +248,11 @@ namespace BindingsGeneration
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
-                          PackagePath="{pi.GetBuildTransitivePath()}" />
+                          PackagePath="{pi.GetBuildTransitivePath()}" />{(hasSourceXcfw ? $"""
+
                     <None Include="{relativeSourceXcfw}/**" Pack="true"
-                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />{wrapperPackItem}{bridgePackItem}{resourceBundlePackItems}
+                          PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />
+                """ : "")}{wrapperPackItem}{bridgePackItem}{resourceBundlePackItems}
                   </ItemGroup>{objcProjectRef}
                 </Project>
                 """;

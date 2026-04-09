@@ -467,6 +467,126 @@ namespace BindingsGeneration.Tests
         }
     }
 
+    /// <summary>
+    /// Direct-mode (system-framework) emission. SourceXCFrameworkPath is null because
+    /// Apple system frameworks live on-device under /System/Library/Frameworks/ and
+    /// resolve at runtime via dyld @rpath; the csproj should omit the source NativeReference
+    /// and the source pack item entirely while keeping the wrapper xcframework wiring.
+    /// </summary>
+    public class BindingProjectDirectModeTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_NoSourceXcframework_OmitsSourceNativeReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitDirect(dir, "StoreKit");
+                // The wrapper helper, runtime ref, and Compile items must still be present.
+                Assert.Contains("<Compile Include=\"StoreKit.cs\" />", content);
+                Assert.Contains("SwiftBindings.Runtime", content);
+                // The source NativeReference must NOT be emitted.
+                Assert.DoesNotContain("Include=\"StoreKit.xcframework\"", content);
+                Assert.DoesNotContain("Include=\"../StoreKit.xcframework\"", content);
+                Assert.DoesNotContain("runtimes/ios-arm64/native/StoreKit.xcframework/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NoSourceXcframework_KeepsTargetsPackItem()
+        {
+            // The {PackageId}.targets pack item is unconditional — consumers still need
+            // it for buildTransitive injection even when the source binary is on-device.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitDirect(dir, "StoreKit");
+                Assert.Contains("StoreKit.Swift.iOS.targets", content);
+                Assert.Contains("buildTransitive/net10.0-ios/", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NoSourceXcframework_WithWrapperXcframework_EmitsWrapperRef()
+        {
+            // The wrapper xcframework is the SBW_ helper dylib — it MUST appear as a
+            // NativeReference even when the source xcframework is omitted, otherwise
+            // the C# bindings would have no library to bind their helper P/Invokes
+            // against at compile/pack time.
+            var dir = CreateTempDir();
+            try
+            {
+                var wrapperPath = Path.Combine(dir, "StoreKitSwiftBindings.xcframework");
+                Directory.CreateDirectory(wrapperPath);
+
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "StoreKit",
+                    Metadata = CreateMetadata("StoreKit"),
+                    SourceXCFrameworkPath = null,
+                    WrapperXCFrameworkPath = wrapperPath,
+                }, _logger);
+
+                var content = File.ReadAllText(Path.Combine(dir, "StoreKit.Swift.iOS.csproj"));
+                Assert.Contains("StoreKitSwiftBindings.xcframework", content);
+                Assert.DoesNotContain("Include=\"StoreKit.xcframework\"", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_NoSourceXcframework_ProducesValidXml()
+        {
+            // Sanity check: the omission must not leave dangling whitespace or unclosed
+            // tags that would break MSBuild evaluation.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitDirect(dir, "StoreKit");
+                var doc = System.Xml.Linq.XDocument.Parse(content);
+                Assert.NotNull(doc.Root);
+                Assert.Equal("Project", doc.Root!.Name.LocalName);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitDirect(string dir, string module)
+        {
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMetadata(module),
+                SourceXCFrameworkPath = null,
+            }, _logger);
+            return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMetadata(string module) => new()
+        {
+            LibraryVersion = null,
+            PackageVersion = "0.0.0",
+            IsVersionPlaceholder = true,
+            MinimumOSVersion = null,
+            EffectiveMinimumOSVersion = "16.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_direct_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
     #endregion
 
     #region D. Framework Dependency Tests
