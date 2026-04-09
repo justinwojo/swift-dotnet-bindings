@@ -167,6 +167,61 @@ namespace BindingsGeneration
                 }
             }
 
+            // IsPackable for the dev sentinel: a project that resolves Swift.Runtime via the
+            // in-tree ProjectReference is by definition local-dev only and MUST NOT be packed.
+            // SDK-style pack would (a) emit a phantom `SwiftBindings.Runtime 0.0.0-dev` package
+            // dependency from the ProjectReference (because that's the in-tree project's
+            // PackageId/PackageVersion), and (b) not roll the in-tree native dylibs into the
+            // outer .nupkg, since they live behind ProjectReference, not as `<None Pack="true">`
+            // items in this project. The result would be an unusable .nupkg whose dependency
+            // doesn't exist on any feed. Refusing to pack is the loud failure mode — to publish,
+            // pass --swift-runtime-version <published-version> so the PackageReference path is
+            // taken instead.
+            var isPackable = runtimeVersion != DefaultSwiftRuntimeVersion;
+
+            // SwiftBindings.Runtime resolution. The default version "0.0.0-dev" is a sentinel
+            // for local-dev runs (direct mode against an Apple SDK framework, ad-hoc generator
+            // invocations from inside the swift-bindings repo). No "0.0.0-dev" nupkg exists in
+            // the cache, so a plain PackageReference would resolve against whatever stale 0.x
+            // package is sitting in ~/.nuget/packages/ — producing CS errors against types
+            // that have since landed in current Swift.Runtime source.
+            //
+            // For the dev sentinel we emit a ProjectReference to the in-tree Swift.Runtime
+            // .csproj, gated on the SwiftBindingsRepoRoot MSBuild property (settable via
+            // -p:SwiftBindingsRepoRoot=... or in the consumer's Directory.Build.props). The
+            // ProjectReference (NOT a raw `<Reference>`+`<HintPath>`) is load-bearing: it
+            // pulls in the Swift.Runtime project's `<Content Include="../native/.../libSwift
+            // BindingsRuntime.dylib">` items, which copy the concurrency runtime dylib into
+            // the consumer's output (and into Frameworks/ on iOS/tvOS/maccatalyst). A bare
+            // assembly reference would compile cleanly but ship a project that can't load
+            // its native runtime at run/pack time. When the property is unset, we fall back
+            // to an exact-version PackageReference (`[0.0.0-dev]`) so the failure mode is a
+            // clean NU1102 ("package not found"), not a silent stale binding.
+            //
+            // For any real version the PackageReference path is unchanged — published
+            // consumers see the same csproj they always did, and the published nupkg's
+            // `buildTransitive/SwiftBindings.Runtime.targets` carries the same dylib-copy
+            // logic for them.
+            var runtimeReference = runtimeVersion == DefaultSwiftRuntimeVersion
+                ? $"""
+                    <!-- Local-dev wiring: 0.0.0-dev has no published nupkg. Set
+                         SwiftBindingsRepoRoot (-p:SwiftBindingsRepoRoot=/path/to/swift-bindings
+                         or in Directory.Build.props) to bind against the in-tree Swift.Runtime
+                         project. The ProjectReference form (not a bare HintPath) is required
+                         so the in-tree project's native dylib copy items flow through to the
+                         consumer — without it, builds compile but ship without
+                         libSwiftBindingsRuntime.dylib. Without the property, the build falls
+                         back to an exact-version PackageReference (`[0.0.0-dev]`), which fails
+                         with a clear "package not found" error instead of silently resolving to
+                         a stale cached SwiftBindings.Runtime nupkg under ~/.nuget/packages/. -->
+                    <ProjectReference Include="$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj"
+                                      Condition="'$(SwiftBindingsRepoRoot)' != ''" />
+                    <PackageReference Include="SwiftBindings.Runtime" Version="[{runtimeVersion}]" Condition="'$(SwiftBindingsRepoRoot)' == ''" />
+                """
+                : $"""
+                    <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />
+                """;
+
             // ObjC binding project reference for mixed frameworks
             var objcProjectRef = "";
             if (!string.IsNullOrEmpty(options.ObjCProjectFileName))
@@ -210,11 +265,18 @@ namespace BindingsGeneration
                     <ImplicitUsings>enable</ImplicitUsings>
                     <Nullable>enable</Nullable>
                     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-                    <IsPackable>true</IsPackable>
+                    <IsPackable>{(isPackable ? "true" : "false")}</IsPackable>
                     <PackageId>{packageId}</PackageId>{versionComment}
                     <PackageVersion>{options.Metadata.PackageVersion}</PackageVersion>
                     <SupportedOSPlatformVersion>{options.Metadata.EffectiveMinimumOSVersion}</SupportedOSPlatformVersion>
                     <NoWarn>CS0169;CA1420</NoWarn>
+                    <!-- Disable default Compile items: the generator already lists every emitted
+                         .cs file explicitly below, and the SDK's wildcard would otherwise pull in
+                         the same files a second time and trip NETSDK1022 ("duplicate Compile
+                         items"). Setting it inside the .csproj keeps the property scoped to this
+                         project — passing -p:EnableDefaultCompileItems=false on the command line
+                         would propagate to Swift.Runtime, which DOES rely on default Compile items. -->
+                    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
                   </PropertyGroup>
 
                   <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
@@ -223,7 +285,7 @@ namespace BindingsGeneration
                   </ItemGroup>
 
                   <ItemGroup>
-                    <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />{dependencyRefs}
+                {runtimeReference}{dependencyRefs}
                   </ItemGroup>
 
                   <!-- Generated C# bindings -->

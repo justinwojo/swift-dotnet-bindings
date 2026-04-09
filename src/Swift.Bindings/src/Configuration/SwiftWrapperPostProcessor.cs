@@ -139,6 +139,11 @@ namespace BindingsGeneration
                         ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        // The wrapper emitters write a "// Comment\n@available(...)\n" preamble
+                        // BEFORE the @_cdecl line. Pop those preamble lines from outputLines so they
+                        // don't end up dangling — `@available` annotations on a missing declaration
+                        // produce "expected declaration" errors at swiftc time.
+                        RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -162,6 +167,7 @@ namespace BindingsGeneration
                             ReferencesSwiftUnavailableType(body))
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                            RemoveTrailingWrapperPreamble(outputLines);
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -222,6 +228,7 @@ namespace BindingsGeneration
                         ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -401,6 +408,64 @@ namespace BindingsGeneration
             return false;
         }
 
+
+        /// <summary>
+        /// Pops trailing wrapper-preamble lines (`@available`, `@MainActor`, blank lines, and the
+        /// "// Property getter @_cdecl wrapper for ..." style comments emitted by the wrapper
+        /// emitters) from <paramref name="outputLines"/>. Called after a `@_cdecl` /
+        /// `@_silgen_name` block has been stripped, to prevent dangling annotations on a missing
+        /// declaration (which produces "expected declaration" errors at swiftc time).
+        ///
+        /// The walk stops at the first line that doesn't match a known preamble pattern, so it
+        /// will never run into the body of an unrelated previous declaration.
+        /// </summary>
+        internal static void RemoveTrailingWrapperPreamble(List<string> outputLines)
+        {
+            while (outputLines.Count > 0)
+            {
+                var trimmed = outputLines[^1].TrimStart();
+                var trimmedEnd = trimmed.TrimEnd();
+
+                // Blank line — part of preamble spacing
+                if (trimmedEnd.Length == 0)
+                {
+                    outputLines.RemoveAt(outputLines.Count - 1);
+                    continue;
+                }
+
+                // Annotation lines that wrappers can be preceded by
+                if (trimmedEnd.StartsWith("@available(", StringComparison.Ordinal) ||
+                    trimmedEnd == "@MainActor")
+                {
+                    outputLines.RemoveAt(outputLines.Count - 1);
+                    continue;
+                }
+
+                // Wrapper-preamble comment lines emitted by the wrapper emitters. Match
+                // narrowly to avoid eating unrelated comments from neighbouring declarations.
+                if (trimmedEnd.StartsWith("//", StringComparison.Ordinal) &&
+                    IsWrapperPreambleComment(trimmedEnd))
+                {
+                    outputLines.RemoveAt(outputLines.Count - 1);
+                    continue;
+                }
+
+                break;
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the comment line matches one of the known wrapper-emitter preamble
+        /// comments — these are safe to remove together with the wrapper they describe.
+        /// Anything else (e.g., a code comment from a previous declaration) is preserved.
+        /// </summary>
+        private static bool IsWrapperPreambleComment(string trimmedComment)
+        {
+            return trimmedComment.Contains("@_cdecl wrapper for", StringComparison.Ordinal)
+                || trimmedComment.Contains("@_silgen_name wrapper for", StringComparison.Ordinal)
+                || trimmedComment.Contains("Routes through C calling convention", StringComparison.Ordinal)
+                || trimmedComment.Contains("Routes method through C calling convention", StringComparison.Ordinal);
+        }
 
         private static readonly Regex CdeclSymbolRegex = new(
             @"@_(?:cdecl|silgen_name)\(""([^""]+)""\)",

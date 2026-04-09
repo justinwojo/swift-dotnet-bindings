@@ -65,6 +65,49 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Help_IncludesSwiftRuntimeVersionOption()
+        {
+            // Locks the CLI plumbing for --swift-runtime-version. Without it, the
+            // emitter would default to the local-dev sentinel "0.0.0-dev" on every
+            // generator invocation and produce IsPackable=false projects, breaking
+            // 'dotnet pack' for normal users who never go through the SDK pipeline.
+            // This is the registration check; emitter behavior is covered by
+            // BindingProjectBasicTests.Emit_IsPackable_True_WhenPublishedRuntimeVersion.
+            var output = CaptureHelp();
+            Assert.Contains("--swift-runtime-version", output);
+        }
+
+        [Fact]
+        public void SwiftRuntimeVersionOption_ParsesWithoutCrashing()
+        {
+            // Smoke test: verifies the option string is accepted by the parser.
+            // We use a nonexistent xcframework so resolution fails fast — we only
+            // care that the option survives parsing without an unhandled exception.
+            var dir = Path.Combine(Path.GetTempPath(), $"srv_parse_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var writer = new StringWriter();
+                Console.SetOut(writer);
+                try
+                {
+                    var exitCode = BindingsGenerator.Main(new[]
+                    {
+                        "--xcframework", "/nonexistent",
+                        "--swift-runtime-version", "0.8.0",
+                        "-o", dir
+                    });
+                    Assert.NotEqual(0, exitCode);
+                }
+                finally
+                {
+                    Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void MissingOutput_StillFails()
         {
             // Verify existing required-option behavior is preserved

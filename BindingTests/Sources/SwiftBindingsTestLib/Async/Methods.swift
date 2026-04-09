@@ -91,3 +91,27 @@ public struct AsyncWorker {
         return a + b
     }
 }
+
+// MARK: - Mutating Async Receiver
+
+/// Struct with a `mutating async` method. The wrapper emitter used to bind
+/// `__self` as a `let` (immutable copy) inside async wrappers, which made
+/// `mutating async` calls fail to compile (`cannot use mutating member on
+/// immutable value`). Even after that compile error was masked, dereferencing
+/// into a `let` would silently lose mutation across calls — fatal for
+/// `AsyncIteratorProtocol.next()` and any other `mutating async` API.
+public struct AsyncMutatingCounter {
+    public var value: Int32
+
+    public init(start: Int32 = 0) {
+        self.value = start
+    }
+
+    /// Increments the counter and returns the new value. Mutation must write
+    /// through to the original storage so that successive calls advance.
+    public mutating func bumpAsync() async -> Int32 {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        value += 1
+        return value
+    }
+}

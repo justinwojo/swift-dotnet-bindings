@@ -148,4 +148,26 @@ public class AsyncMethodTests : TestBase
     }
 
     #endregion
+
+    #region AsyncMutatingCounter - Mutating async receiver
+
+    /// Successive `mutating async` calls on the same value-type instance must
+    /// observe the previous mutation. Regression test for the wrapper emitter
+    /// binding `__self` as `let` on async paths — that pattern silently lost
+    /// every mutation across the await boundary, breaking the AsyncIteratorProtocol
+    /// shape (`mutating func next() async`) used by Apple frameworks like StoreKit.
+    public async Task TestAsyncMutatingCounterAdvancesAcrossCalls()
+    {
+        var counter = new AsyncMutatingCounter(10);
+        var first = await WithTimeout(counter.BumpAsync(), DefaultAsyncTimeout);
+        AssertEqual(11, first, "First BumpAsync should return start + 1");
+
+        var second = await WithTimeout(counter.BumpAsync(), DefaultAsyncTimeout);
+        AssertEqual(12, second, "Second BumpAsync must observe the prior mutation");
+
+        var third = await WithTimeout(counter.BumpAsync(), DefaultAsyncTimeout);
+        AssertEqual(13, third, "Third BumpAsync must observe both prior mutations");
+    }
+
+    #endregion
 }

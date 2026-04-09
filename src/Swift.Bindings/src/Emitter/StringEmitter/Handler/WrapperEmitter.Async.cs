@@ -891,6 +891,19 @@ namespace BindingsGeneration
                         ? $"let __self = Unmanaged<{parentTypeName!.ModuleQualifiedName}>.fromOpaque(_self).takeUnretainedValue()"
                         : $"let __self = unsafeBitCast(_self, to: {parentTypeName!.ModuleQualifiedName}.self)";
                 }
+                else if (_env.MethodDecl.IsMutating)
+                {
+                    // Mutating receiver on a value type: bind to a typed mutable pointer (no .pointee)
+                    // and call through __self.pointee so the mutation writes back to the original
+                    // storage. Dereferencing into a `let` would copy the struct into the Task closure
+                    // and discard the mutation, which is fatal for AsyncIteratorProtocol.next() and
+                    // any other `mutating async` method (the iterator would never advance).
+                    // UnsafeMutablePointer.pointee uses unsafeMutableAddress, not _modify, so the
+                    // call expression does not hold an exclusive borrow across the await boundary.
+                    selfConversion = usesCdecl
+                        ? $"let __self = _self.assumingMemoryBound(to: {parentTypeName!.ModuleQualifiedName}.self)"
+                        : $"let __self = UnsafeMutablePointer<{parentTypeName!.ModuleQualifiedName}>(_self)";
+                }
                 else
                 {
                     // For structs: the pointer points TO the struct data, dereference it
@@ -898,7 +911,7 @@ namespace BindingsGeneration
                         ? $"let __self = _self.assumingMemoryBound(to: {parentTypeName!.ModuleQualifiedName}.self).pointee"
                         : $"let __self = UnsafePointer<{parentTypeName!.ModuleQualifiedName}>(_self).pointee";
                 }
-                methodCallPrefix = "__self.";
+                methodCallPrefix = (!isSwiftClass && _env.MethodDecl.IsMutating) ? "__self.pointee." : "__self.";
             }
             else if (parentTypeName != null)
             {

@@ -1695,4 +1695,141 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region M. Wrapper Preamble Cleanup (dangling @available)
+
+    /// <summary>
+    /// When a `@_cdecl` / `@_silgen_name` block is stripped, the post-processor must
+    /// also pop the wrapper-emitter preamble that precedes it (`// Property getter
+    /// @_cdecl wrapper for ...` comments + `@available(...)` annotations + blank
+    /// lines). Leaving them in place produces "expected declaration" errors at swiftc
+    /// time, since the annotations end up attached to whatever comes next.
+    /// </summary>
+    public class PostProcessorPreambleCleanupTests
+    {
+        [Fact]
+        public void Process_StripsDanglingAvailableAnnotationsBeforeStrippedCdecl()
+        {
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                func unrelated() {}
+
+                // Property getter @_cdecl wrapper for Foo.bar.
+                // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                @available(iOS 16.4, *)
+                @available(visionOS 1.0, *)
+                @_cdecl("SBW_Get_Foo_bar")
+                public func _sbw_get_bar(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                    let result = obj.bar
+                }
+
+                func nextThing() {}
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.DoesNotContain("@available", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+            Assert.DoesNotContain("// Property getter", result.CleanedContent);
+            Assert.DoesNotContain("Routes through", result.CleanedContent);
+            Assert.Contains("func unrelated()", result.CleanedContent);
+            Assert.Contains("func nextThing()", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_StripsConsecutiveStrippedWrappersWithoutLeavingDanglingPreambles()
+        {
+            // Three stripped wrappers in a row — every preamble must come out.
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                // before
+
+                // Property getter @_cdecl wrapper for Foo.first.
+                // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                @available(iOS 16.4, *)
+                @_cdecl("SBW_Get_Foo_first")
+                public func _sbw_get_first(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                // Property getter @_cdecl wrapper for Foo.second.
+                // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                @available(iOS 16.4, *)
+                @_cdecl("SBW_Get_Foo_second")
+                public func _sbw_get_second(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                // Method @_cdecl wrapper for Foo.third.
+                // Routes method through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                @available(iOS 16.4, *)
+                @_cdecl("SBW_Foo_third")
+                public func _sbw_third(_ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                // after
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(3, result.StrippedBlockCount);
+            Assert.DoesNotContain("@available", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+            Assert.DoesNotContain("Property getter", result.CleanedContent);
+            Assert.DoesNotContain("Method @_cdecl wrapper", result.CleanedContent);
+            Assert.Contains("// before", result.CleanedContent);
+            Assert.Contains("// after", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_PreservesAvailableOnSurvivingWrapper()
+        {
+            // The @available preamble in front of a wrapper that is NOT stripped must remain.
+            var input = """
+                // Property getter @_cdecl wrapper for Foo.bar.
+                // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                @available(iOS 16.4, *)
+                @_cdecl("SBW_Get_Foo_bar")
+                public func _sbw_get_bar(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: PublicType.self).pointee
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypeNames: null);
+            Assert.Equal(0, result.StrippedBlockCount);
+            Assert.Contains("@available(iOS 16.4, *)", result.CleanedContent);
+            Assert.Contains("@_cdecl(\"SBW_Get_Foo_bar\")", result.CleanedContent);
+            Assert.Contains("// Property getter", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_DoesNotPopUnrelatedCommentsBelongingToPreviousDeclaration()
+        {
+            // The line above the stripped wrapper's preamble is a `}` (end of previous
+            // declaration). The preamble cleanup must stop at the `}` and not eat code
+            // from above.
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                public func keepMe() {
+                    let x = 1
+                }
+
+                @available(iOS 16.4, *)
+                @_cdecl("SBW_Foo_broken")
+                public func _sbw_broken(_ self_: UnsafeRawPointer) {
+                    let obj = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Contains("public func keepMe()", result.CleanedContent);
+            Assert.Contains("let x = 1", result.CleanedContent);
+            Assert.DoesNotContain("@available", result.CleanedContent);
+            Assert.DoesNotContain("@_cdecl", result.CleanedContent);
+        }
+    }
+
+    #endregion
+
 }

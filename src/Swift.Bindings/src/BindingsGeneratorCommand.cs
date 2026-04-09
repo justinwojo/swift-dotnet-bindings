@@ -42,6 +42,7 @@ public static class BindingsGeneratorCommand
         var namespacePattern = parseResult.GetValueForOption(options.NamespacePattern);
         var sdkMode = parseResult.GetValueForOption(options.SdkMode);
         var packageId = parseResult.GetValueForOption(options.PackageId);
+        var swiftRuntimeVersion = parseResult.GetValueForOption(options.SwiftRuntimeVersion);
         var wrapperArchitectures = parseResult.GetValueForOption(options.WrapperArchitectures);
         var frameworkDependencies = parseResult.GetValueForOption(options.FrameworkDependency);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
@@ -458,10 +459,7 @@ public static class BindingsGeneratorCommand
         // workflows (a local third-party .framework, a custom dylib path), preserve the
         // pre-existing behavior: emit C# bindings + Wrapper.swift only, no auto wrapper
         // compilation, no csproj — the user owns the build harness in that case.
-        var isSystemFrameworkTarget = !hasXcframework
-            && !string.IsNullOrEmpty(libraryName)
-            && (libraryName.StartsWith("@rpath/", StringComparison.Ordinal)
-                || libraryName.StartsWith("/System/Library/", StringComparison.Ordinal));
+        var isSystemFrameworkTarget = IsSystemFrameworkTarget(hasXcframework, libraryName);
 
         // Direct/system-framework mode: wrapper compilation is gated only on
         // --skip-wrapper-compilation. There is no slice-availability check (no xcframework).
@@ -771,6 +769,7 @@ public static class BindingsGeneratorCommand
                         WrapperXCFrameworkPath = hasWrapperXcfw ? wrapperXcfwPath : null,
                         BridgeXCFrameworkPath = hasBridgeXcfw ? bridgeXcfwPath : null,
                         HasBridgeSwift = hasBridgeSwift,
+                        SwiftRuntimeVersion = swiftRuntimeVersion,
                         Dependencies = resolvedDependencies,
                         ResolvedNamespace = projectResolver.ResolveNamespace(resolution.ModuleName),
                         ObjCProjectFileName = objcProjFileName,
@@ -849,6 +848,7 @@ public static class BindingsGeneratorCommand
                     Metadata = metadata,
                     SourceXCFrameworkPath = null,
                     WrapperXCFrameworkPath = hasWrapperXcfw ? compilationResult!.XCFrameworkPath : null,
+                    SwiftRuntimeVersion = swiftRuntimeVersion,
                     PlatformInfo = platformInfo,
                     ResolvedNamespace = projectResolver.ResolveNamespace(directModuleName),
                 }, logger);
@@ -893,6 +893,24 @@ public static class BindingsGeneratorCommand
         return value;
     }
 
+    /// <summary>
+    /// Returns true when the CLI was invoked in direct (manual) mode against an Apple SDK
+    /// system framework — i.e., no <c>--xcframework</c> was supplied and the runtime library
+    /// name targets either an <c>@rpath/...</c> or an absolute <c>/System/Library/...</c>
+    /// path. The direct-mode wrapper-compile and csproj-emit branches are gated on this
+    /// predicate so non-system manual workflows (a local third-party .framework, a custom
+    /// dylib path) keep their pre-existing "emit C# + Wrapper.swift only" behavior.
+    /// Pulled out as a small helper so the gate is unit-testable in isolation from the
+    /// rest of the CLI execution path.
+    /// </summary>
+    internal static bool IsSystemFrameworkTarget(bool hasXcframework, string? libraryName)
+    {
+        if (hasXcframework || string.IsNullOrEmpty(libraryName))
+            return false;
+        return libraryName.StartsWith("@rpath/", StringComparison.Ordinal)
+            || libraryName.StartsWith("/System/Library/", StringComparison.Ordinal);
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Usage:");
@@ -912,6 +930,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
         Console.WriteLine("  --sdk-mode           Optional. SDK mode: skips .csproj emission (used when the SDK IS the project system).");
         Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.{Platform}' (e.g. Nuke.Swift.iOS, Nuke.Swift.macOS).");
+        Console.WriteLine("  --swift-runtime-version  Optional. SwiftBindings.Runtime version for the emitted .csproj. Default '0.0.0-dev' is local-dev only (IsPackable=false). Pass a published version to enable 'dotnet pack'.");
         Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
         Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
         Console.WriteLine("  --module-database    Optional. Repeatable. Path to dependency module database XML for cross-module type resolution.");

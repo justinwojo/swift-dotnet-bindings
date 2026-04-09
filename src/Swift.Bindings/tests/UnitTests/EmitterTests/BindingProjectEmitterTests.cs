@@ -64,13 +64,36 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Emit_IsPackable_True()
+        public void Emit_IsPackable_True_WhenPublishedRuntimeVersion()
         {
+            // Real published runtime versions take the PackageReference path. Pack-time
+            // emits a nupkg whose only Swift.Runtime dependency resolves to a real published
+            // SwiftBindings.Runtime nupkg, so the project is allowed to be packable.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0", swiftRuntimeVersion: "0.8.0");
+                Assert.Contains("<IsPackable>true</IsPackable>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_IsPackable_False_WhenDevSentinelRuntimeVersion()
+        {
+            // Dev-sentinel projects resolve Swift.Runtime via an in-tree ProjectReference,
+            // and `dotnet pack` would (a) emit a phantom `SwiftBindings.Runtime 0.0.0-dev`
+            // package dependency and (b) NOT roll the in-tree native dylibs into the outer
+            // .nupkg. The result would be an unusable nupkg whose dependency doesn't exist
+            // anywhere. Refusing to pack is the loud failure mode — to publish, the caller
+            // must pass --swift-runtime-version <published-version> so the PackageReference
+            // path is taken and Swift.Runtime's NuGet buildTransitive targets carry the
+            // dylib copy logic for consumers.
             var dir = CreateTempDir();
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0");
-                Assert.Contains("<IsPackable>true</IsPackable>", content);
+                Assert.Contains("<IsPackable>false</IsPackable>", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -112,14 +135,34 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
-        private static string EmitAndRead(string dir, string module, string version, string minOS)
+        [Fact]
+        public void Emit_DisablesDefaultCompileItems()
         {
-            EmitProject(dir, module, version, minOS);
+            // The generator already lists every emitted .cs file explicitly via
+            // <Compile Include="..." />, so the SDK's default Compile wildcard would
+            // double-count them and trip NETSDK1022 ("Duplicate 'Compile' items")
+            // when a consumer runs `dotnet build` directly against the emitted csproj.
+            // The property must live inside the csproj (NOT on the command line) so
+            // it stays scoped to this project — Swift.Runtime relies on default Compile
+            // items and would break if the property propagated globally.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Nuke", "12.8.0", "15.0");
+                Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(string dir, string module, string version, string minOS,
+            string? swiftRuntimeVersion = null)
+        {
+            EmitProject(dir, module, version, minOS, swiftRuntimeVersion: swiftRuntimeVersion);
             return File.ReadAllText(Path.Combine(dir, $"{module}.Swift.iOS.csproj"));
         }
 
         private static void EmitProject(string dir, string module, string version, string minOS,
-            string? wrapperPath = null)
+            string? wrapperPath = null, string? swiftRuntimeVersion = null)
         {
             // Create a fake source xcframework path
             var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
@@ -141,7 +184,8 @@ namespace BindingsGeneration.Tests
                     Platforms = new List<string>()
                 },
                 SourceXCFrameworkPath = sourceXcfwPath,
-                WrapperXCFrameworkPath = wrapperPath
+                WrapperXCFrameworkPath = wrapperPath,
+                SwiftRuntimeVersion = swiftRuntimeVersion
             }, _logger);
         }
 
@@ -587,6 +631,100 @@ namespace BindingsGeneration.Tests
         }
     }
 
+    /// <summary>
+    /// Local-dev runtime resolution. The default <c>0.0.0-dev</c> sentinel has no published
+    /// nupkg, so the emitter must conditionally emit a HintPath <c>Reference</c> against the
+    /// in-tree Swift.Runtime build (gated on <c>$(SwiftBindingsRepoRoot)</c>) and pin the
+    /// fallback PackageReference to an exact-version range so a stale cached
+    /// SwiftBindings.Runtime can't silently satisfy a minimum-version request.
+    /// </summary>
+    public class BindingProjectRuntimeReferenceTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_DevSentinel_EmitsProjectReferenceGatedOnRepoRootProperty()
+        {
+            // ProjectReference (NOT a bare <Reference>+<HintPath>) is required so the in-tree
+            // Swift.Runtime project's `<Content Include="../native/.../libSwiftBindingsRuntime.dylib">`
+            // items copy through to the consumer. A raw assembly reference would compile cleanly
+            // but ship a project missing its native concurrency runtime at run/pack time.
+            var content = EmitWithRuntimeVersion(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+            Assert.Contains(
+                "<ProjectReference Include=\"$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj\"",
+                content);
+            Assert.Contains("Condition=\"'$(SwiftBindingsRepoRoot)' != ''\"", content);
+            // Reject the previous Reference+HintPath shape — that produced a project
+            // that compiled but missed Swift.Runtime's native dylib copy items.
+            Assert.DoesNotContain("<HintPath>", content);
+            Assert.DoesNotContain("<Reference Include=\"Swift.Runtime\"", content);
+        }
+
+        [Fact]
+        public void Emit_DevSentinel_PinsFallbackPackageReferenceToExactVersion()
+        {
+            // Without the bracket pinning, NuGet treats Version="0.0.0-dev" as "minimum
+            // 0.0.0-dev" and a stale 0.7.0 cached package will silently satisfy the request,
+            // producing 190+ CS errors against types that exist in current Swift.Runtime
+            // source. The bracketed exact-version form forces NU1102 instead.
+            var content = EmitWithRuntimeVersion(BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+            Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.0.0-dev]\" Condition=\"'$(SwiftBindingsRepoRoot)' == ''\" />",
+                content);
+        }
+
+        [Fact]
+        public void Emit_PublishedVersion_EmitsPlainPackageReferenceWithoutProjectReference()
+        {
+            // Real published versions go through the unchanged PackageReference path —
+            // the dev-sentinel branches must NOT appear, otherwise external consumers
+            // would see a dangling SwiftBindingsRepoRoot reference and a phantom
+            // ProjectReference that can't resolve outside the repo.
+            var content = EmitWithRuntimeVersion("0.8.0");
+            Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"0.8.0\" />",
+                content);
+            Assert.DoesNotContain("<HintPath>", content);
+            Assert.DoesNotContain("SwiftBindingsRepoRoot", content);
+            Assert.DoesNotContain("Swift.Runtime.csproj", content);
+        }
+
+        private static string EmitWithRuntimeVersion(string runtimeVersion)
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "StoreKit",
+                    Metadata = new XCFrameworkMetadata
+                    {
+                        LibraryVersion = null,
+                        PackageVersion = "0.0.0",
+                        IsVersionPlaceholder = true,
+                        MinimumOSVersion = null,
+                        EffectiveMinimumOSVersion = "16.0",
+                        SdkVersion = null,
+                        ModuleName = "StoreKit",
+                        Platforms = new List<string>()
+                    },
+                    SourceXCFrameworkPath = null,
+                    SwiftRuntimeVersion = runtimeVersion,
+                }, _logger);
+                return File.ReadAllText(Path.Combine(dir, "StoreKit.Swift.iOS.csproj"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_runtime_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
     #endregion
 
     #region D. Framework Dependency Tests
@@ -838,14 +976,17 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Emit_WithoutObjCProjectFileName_NoProjectReference()
+        public void Emit_WithoutObjCProjectFileName_NoObjCProjectReference()
         {
+            // The dev-sentinel Swift.Runtime branch also emits a ProjectReference, so
+            // this test must scope to the ObjC mixed-framework comment+block specifically
+            // rather than asserting "no ProjectReference anywhere in the file".
             var dir = CreateTempDir();
             try
             {
                 var content = EmitAndRead(dir, "Nuke", objcProjectFileName: null);
-                Assert.DoesNotContain("ProjectReference", content);
                 Assert.DoesNotContain("ObjC binding project", content);
+                Assert.DoesNotContain(".ObjC.iOS.csproj", content);
             }
             finally { Directory.Delete(dir, true); }
         }
