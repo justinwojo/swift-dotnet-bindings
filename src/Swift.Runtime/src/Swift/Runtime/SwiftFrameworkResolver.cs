@@ -81,9 +81,29 @@ public static class SwiftFrameworkResolver
     }
 
     /// <summary>
-    /// The search paths tried for each library name, in order.
+    /// Returns true when <paramref name="libraryName"/> is already a dyld-style path
+    /// (<c>@rpath/...</c>, <c>@executable_path/...</c>, <c>@loader_path/...</c>, or an
+    /// absolute filesystem path) and should NOT have the
+    /// <c>@rpath/{name}.framework/{name}</c> prefix applied on top of it. Apple-framework
+    /// target bindings emit <c>[LibraryImport("@rpath/StoreKit.framework/StoreKit")]</c>
+    /// for direct metadata accessors, and those strings must be passed to dyld verbatim
+    /// rather than re-prefixed.
+    ///
+    /// We match the three dyld load-command tokens explicitly rather than accepting any
+    /// <c>@</c>-prefixed string, so a malformed input like <c>@foo/bar</c> falls through
+    /// to the normal framework-name search path (where it will fail cleanly) instead of
+    /// silently bypassing the standard resolver.
     /// </summary>
-    private static string[] GetSearchPaths(string libraryName) =>
+    internal static bool IsDyldStylePath(string libraryName) =>
+        libraryName.StartsWith("@rpath/", StringComparison.Ordinal)
+        || libraryName.StartsWith("@executable_path/", StringComparison.Ordinal)
+        || libraryName.StartsWith("@loader_path/", StringComparison.Ordinal)
+        || (libraryName.Length > 0 && libraryName[0] == '/');
+
+    /// <summary>
+    /// The search paths tried for a bare Swift module / framework name, in order.
+    /// </summary>
+    internal static string[] GetSearchPaths(string libraryName) =>
     [
         $"@rpath/{libraryName}.framework/{libraryName}",
         $"@rpath/lib{libraryName}.dylib",
@@ -92,9 +112,27 @@ public static class SwiftFrameworkResolver
         $"@executable_path/{libraryName}.dylib",
     ];
 
-    private static IntPtr ResolveSwiftFramework(
+    internal static IntPtr ResolveSwiftFramework(
         string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
     {
+        // If the caller already handed us a dyld-style path, try it verbatim and do
+        // NOT fall through to the prefix-based search. Prefixing @rpath/... with
+        // another @rpath/...framework/... would produce nonsense candidates, and the
+        // .NET default resolver still runs when we return IntPtr.Zero so system
+        // frameworks (already loaded as transitive dependencies of a wrapper dylib)
+        // can still resolve normally.
+        if (IsDyldStylePath(libraryName))
+        {
+            if (NativeLibrary.TryLoad(libraryName, out var directHandle))
+            {
+                Debug.WriteLine($"[SwiftFrameworkResolver] Loaded dyld-style '{libraryName}' directly");
+                return directHandle;
+            }
+
+            Debug.WriteLine($"[SwiftFrameworkResolver] Direct load failed for dyld-style '{libraryName}'; deferring to default resolution");
+            return IntPtr.Zero;
+        }
+
         foreach (var path in GetSearchPaths(libraryName))
         {
             if (NativeLibrary.TryLoad(path, out var handle))
@@ -120,6 +158,15 @@ public static class SwiftFrameworkResolver
     {
         var sb = new StringBuilder();
         sb.AppendLine($"SwiftFrameworkResolver diagnosis for '{libraryName}':");
+
+        if (IsDyldStylePath(libraryName))
+        {
+            var directLoaded = NativeLibrary.TryLoad(libraryName, out var directHandle);
+            sb.AppendLine($"  {(directLoaded ? "OK" : "FAIL")}  {libraryName}  (dyld-style path, tried verbatim)");
+            if (directLoaded)
+                NativeLibrary.Free(directHandle);
+            return sb.ToString().TrimEnd();
+        }
 
         foreach (var path in GetSearchPaths(libraryName))
         {

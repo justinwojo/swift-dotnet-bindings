@@ -141,6 +141,48 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+
+  <!-- Session 5 StoreKit 2 smoke test (Apple-framework direct-mode pipeline).
+       Optional: gated on the Session 4 artifacts existing at /tmp/storekit2-session4.
+       When present, we reference StoreKit.Swift.iOS.dll as a managed reference and
+       embed StoreKitSwiftBindings.xcframework as a native framework. The test class
+       itself is wrapped in #if STOREKIT_SMOKE so it simply disappears when the
+       artifacts are missing (CI runs, fresh checkouts, etc.) — this keeps the gate
+       zero-regression. To regenerate the artifacts, see the Session 4 reproducer in
+       src/docs/0.8.0-storekit2-exploration.md. Simulator-only for now; the xcframework
+       currently ships a single simulator slice. -->
+  <PropertyGroup>
+    <!-- Root directory for Session 4's StoreKit 2 direct-mode artifacts. Override by
+         setting $(StoreKitSmokeRoot) in the environment or on the dotnet CLI:
+           dotnet build -p:StoreKitSmokeRoot=/path/to/storekit2-session4
+         The default matches the reproducer command in the Session 4 doc. -->
+    <StoreKitSmokeRoot Condition="'$(StoreKitSmokeRoot)' == ''">/tmp/storekit2-session4</StoreKitSmokeRoot>
+    <StoreKitSmokeDll>$(StoreKitSmokeRoot)/bin/Debug/net10.0-ios/StoreKit.Swift.iOS.dll</StoreKitSmokeDll>
+    <StoreKitSmokeXcframework>$(StoreKitSmokeRoot)/StoreKitSwiftBindings.xcframework</StoreKitSmokeXcframework>
+    <StoreKitSmokeEnabled Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(StoreKitSmokeDll)') AND Exists('$(StoreKitSmokeXcframework)/ios-arm64-simulator')">true</StoreKitSmokeEnabled>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);STOREKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(StoreKitSmokeEnabled)' == 'true'">
+    <!-- Extern alias "StoreKitSwift": Microsoft.iOS's StoreKit ObjC bindings already
+         provide a StoreKit.AppStore type, so a default-aliased reference collides
+         (CS0433). The smoke test code picks Swift types via the StoreKitSwift alias.
+         NOTE: Do NOT add "global" to <Aliases>. Tried that during session 5 review
+         and it caused a Mono startup SIGABRT in load_aot_module during
+         xamarin_bridge_initialize — presumably the Microsoft.iOS ObjC type registrar
+         walks every globally-visible type and collides with the Swift-side
+         StoreKit.AppStore. The extern-alias-only binding hides these types from
+         default discovery, which is exactly the point. -->
+    <Reference Include="StoreKit.Swift.iOS">
+      <HintPath>$(StoreKitSmokeDll)</HintPath>
+      <Private>true</Private>
+      <Aliases>StoreKitSwift</Aliases>
+    </Reference>
+    <NativeReference Include="$(StoreKitSmokeXcframework)">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">
