@@ -1209,7 +1209,9 @@ namespace BindingsGeneration
         {
             var simSliceId = slice?.SliceId ?? "ios-arm64-simulator";
             var simPlatform = slice?.XCFrameworkPlatformString ?? "ios";
-            var simVariant = slice?.XCFrameworkPlatformVariant ?? "simulator";
+            // Only default to "simulator" when no slice is provided (backward compat).
+            // When a slice IS provided, use its actual variant (null for macOS/Catalyst device).
+            var simVariant = slice != null ? slice.XCFrameworkPlatformVariant : "simulator";
 
             var simVariantEntry = simVariant != null
                 ? $"""

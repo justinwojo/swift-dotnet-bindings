@@ -27,9 +27,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Props_SetsDefaultTargetFramework()
+        public void Props_DoesNotSetDefaultTargetFramework()
         {
-            Assert.Contains("net10.0-ios", PropsContent);
+            // No default TFM: consumers must declare TargetFramework or TargetFrameworks.
+            // A default conflicts with multi-TFM projects because Sdk.props evaluates
+            // before the project body where TargetFrameworks (plural) is set.
+            Assert.DoesNotContain("<TargetFramework Condition", PropsContent);
         }
 
         [Fact]
@@ -354,16 +357,14 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void Targets_PackTargetRunsBeforeGetPackageFiles()
+        public void Targets_PackTargetUsesPerTfmContentMechanism()
         {
-            // Critical: _ConfigureSwiftBindingPack must run before _GetPackageFiles,
-            // not GenerateNuspec. NuGet's pack pipeline collects None items during
-            // _GetPackageFiles (a DependsOnTargets of GenerateNuspec), which runs
-            // before any BeforeTargets="GenerateNuspec" targets fire. Without this,
-            // native xcframeworks and .targets files are added too late and missing
-            // from the .nupkg.
-            Assert.Contains("BeforeTargets=\"_GetPackageFiles\"", TargetsContent);
-            Assert.DoesNotContain("BeforeTargets=\"GenerateNuspec\"", TargetsContent);
+            // _ConfigureSwiftBindingPack is invoked per-TFM via TargetsForTfmSpecificContentInPackage
+            // (set in Sdk.props). It returns TfmSpecificPackageFile items which the .NET SDK's
+            // _WalkEachTargetPerFramework collects during multi-TFM pack. This replaces the
+            // old BeforeTargets="_GetPackageFiles" approach which only worked for single-TFM.
+            Assert.Contains("Returns=\"@(TfmSpecificPackageFile)\"", TargetsContent);
+            Assert.DoesNotContain("BeforeTargets=\"_GetPackageFiles\"", TargetsContent);
         }
 
         [Fact]

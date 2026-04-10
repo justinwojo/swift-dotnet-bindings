@@ -205,6 +205,10 @@ done; true"
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-macabi</_SwiftDigesterTarget>
+
+      <!-- Mac Catalyst frameworks live in the iOSSupport overlay under the macOS SDK.
+           swift-api-digester needs -F to resolve ObjC headers (e.g. UIKit) from that path. -->
+      <_SwiftDigesterExtraFlags Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">-F "$(_SwiftAppleFrameworkSdkPath)/System/iOSSupport/System/Library/Frameworks"</_SwiftDigesterExtraFlags>
     </PropertyGroup>
   </Target>
 
@@ -301,7 +305,7 @@ done; true"
           DependsOnTargets="_ComputeSwiftFingerprint;_ResolveAppleFrameworkPaths">
 
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
-          Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
+          Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; $(_SwiftDigesterExtraFlags) -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
   </Target>
 
@@ -329,6 +333,7 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
 
@@ -365,6 +370,106 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &lt;&
   &lt;/PropertyGroup&gt;
 &lt;/Project&gt;
 METAEOF"
+          StandardOutputImportance="low" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2e: Compile second wrapper slice for Apple-framework pack       -->
+  <!-- Apple-framework direct mode compiles one wrapper slice (default:       -->
+  <!-- simulator for iOS/tvOS). NuGet pack requires both device + simulator   -->
+  <!-- slices. This target compiles the other slice and rebuilds the           -->
+  <!-- xcframework with both via xcodebuild -create-xcframework.              -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_CompileAppleFrameworkSecondWrapperSlice"
+          AfterTargets="_GenerateSwiftBindingsAppleFramework"
+          DependsOnTargets="_GenerateSwiftBindingsAppleFramework">
+
+    <!-- Only fire for Apple-framework mode on platforms with simulators (iOS/tvOS),
+         when a wrapper was produced and the build is not up-to-date. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                              AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                              AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_AFW_WrapperModule>$(_SwiftAppleFrameworkModule)SwiftBindings</_AFW_WrapperModule>
+      <_AFW_XCF>$(_SwiftBindingIntermediateDir)$(_AFW_WrapperModule).xcframework</_AFW_XCF>
+      <_AFW_NeedsSecondSlice>false</_AFW_NeedsSecondSlice>
+      <!-- Check if the xcframework exists but only has one slice -->
+      <_AFW_NeedsSecondSlice Condition="Exists('$(_AFW_XCF)')">true</_AFW_NeedsSecondSlice>
+    </PropertyGroup>
+
+    <!-- Determine which slice we already have and which we need.
+         Default SwiftPlatformTarget for iOS/tvOS is 'simulator', so we need 'device'. -->
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <!-- Compute the "other" SDK and target triple -->
+      <_AFW_OtherSdk Condition="'$(_SwiftBindingPlatform)' == 'ios'">iphoneos</_AFW_OtherSdk>
+      <_AFW_OtherSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos'">appletvos</_AFW_OtherSdk>
+      <_AFW_OtherSdk Condition="'$(SwiftPlatformTarget)' != 'simulator'
+                                AND '$(_SwiftBindingPlatform)' == 'ios'">iphonesimulator</_AFW_OtherSdk>
+      <_AFW_OtherSdk Condition="'$(SwiftPlatformTarget)' != 'simulator'
+                                AND '$(_SwiftBindingPlatform)' == 'tvos'">appletvsimulator</_AFW_OtherSdk>
+
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_AFW_OtherTarget>
+
+      <!-- The slice directory name in the xcframework -->
+      <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' == 'simulator'">$(_SwiftBindingDeviceSliceId)</_AFW_OtherSliceId>
+      <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' != 'simulator'">$(_SwiftBindingSimulatorSliceId)</_AFW_OtherSliceId>
+    </PropertyGroup>
+
+    <!-- Resolve the SDK path for the other slice -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) --show-sdk-path 2>/dev/null"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_OtherSdkPath" />
+    </Exec>
+
+    <!-- Find the wrapper Swift source files -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 \( -name '*.Wrapper.swift' -o -name '*.Wrapper.Thunk.swift' \) | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_WrapperSwiftFiles" />
+    </Exec>
+
+    <!-- Build the second wrapper slice and merge both into a new xcframework.
+         The original xcframework stays intact until the merge succeeds, so a
+         failed compilation or merge doesn't leave the build in an unrecoverable
+         state — the next build attempt can retry cleanly. -->
+    <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+             Directories="$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework" />
+
+    <!-- Find the first slice's framework dir from the ORIGINAL xcframework (still in place) -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="find &quot;$(_AFW_XCF)&quot; -maxdepth 2 -name '$(_AFW_WrapperModule).framework' -type d | head -1"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_FirstSliceFramework" />
+    </Exec>
+
+    <!-- Compile wrapper for the second slice -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles)"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Merge both slices into a NEW staging xcframework (original still intact) -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="xcodebuild -create-xcframework -framework &quot;$(_AFW_FirstSliceFramework)&quot; -framework &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot;"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Merge succeeded — now swap: remove original, move merged into place -->
+    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+               Directories="$(_AFW_XCF)" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="mv &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot; &quot;$(_AFW_XCF)&quot;"
+          StandardOutputImportance="low" />
+
+    <!-- Clean up staging directory -->
+    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+               Directories="$(_SwiftBindingIntermediateDir)_merge_slices" />
+
+    <!-- Update binding-metadata.props with correct slice count -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="SLICES=`find &quot;$(_AFW_XCF)&quot; -maxdepth 1 -type d -name '*-*' | wc -l | tr -d ' '`; \
+sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperSliceCount&gt;%24SLICES|&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
           StandardOutputImportance="low" />
   </Target>
 
@@ -1101,23 +1206,22 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftBindingPackSlices"
           BeforeTargets="_ConfigureSwiftBindingPack"
-          Condition="'$(IsPackable)' == 'true' AND ('@(SwiftFramework)' != '' OR '$(_SwiftBindingTargetKind)' == 'AppleFramework') AND '$(SwiftFrameworkType)' != 'ObjC'">
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND ('@(SwiftFramework)' != '' OR '@(SwiftAppleFrameworkTarget)' != '') AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <!-- Guard 1: property check (only for platforms with simulator + device slices) -->
     <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '$(SwiftWrapperArchitectures)' != 'all' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'"
            Code="SWIFTBIND030"
            Text="NuGet packages require both device and simulator wrapper slices. Remove &lt;SwiftWrapperArchitectures&gt;simulator&lt;/SwiftWrapperArchitectures&gt; or set it to 'all' before packing." />
 
-    <!-- Apple-framework mode: direct mode doesn't support multi-arch, so packing
-         requires two separate builds merged. Blocked until Part F adds multi-slice support. -->
+    <!-- Apple-framework mode: _CompileAppleFrameworkSecondWrapperSlice handles
+         building the second slice. Validate that both slices actually exist. -->
     <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
                       AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
-                      AND '$(SwiftWrapperArchitectures)' != 'all'
                       AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                       AND (!Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingSimulatorSliceId)/')
                            OR !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/'))"
            Code="SWIFTBIND032"
-           Text="Apple-framework wrapper has only one slice ($(SwiftWrapperArchitectures)). NuGet packages require both device and simulator slices. Multi-slice Apple-framework packing is not yet supported. Set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+           Text="Apple-framework wrapper xcframework is missing device ($(_SwiftBindingDeviceSliceId)) or simulator ($(_SwiftBindingSimulatorSliceId)) slice after second-slice compilation. Investigate the _CompileAppleFrameworkSecondWrapperSlice target output." />
 
     <!-- Guard 2a: artifact check for platforms with simulator — verify both slice directories exist -->
     <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework'
@@ -1141,9 +1245,9 @@ done"
   <!-- Target 7b: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ConfigureSwiftBindingPack"
-          BeforeTargets="_GetPackageFiles"
           DependsOnTargets="_ImportSwiftBindingMetadata"
-          Condition="'$(IsPackable)' == 'true' AND ('@(SwiftFramework)' != '' OR '$(_SwiftBindingTargetKind)' == 'AppleFramework')">
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND ('@(SwiftFramework)' != '' OR '@(SwiftAppleFrameworkTarget)' != '')"
+          Returns="@(TfmSpecificPackageFile)">
 
     <!--
       Compute a version-qualified TFM for NuGet pack paths.
@@ -1167,27 +1271,28 @@ done"
            Code="SWIFTBIND035"
            Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0) or install the corresponding platform workload." />
 
-    <!-- Arrange NuGet pack layout -->
+    <!-- Arrange NuGet pack layout using TfmSpecificPackageFile for multi-TFM support.
+         In multi-TFM projects, the .NET SDK's _WalkEachTargetPerFramework target invokes
+         this target per-TFM via TargetsForTfmSpecificContentInPackage (set in Sdk.props)
+         and collects TfmSpecificPackageFile items. Using None+Pack=true only works in
+         single-TFM projects because _GetPackageFiles runs in the outer build context. -->
     <ItemGroup>
-      <None Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
-            Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
+            PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
       <!-- Source xcframework (xcframework mode only — Apple-framework mode has no source xcframework) -->
-      <None Include="%(SwiftFramework.Identity)/**"
-            Pack="true"
+      <TfmSpecificPackageFile Include="%(SwiftFramework.Identity)/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/"
             Condition="'@(SwiftFramework)' != ''" />
-      <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
-            Pack="true"
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
-      <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
-            Pack="true"
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
-      <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
-            Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
+            PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml')" />
     </ItemGroup>
   </Target>

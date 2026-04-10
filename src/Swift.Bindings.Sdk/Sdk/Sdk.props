@@ -2,7 +2,10 @@
   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-ios</TargetFramework>
+    <!-- No default TFM: consumers must declare TargetFramework or TargetFrameworks.
+         A default here would conflict with multi-TFM projects because Sdk.props is
+         evaluated before the project body (where TargetFrameworks is set).
+         The 'dotnet new swift-binding' template provides the default for new projects. -->
     <OutputType>Library</OutputType>
     <IsPackable>true</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -61,6 +64,11 @@
     <SwiftAutoDetectDependencies Condition="'$(SwiftAutoDetectDependencies)' == ''">true</SwiftAutoDetectDependencies>
     <!-- Apple-framework target mode: minimum deployment target for swift-api-digester -->
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
+
+    <!-- Register our pack target for per-TFM content collection.
+         This is how .NET SDK's NuGet pack discovers per-TFM pack items
+         in multi-TFM projects (via _WalkEachTargetPerFramework). -->
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_ConfigureSwiftBindingPack</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
   <!-- ObjC-only framework overrides: binding project, no Swift.Runtime, no unsafe -->
