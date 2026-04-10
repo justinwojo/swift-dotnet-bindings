@@ -119,6 +119,11 @@ public static class AsyncStreamEmitter
             selfReconstruction = $"    let __self = Unmanaged<{parentTypeName}>.fromOpaque(self_).takeUnretainedValue()\n";
         }
 
+        // Emit availability annotations from the member and ancestor chain.
+        // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+        var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, propertyDecl.ParentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
         var mainActorAnnotation = needsMainActor ? "@MainActor\n" : "";
         swiftWriter.WriteLines($$"""
             {{mainActorAnnotation}}@_cdecl("{{swiftWrapperName}}")

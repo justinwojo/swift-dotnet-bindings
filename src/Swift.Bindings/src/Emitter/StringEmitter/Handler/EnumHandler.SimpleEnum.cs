@@ -586,6 +586,11 @@ namespace BindingsGeneration
                 }
             }
 
+            // Emit availability annotations from the enum, member, and ancestor chain.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, enumDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
@@ -1000,6 +1005,11 @@ namespace BindingsGeneration
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
             var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
 
+            // Emit availability annotations from the enum, member, and ancestor chain.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, enumDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
             swiftWriter.Indent++;
@@ -1036,6 +1046,11 @@ namespace BindingsGeneration
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
             var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
+
+            // Emit availability annotations from the enum, member, and ancestor chain.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, enumDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}() -> {swiftReturnType} {{");
@@ -1086,6 +1101,11 @@ namespace BindingsGeneration
                     swiftParams.Add($"{label} {(!string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name)}: {swiftType}");
                 }
             }
+
+            // Emit availability annotations from the enum, member, and ancestor chain.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, enumDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");

@@ -435,6 +435,11 @@ public static class MethodGenericBridgeEmitter
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
+        // Emit availability annotations from the method and ancestor chain.
+        // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+        var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
         // Emit the wrapper function
         if (needsMainActor)
             swiftWriter.WriteLine("@MainActor");

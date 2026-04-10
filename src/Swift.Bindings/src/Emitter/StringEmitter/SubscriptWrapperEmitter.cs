@@ -318,6 +318,11 @@ public static class SubscriptWrapperEmitter
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
 
+        // Emit availability annotations from the member and ancestor chain.
+        // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+        var availability = WrapperEmitterHelpers.MergeAvailability(subscriptDecl.AvailabilityAnnotations, env.ParentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
         // Add @MainActor when wrapping @MainActor-isolated subscripts.
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated);
@@ -491,6 +496,11 @@ public static class SubscriptWrapperEmitter
             // Subscript setter @_cdecl wrapper for {{moduleQualifiedName}}.subscript.
             // Routes through C calling convention to avoid CallConvSwift crash on NativeAOT.
             """);
+
+        // Emit availability annotations from the member and ancestor chain.
+        // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+        var setterAvailability = WrapperEmitterHelpers.MergeAvailability(subscriptDecl.AvailabilityAnnotations, env.ParentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, setterAvailability);
 
         // Add @MainActor when wrapping @MainActor-isolated subscripts.
         bool needsMainActorSetter = WrapperValidation.NeedsMainActorAnnotation(

@@ -909,6 +909,14 @@ namespace BindingsGeneration
             swiftWriter.WriteLines($$"""
                 // Operator @_cdecl wrapper for {{moduleQualifiedSwiftName}}.{{symbol}}.
                 // Routes operator through C calling convention to avoid CallConvSwift crash on NativeAOT.
+                """);
+
+            // Emit availability annotations from the operator and ancestor chain.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(operatorDecl.AvailabilityAnnotations, parentDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
+            swiftWriter.WriteLines($$"""
                 @_cdecl("{{symbolName}}")
                 """);
 
