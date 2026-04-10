@@ -54,12 +54,15 @@ namespace BindingsGeneration
             if (candidatePInvokes.Count == 0)
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
 
+            // Build line → qualified type path map. Must be computed before
+            // BuildTypeProtectedMembers so both use the same qualified-path keys.
+            var lineToType = BuildLineToTypeMap(lines);
+
             // Step A2: Build per-type interface member protection.
             // If stripping a member would remove an interface implementation, the type
             // would fail to compile (CS0535). Scoped to the actual interfaces each type implements.
             var interfaceMembers = ParseInterfaceMembers(lines);
-            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers);
-            var lineToType = BuildLineToTypeMap(lines);
+            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers, lineToType);
 
             // Step A3: Exempt P/Invokes whose callers are non-strippable:
             // - DllNotFoundException fallback (GetMetadata pattern)
@@ -87,13 +90,18 @@ namespace BindingsGeneration
 
             // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes)
             var strippedCallerNames = new HashSet<string>();
-            FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals);
+            var callerNameToTypes = new Dictionary<string, HashSet<string>>();
+            FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
+                lineToType, callerNameToTypes);
 
-            // Step C: Find Level 2 forwarders (properties delegating to stripped helpers)
-            if (strippedCallerNames.Count > 0)
+            // Step C: Find Level 2 forwarders (properties delegating to stripped helpers).
+            // SCOPE-AWARE: Only strip callers within the same type scope as the original
+            // stripped member. Without this, a stripped "Id_Get" in TypeA would incorrectly
+            // strip "Id_Get" references in TypeB/TypeC/etc. (property helper names like
+            // "Id_Get" are not globally unique — multiple types can have properties named "id").
+            foreach (var (callerName, types) in callerNameToTypes)
             {
-                var _ = new HashSet<string>();
-                FindAndMarkCallers(lines, strippedCallerNames, _, removals);
+                FindAndMarkCallersInScopes(lines, callerName, types, lineToType, removals);
             }
 
             // Step D: Strip orphaned lazy field accessors.
@@ -256,7 +264,8 @@ namespace BindingsGeneration
         /// against the parsed interface declarations.
         /// </summary>
         private static Dictionary<string, HashSet<string>> BuildTypeProtectedMembers(
-            List<string> lines, Dictionary<string, HashSet<string>> interfaceMembers)
+            List<string> lines, Dictionary<string, HashSet<string>> interfaceMembers,
+            string?[]? lineToType = null)
         {
             if (interfaceMembers.Count == 0)
                 return new Dictionary<string, HashSet<string>>();
@@ -271,7 +280,22 @@ namespace BindingsGeneration
                 if (!trimmed.Contains(':'))
                     continue;
 
-                var typeName = ExtractTypeName(trimmed);
+                // Use qualified path from lineToType when available, leaf name as fallback.
+                // lineToType may not have the value for this exact line yet (the opening
+                // brace is on the next line), so scan forward a few lines.
+                string? typeName = null;
+                if (lineToType != null)
+                {
+                    for (int scan = i; scan < Math.Min(i + 3, lineToType.Length); scan++)
+                    {
+                        if (lineToType[scan] != null)
+                        {
+                            typeName = lineToType[scan];
+                            break;
+                        }
+                    }
+                }
+                typeName ??= ExtractTypeName(trimmed);
                 if (typeName == null) continue;
 
                 // Extract interface names from the declaration after ':'
@@ -307,8 +331,9 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds a line → containing type name map via forward brace-depth tracking.
-        /// Handles nested types correctly (innermost type wins).
+        /// Builds a line → containing type path map via forward brace-depth tracking.
+        /// Uses fully qualified dot-joined paths (e.g., "Transaction.AsyncIterator") so that
+        /// nested types with the same leaf name in different parents are distinguishable.
         /// </summary>
         private static string?[] BuildLineToTypeMap(List<string> lines)
         {
@@ -316,6 +341,9 @@ namespace BindingsGeneration
             var typeStack = new Stack<(string name, int openDepth)>();
             int depth = 0;
             string? pendingType = null;
+            // Cache the current qualified path; rebuild when the stack changes.
+            string? currentPath = null;
+            bool pathDirty = false;
 
             for (int i = 0; i < lines.Count; i++)
             {
@@ -338,6 +366,7 @@ namespace BindingsGeneration
                         {
                             typeStack.Push((pendingType, depth));
                             pendingType = null;
+                            pathDirty = true;
                         }
                     }
                     else if (c == '}')
@@ -345,11 +374,22 @@ namespace BindingsGeneration
                         depth--;
                         // Pop types whose scope has closed (openDepth > current depth)
                         while (typeStack.Count > 0 && typeStack.Peek().openDepth > depth)
+                        {
                             typeStack.Pop();
+                            pathDirty = true;
+                        }
                     }
                 }
 
-                map[i] = typeStack.Count > 0 ? typeStack.Peek().name : null;
+                if (pathDirty)
+                {
+                    currentPath = typeStack.Count > 0
+                        ? string.Join(".", typeStack.Reverse().Select(t => t.name))
+                        : null;
+                    pathDirty = false;
+                }
+
+                map[i] = currentPath;
             }
 
             return map;
@@ -565,7 +605,9 @@ namespace BindingsGeneration
 
         private static void FindAndMarkCallers(
             List<string> lines, HashSet<string> targetNames,
-            HashSet<string> foundCallerNames, HashSet<int> removals)
+            HashSet<string> foundCallerNames, HashSet<int> removals,
+            string?[]? lineToType = null,
+            Dictionary<string, HashSet<string>>? callerNameToTypes = null)
         {
             int i = 0;
             while (i < lines.Count)
@@ -624,7 +666,27 @@ namespace BindingsGeneration
                 var memberName = ExtractMemberName(trimmed);
                 if (memberName != null && (IsPropertyHelperName(memberName) ||
                     memberName.StartsWith("CreateSwiftInstance_", StringComparison.Ordinal)))
+                {
                     foundCallerNames.Add(memberName);
+
+                    // Track which type scope this caller belongs to, so Step C can
+                    // restrict Level 2 stripping to the same scope. Without this,
+                    // "Id_Get" stripped in PaymentMethodBinding would also strip
+                    // "Id_Get" in Transaction, Storefront, etc.
+                    if (lineToType != null && callerNameToTypes != null)
+                    {
+                        var containingType = i < lineToType.Length ? lineToType[i] : null;
+                        if (containingType != null)
+                        {
+                            if (!callerNameToTypes.TryGetValue(memberName, out var types))
+                            {
+                                types = new HashSet<string>();
+                                callerNameToTypes[memberName] = types;
+                            }
+                            types.Add(containingType);
+                        }
+                    }
+                }
 
                 // Mark for removal (including preamble: attributes, doc comments)
                 int preambleStart = ScanBackwardForPreamble(lines, i);
@@ -1305,9 +1367,9 @@ namespace BindingsGeneration
             var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn, bool isProperty, bool propertySetter)>();
 
             // Build interface member protection (same as main co-gater)
-            var interfaceMembers = ParseInterfaceMembers(lines);
-            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers);
             var lineToType = BuildLineToTypeMap(lines);
+            var interfaceMembers = ParseInterfaceMembers(lines);
+            var typeProtectedMembers = BuildTypeProtectedMembers(lines, interfaceMembers, lineToType);
 
             // Find method bodies that construct suppressed proxy classes.
             // Pattern: "new {ProxyClassName}(" in a method/property body.

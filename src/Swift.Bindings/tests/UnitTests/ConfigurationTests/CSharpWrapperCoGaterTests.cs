@@ -401,6 +401,111 @@ namespace BindingsGeneration.Tests
             // The property references Name_Set, so it's removed entirely
             Assert.DoesNotContain("public string Name", result.Content);
         }
+        [Fact]
+        public void Process_CrossScopeHelperName_DoesNotStripOtherTypes()
+        {
+            // When a property is stripped in TypeA, the helper name (e.g., "Id_Get")
+            // must NOT cause properties with the same helper name in TypeB to be stripped.
+            // This tests the scope-aware Level 2 stripping fix.
+            var input =
+                "namespace Test {\n" +
+                "public partial class TypeA {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_TypeA_id\")]\n" +
+                "    private static partial void PInvoke_id_Get_AAA(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "    private string Id_Get()\n" +
+                "    {\n" +
+                "        return PInvoke_id_Get_AAA(resultPtr, selfPtr);\n" +
+                "    }\n" +
+                "\n" +
+                "    public string Id\n" +
+                "    {\n" +
+                "        get => Id_Get();\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_TypeB_id\")]\n" +
+                "    private static partial void PInvoke_id_Get_BBB(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "    private ulong Id_Get()\n" +
+                "    {\n" +
+                "        return PInvoke_id_Get_BBB(selfPtr);\n" +
+                "    }\n" +
+                "\n" +
+                "    public ulong Id\n" +
+                "    {\n" +
+                "        get => Id_Get();\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            // Only TypeA's wrapper symbol is stripped
+            var stripped = new HashSet<string> { "SBW_Get_TypeA_id" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // TypeA: all three (P/Invoke, helper, property) should be removed
+            Assert.DoesNotContain("SBW_Get_TypeA_id", result.Content);
+            Assert.DoesNotContain("PInvoke_id_Get_AAA", result.Content);
+
+            // TypeB: all three should be PRESERVED (its wrapper was not stripped)
+            Assert.Contains("SBW_Get_TypeB_id", result.Content);
+            Assert.Contains("PInvoke_id_Get_BBB", result.Content);
+            Assert.Contains("public ulong Id", result.Content);
+        }
+
+        [Fact]
+        public void Process_NestedTypeSameLeafName_DoesNotStripOtherParent()
+        {
+            // Two nested types share the same leaf name ("Inner") under different parents.
+            // Stripping a property in OuterA.Inner must NOT affect OuterB.Inner.
+            var input =
+                "namespace Test {\n" +
+                "public partial class OuterA {\n" +
+                "    public partial class Inner {\n" +
+                "        [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_OuterA_Inner_name\")]\n" +
+                "        private static partial void PInvoke_name_Get_111(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "        private string Name_Get()\n" +
+                "        {\n" +
+                "            return PInvoke_name_Get_111(resultPtr, selfPtr);\n" +
+                "        }\n" +
+                "\n" +
+                "        public string Name\n" +
+                "        {\n" +
+                "            get => Name_Get();\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class OuterB {\n" +
+                "    public partial class Inner {\n" +
+                "        [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_OuterB_Inner_name\")]\n" +
+                "        private static partial void PInvoke_name_Get_222(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "        private string Name_Get()\n" +
+                "        {\n" +
+                "            return PInvoke_name_Get_222(resultPtr, selfPtr);\n" +
+                "        }\n" +
+                "\n" +
+                "        public string Name\n" +
+                "        {\n" +
+                "            get => Name_Get();\n" +
+                "        }\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            // Only OuterA.Inner's wrapper is stripped
+            var stripped = new HashSet<string> { "SBW_Get_OuterA_Inner_name" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // OuterA.Inner: stripped
+            Assert.DoesNotContain("SBW_Get_OuterA_Inner_name", result.Content);
+            Assert.DoesNotContain("PInvoke_name_Get_111", result.Content);
+
+            // OuterB.Inner: preserved
+            Assert.Contains("SBW_Get_OuterB_Inner_name", result.Content);
+            Assert.Contains("PInvoke_name_Get_222", result.Content);
+            // Verify the property in OuterB.Inner survived
+            Assert.Contains("public string Name", result.Content);
+        }
     }
 
     #endregion
