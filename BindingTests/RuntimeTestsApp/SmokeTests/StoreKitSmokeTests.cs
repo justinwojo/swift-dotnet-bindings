@@ -35,14 +35,11 @@ public class StoreKitSmokeTests : TestBase
     /// runs inside the wrapper, calls <c>StoreKit.AppStore.canMakePayments</c> on the
     /// real StoreKit 2 API, and returns a plain <c>bool</c>.
     ///
-    /// We specifically picked a primitive-return accessor rather than
-    /// <c>AppStore.deviceVerificationID</c> (the originally planned candidate) because
-    /// the latter returns <c>SwiftOptional&lt;System.Guid&gt;</c> whose cctor reaches
-    /// <c>TypeMetadata.GetTypeMetadataOrThrow&lt;System.Guid&gt;()</c>, and
-    /// <c>System.Guid → Foundation.UUID</c> is currently only mapped at generator time
-    /// (<c>FoundationDatabase.xml</c>) — there is no runtime <c>RegisterMetadata</c>
-    /// call for it. That's an orthogonal Swift.Runtime gap that deserves its own
-    /// follow-up session; this smoke test exists solely to verify the resolver chain.
+    /// We picked a primitive-return accessor to isolate the resolver chain from
+    /// other concerns. <c>AppStore.deviceVerificationID</c> (which returns
+    /// <c>SwiftOptional&lt;System.Guid&gt;</c>) is now covered by
+    /// <see cref="TestAppStoreDeviceVerificationID"/> after the Foundation.UUID
+    /// metadata registration gap was fixed.
     ///
     /// The value itself is allowed to be either true or false — an iOS Simulator with
     /// no StoreKit configuration legitimately reports <c>false</c>. The assertion is
@@ -78,6 +75,49 @@ public class StoreKitSmokeTests : TestBase
     }
 
     /// <summary>
+    /// Validates that the Foundation.UUID metadata registration gap is fixed:
+    /// <c>AppStore.deviceVerificationID</c> returns <c>SwiftOptional&lt;System.Guid&gt;</c>,
+    /// which previously crashed in <c>TypeMetadata.GetTypeMetadataOrThrow&lt;Guid&gt;()</c>
+    /// because <c>System.Guid → Foundation.UUID</c> was only mapped at generator time
+    /// (<c>FoundationDatabase.xml</c>) with no corresponding runtime <c>RegisterMetadata</c>.
+    /// Now resolved via <c>SwiftBindingsRuntime.SBW_UUID_GetMetadata</c> called from
+    /// <c>TryGetFoundationMetadata</c> in <c>TypeMetadata.cs</c>.
+    ///
+    /// On a fresh simulator with no StoreKit configuration, <c>deviceVerificationID</c>
+    /// returns <c>nil</c> (SwiftOptional.None). That's a valid pass — the assertion is
+    /// "the call completed without SwiftRuntimeException / DllNotFoundException".
+    /// </summary>
+    public void TestAppStoreDeviceVerificationID()
+    {
+        // The property getter creates SwiftOptional<System.Guid> internally (triggering
+        // Foundation.UUID metadata resolution via SBW_UUID_GetMetadata) then converts
+        // to Guid? for the public API.
+        try
+        {
+            Guid? deviceVerificationID = StoreKitSwift::StoreKit.AppStore.DeviceVerificationID;
+            if (deviceVerificationID.HasValue)
+                TestLogger.Info($"StoreKit.AppStore.DeviceVerificationID = {deviceVerificationID.Value}");
+            else
+                TestLogger.Info("StoreKit.AppStore.DeviceVerificationID = nil (expected on fresh simulator)");
+            AssertTrue(true, "AppStore.DeviceVerificationID resolved SwiftOptional<Guid> without SwiftRuntimeException");
+        }
+        catch (System.Exception ex)
+        {
+            var inner = ex;
+            var depth = 0;
+            while (inner != null)
+            {
+                TestLogger.Info($"  [ex{depth}] {inner.GetType().FullName}: {inner.Message}");
+                if (inner.StackTrace != null)
+                    TestLogger.Info($"  [ex{depth}] stack: {inner.StackTrace}");
+                inner = inner.InnerException;
+                depth++;
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Session 6 end-to-end smoke test for StoreKit 2's async-sequence path through
     /// the Apple-framework direct-mode pipeline. Pivots to <c>Transaction.unfinished</c>
     /// rather than the headline <c>Transaction.updates</c> for two independent reasons,
@@ -97,16 +137,13 @@ public class StoreKitSmokeTests : TestBase
     ///      entry point — exercising it validates the entire async-iterator wrapper
     ///      code path that <c>Transaction.updates</c> would also use.
     ///
-    ///   2. <b>Foreign value-type metadata gap (Session 5 hazard, dodged here):</b>
+    ///   2. <b>Foreign value-type metadata gap (Session 5 hazard, now fixed):</b>
     ///      <c>VerificationResult&lt;Transaction&gt;</c> exposes <c>UUID</c>/<c>Date</c>
-    ///      fields whose runtime <c>RegisterMetadata</c> calls are missing. We avoid
-    ///      tripping the gap by NOT dereferencing any instance properties on the
-    ///      yielded results — the test only counts iterations and verifies the
-    ///      iterator empty-completes. The static initializers for <c>Transactions</c>,
-    ///      <c>AsyncIterator</c>, and <c>VerificationResult&lt;TSignedType&gt;</c>
-    ///      themselves do NOT touch <c>SwiftOptional&lt;Guid&gt;</c> /
-    ///      <c>SwiftOptional&lt;DateTime&gt;</c>, so loading and iterating the
-    ///      sequence is safe — only field access on the yielded result would crash.
+    ///      fields whose runtime <c>RegisterMetadata</c> calls were previously missing.
+    ///      The Foundation.UUID metadata registration gap is now resolved via
+    ///      <c>SwiftBindingsRuntime.SBW_UUID_GetMetadata</c>. We still avoid
+    ///      dereferencing instance properties on yielded results because this test
+    ///      focuses on the async-iterator lifecycle, not individual field access.
     ///
     /// On a fresh iOS Simulator with no purchases, <c>Transaction.unfinished</c>
     /// empty-completes immediately (zero VerificationResults yielded, then nil).

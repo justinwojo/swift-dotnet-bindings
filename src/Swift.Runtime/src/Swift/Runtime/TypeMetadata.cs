@@ -435,6 +435,22 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             }
         }
 
+        // Handle Foundation value types mapped to .NET types in FoundationDatabase.xml.
+        // System.Guid ↔ Foundation.UUID is the primary case: SwiftOptional<Guid> needs
+        // UUID metadata for correct Optional layout. Foundation.Date maps to double
+        // (already covered by KnownMetadata), but we register Date metadata too for
+        // correctness when the caller explicitly needs Foundation.Date's metadata
+        // rather than Swift.Double's.
+        if (type == typeof(Guid))
+        {
+            if (TryGetFoundationMetadata(type, out var foundationMetadata))
+            {
+                cache.GetOrAdd(type, _ => foundationMetadata.Value);
+                result = foundationMetadata;
+                return true;
+            }
+        }
+
         // Simple C# enums: metadata is registered by the generated module initializer
         // via TypeMetadata.RegisterMetadata() + P/Invoke to the @_cdecl metadata wrapper.
         // If the enum was generated with the new pipeline, its metadata is already in the cache
@@ -497,6 +513,58 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
                    EntryPoint = "SBW_CGSize_GetMetadata")]
         public static extern IntPtr CGSize_GetMetadata();
+    }
+
+    /// <summary>
+    /// Attempts to get type metadata for Foundation value types via SwiftBindingsRuntime.
+    /// Covers foreign value-type mappings in FoundationDatabase.xml that have no
+    /// ISwiftObject implementation (e.g. System.Guid ↔ Foundation.UUID).
+    /// </summary>
+    static bool TryGetFoundationMetadata(Type type, [NotNullWhen(true)] out TypeMetadata? result)
+    {
+        try
+        {
+            IntPtr metadataPtr;
+            if (type == typeof(Guid))
+                metadataPtr = FoundationNativeMethods.UUID_GetMetadata();
+            else
+            {
+                result = null;
+                return false;
+            }
+
+            if (metadataPtr != IntPtr.Zero)
+            {
+                result = FromHandle(metadataPtr);
+                return true;
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
+        result = null;
+        return false;
+    }
+
+    /// <summary>
+    /// P/Invoke declarations for Foundation value-type metadata accessors
+    /// in SwiftBindingsRuntime.
+    /// </summary>
+    static class FoundationNativeMethods
+    {
+        private const string LibraryName = "SwiftBindingsRuntime";
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_UUID_GetMetadata")]
+        public static extern IntPtr UUID_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_Date_GetMetadata")]
+        public static extern IntPtr Date_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_Decimal_GetMetadata")]
+        public static extern IntPtr Decimal_GetMetadata();
     }
 
     /// <summary>

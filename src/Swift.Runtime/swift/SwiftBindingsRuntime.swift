@@ -313,3 +313,30 @@ public func sbw_cgRectGetMetadata() -> UnsafeMutableRawPointer {
 public func sbw_cgSizeGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(CGSize.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
+
+// MARK: - Foundation Value-Type Metadata
+//
+// Foundation value types mapped to .NET primitives in FoundationDatabase.xml
+// (e.g. System.Guid ↔ Foundation.UUID) need runtime metadata registration so
+// SwiftOptional<T> can obtain the correct Optional layout. Unlike CoreGraphics
+// types, Foundation.UUID's metadata accessor IS exported, but we use @_cdecl
+// wrappers for consistency with the CG pattern and to avoid CallConvSwift
+// complications when calling the metadata accessor directly.
+
+/// Returns the type metadata pointer for Foundation.UUID.
+@_cdecl("SBW_UUID_GetMetadata")
+public func sbw_uuidGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(UUID.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for Foundation.Date.
+@_cdecl("SBW_Date_GetMetadata")
+public func sbw_dateGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(Date.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for Foundation.Decimal.
+@_cdecl("SBW_Decimal_GetMetadata")
+public func sbw_decimalGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(Decimal.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
