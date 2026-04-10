@@ -59,6 +59,8 @@
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
     <!-- Auto-detect framework dependencies from binary linkage (set to false to disable) -->
     <SwiftAutoDetectDependencies Condition="'$(SwiftAutoDetectDependencies)' == ''">true</SwiftAutoDetectDependencies>
+    <!-- Apple-framework target mode: minimum deployment target for swift-api-digester -->
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
   </PropertyGroup>
 
   <!-- ObjC-only framework overrides: binding project, no Swift.Runtime, no unsafe -->

@@ -90,6 +90,7 @@ Remaining:
 | **Performance benchmarks** | Baseline P/Invoke overhead measurement. [`Future/interop-performance-validation-plan.md`](Future/interop-performance-validation-plan.md) |
 | **Bulk retain/release helpers for collections** | Replace per-element `DangerousAddRef`/`DangerousRelease` + P/Invoke loops in `SwiftArray`, `SwiftDictionary`, `SwiftSet` with Swift-side batch helpers (e.g. `SBW_RetainMany`/`SBW_ReleaseMany`) in the SwiftBindingsRuntime library. Cuts managed↔native transition cost on large collections. Low-medium effort, high perf impact. |
 | **API snapshot tooling** | Detect API surface drift between versions. [`Future/api-snapshot-tooling.md`](Future/api-snapshot-tooling.md) |
+| **`dotnet new swift-binding --apple-framework` template** | Add `--apple-framework <Name>` option (or a separate template choice) to `SwiftBindings.Templates` that scaffolds a project with `<SwiftAppleFrameworkTarget>` instead of `<SwiftFramework>`. Required for 0.8.0 ship — the template must support the new Apple-framework SDK mode so users can `dotnet new swift-binding --apple-framework StoreKit` and get a working project. Ship alongside `SwiftBindings.Sdk 0.8.0` + `SwiftBindings.Templates 0.8.0`. |
 | **SwiftUI beyond current level** | Wait for consumer feedback before investing further |
 | **Custom actor types** | Niche — requires async dispatch through actor's serial executor |
 | **Property wrappers / KeyPaths** | Low frequency in public API surfaces |

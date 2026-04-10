@@ -9,6 +9,22 @@
   </PropertyGroup>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 0a: Detect Apple-framework target mode                          -->
+  <!-- MSBuild prohibits @(Item) in PropertyGroup Conditions outside Targets  -->
+  <!-- (MSB4099). This target sets _SwiftBindingTargetKind at execution time;  -->
+  <!-- downstream targets use task-level Conditions (not Target-level).        -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_DetectSwiftBindingTargetKind" BeforeTargets="_ValidateSwiftPackageItems;_DiscoverSwiftFrameworks;_ResolveAppleFrameworkPaths;_ComputeSwiftFingerprint">
+    <PropertyGroup Condition="'@(SwiftAppleFrameworkTarget)' != ''">
+      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+      <!-- Direct mode doesn't support multi-arch wrapper (single -s swiftinterface).
+           Override the default 'all' to the active platform target. -->
+      <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == 'all' AND '$(SwiftPlatformTarget)' != ''">$(SwiftPlatformTarget)</SwiftWrapperArchitectures>
+      <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == 'all' AND '$(SwiftPlatformTarget)' == ''">device</SwiftWrapperArchitectures>
+    </PropertyGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 0: Validate no SwiftPackage items (v2 stub)                     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftPackageItems" BeforeTargets="_DiscoverSwiftFrameworks">
@@ -18,6 +34,14 @@
     <Error Condition="'@(SwiftPackage)' != ''"
            Code="SWIFTBIND100"
            Text="SwiftPackage items are not yet supported. Use SwiftFramework items with a pre-built xcframework." />
+
+    <Error Condition="'@(SwiftAppleFrameworkTarget)' != '' AND '@(SwiftFramework)' != ''"
+           Code="SWIFTBIND011"
+           Text="SwiftAppleFrameworkTarget and SwiftFramework cannot be used in the same project. Use one or the other." />
+
+    <Error Condition="@(SwiftAppleFrameworkTarget->Count()) &gt; 1"
+           Code="SWIFTBIND015"
+           Text="The SDK supports one Apple framework per project. Found: @(SwiftAppleFrameworkTarget, ', '). Create separate binding projects for each framework." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -27,24 +51,24 @@
     <!-- Auto-discover only if user hasn't declared any.
          Uses find -type d because *.xcframework are directories, not files,
          and MSBuild glob patterns only match files. -->
-    <Exec Condition="'@(SwiftFramework)' == ''"
+    <Exec Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '@(SwiftFramework)' == ''"
           Command="find &quot;$(MSBuildProjectDirectory)&quot; -maxdepth 1 -type d -name '*.xcframework' 2>/dev/null || true"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="SwiftFramework" />
     </Exec>
 
-    <!-- Validation: no frameworks found -->
-    <Error Condition="'@(SwiftFramework)' == ''"
+    <!-- Validation: no frameworks found (skip in Apple-framework mode) -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '@(SwiftFramework)' == ''"
            Code="SWIFTBIND001"
            Text="No xcframework found. Copy an xcframework into the project directory or add &lt;SwiftFramework Include=&quot;path/to/Library.xcframework&quot; /&gt;." />
 
     <!-- Validation: multiple auto-discovered frameworks (v1 supports one per project) -->
-    <Error Condition="@(SwiftFramework->Count()) &gt; 1"
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND @(SwiftFramework->Count()) &gt; 1"
            Code="SWIFTBIND002"
            Text="The SDK supports one xcframework per project. Found: @(SwiftFramework, ', '). Create separate binding projects for each xcframework." />
 
     <!-- Validation: xcframework path exists -->
-    <Error Condition="!Exists('%(SwiftFramework.Identity)')"
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND !Exists('%(SwiftFramework.Identity)')"
            Code="SWIFTBIND003"
            Text="xcframework not found: '%(SwiftFramework.Identity)'." />
   </Target>
@@ -79,7 +103,8 @@
     <!-- Shell variables use %24 (MSBuild percent-escape for $) to avoid
          MSBuild property evaluation of $VAR patterns. Same pattern as
          _ResolveSwiftAutoDetectedDependencies. -->
-    <Exec Command="EXPLICIT=&quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;; \
+    <Exec Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework'"
+          Command="EXPLICIT=&quot;@(SwiftFrameworkDependency->'%(Filename)', ';')&quot;; \
 echo &quot;@(_UserProjectReference->'%(RootDir)%(Directory)', '%0A')&quot; | while IFS= read -r DIR; do \
   [ -z &quot;%24DIR&quot; ] &amp;&amp; continue; \
   find &quot;%24DIR&quot; -maxdepth 1 -type d -name '*.xcframework' 2>/dev/null | while IFS= read -r XCF; do \
@@ -91,6 +116,96 @@ done; true"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" ItemName="_AutoFrameworkDependency" />
     </Exec>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 1c: Resolve Apple-framework SDK paths                           -->
+  <!-- Discovers Xcode SDK path, swiftinterface, and TBD for the module.      -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ResolveAppleFrameworkPaths"
+          BeforeTargets="_ComputeSwiftFingerprint"
+          DependsOnTargets="_DetectSwiftBindingTargetKind">
+
+    <!-- All tasks gated on AppleFramework mode (task-level, not target-level,
+         because _SwiftBindingTargetKind is set at execution time). -->
+
+    <!-- Default metadata: Module defaults to Include, LibraryPath defaults to @rpath pattern.
+         Use Condition on child elements (not Update) to avoid MSB4096 batching issues
+         with metadata that may not yet be defined on all items. -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <SwiftAppleFrameworkTarget Update="@(SwiftAppleFrameworkTarget)">
+        <Module Condition="'%(SwiftAppleFrameworkTarget.Module)' == ''">%(Identity)</Module>
+      </SwiftAppleFrameworkTarget>
+    </ItemGroup>
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <SwiftAppleFrameworkTarget Update="@(SwiftAppleFrameworkTarget)">
+        <LibraryPath Condition="'%(SwiftAppleFrameworkTarget.LibraryPath)' == ''">@rpath/%(SwiftAppleFrameworkTarget.Module).framework/%(SwiftAppleFrameworkTarget.Module)</LibraryPath>
+        <MinDeploymentVersion Condition="'%(SwiftAppleFrameworkTarget.MinDeploymentVersion)' == ''">$(SwiftAppleFrameworkMinDeploymentVersion)</MinDeploymentVersion>
+      </SwiftAppleFrameworkTarget>
+    </ItemGroup>
+
+    <!-- Compute xcrun SDK name from platform + target -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">iphonesimulator</_SwiftXcrunSdk>
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">iphoneos</_SwiftXcrunSdk>
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">appletvsimulator</_SwiftXcrunSdk>
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">appletvos</_SwiftXcrunSdk>
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'macos'">macosx</_SwiftXcrunSdk>
+      <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">macosx</_SwiftXcrunSdk>
+    </PropertyGroup>
+
+    <!-- Resolve Xcode SDK path -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
+          Command="xcrun --sdk $(_SwiftXcrunSdk) --show-sdk-path 2>/dev/null"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftAppleFrameworkSdkPath" />
+    </Exec>
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND ('$(_SwiftAppleFrameworkSdkPath)' == '' OR !Exists('$(_SwiftAppleFrameworkSdkPath)'))"
+           Code="SWIFTBIND012"
+           Text="Cannot resolve Xcode SDK path for '$(_SwiftXcrunSdk)'. Install Xcode or set the active developer directory with xcode-select." />
+
+    <!-- Compute swiftinterface slice name.
+         Device SDK ships arm64e-apple-ios.swiftinterface;
+         Simulator SDK ships arm64-apple-ios-simulator.swiftinterface. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-ios</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-tvos</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64e-apple-macos</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64e-apple-ios-macabi</_SwiftInterfaceSlice>
+    </PropertyGroup>
+
+    <!-- Resolve swiftinterface and TBD paths.
+         Mac Catalyst frameworks live under System/iOSSupport/System/Library/Frameworks/,
+         not System/Library/Frameworks/ (the macOS SDK hosts them in the iOSSupport overlay). -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftAppleFrameworkModule>%(SwiftAppleFrameworkTarget.Module)</_SwiftAppleFrameworkModule>
+      <_SwiftAppleFrameworkSdkSubpath Condition="'$(_SwiftBindingPlatform)' != 'maccatalyst'">System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
+      <_SwiftAppleFrameworkSdkSubpath Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">System/iOSSupport/System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
+      <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
+      <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
+      <_SwiftAppleFrameworkTbd>$(_SwiftAppleFrameworkDir)/$(_SwiftAppleFrameworkModule).tbd</_SwiftAppleFrameworkTbd>
+    </PropertyGroup>
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND !Exists('$(_SwiftAppleFrameworkDir)')"
+           Code="SWIFTBIND013"
+           Text="Apple framework '$(_SwiftAppleFrameworkModule)' not found in SDK at '$(_SwiftAppleFrameworkDir)'. Verify the framework name and Xcode version." />
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND !Exists('$(_SwiftAppleFrameworkInterface)')"
+           Code="SWIFTBIND014"
+           Text="Swift interface not found at '$(_SwiftAppleFrameworkInterface)'. The framework may not have a Swift module for this platform/architecture." />
+
+    <!-- Compute swift-api-digester target triple -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-macabi</_SwiftDigesterTarget>
+    </PropertyGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -113,7 +228,9 @@ done; true"
       Shell pipeline because framework binaries have no extension (*.dylib glob misses them).
       Sorted for deterministic output regardless of filesystem traversal order.
     -->
-    <Exec Command="(
+    <!-- XCFramework mode fingerprint -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework'"
+          Command="(
       find &quot;%(SwiftFramework.Identity)&quot; \( \
         -name &quot;Info.plist&quot; -o \
         -name &quot;*.swiftinterface&quot; -not -name &quot;*.private.swiftinterface&quot; \
@@ -148,6 +265,17 @@ done; true"
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
     </Exec>
 
+    <!-- Apple-framework mode fingerprint: hash swiftinterface + TBD + SDK path + metadata -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
+          Command="(
+      shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot; ; \
+      if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(TargetPlatformVersion)&quot; \
+    ) | sort | shasum -a 256 | cut -d' ' -f1"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
+    </Exec>
+
     <!-- Read existing stamp and compare -->
     <ReadLinesFromFile File="$(_SwiftStampFile)"
                        Condition="Exists('$(_SwiftStampFile)')">
@@ -164,6 +292,80 @@ done; true"
                       Lines="$(_SwiftNewFingerprint)"
                       Overwrite="true"
                       Condition="'$(_SwiftBindingUpToDate)' != 'true'" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2c: Dump Apple-framework ABI via swift-api-digester             -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_DumpAppleFrameworkAbi"
+          DependsOnTargets="_ComputeSwiftFingerprint;_ResolveAppleFrameworkPaths">
+
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
+          Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2d: Generate bindings for Apple-framework (direct mode)         -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_GenerateSwiftBindingsAppleFramework"
+          BeforeTargets="ResolveProjectReferences"
+          DependsOnTargets="_DumpAppleFrameworkAbi">
+
+    <!-- Build direct-mode generator command (gated on fingerprint + mode) -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -a "$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -d "$(_SwiftAppleFrameworkTbd)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -t "$(_SwiftAppleFrameworkTbd)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -s "$(_SwiftAppleFrameworkInterface)"</_SwiftGenCmd>
+      <!-- Escape leading @ for CLI response-file handling (\@ → @) -->
+      <_SwiftGenCmd Condition="$([System.String]::Copy('%(SwiftAppleFrameworkTarget.LibraryPath)').StartsWith('@'))">$(_SwiftGenCmd) -l "\%(SwiftAppleFrameworkTarget.LibraryPath)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="!$([System.String]::Copy('%(SwiftAppleFrameworkTarget.LibraryPath)').StartsWith('@'))">$(_SwiftGenCmd) -l "%(SwiftAppleFrameworkTarget.LibraryPath)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(TargetPlatformVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
+    </PropertyGroup>
+
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
+          Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" StandardErrorImportance="high"
+          IgnoreStandardErrorWarningFormat="true" />
+
+    <!-- Write binding-metadata.props for downstream SDK targets.
+         The generator in direct mode does not emit this file, so the SDK
+         synthesizes it from known values. Wrapper status is determined by
+         checking whether the generator produced the xcframework directory. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_AFW_WrapperModule>$(_SwiftAppleFrameworkModule)SwiftBindings</_AFW_WrapperModule>
+      <_AFW_WrapperPath>$(_SwiftBindingIntermediateDir)$(_AFW_WrapperModule).xcframework</_AFW_WrapperPath>
+    </PropertyGroup>
+
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
+          Command="WRAPPER=&quot;False&quot;; SLICES=0; \
+if [ -d &quot;$(_AFW_WrapperPath)&quot; ]; then \
+  WRAPPER=&quot;True&quot;; \
+  SLICES=`find &quot;$(_AFW_WrapperPath)&quot; -maxdepth 1 -type d -name '*-*' | wc -l | tr -d ' '`; \
+fi; \
+cat &gt; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &lt;&lt;METAEOF
+&lt;Project&gt;
+  &lt;PropertyGroup&gt;
+    &lt;_SwiftBindingModuleName&gt;$(_SwiftAppleFrameworkModule)&lt;/_SwiftBindingModuleName&gt;
+    &lt;_SwiftBindingMinimumOSVersion&gt;%(SwiftAppleFrameworkTarget.MinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion&gt;
+    &lt;_SwiftBindingPackageVersion&gt;$(Version)&lt;/_SwiftBindingPackageVersion&gt;
+    &lt;_SwiftBindingIsVersionPlaceholder&gt;False&lt;/_SwiftBindingIsVersionPlaceholder&gt;
+    &lt;_SwiftBindingHasWrapperXCFramework&gt;%24WRAPPER&lt;/_SwiftBindingHasWrapperXCFramework&gt;
+    &lt;_SwiftBindingWrapperModuleName&gt;$(_AFW_WrapperModule)&lt;/_SwiftBindingWrapperModuleName&gt;
+    &lt;_SwiftBindingWrapperSliceCount&gt;%24SLICES&lt;/_SwiftBindingWrapperSliceCount&gt;
+  &lt;/PropertyGroup&gt;
+&lt;/Project&gt;
+METAEOF"
+          StandardOutputImportance="low" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -275,7 +477,7 @@ done; true"
   <!-- Target 4: Import binding metadata from generated props file            -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ImportSwiftBindingMetadata"
-          AfterTargets="_GenerateSwiftBindings"
+          AfterTargets="_GenerateSwiftBindings;_GenerateSwiftBindingsAppleFramework"
           Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
 
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
@@ -553,6 +755,8 @@ done"
         Wrapper compilation is fast (~2-5s) so this is acceptable.
     -->
     <PropertyGroup>
+      <!-- Apple-framework mode: wrapper was compiled inline by the generator -->
+      <_SwiftWrapperSkip Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">true</_SwiftWrapperSkip>
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''">true</_SwiftWrapperSkip>
     </PropertyGroup>
 
@@ -789,6 +993,16 @@ done"
         <Kind>Framework</Kind>
       </NativeReference>
     </ItemGroup>
+
+    <!-- Apple-framework mode: no source xcframework (system framework provided by OS),
+         only the wrapper xcframework needs to be bundled. -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <NativeReference Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework"
+                       Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                                  AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
+        <Kind>Framework</Kind>
+      </NativeReference>
+    </ItemGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -840,8 +1054,9 @@ done"
     <!-- All paths must be absolute — relative paths resolve against the CONSUMER
          project, not this library project, when flowing through GetNativeManifest. -->
     <ItemGroup>
-      <!-- Source xcframework -->
-      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('%(SwiftFramework.Identity)'))">
+      <!-- Source xcframework (skip in Apple-framework mode — system framework provided by OS) -->
+      <_SwiftBindingNativeManifest Include="$([System.IO.Path]::GetFullPath('%(SwiftFramework.Identity)'))"
+                                   Condition="'@(SwiftFramework)' != ''">
         <Kind>Framework</Kind>
       </_SwiftBindingNativeManifest>
 
@@ -886,15 +1101,27 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ValidateSwiftBindingPackSlices"
           BeforeTargets="_ConfigureSwiftBindingPack"
-          Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
+          Condition="'$(IsPackable)' == 'true' AND ('@(SwiftFramework)' != '' OR '$(_SwiftBindingTargetKind)' == 'AppleFramework') AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <!-- Guard 1: property check (only for platforms with simulator + device slices) -->
-    <Error Condition="'$(SwiftWrapperArchitectures)' != 'all' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'"
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework' AND '$(SwiftWrapperArchitectures)' != 'all' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'"
            Code="SWIFTBIND030"
            Text="NuGet packages require both device and simulator wrapper slices. Remove &lt;SwiftWrapperArchitectures&gt;simulator&lt;/SwiftWrapperArchitectures&gt; or set it to 'all' before packing." />
 
+    <!-- Apple-framework mode: direct mode doesn't support multi-arch, so packing
+         requires two separate builds merged. Blocked until Part F adds multi-slice support. -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                      AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
+                      AND '$(SwiftWrapperArchitectures)' != 'all'
+                      AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                      AND (!Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingSimulatorSliceId)/')
+                           OR !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/'))"
+           Code="SWIFTBIND032"
+           Text="Apple-framework wrapper has only one slice ($(SwiftWrapperArchitectures)). NuGet packages require both device and simulator slices. Multi-slice Apple-framework packing is not yet supported. Set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+
     <!-- Guard 2a: artifact check for platforms with simulator — verify both slice directories exist -->
-    <Error Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework'
+                      AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                       AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'
                       AND (!Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingSimulatorSliceId)/')
                            OR !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/'))"
@@ -902,7 +1129,8 @@ done"
            Text="Wrapper xcframework is missing device or simulator slice. The source xcframework may not contain both platform slices. Verify your xcframework includes both device ($(_SwiftBindingDeviceSliceId)) and simulator ($(_SwiftBindingSimulatorSliceId)) slices, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
 
     <!-- Guard 2b: artifact check for single-slice platforms — verify device slice exists -->
-    <Error Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+    <Error Condition="'$(_SwiftBindingTargetKind)' != 'AppleFramework'
+                      AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
                       AND '$(_SwiftBindingHasSimulatorSlice)' != 'true'
                       AND !Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/$(_SwiftBindingDeviceSliceId)/')"
            Code="SWIFTBIND031"
@@ -915,7 +1143,7 @@ done"
   <Target Name="_ConfigureSwiftBindingPack"
           BeforeTargets="_GetPackageFiles"
           DependsOnTargets="_ImportSwiftBindingMetadata"
-          Condition="'$(IsPackable)' == 'true' AND '@(SwiftFramework)' != ''">
+          Condition="'$(IsPackable)' == 'true' AND ('@(SwiftFramework)' != '' OR '$(_SwiftBindingTargetKind)' == 'AppleFramework')">
 
     <!--
       Compute a version-qualified TFM for NuGet pack paths.
@@ -944,9 +1172,11 @@ done"
       <None Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
             Pack="true" PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
+      <!-- Source xcframework (xcframework mode only — Apple-framework mode has no source xcframework) -->
       <None Include="%(SwiftFramework.Identity)/**"
             Pack="true"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/" />
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/"
+            Condition="'@(SwiftFramework)' != ''" />
       <None Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             Pack="true"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
