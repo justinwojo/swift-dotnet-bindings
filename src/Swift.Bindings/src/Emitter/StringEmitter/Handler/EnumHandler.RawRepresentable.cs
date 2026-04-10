@@ -533,11 +533,16 @@ namespace BindingsGeneration
             // Emit SBW_Utf8Slice struct if not already done for this module
             Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx);
 
+            // Emit availability annotations from the enum and its ancestors.
+            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
+            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
+
             // Determine if enum is frozen (affects return style)
             if (enumDecl.IsFrozen)
             {
                 // Frozen enum: return Optional pointer directly
                 // Returns nil (NULL) if rawValue is invalid
+                WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
                 swiftWriter.WriteLines($$"""
                     @_cdecl("{{wrapperSymbol}}")
                     public func {{wrapperSymbol}}(_ slicePtr: UnsafeRawPointer) -> UnsafeMutableRawPointer? {
@@ -565,6 +570,7 @@ namespace BindingsGeneration
             {
                 // Non-frozen enum: write result to indirect return buffer
                 // The caller provides the buffer for Optional<EnumType>
+                WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
                 swiftWriter.WriteLines($$"""
                     @_cdecl("{{wrapperSymbol}}")
                     public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ slicePtr: UnsafeRawPointer) {
@@ -602,7 +608,9 @@ namespace BindingsGeneration
                 return;
 
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLines($$"""
                 @_cdecl("{{wrapperSymbol}}")
                 public func {{wrapperSymbol}}(_ resultPtr: UnsafeMutableRawPointer, _ rawValue: {{rawTypeName}}) {
@@ -627,7 +635,9 @@ namespace BindingsGeneration
                 return;
 
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"@_cdecl(\"{caseByIndexSymbol}\")");
             sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Int) -> UnsafeMutableRawPointer {{");

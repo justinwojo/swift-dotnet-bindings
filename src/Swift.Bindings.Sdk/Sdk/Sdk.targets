@@ -178,13 +178,22 @@ done; true"
     </PropertyGroup>
 
     <!-- Resolve swiftinterface and TBD paths.
-         Mac Catalyst frameworks live under System/iOSSupport/System/Library/Frameworks/,
-         not System/Library/Frameworks/ (the macOS SDK hosts them in the iOSSupport overlay). -->
+         Mac Catalyst frameworks live under System/iOSSupport/System/Library/Frameworks/
+         (the macOS SDK hosts them in the iOSSupport overlay). Some frameworks (e.g.
+         WeatherKit, CryptoKit) are only in the regular System/Library/Frameworks/ path,
+         so we try iOSSupport first and fall back to the standard path. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleFrameworkModule>%(SwiftAppleFrameworkTarget.Module)</_SwiftAppleFrameworkModule>
       <_SwiftAppleFrameworkSdkSubpath Condition="'$(_SwiftBindingPlatform)' != 'maccatalyst'">System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
       <_SwiftAppleFrameworkSdkSubpath Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">System/iOSSupport/System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
       <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
+    </PropertyGroup>
+    <!-- Mac Catalyst fallback: if the framework isn't in iOSSupport, try the regular macOS path -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingPlatform)' == 'maccatalyst' AND !Exists('$(_SwiftAppleFrameworkDir)')">
+      <_SwiftAppleFrameworkSdkSubpath>System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
+      <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
       <_SwiftAppleFrameworkTbd>$(_SwiftAppleFrameworkDir)/$(_SwiftAppleFrameworkModule).tbd</_SwiftAppleFrameworkTbd>
     </PropertyGroup>
@@ -206,9 +215,9 @@ done; true"
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-macabi</_SwiftDigesterTarget>
 
-      <!-- Mac Catalyst frameworks live in the iOSSupport overlay under the macOS SDK.
-           swift-api-digester needs -F to resolve ObjC headers (e.g. UIKit) from that path. -->
-      <_SwiftDigesterExtraFlags Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">-F "$(_SwiftAppleFrameworkSdkPath)/System/iOSSupport/System/Library/Frameworks"</_SwiftDigesterExtraFlags>
+      <!-- Mac Catalyst: swift-api-digester needs -F for both iOSSupport overlay (UIKit
+           etc.) and regular frameworks path (frameworks not in iOSSupport). -->
+      <_SwiftDigesterExtraFlags Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">-F "$(_SwiftAppleFrameworkSdkPath)/System/iOSSupport/System/Library/Frameworks" -F "$(_SwiftAppleFrameworkSdkPath)/System/Library/Frameworks"</_SwiftDigesterExtraFlags>
     </PropertyGroup>
   </Target>
 
