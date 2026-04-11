@@ -156,8 +156,14 @@ public static partial class ClosureEmitter
                     var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
                     var result = del({{invokeArgsString}});
 
-                    // Class type: write the retained pointer to the result buffer.
-                    *(IntPtr*)indirectResult = result.Payload.DangerousGetHandle();
+                    // Class type: retain the pointer before writing to the result buffer.
+                    // Swift's wrapper will .move() this value and eventually passRetained it —
+                    // the expression release consumes the original +1, so the buffer must carry
+                    // its own +1 to prevent over-release when both the C# wrapper and the
+                    // Swift-returned wrapper are finalized.
+                    var __ptr = result.Payload.DangerousGetHandle();
+                    Swift.Runtime.Arc.Retain(__ptr);
+                    *(IntPtr*)indirectResult = __ptr;
                 }
                 """);
         }
