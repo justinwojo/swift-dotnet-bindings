@@ -360,6 +360,9 @@ namespace BindingsGeneration
                 var propertyNames = new HashSet<string>(structDecl.Properties.Select(p =>
                     NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(p.Name, structDecl.Name), propertyRenames)));
+                // Nested type names collide with method names in C# (CS0102)
+                foreach (var nestedType in structDecl.Types)
+                    propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 

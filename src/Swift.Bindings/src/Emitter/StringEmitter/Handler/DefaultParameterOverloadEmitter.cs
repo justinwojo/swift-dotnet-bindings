@@ -310,6 +310,7 @@ public static class DefaultParameterOverloadEmitter
             IsAccessor = original.IsAccessor,
             IsMutating = original.IsMutating,
             UsesWrapperLibrary = true,
+            AvailabilityAnnotations = original.AvailabilityAnnotations,
         };
 
         // Copy return type
@@ -465,12 +466,20 @@ public static class DefaultParameterOverloadEmitter
 
         swiftWriter.WriteLine();
 
+        // Merge the original method's availability with its parent type chain.
+        // @_silgen_name wrappers are top-level (free funcs) or inside an extension that
+        // doesn't inherit the target type's availability at the Swift compiler level, so
+        // they must carry the same @available lines as the @_cdecl wrappers do.
+        var mergedAvailability = WrapperEmitterHelpers.MergeAvailability(
+            originalMethodDecl.AvailabilityAnnotations, parentTypeDecl);
+
         if (isFreeFunction)
         {
             // Free function — emit standalone @_silgen_name function
             var moduleName = ArraySliceNormalizationEmitter.UnescapeModuleName(originalMethodDecl.ModuleDecl?.Name ?? "");
             var callPrefix = !string.IsNullOrEmpty(moduleName) ? $"{moduleName}." : "";
 
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
@@ -504,6 +513,9 @@ public static class DefaultParameterOverloadEmitter
                 ? $" -> {ctorReturnType}?"
                 : $" -> {ctorReturnType}";
 
+            // Availability must sit on the extension itself — the `extension ... {` line
+            // references the target type, so an inner-function @available is too late.
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
 
@@ -530,6 +542,9 @@ public static class DefaultParameterOverloadEmitter
             var staticKeyword = isStatic ? "static " : "";
             var selfPrefix = isStatic ? "Self" : "self";
 
+            // Availability must sit on the extension itself — the `extension ... {` line
+            // references the target type, so an inner-function @available is too late.
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
 

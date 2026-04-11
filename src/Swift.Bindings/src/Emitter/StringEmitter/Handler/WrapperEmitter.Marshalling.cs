@@ -86,6 +86,17 @@ namespace BindingsGeneration
                 _env.ParentDecl, _env.MethodDecl.IsMainActorIsolated, _env.MethodDecl.IsNonisolated);
             var mainActorAttr = needsMainActor ? "@MainActor " : "";
 
+            // Merge the method's availability with its parent type chain so the
+            // opaque-return @_silgen_name wrapper can reference newer SDK APIs.
+            // The availability must sit on the `extension ... {` line itself (the
+            // extended type may be gated), not just on the inner function.
+            var mergedAvailability = WrapperEmitterHelpers.MergeAvailability(
+                _env.MethodDecl.AvailabilityAnnotations, _env.ParentDecl);
+            var extensionAvailabilityLines = BuildAvailabilityAttributeLines(mergedAvailability, separator: "\n            ");
+            var extensionAvailabilityPrefix = extensionAvailabilityLines.Length > 0
+                ? extensionAvailabilityLines + "\n            "
+                : string.Empty;
+
             if (parentTypeName != null)
             {
                 if (isAccessor)
@@ -96,7 +107,7 @@ namespace BindingsGeneration
                     else if (propertyName.EndsWith("_Set")) propertyName = propertyName.Substring(0, propertyName.Length - 4);
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     swiftWriter.WriteLine($$"""
-            extension {{parentTypeName.ModuleQualifiedName}} {
+            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
                     return {{(!isInstanceMethod ? parentTypeName.ModuleQualifiedName + "." : "self.")}}{{propertyName}}
@@ -110,7 +121,7 @@ namespace BindingsGeneration
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
                     swiftWriter.WriteLine($$"""
-            extension {{parentTypeName.ModuleQualifiedName}} {
+            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                     {{extDerefCode}}return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
@@ -123,13 +134,59 @@ namespace BindingsGeneration
             {
                 // Free function wrapper (module-level)
                 var moduleName = _env.MethodDecl.ModuleDecl?.Name ?? "";
+                var freeAvailabilityLines = BuildAvailabilityAttributeLines(mergedAvailability, separator: "\n            ");
+                var freeAvailabilityPrefix = freeAvailabilityLines.Length > 0
+                    ? freeAvailabilityLines + "\n            "
+                    : string.Empty;
                 swiftWriter.WriteLine($$"""
-            {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
+            {{freeAvailabilityPrefix}}{{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
             public func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                 {{freeDerefCode}}return {{(moduleName.Length > 0 ? moduleName + "." : "")}}{{_env.MethodDecl.Name}}({{methodCallArgs}})
             }
             """);
             }
+        }
+
+        /// <summary>
+        /// Builds a joined string of <c>@available(Platform Version, *)</c> attributes using the
+        /// supplied separator. Returns empty when there are no annotations. Deduped by
+        /// platform+version (mirrors <see cref="WrapperEmitterHelpers.EmitSwiftAvailability"/>).
+        /// </summary>
+        private static string BuildAvailabilityAttributeLines(IReadOnlyList<AvailabilityAnnotation>? annotations, string separator)
+        {
+            if (annotations == null || annotations.Count == 0)
+                return string.Empty;
+
+            var emitted = new HashSet<string>();
+            var parts = new List<string>();
+            foreach (var annotation in annotations)
+            {
+                if (annotation.Platform == null || annotation.IntroducedVersion == null)
+                    continue;
+                var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
+                if (emitted.Add(key))
+                    parts.Add($"@available({key}, *)");
+            }
+            return string.Join(separator, parts);
+        }
+
+        /// <summary>
+        /// Returns true when the given NamedTypeSpec is registered in the TypeDatabase as a
+        /// Swift struct or enum (i.e., an actual value type) — even if it lives in an
+        /// AutoBridge Apple framework module where <see cref="TypeDatabaseExtensions.IsObjCModuleType"/>
+        /// would otherwise assume ObjC class semantics.
+        ///
+        /// Context: newer Apple frameworks (AuthenticationServices, etc.) keep introducing
+        /// Swift-native struct types that aren't in AppleFrameworkRegistry.ValueTypes. Without
+        /// this check, the caller's parameter marshalling path emits <c>x?.Handle ?? IntPtr.Zero</c>
+        /// (ObjC class idiom) for a type that actually exposes <c>.Payload</c> (Swift struct idiom).
+        /// </summary>
+        private static bool IsKnownSwiftValueType(NamedTypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeSpec.Name);
+            if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
+                return false;
+            return record.Kind == TypeRecordKind.Struct || record.Kind == TypeRecordKind.Enum;
         }
 
         /// <summary>
@@ -495,7 +552,8 @@ namespace BindingsGeneration
                 var optNamed = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
                 var innerElement = optNamed?.GenericParameters.FirstOrDefault();
                 if (innerElement is NamedTypeSpec innerNamed && innerNamed.HasModule() &&
-                    TypeDatabaseExtensions.IsObjCModuleType(innerNamed))
+                    TypeDatabaseExtensions.IsObjCModuleType(innerNamed) &&
+                    !IsKnownSwiftValueType(innerNamed, _env.TypeDatabase))
                 {
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
                     csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");

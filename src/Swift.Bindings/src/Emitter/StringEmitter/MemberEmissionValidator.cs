@@ -868,6 +868,22 @@ public static class MemberEmissionValidator
             }
         }
 
+        // Skip methods with Swift.UnsafeRawBufferPointer / Swift.UnsafeMutableRawBufferPointer params.
+        // These are 16-byte Swift stdlib structs that cannot be represented in @_cdecl wrappers
+        // ("cannot be represented in Objective-C") and have no idiomatic cross-ABI marshalling yet.
+        // Deferred: proper marshalling would split the struct into pointer+count pairs and bridge
+        // to ReadOnlySpan<byte>/byte[] on the C# side.
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec is NamedTypeSpec rawBufSpec &&
+                (rawBufSpec.Name == "Swift.UnsafeRawBufferPointer" ||
+                 rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer"))
+            {
+                skipDetails = $"Parameter '{arg.Name}' uses '{rawBufSpec.Name}', which is not yet supported for @_cdecl marshalling.";
+                return SkipReason.UnsupportedSignature;
+            }
+        }
+
         // Skip constructors (always allowed through for remaining checks)
         if (method.IsConstructor)
             return null;

@@ -356,6 +356,10 @@ namespace BindingsGeneration
                 NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));
 
+            // Nested type names collide with method names in C# (CS0102)
+            foreach (var nestedType in enumDecl.Types)
+                propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
+
             // Include case-derived names to prevent method collisions
             foreach (var caseName in emittedCaseConstructorNames)
                 propertyNames.Add(caseName);

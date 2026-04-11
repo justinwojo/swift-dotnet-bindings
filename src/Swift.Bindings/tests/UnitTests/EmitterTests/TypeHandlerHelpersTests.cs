@@ -1116,6 +1116,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
             IsStatic = false,
             HasStorage = false,
+            WasEmitted = true,
             Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = CreateMinimalMethodDecl(moduleDecl) } },
             ParentDecl = null!,
             ModuleDecl = moduleDecl

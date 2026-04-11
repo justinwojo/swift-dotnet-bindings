@@ -683,6 +683,194 @@ public class DefaultParameterOverloadEmitterTests
 
     #endregion
 
+    #region Availability Propagation Tests
+
+    [Fact]
+    public void TryEmitOverloads_ConstructorOnAvailableType_EmitsAvailabilityOnExtension()
+    {
+        // Regression for CryptoKit: SecureEnclave.MLDSA65.PrivateKey is iOS 26+. The
+        // @_silgen_name wrapper inside `extension ... {}` must carry @available or the
+        // Swift compiler rejects it as "referencing iOS 26 API from older context".
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Vault");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Vault",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Vault"),
+            MangledName = "$s10TestModule5VaultVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule5VaultVMa",
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "26.0", null, null, false, false, null, null),
+                new("macOS", "26.0", null, null, false, false, null, null),
+            }
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule5VaultV4nameSSAeA5TokenVSgtcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("name", hasDefault: false),
+                CreateArg("token", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        Assert.NotEmpty(swiftOutput);
+        Assert.Contains("@available(iOS 26.0, *)", swiftOutput);
+        Assert.Contains("@available(macOS 26.0, *)", swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmitOverloads_MethodOnAvailableType_EmitsAvailabilityOnExtension()
+    {
+        // Non-constructor methods also go inside extensions. The @available annotation
+        // must precede the @_silgen_name attribute inside the extension block.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Hasher");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Hasher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Hasher"),
+            MangledName = "$s10TestModule6HasherVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule6HasherVMa",
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "17.0", null, null, false, false, null, null),
+            }
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "update",
+            MangledName = "$s10TestModule6HasherV6updateySiSi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("length", hasDefault: false),
+                CreateArg("padding", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        Assert.NotEmpty(swiftOutput);
+        Assert.Contains("@available(iOS 17.0, *)", swiftOutput);
+        // The availability attribute must precede the `extension` keyword — the
+        // extended type name itself is gated by availability, so an inner-function
+        // @available arrives too late for the Swift compiler.
+        var availIdx = swiftOutput.IndexOf("@available(iOS 17.0, *)");
+        var extensionIdx = swiftOutput.IndexOf("extension TestModule.Hasher");
+        Assert.True(availIdx >= 0 && extensionIdx >= 0 && availIdx < extensionIdx,
+            $"@available must precede the extension line. Output:\n{swiftOutput}");
+    }
+
+    [Fact]
+    public void TryEmitOverloads_MemberLevelAvailability_OverridesParentInherit()
+    {
+        // If the method itself has a stricter availability annotation, it must be
+        // emitted too (parent + member are merged; dedupe handles duplicates).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Lightweight");
+
+        var parentDecl = new StructDecl
+        {
+            Name = "Lightweight",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Lightweight"),
+            MangledName = "$s10TestModule11LightweightVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule11LightweightVMa",
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "15.0", null, null, false, false, null, null),
+            }
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "configure",
+            MangledName = "$s10TestModule11LightweightV9configureySi_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("value", hasDefault: false),
+                CreateArg("fallback", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "18.0", null, null, false, false, null, null),
+            }
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        Assert.NotEmpty(swiftOutput);
+        // Both parent (iOS 15) and member (iOS 18) availability must be present.
+        Assert.Contains("@available(iOS 15.0, *)", swiftOutput);
+        Assert.Contains("@available(iOS 18.0, *)", swiftOutput);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ArgumentDecl CreateArg(string name, bool hasDefault)

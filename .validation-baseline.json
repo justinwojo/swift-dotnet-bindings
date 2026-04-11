@@ -1,11 +1,11 @@
 {
-  "git_sha": "fcd0ca9c",
+  "git_sha": "f34068bd",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49629,
+        "lines": 49709,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -33,7 +33,7 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21822,
+        "lines": 21780,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -68,7 +68,7 @@
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51068,
+        "lines": 51070,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,7 +649,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 32,
-        "lines": 27241,
+        "lines": 27242,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

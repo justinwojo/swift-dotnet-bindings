@@ -904,11 +904,22 @@ namespace BindingsGeneration
             // ObjC type names that may not be resolvable in standalone wrapper compilation.
             var returnSpec = methodEnv.MethodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
             bool hasDynamicSelfReturn = returnSpec?.HasDynamicSelf == true;
+            // Method-own generic params (not inherited from the parent) can't be expressed in the
+            // @_silgen_name/@_cdecl optional-pointer wrapper signature — the wrapper references
+            // the generic parameter names (e.g. `Plaintext`, `AuthenticatedData`) without declaring
+            // them, and Swift fails with "cannot find type 'Plaintext' in scope".
+            var parentTypeParamNames = parentTypeDecl?.IsGeneric == true
+                ? new HashSet<string>(parentTypeDecl.GenericParameters.Select(p => p.TypeName))
+                : new HashSet<string>();
+            bool hasMethodOwnGenericParams = methodEnv.MethodDecl.GenericParameters
+                .Any(p => !parentTypeParamNames.Contains(p.TypeName));
+
             if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
                 !methodEnv.MethodDecl.IsAsync &&
                 !methodEnv.MethodDecl.IsModuleInternal &&
                 !hasDynamicSelfReturn &&
                 !WrapperValidation.HasRawGenericTypeParams(methodEnv.MethodDecl) &&
+                !hasMethodOwnGenericParams &&
                 !_requiresOpaqueReturn(methodEnv) &&
                 parentTypeDecl?.IsGeneric != true &&
                 (methodEnv.BoundGenericsHandler.HasLargeOptionalParams(methodEnv.MethodDecl) ||

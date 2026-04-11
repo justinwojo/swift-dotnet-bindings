@@ -1065,6 +1065,7 @@ internal static class ProtocolConformanceHelper
             var descProp = typeDecl.Properties.FirstOrDefault(p =>
                 p.Name == "description" &&
                 !p.IsStatic &&
+                p.WasEmitted &&
                 p.Accessors.Any(a => a is GetAccessorDecl) &&
                 p.SwiftTypeSpec is NamedTypeSpec named &&
                 named.Name == "Swift.String");
