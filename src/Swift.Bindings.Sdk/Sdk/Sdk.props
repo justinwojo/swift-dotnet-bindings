@@ -13,6 +13,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>$(NoWarn);CS0169;CA1420;SB0001;SB0002;SB0003;SB0004</NoWarn>
 
+    <!-- Exclude nested obj/ directories from default Compile globs.
+         Microsoft.NET.Sdk only excludes $(BaseIntermediateOutputPath)/** (= obj/**),
+         but SDK consumer projects may have sibling test projects with their own obj/
+         directories (e.g. tests/obj/) whose auto-generated assembly info files would
+         otherwise be globbed by **/*.cs and cause CS0579 duplicate attribute errors. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**</DefaultItemExcludes>
+
     <!-- SDK internal paths -->
     <_SwiftBindingSdkVersion>0.0.0-dev</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>

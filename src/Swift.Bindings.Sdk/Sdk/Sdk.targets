@@ -347,7 +347,7 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
-      <_SwiftGenCmd>$(_SwiftGenCmd) -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
 
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
@@ -1255,7 +1255,86 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Target 7b: Configure NuGet pack layout                                 -->
+  <!-- Target 7b: Synthesize consumer .targets for Apple-framework packs      -->
+  <!-- In SDK mode the generator skips ConsumerTargetsEmitter (the SDK IS     -->
+  <!-- the project system). For NuGet pack, _ConfigureSwiftBindingPack needs  -->
+  <!-- $(PackageId).targets to exist. Synthesize it here from SDK metadata.   -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_SynthesizeAppleFrameworkConsumerTargets"
+          AfterTargets="_ImportSwiftBindingMetadata"
+          Condition="'@(SwiftAppleFrameworkTarget)' != ''
+                     AND '$(_SwiftBindingModuleName)' != ''
+                     AND ('$(_SwiftBindingUpToDate)' != 'true'
+                          OR !Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets'))">
+
+    <!-- Pre-compute all dynamic identifiers to avoid nested $() in the heredoc -->
+    <PropertyGroup>
+      <_SanitizedModule>$(_SwiftBindingModuleName.Replace('.','_').Replace('-','_').Replace(' ','_'))</_SanitizedModule>
+      <_CT_ResolveTarget>_Resolve$(_SwiftBindingModuleName.Replace('.','_').Replace('-','_').Replace(' ','_'))NativeReferences</_CT_ResolveTarget>
+      <_CT_InjectedProp>_SwiftBinding_$(_SwiftBindingModuleName.Replace('.','_').Replace('-','_').Replace(' ','_'))_Injected</_CT_InjectedProp>
+      <_CT_ValidateTarget>_Validate$(_SwiftBindingModuleName.Replace('.','_').Replace('-','_').Replace(' ','_'))PlatformVersion</_CT_ValidateTarget>
+    </PropertyGroup>
+
+    <!-- Use a second heredoc for the WRAPPER fragment to avoid &apos; inside
+         single-quoted shell strings (which would terminate the quote early
+         and break the Exists() condition path for NuGet consumers). -->
+    <Exec Command="WRAPPER=&quot;&quot;; \
+if [ &quot;$(_SwiftBindingHasWrapperXCFramework)&quot; = &quot;True&quot; ]; then \
+  read -r -d '' WRAPPER &lt;&lt;'WRAPPEREOF'
+      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework&quot;
+                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework')&quot;&gt;
+        &lt;Kind&gt;Framework&lt;/Kind&gt;
+      &lt;/NativeReference&gt;
+WRAPPEREOF
+fi; \
+cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt;TARGETSEOF
+&lt;Project&gt;
+  &lt;PropertyGroup&gt;
+    &lt;SwiftBindingsInteropMode Condition=&quot;'\%24(SwiftBindingsInteropMode)' == ''&quot;&gt;Auto&lt;/SwiftBindingsInteropMode&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;PropertyGroup Condition=&quot;'\%24(SwiftBindingsInteropMode)' == 'Auto' AND '\%24(PublishAot)' == 'true'&quot;&gt;
+    &lt;SwiftBindingsInteropMode&gt;Direct&lt;/SwiftBindingsInteropMode&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;PropertyGroup Condition=&quot;'\%24(SwiftBindingsInteropMode)' == 'Auto'&quot;&gt;
+    &lt;SwiftBindingsInteropMode&gt;Safe&lt;/SwiftBindingsInteropMode&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;PropertyGroup Condition=&quot;'\%24(SwiftBindingsInteropMode)' == 'Direct'&quot;&gt;
+    &lt;NoWarn&gt;\%24(NoWarn);SB0001&lt;/NoWarn&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;Target Name=&quot;$(_CT_ResolveTarget)&quot;
+          BeforeTargets=&quot;ResolveNativeReferences&quot;
+          Condition=&quot;'\%24($(_CT_InjectedProp))' != 'true'&quot;&gt;
+    &lt;PropertyGroup&gt;
+      &lt;$(_CT_InjectedProp)&gt;true&lt;/$(_CT_InjectedProp)&gt;
+    &lt;/PropertyGroup&gt;
+    &lt;ItemGroup&gt;
+%24WRAPPER
+    &lt;/ItemGroup&gt;
+  &lt;/Target&gt;
+  &lt;ItemGroup&gt;
+    &lt;SwiftBindingFramework Include=&quot;$(_SwiftBindingModuleName)&quot;&gt;
+      &lt;SourcePackage&gt;$(PackageId)&lt;/SourcePackage&gt;
+    &lt;/SwiftBindingFramework&gt;
+  &lt;/ItemGroup&gt;
+  &lt;ItemGroup&gt;
+    &lt;SwiftModuleDatabase Include=&quot;\%24(MSBuildThisFileDirectory)$(_SwiftBindingModuleName)Database.xml&quot;
+                         Condition=&quot;Exists('\%24(MSBuildThisFileDirectory)$(_SwiftBindingModuleName)Database.xml')&quot;&gt;
+      &lt;ModuleName&gt;$(_SwiftBindingModuleName)&lt;/ModuleName&gt;
+      &lt;SourcePackage&gt;$(PackageId)&lt;/SourcePackage&gt;
+    &lt;/SwiftModuleDatabase&gt;
+  &lt;/ItemGroup&gt;
+  &lt;Target Name=&quot;$(_CT_ValidateTarget)&quot; BeforeTargets=&quot;Build&quot;
+          Condition=&quot;'\%24(SupportedOSPlatformVersion)' != '' AND \%24([System.Version]::Parse('\%24(SupportedOSPlatformVersion)').CompareTo(\%24([System.Version]::Parse('$(_SwiftBindingMinimumOSVersion)')))) &amp;lt; 0&quot;&gt;
+    &lt;Warning Text=&quot;$(PackageId) requires $(_SwiftBindingPlatform) $(_SwiftBindingMinimumOSVersion)+, but SupportedOSPlatformVersion is '\%24(SupportedOSPlatformVersion)'.&quot;
+             Code=&quot;SWIFTBIND011&quot; /&gt;
+  &lt;/Target&gt;
+&lt;/Project&gt;
+TARGETSEOF"
+          StandardOutputImportance="low" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7c: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ConfigureSwiftBindingPack"
           DependsOnTargets="_ImportSwiftBindingMetadata"
