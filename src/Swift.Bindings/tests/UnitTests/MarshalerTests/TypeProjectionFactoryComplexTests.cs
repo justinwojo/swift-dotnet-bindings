@@ -247,7 +247,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         Assert.IsType<ClosureProjection>(projection);
-        Assert.Equal("Func<string, bool>", projection.PublicType);
+        Assert.Equal("global::System.Func<string, bool>", projection.PublicType);
     }
 
     [Fact]
@@ -265,7 +265,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         var closureProj = Assert.IsType<ClosureProjection>(projection);
-        Assert.Equal("Action", projection.PublicType);
+        Assert.Equal("global::System.Action", projection.PublicType);
     }
 
     #endregion
@@ -289,7 +289,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         Assert.IsType<AsyncProjection>(projection);
-        Assert.Equal("Task<string>", projection.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task<string>", projection.PublicType);
     }
 
     [Fact]
@@ -313,7 +313,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         var asyncProj = Assert.IsType<AsyncProjection>(projection);
-        Assert.Equal("Task<(string, bool)>", projection.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task<(string, bool)>", projection.PublicType);
         Assert.IsType<TupleProjection>(asyncProj.InnerReturnProjection);
     }
 
@@ -334,7 +334,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         var asyncProj = Assert.IsType<AsyncProjection>(projection);
-        Assert.Equal("Task", projection.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task", projection.PublicType);
         Assert.Null(asyncProj.InnerReturnProjection);
     }
 
@@ -355,7 +355,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         var asyncProj = Assert.IsType<AsyncProjection>(projection);
-        Assert.Equal("Task", projection.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task", projection.PublicType);
         Assert.Equal(2, asyncProj.CallbackDeclarations.Count);
     }
 

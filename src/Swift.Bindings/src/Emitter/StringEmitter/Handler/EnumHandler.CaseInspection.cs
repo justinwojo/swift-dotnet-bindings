@@ -140,6 +140,16 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Parity with EmitEnumCaseWithAssociatedValues: skip TryGet when the payload
+                // is a bound generic with an ObjC-bridged remapped type in a generic argument
+                // position. The ISwiftObject constraint on the outer generic type is violated
+                // by the NSObject-rooted remapped type, producing CS0311 at the `out` parameter.
+                if (ContainsRemappedObjCTypeInGenericArgs(typeSpec))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has a bound generic payload with an ObjC-bridged type remap as a generic argument. Skipping TryGet to avoid ISwiftObject constraint violation.");
+                    return;
+                }
+
                 var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
                 // Use type label if available, otherwise generate a name

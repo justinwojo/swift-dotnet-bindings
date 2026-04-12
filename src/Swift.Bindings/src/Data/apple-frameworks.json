@@ -212,6 +212,10 @@
       "optionalFallback": true,
       "knownModuleForElements": true,
       "objcPrefixes": ["NS"],
+      "netUnavailableTypes": [
+        "LocalizedStringResource",
+        "Predicate"
+      ],
       "valueTypes": [
         "Data",
         "Date",
@@ -232,6 +236,8 @@
         "JSONSerialization.WritingOptions",
         "Locale",
         "Locale.Currency",
+        "Locale.Language",
+        "Locale.Region",
         "Measurement",
         "NSAttributedString.Key",
         "NSData.WritingOptions",
@@ -363,7 +369,12 @@
       "autoBridge": true,
       "optionalFallback": true,
       "objcPrefixes": ["HK"],
-      "platformUnavailable": ["macOS"]
+      "platformUnavailable": ["macOS"],
+      "valueTypes": [
+        "HKWorkoutActivityType",
+        "HKWorkoutSessionLocationType",
+        "HKWorkoutSwimmingLocationType"
+      ]
     },
     {
       "module": "HomeKit",

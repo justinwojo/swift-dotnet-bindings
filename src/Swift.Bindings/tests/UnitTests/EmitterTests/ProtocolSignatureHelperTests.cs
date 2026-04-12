@@ -731,7 +731,7 @@ public class ProtocolSignatureHelperTests
             closureType, typeDatabase, mode: TypeResolutionMode.Default);
 
         // Factory should handle this, returning Action
-        Assert.Equal("Action", result);
+        Assert.Equal("global::System.Action", result);
     }
 
     [Fact]
@@ -1022,7 +1022,7 @@ public class ProtocolSignatureHelperTests
         var result = ProtocolSignatureHelper.ProjectTypeToCSharp(closureType, typeDatabase, isParameter: false);
 
         // Should be Func<IReadOnlyList<long>>, not Func<IEnumerable<long>>
-        Assert.Equal("Func<IReadOnlyList<long>>", result);
+        Assert.Equal("global::System.Func<IReadOnlyList<long>>", result);
     }
 
     #endregion

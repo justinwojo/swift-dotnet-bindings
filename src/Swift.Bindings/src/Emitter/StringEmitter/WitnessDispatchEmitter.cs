@@ -51,6 +51,32 @@ public class WitnessDispatchEmitter
     private readonly ModuleEmissionContext _emissionContext;
 
     /// <summary>
+    /// Availability heredoc prefix for the protocol currently being emitted. Computed once per
+    /// protocol at the top of <see cref="EmitWitnessDispatchFunctions"/> and consumed by every
+    /// accessor-emitting method so each top-level @_silgen_name function gets @available
+    /// annotations matching the protocol's platform requirements. Empty string when the
+    /// protocol has no availability constraints.
+    /// </summary>
+    private string _currentAvailabilityPrefix = string.Empty;
+
+    /// <summary>
+    /// Raw availability annotations for the protocol currently being emitted.
+    /// Used for non-heredoc emissions via direct writer.WriteLine calls.
+    /// </summary>
+    private IReadOnlyList<AvailabilityAnnotation>? _currentAvailabilityAnnotations;
+
+    /// <summary>
+    /// Emits <c>@available(...)</c> lines directly to <paramref name="writer"/> immediately
+    /// before a non-heredoc top-level @_silgen_name declaration. Used by accessor methods that
+    /// emit their function header through individual writer.WriteLine calls rather than a
+    /// single heredoc. No-op when the current protocol has no availability constraints.
+    /// </summary>
+    private void EmitAvailabilityAttributes(SwiftWriter writer)
+    {
+        WrapperEmitterHelpers.EmitSwiftAvailability(writer, _currentAvailabilityAnnotations);
+    }
+
+    /// <summary>
     /// Set of C# type names that are blittable and can be safely marshalled via Unsafe.Read/Write.
     /// </summary>
     private static readonly HashSet<string> BlittablePrimitiveTypes = new()
@@ -124,6 +150,11 @@ public class WitnessDispatchEmitter
         }
 
         var moduleQualifiedName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+
+        _currentAvailabilityAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+            protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+        _currentAvailabilityPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            _currentAvailabilityAnnotations, "            ");
 
         // Track method indices for overload disambiguation (matching ProtocolProxyEmitter pattern)
         int methodIndex = 0;
@@ -1173,12 +1204,13 @@ public class WitnessDispatchEmitter
     /// <paramref name="swiftTypeName"/> must be a valid Swift type for both
     /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
     /// </summary>
-    private static void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
+    private void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
         string moduleQualifiedName, string propertyName, string swiftTypeName, bool needsMainActor = false)
     {
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
         writer.WriteLines($$"""
-            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+            {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                 var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{propertyName}}
@@ -1187,7 +1219,7 @@ public class WitnessDispatchEmitter
                 return UnsafeMutableRawPointer(ptr)
             }
 
-            @_silgen_name("{{freeSymbol}}")
+            {{avail}}@_silgen_name("{{freeSymbol}}")
             public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                 ptr.assumingMemoryBound(to: {{swiftTypeName}}.self).deinitialize(count: 1)
                 ptr.deallocate()
@@ -1204,11 +1236,12 @@ public class WitnessDispatchEmitter
 
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
         if (IsStringType(property.SwiftTypeSpec))
         {
             // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
             writer.WriteLines($$"""
-                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+                {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                     var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                     let result: String = existential.{{property.Name}}
@@ -1224,7 +1257,7 @@ public class WitnessDispatchEmitter
                     return UnsafeMutableRawPointer(slicePtr)
                 }
 
-                @_silgen_name("{{freeSymbol}}")
+                {{avail}}@_silgen_name("{{freeSymbol}}")
                 public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                     let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                     slicePtr.pointee.ptr.deallocate()
@@ -1249,12 +1282,13 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "set", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
 
         if (IsStringType(property.SwiftTypeSpec))
         {
             // String setter: decode SBW_Utf8Slice → String, then assign via typed pointee
             writer.WriteLines($$"""
-                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+                {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
@@ -1281,7 +1315,7 @@ public class WitnessDispatchEmitter
             var swiftType = GetSwiftPrimitiveType(csharpType);
 
             writer.WriteLines($$"""
-                {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+                {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeMutableRawPointer, _ valuePtr: UnsafeRawPointer) {
                     let typedPtr = containerPtr.assumingMemoryBound(to: (any {{moduleQualifiedName}}).self)
                     var existential = typedPtr.pointee
@@ -1315,6 +1349,7 @@ public class WitnessDispatchEmitter
         // Build Swift return type
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer" : "";
 
+        EmitAvailabilityAttributes(writer);
         writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1385,11 +1420,12 @@ public class WitnessDispatchEmitter
         {
             var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
 
+            var avail = _currentAvailabilityPrefix;
             if (isStringReturn)
             {
                 // String return: free SBW_Utf8Slice + buffer
                 writer.WriteLines($$"""
-                    @_silgen_name("{{freeSymbol}}")
+                    {{avail}}@_silgen_name("{{freeSymbol}}")
                     public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                         let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                         slicePtr.pointee.ptr.deallocate()
@@ -1406,7 +1442,7 @@ public class WitnessDispatchEmitter
                 var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
 
                 writer.WriteLines($$"""
-                    @_silgen_name("{{freeSymbol}}")
+                    {{avail}}@_silgen_name("{{freeSymbol}}")
                     public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                         ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
                         ptr.deallocate()
@@ -1446,6 +1482,7 @@ public class WitnessDispatchEmitter
         // Return type: UnsafeMutableRawPointer? for value-returning (nil = error), Void for void
         var swiftReturnDecl = hasReturn ? " -> UnsafeMutableRawPointer?" : "";
 
+        EmitAvailabilityAttributes(writer);
         writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1528,11 +1565,12 @@ public class WitnessDispatchEmitter
         if (hasReturn)
         {
             var freeSymbol = GetFreeSymbol(protocolName, "method", method.Name, index);
+            var avail = _currentAvailabilityPrefix;
 
             if (isStringReturn)
             {
                 writer.WriteLines($$"""
-                    @_silgen_name("{{freeSymbol}}")
+                    {{avail}}@_silgen_name("{{freeSymbol}}")
                     public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                         let slicePtr = ptr.assumingMemoryBound(to: SBW_Utf8Slice.self)
                         slicePtr.pointee.ptr.deallocate()
@@ -1548,7 +1586,7 @@ public class WitnessDispatchEmitter
                 var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
 
                 writer.WriteLines($$"""
-                    @_silgen_name("{{freeSymbol}}")
+                    {{avail}}@_silgen_name("{{freeSymbol}}")
                     public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                         ptr.assumingMemoryBound(to: {{swiftReturnType}}.self).deinitialize(count: 1)
                         ptr.deallocate()
@@ -1632,6 +1670,7 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
+        EmitAvailabilityAttributes(writer);
         writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1712,9 +1751,10 @@ public class WitnessDispatchEmitter
         var freeTypeSelf = swiftTypeName.StartsWith("any ", StringComparison.Ordinal)
             ? $"({swiftTypeName}).self"
             : $"{swiftTypeName}.self";
+        var avail = _currentAvailabilityPrefix;
 
         writer.WriteLines($$"""
-            @_silgen_name("{{freeSymbol}}")
+            {{avail}}@_silgen_name("{{freeSymbol}}")
             public func {{freeSymbol}}(_ ptr: UnsafeMutableRawPointer) {
                 ptr.assumingMemoryBound(to: {{freeTypeSelf}}).deinitialize(count: 1)
                 ptr.deallocate()
@@ -1771,6 +1811,7 @@ public class WitnessDispatchEmitter
             ? " -> UnsafeMutableRawPointer?"
             : " -> UnsafeMutableRawPointer";
 
+        EmitAvailabilityAttributes(writer);
         writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}){swiftReturnDecl} {{");
         writer.Indent++;
@@ -1857,6 +1898,7 @@ public class WitnessDispatchEmitter
         var swiftParamsString = string.Join(", ", swiftParams);
 
         // Struct return always returns void (result written into buffer)
+        EmitAvailabilityAttributes(writer);
         writer.WriteLine($"{mainActorAttr}@_silgen_name(\"{accessorSymbol}\")");
         writer.WriteLine($"public func {accessorSymbol}({swiftParamsString}) {{");
         writer.Indent++;
@@ -1921,9 +1963,10 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
 
         writer.WriteLines($$"""
-            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+            {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
                 var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}
@@ -1948,9 +1991,10 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
+        var avail = _currentAvailabilityPrefix;
 
         writer.WriteLines($$"""
-            {{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
+            {{avail}}{{mainActorAttr}}@_silgen_name("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
                 var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
                 let result = existential.{{property.Name}}

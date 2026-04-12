@@ -98,6 +98,101 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// Emits accessor-level <c>[SupportedOSPlatform]</c> attributes for a property's
+    /// setter, covering only the platforms where the setter's introduced version is
+    /// strictly greater than the property's. Used by <c>PropertyHandler.EmitSetter</c>
+    /// so the C# setter accessor carries the stricter OS guard even when the property
+    /// itself is available earlier (e.g., WorkoutKit.PowerThresholdAlert.metric: getter
+    /// iOS 17.0, setter iOS 17.4). Returns true when one or more attributes were emitted,
+    /// letting the caller know the matching <see cref="EmitSetterAccessorAvailabilityEpilogue"/>
+    /// must follow the set accessor.
+    /// </summary>
+    public static bool EmitSetterAccessorAvailability(
+        CSharpWriter csWriter,
+        IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
+        IReadOnlyList<AvailabilityAnnotation>? setterAvailability)
+    {
+        if (setterAvailability == null || setterAvailability.Count == 0)
+            return false;
+
+        var propPlatforms = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (propertyAvailability != null)
+        {
+            foreach (var ann in propertyAvailability)
+            {
+                if (ann.Platform != null && ann.IntroducedVersion != null)
+                    propPlatforms[ann.Platform] = ann.IntroducedVersion;
+            }
+        }
+
+        var tighter = new List<(string platform, string version)>();
+        foreach (var ann in setterAvailability)
+        {
+            if (ann.Platform == null || ann.IntroducedVersion == null)
+                continue;
+            if (ann.Platform == "visionOS")
+                continue;
+            if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform))
+                continue;
+            // Only emit when strictly tighter than the property-level annotation —
+            // attributes that merely repeat the property's versions are redundant.
+            if (propPlatforms.TryGetValue(ann.Platform, out var propVersion) &&
+                !IsStrictlyNewer(ann.IntroducedVersion, propVersion))
+                continue;
+            tighter.Add((dotnetPlatform, ann.IntroducedVersion));
+        }
+
+        if (tighter.Count == 0)
+            return false;
+
+        // CA1416 does not narrow callsite OS availability based on accessor-level
+        // [SupportedOSPlatform] attributes — the analyzer still treats the set body
+        // as reachable from the enclosing property's (looser) floor. Suppress the
+        // warning for the backing-method call inside the setter body; consumers
+        // still get a proper CA1416 diagnostic at their own call site because the
+        // accessor attribute DOES narrow the consumer-facing surface.
+        csWriter.WriteLine("#pragma warning disable CA1416");
+        foreach (var (dotnetPlatform, version) in tighter)
+        {
+            var platformVersion = $"{dotnetPlatform}{NormalizeVersion(version)}";
+            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{platformVersion}\")]");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Closes a CA1416 pragma pair opened by <see cref="EmitSetterAccessorAvailability"/>.
+    /// Must be called immediately after the set accessor body when that helper returned true.
+    /// </summary>
+    public static void EmitSetterAccessorAvailabilityEpilogue(CSharpWriter csWriter)
+    {
+        csWriter.WriteLine("#pragma warning restore CA1416");
+    }
+
+    private static bool IsStrictlyNewer(string candidate, string baseline)
+    {
+        var c = ParseVersion(NormalizeVersion(candidate));
+        var b = ParseVersion(NormalizeVersion(baseline));
+        for (int i = 0; i < 4; i++)
+        {
+            if (c[i] != b[i])
+                return c[i] > b[i];
+        }
+        return false;
+    }
+
+    private static int[] ParseVersion(string v)
+    {
+        var parts = v.Split('.');
+        var result = new int[4];
+        for (int i = 0; i < parts.Length && i < 4; i++)
+        {
+            int.TryParse(parts[i], out result[i]);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns a deprecation message for EmitSafetyObsolete to consume (method-level merge).
     /// Returns null if no deprecation annotations exist.
     /// </summary>

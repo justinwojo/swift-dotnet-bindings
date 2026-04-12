@@ -57,6 +57,35 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Builds a heredoc-interpolation prefix that emits <c>@available(...)</c> lines
+    /// immediately before a top-level Swift declaration. When there are no annotations,
+    /// returns the empty string so the interpolated heredoc compiles unchanged.
+    /// Otherwise returns a string like <c>"@available(iOS 16.0, *)\n{indent}"</c>, deduped
+    /// by platform+version. Used for emitting availability on protocol vtable accessors,
+    /// EveryProtocol extensions, and witness table getters — all of which are top-level
+    /// declarations that don't inherit their protocol's availability.
+    /// </summary>
+    public static string BuildAvailabilityHeredocPrefix(IReadOnlyList<AvailabilityAnnotation>? annotations, string heredocIndent)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return string.Empty;
+
+        var emitted = new HashSet<string>();
+        var parts = new List<string>();
+        foreach (var annotation in annotations)
+        {
+            if (annotation.Platform == null || annotation.IntroducedVersion == null)
+                continue;
+            var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
+            if (emitted.Add(key))
+                parts.Add($"@available({key}, *)");
+        }
+        if (parts.Count == 0)
+            return string.Empty;
+        return string.Join("\n" + heredocIndent, parts) + "\n" + heredocIndent;
+    }
+
+    /// <summary>
     /// Merges member-level and parent-type availability annotations for a @_cdecl wrapper.
     /// @_cdecl wrappers are top-level Swift functions and do NOT inherit the enclosing
     /// type's availability, so both must be explicitly applied to the wrapper.

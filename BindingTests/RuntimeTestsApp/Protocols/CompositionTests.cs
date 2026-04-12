@@ -105,4 +105,29 @@ public class CompositionTests : TestBase
     }
 
     #endregion
+
+    #region Class-Bound Existential Compositions
+
+    // `any ClassBoundBase & ClassBoundMarker` is a class-constrained existential.
+    // The generator has no marshalling path for class-bounded compositions (the
+    // ABI container layout differs from an unconstrained composition, and a
+    // concrete class does not implement ISwiftExistentialConvertible<EC2>), so
+    // `describeClassBound` is rejected by IsSupportedExistential and never
+    // emitted. These tests exercise the concrete class's own members so the
+    // skip path is proven to not destroy the rest of the type's surface.
+
+    public void TestClassBoundConcreteConstruction()
+    {
+        var concrete = new ClassBoundConcrete(tag: "alpha", marker: "m1");
+        AssertNotNull(concrete, "ClassBoundConcrete constructed");
+    }
+
+    public void TestClassBoundConcreteMarkerLabelRoundTrip()
+    {
+        var concrete = TestLibFunctions.MakeClassBound(tag: "alpha", marker: "m1");
+        var label = concrete.GetMarkerLabel();
+        AssertEqual("alpha/m1", label, "ClassBoundConcrete.GetMarkerLabel round-trip");
+    }
+
+    #endregion
 }

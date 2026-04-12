@@ -1424,6 +1424,111 @@ public class SwiftABIParserTests
 
     #endregion
 
+    #region Setter Availability Merging Tests
+
+    /// <summary>
+    /// When the setter accessor declares a tighter introduced version than the property
+    /// (e.g. WorkoutKit.PowerThresholdAlert.metric: getter iOS 17.0, setter iOS 17.4),
+    /// the merged list must override the property's version for that platform while
+    /// keeping other platforms intact. This is what drives both the Swift wrapper's
+    /// stricter @available emission and the C# accessor-level [SupportedOSPlatform].
+    /// </summary>
+    [Fact]
+    public void MergeAccessorAvailability_SetterTighterThanProperty_OverridesPlatform()
+    {
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+            new("watchOS", "10.0", null, null, false, false, null, null),
+        };
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.4", null, null, false, false, null, null),
+            new("watchOS", "10.4", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, setterAvail);
+
+        Assert.NotNull(merged);
+        var iOS = Assert.Single(merged!, a => a.Platform == "iOS");
+        Assert.Equal("17.4", iOS.IntroducedVersion);
+        var watchOS = Assert.Single(merged!, a => a.Platform == "watchOS");
+        Assert.Equal("10.4", watchOS.IntroducedVersion);
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_SetterPartialPlatformSet_KeepsPropertyForOthers()
+    {
+        // Setter only tightens iOS; tvOS stays at the property-level version.
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+            new("tvOS", "17.0", null, null, false, false, null, null),
+        };
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.4", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, setterAvail);
+
+        Assert.NotNull(merged);
+        var iOS = Assert.Single(merged!, a => a.Platform == "iOS");
+        Assert.Equal("17.4", iOS.IntroducedVersion);
+        var tvOS = Assert.Single(merged!, a => a.Platform == "tvOS");
+        Assert.Equal("17.0", tvOS.IntroducedVersion);
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_NoAccessorAnnotations_ReturnsPropertyAvailability()
+    {
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, accessorAvailability: null);
+
+        Assert.NotNull(merged);
+        var iOS = Assert.Single(merged!, a => a.Platform == "iOS");
+        Assert.Equal("17.0", iOS.IntroducedVersion);
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_BothNull_ReturnsNull()
+    {
+        Assert.Null(SwiftABIParser.MergeAccessorAvailability(propertyAvailability: null, accessorAvailability: null));
+    }
+
+    [Fact]
+    public void MergeAccessorAvailability_PreservesNonPlatformPassthroughs()
+    {
+        // Unconditional `@available(*, deprecated)` has Platform==null and should
+        // pass through to the merged result alongside platform-specific entries.
+        var passthrough = new AvailabilityAnnotation(
+            Platform: null, IntroducedVersion: null, DeprecatedVersion: null,
+            ObsoletedVersion: null, IsUnconditionallyDeprecated: true,
+            IsUnconditionallyUnavailable: false, Message: "gone", Renamed: null);
+        var propertyAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.0", null, null, false, false, null, null),
+            passthrough,
+        };
+        var setterAvail = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "17.4", null, null, false, false, null, null),
+        };
+
+        var merged = SwiftABIParser.MergeAccessorAvailability(propertyAvail, setterAvail);
+
+        Assert.NotNull(merged);
+        Assert.Contains(merged!, a => a.IsUnconditionallyDeprecated && a.Message == "gone");
+        var iOS = Assert.Single(merged!, a => a.Platform == "iOS");
+        Assert.Equal("17.4", iOS.IntroducedVersion);
+    }
+
+    #endregion
+
     #region Tuple Detection Tests
 
     [Fact]

@@ -343,7 +343,7 @@ public class ProjectionVisitorTests
     public void Async_VoidReturn_PublicTypeIsTask()
     {
         var proj = new AsyncProjection(null, throws: false, callbackPrefix: null);
-        Assert.Equal("Task", proj.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task", proj.PublicType);
         Assert.Equal("void", proj.PInvokeType);
     }
 
@@ -490,7 +490,7 @@ public class ProjectionVisitorTests
             throws: false,
             isAsync: false,
             callbackName: "cb_doWork");
-        Assert.Equal("Action", proj.PublicType);
+        Assert.Equal("global::System.Action", proj.PublicType);
     }
 
     [Fact]

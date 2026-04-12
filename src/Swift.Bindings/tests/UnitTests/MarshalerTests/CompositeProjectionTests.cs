@@ -114,7 +114,7 @@ public class CompositeProjectionTests
             callbackName: "pipelineCallback");
 
         // Public type should be Func with correct types
-        Assert.Equal("Func<ImagePipeline, bool>", proj.PublicType);
+        Assert.Equal("global::System.Func<ImagePipeline, bool>", proj.PublicType);
 
         // Return plan should be a lambda
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
@@ -163,7 +163,7 @@ public class CompositeProjectionTests
         var asyncProj = new AsyncProjection(tupleProj, throws: true, callbackPrefix: "fetchData");
 
         // Type
-        Assert.Equal("Task<(string, Int64)>", asyncProj.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task<(string, Int64)>", asyncProj.PublicType);
         Assert.Equal("void", asyncProj.PInvokeType);
 
         // Requires Swift wrapper
@@ -295,7 +295,7 @@ public class CompositeProjectionTests
         var optStr = new OptionalProjection(new StringProjection());
         var asyncProj = new AsyncProjection(optStr, throws: false, callbackPrefix: "fetch");
 
-        Assert.Equal("Task<string?>", asyncProj.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task<string?>", asyncProj.PublicType);
         Assert.True(asyncProj.RequiresSwiftWrapper);
     }
 
@@ -358,7 +358,7 @@ public class CompositeProjectionTests
             isAsync: false,
             callbackName: "multiArgCallback");
 
-        Assert.Equal("Func<string, Status, Int64, bool>", closureProj.PublicType);
+        Assert.Equal("global::System.Func<string, Status, Int64, bool>", closureProj.PublicType);
 
         var callbacks = closureProj.CallbackDeclarations;
         Assert.Single(callbacks);

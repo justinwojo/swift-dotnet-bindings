@@ -112,3 +112,47 @@ public func applyFourProtocols<T: Addable & Subtractable & Multipliable & Divida
     let quot = val.divide(d)
     return sum + diff + prod + quot
 }
+
+// MARK: - Class-Bound Existentials
+//
+// Swift permits class-constrained existentials like `any MyBase & SomeProtocol`.
+// C# has no `IMyBase` interface and the ABI container layout differs from a regular
+// composition, so the generator must degrade these compositions to `object` rather
+// than synthesise a broken `I...And...` interface. These fixtures exercise the
+// degrade path so a regression here fails BindingTests, not just unit tests.
+
+/// A Swift class used as the class bound in a class-constrained composition.
+public class ClassBoundBase {
+    public let tag: String
+    public init(tag: String) { self.tag = tag }
+}
+
+/// Simple protocol composed with ClassBoundBase to form a class-constrained existential.
+public protocol ClassBoundMarker {
+    func markerLabel() -> String
+}
+
+/// Concrete subclass conforming to the marker protocol — the only type that can
+/// satisfy `any ClassBoundBase & ClassBoundMarker`.
+public class ClassBoundConcrete: ClassBoundBase, ClassBoundMarker {
+    public let marker: String
+    public init(tag: String, marker: String) {
+        self.marker = marker
+        super.init(tag: tag)
+    }
+    public func markerLabel() -> String {
+        return "\(tag)/\(marker)"
+    }
+}
+
+/// Free function taking a class-bound composition parameter. The generator must
+/// degrade this parameter to `object` — a non-degraded binding would try to synthesise
+/// a combined interface and fail to compile.
+public func describeClassBound(_ item: ClassBoundBase & ClassBoundMarker) -> String {
+    return "\(item.tag):\(item.markerLabel())"
+}
+
+/// Factory that produces an instance usable with describeClassBound from C#.
+public func makeClassBound(tag: String, marker: String) -> ClassBoundConcrete {
+    return ClassBoundConcrete(tag: tag, marker: marker)
+}

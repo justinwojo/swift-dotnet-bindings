@@ -71,6 +71,18 @@ namespace BindingsGeneration
         public bool? protocolReq { get; set; }
         public string[]? typeAttributes { get; set; }
         public string[]? spi_group_names { get; set; }
+        // Accessor-level introduced version fields from swift-api-digester.
+        // Properties whose setters are restricted to a newer platform version emit
+        // these on the `set` accessor child (e.g., WorkoutKit.PowerThresholdAlert.metric
+        // setter is iOS 17.4 while the property itself is iOS 17.0). Reading them lets
+        // the Swift wrapper generator emit matching @available attributes so the cdecl
+        // setter doesn't reference an API requiring a newer OS than its annotation.
+        public string? intro_iOS { get; set; }
+        public string? intro_Macosx { get; set; }
+        public string? intro_tvOS { get; set; }
+        public string? intro_watchOS { get; set; }
+        public string? intro_visionOS { get; set; }
+        public string? intro_macCatalyst { get; set; }
         public required IEnumerable<Node> Children { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Conformances { get; set; } = Enumerable.Empty<Node>();
         public required IEnumerable<Node> Accessors { get; set; } = Enumerable.Empty<Node>();
@@ -306,6 +318,72 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Reads accessor-level introduced-version fields from an ABI JSON accessor node
+        /// and returns them as AvailabilityAnnotation entries. Returns null when the accessor
+        /// has no tighter version than its parent property.
+        /// </summary>
+        private static List<AvailabilityAnnotation>? ExtractAccessorAvailability(Node accessorNode)
+        {
+            List<AvailabilityAnnotation>? result = null;
+            void Add(string? platform, string? version)
+            {
+                if (string.IsNullOrEmpty(platform) || string.IsNullOrEmpty(version))
+                    return;
+                result ??= new List<AvailabilityAnnotation>();
+                result.Add(new AvailabilityAnnotation(platform, version, null, null, false, false, null, null));
+            }
+            Add("iOS", accessorNode.intro_iOS);
+            Add("macOS", accessorNode.intro_Macosx);
+            Add("tvOS", accessorNode.intro_tvOS);
+            Add("watchOS", accessorNode.intro_watchOS);
+            Add("visionOS", accessorNode.intro_visionOS);
+            Add("macCatalyst", accessorNode.intro_macCatalyst);
+            return result;
+        }
+
+        /// <summary>
+        /// Merges property-level availability with accessor-specific availability from the
+        /// ABI JSON. For each platform the accessor tightens, the accessor version replaces
+        /// the property-level version; other platforms keep the property's version. Returns
+        /// null if neither source has any entries. Exposed to the test assembly via
+        /// <c>InternalsVisibleTo</c> so setter-availability merging can be unit-tested
+        /// directly without staging a full ABI-JSON fixture.
+        /// </summary>
+        internal static List<AvailabilityAnnotation>? MergeAccessorAvailability(
+            IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
+            List<AvailabilityAnnotation>? accessorAvailability)
+        {
+            if ((propertyAvailability == null || propertyAvailability.Count == 0) &&
+                (accessorAvailability == null || accessorAvailability.Count == 0))
+                return null;
+
+            var merged = new Dictionary<string, AvailabilityAnnotation>(StringComparer.Ordinal);
+            var passthroughs = new List<AvailabilityAnnotation>();
+            if (propertyAvailability != null)
+            {
+                foreach (var ann in propertyAvailability)
+                {
+                    if (ann.Platform != null && ann.IntroducedVersion != null)
+                        merged[ann.Platform] = ann;
+                    else
+                        passthroughs.Add(ann);
+                }
+            }
+            if (accessorAvailability != null)
+            {
+                foreach (var ann in accessorAvailability)
+                {
+                    if (ann.Platform != null && ann.IntroducedVersion != null)
+                        merged[ann.Platform] = ann;
+                }
+            }
+
+            var result = new List<AvailabilityAnnotation>(merged.Values);
+            result.AddRange(passthroughs);
+            return result;
+        }
+
+        /// <summary>
         /// Applies default parameter value expressions from swiftinterface data to a method's arguments.
         /// Must be called AFTER all ArgumentDecl instances have been added to CSSignature.
         /// </summary>
@@ -379,24 +457,29 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
+        /// Only returns true for truly unconditional `@available(*, unavailable)` annotations. A
+        /// per-platform form like `@available(watchOS, unavailable)` parses into an annotation with
+        /// <c>Platform != null</c> and must NOT suppress members when the binding target is iOS, etc.
         /// </summary>
         private bool IsUnavailableFromSwiftInterface(TypeDecl parentTypeDecl, string printedName)
         {
             if (_availabilityAnnotations == null) return false;
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
             return _availabilityAnnotations.TryGetValue(key, out var annotations)
-                && annotations.Any(a => a.IsUnconditionallyUnavailable);
+                && annotations.Any(a => a.IsUnconditionallyUnavailable && a.Platform == null);
         }
 
         /// <summary>
         /// Checks if a type is unconditionally unavailable from swiftinterface availability annotations.
+        /// Only returns true for truly unconditional `@available(*, unavailable)` annotations (see
+        /// <see cref="IsUnavailableFromSwiftInterface"/> for rationale).
         /// </summary>
         private bool IsTypeUnavailableFromSwiftInterface(TypeDecl typeDecl)
         {
             if (_availabilityAnnotations == null) return false;
             var key = BuildTypeQualifiedPath(typeDecl);
             return _availabilityAnnotations.TryGetValue(key, out var annotations)
-                && annotations.Any(a => a.IsUnconditionallyUnavailable);
+                && annotations.Any(a => a.IsUnconditionallyUnavailable && a.Platform == null);
         }
 
         /// <summary>
@@ -626,7 +709,17 @@ namespace BindingsGeneration
         /// <returns>The module name.</returns>
         public string GetModuleName()
         {
-            var moduleName = _moduleRoot.ABIRoot.Children.FirstOrDefault()?.ModuleName ?? string.Empty;
+            // Pick the first child whose ModuleName is a real Swift module.
+            // swift-api-digester may emit compiler-internal TypeAlias children
+            // (__NSConstantString, __builtin_va_list) with moduleName="__ObjC"
+            // at the front of the children list when a framework @_exports
+            // itself (e.g. ActivityKit). The old logic grabbed Children[0]
+            // unconditionally and produced "__ObjC" as the module name.
+            var moduleName = _moduleRoot.ABIRoot.Children
+                .Select(c => c.ModuleName)
+                .FirstOrDefault(n => !string.IsNullOrEmpty(n) && n != "__ObjC")
+                ?? _moduleRoot.ABIRoot.Children.FirstOrDefault()?.ModuleName
+                ?? string.Empty;
 
             if (string.IsNullOrEmpty(moduleName) || moduleName == "NO_MODULE")
             {
@@ -1291,8 +1384,22 @@ namespace BindingsGeneration
             {
                 if (conformance.Kind == kNominal || conformance.Kind == "Conformance")
                 {
+                    // ObjC protocol conformance entries (e.g., NSCoding) have no Swift
+                    // mangled name — they carry a USR like `c:objc(pl)NSCoding`. Record
+                    // these via the printedName-derived fallback so IsClassBoundProtocol
+                    // can detect NSObject-rooted protocols (NSCoding, NSCopying, etc.)
+                    // and suppress EveryProtocol conformance for delegates that require
+                    // them.
                     if (string.IsNullOrEmpty(conformance.MangledName))
+                    {
+                        if (!string.IsNullOrEmpty(conformance.usr) &&
+                            conformance.usr.StartsWith("c:objc(pl)", StringComparison.Ordinal))
+                        {
+                            var fallbackName = BuildFallbackProtocolName(conformance);
+                            inheritedProtocols.Add(new NamedTypeSpec(fallbackName.ModuleQualifiedName));
+                        }
                         continue;
+                    }
 
                     // Mirror the HandleConformance guard: an unsupported demangler
                     // substitution (e.g. `$sSci` for `_Concurrency.AsyncSequence`) would
@@ -1329,8 +1436,31 @@ namespace BindingsGeneration
                 }
             }
 
-            // Check for Self requirement in the generic signature
-            bool hasSelfRequirement = node.GenericSig?.Contains("Self") == true;
+            // Check for a Self requirement in the generic signature.
+            //
+            // Every Swift protocol has an implicit Self receiver, and swift-api-digester
+            // prints every protocol-inheritance requirement as `<Self : OtherProtocol>`
+            // in the generic signature. A bare `Contains("Self")` therefore matches any
+            // protocol that inherits from another protocol (e.g., `MusicItem : Sendable`
+            // emits `<Self : Swift.Sendable>`), even when the protocol has no semantic
+            // Self requirement. That incorrectly gates the interface into the generic
+            // `IFoo<TSelf> where TSelf : IFoo<TSelf>` F-bound form, which downstream
+            // constraint emission then breaks at use sites (CS0305 / CS0311).
+            //
+            // A real Self requirement manifests either as:
+            //   * an associated-type reference through Self: `Self.X` (property-style access)
+            //   * a same-type constraint anchored on Self: `Self == X` or `Self.X == Y`
+            //
+            // Simple protocol inheritance `<Self : Foo>` does NOT produce a `Self.` or
+            // `Self ==` substring, so the tightened pattern distinguishes the two cases.
+            //
+            // Method-level Self usage (`func foo() -> Self`) is still detected via the
+            // separate HasMethodSelfTypeParams check that walks method signatures for
+            // τ_0_0 references, so protocols whose only Self usage is in method
+            // parameters/returns remain covered.
+            bool hasSelfRequirement = node.GenericSig != null &&
+                (node.GenericSig.Contains("Self.", StringComparison.Ordinal) ||
+                 node.GenericSig.Contains("Self ==", StringComparison.Ordinal));
 
             // Check if class-bound (requires AnyObject).
             // AnyObject may appear in conformances OR in the generic signature
@@ -1923,6 +2053,49 @@ namespace BindingsGeneration
                 ApplyPropertyActorIsolation(decl, propParentType);
                 ApplyMemberAvailability(decl, propParentType, sanitizedName);
             }
+            // Propagate the property's availability to its accessor MethodDecls so the
+            // private *_Get/*_Set backing methods emit [SupportedOSPlatform] attributes
+            // matching the public wrapper. Without this, backing methods that reference
+            // newer-SDK return/value types trigger CA1416 inside wider class-level surfaces.
+            // Defensive copy per accessor: downstream emitters (PropertyHandler async-property
+            // path) mutate accessor.Method.AvailabilityAnnotations via AddRange, which would
+            // otherwise duplicate entries back into the shared parent list.
+            if (decl.AvailabilityAnnotations is { Count: > 0 } propertyAvailability)
+            {
+                foreach (var accessor in decl.Accessors)
+                    accessor.Method.AvailabilityAnnotations = new List<AvailabilityAnnotation>(propertyAvailability);
+            }
+
+            // If the ABI JSON marks the setter with tighter introduced versions
+            // (e.g. WorkoutKit.PowerThresholdAlert.metric getter is iOS 17.0 but setter is
+            // iOS 17.4), attach a setter-specific availability list so the Swift @_cdecl
+            // setter wrapper emits the stricter @available. The list starts from the
+            // property-level availability and overrides per-platform where the setter
+            // accessor declares a newer intro.
+            var setterAccessorNode = node.Accessors.FirstOrDefault(a => a.AccessorKind == "set");
+            if (setterAccessorNode != null)
+            {
+                var setterSpecific = ExtractAccessorAvailability(setterAccessorNode);
+                if (setterSpecific is { Count: > 0 })
+                {
+                    var mergedSetter = MergeAccessorAvailability(
+                        decl.AvailabilityAnnotations, setterSpecific);
+                    decl.SetterAvailabilityAnnotations = mergedSetter;
+                    // Overwrite the set accessor method's availability with the merged
+                    // (tighter) list so downstream emitters that read accessor.Method
+                    // .AvailabilityAnnotations directly (subscript/async setter paths,
+                    // method wrapper emission) see the setter-specific restrictions
+                    // instead of the looser property-level copy.
+                    if (mergedSetter != null)
+                    {
+                        foreach (var accessor in decl.Accessors.OfType<SetAccessorDecl>())
+                        {
+                            accessor.Method.AvailabilityAnnotations =
+                                new List<AvailabilityAnnotation>(mergedSetter);
+                        }
+                    }
+                }
+            }
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -1981,6 +2154,15 @@ namespace BindingsGeneration
             if (parentDecl is TypeDecl subscriptParentType)
             {
                 ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName);
+            }
+            // Propagate subscript availability to accessor MethodDecls (same rationale as
+            // CreatePropertyDecl — backing accessors referencing newer-SDK types need matching
+            // attributes to satisfy CA1416 inside wider class-level surfaces). Defensive copy
+            // per accessor so downstream mutation cannot feed back into the parent decl.
+            if (decl.AvailabilityAnnotations is { Count: > 0 } subscriptAvailability)
+            {
+                foreach (var accessor in decl.Accessors)
+                    accessor.Method.AvailabilityAnnotations = new List<AvailabilityAnnotation>(subscriptAvailability);
             }
 
             // Apply parameter labels from swiftinterface if available.
@@ -2265,6 +2447,25 @@ namespace BindingsGeneration
                         _opaqueParamCapture != null)
                     {
                         return SynthesizeOpaqueParameter(node);
+                    }
+                    // Handle variadic parameters (T...). swift-api-digester emits these as
+                    // TypeNominal Array nodes with printedName "T..." when T is a generic
+                    // type parameter (for concrete element types it uses "[T]" instead).
+                    // TypeSpecParser treats '.' as a valid in-name character, so Parse("T...")
+                    // silently produces NamedTypeSpec("T...") instead of failing — the
+                    // malformed name then crashes downstream validators that rely on
+                    // HasModule()/FromModuleQualifiedName. Build the canonical demangler
+                    // shape (Swift.Array<T> with IsVariadic on the element) directly from
+                    // the child node so variadic detection in HasVariadicElement fires.
+                    if (node.Name == "Array" &&
+                        node.PrintedName.EndsWith("...", StringComparison.Ordinal) &&
+                        node.Children.Any())
+                    {
+                        var elementSpec = CreateTypeSpec(node.Children.First());
+                        elementSpec.IsVariadic = true;
+                        var arraySpec = new NamedTypeSpec("Swift.Array");
+                        arraySpec.GenericParameters.Add(elementSpec);
+                        return arraySpec;
                     }
                     var spec = TypeSpecParser.Parse(node.PrintedName);
                     if (spec is null)

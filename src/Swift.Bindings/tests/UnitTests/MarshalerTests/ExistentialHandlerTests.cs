@@ -1211,6 +1211,140 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region CompositionHasNonProtocolParticipant Tests
+
+    [Fact]
+    public void CompositionHasNonProtocolParticipant_PureProtocolComposition_ReturnsFalse()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.P1", TypeRecordKind.Protocol);
+        db.Register("TestModule.P2", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.P1"),
+            new NamedTypeSpec("TestModule.P2"),
+        });
+
+        Assert.False(handler.CompositionHasNonProtocolParticipant(protocolList));
+    }
+
+    [Fact]
+    public void CompositionHasNonProtocolParticipant_SwiftClassParticipant_ReturnsTrue()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.AnyClass", TypeRecordKind.Class);
+        db.Register("TestModule.SomeProtocol", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.AnyClass"),
+            new NamedTypeSpec("TestModule.SomeProtocol"),
+        });
+
+        Assert.True(handler.CompositionHasNonProtocolParticipant(protocolList));
+    }
+
+    [Fact]
+    public void CompositionHasNonProtocolParticipant_NSObjectParticipant_ReturnsTrue()
+    {
+        // Foundation.NSObject is an ObjC-module type — previously filtered by
+        // GetEffectiveProtocols before reaching the class-bounded check. Must still
+        // fire for class-bounded existentials like `any NSObject & MyProtocol`.
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.MyProtocol", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObject"),
+            new NamedTypeSpec("TestModule.MyProtocol"),
+        });
+
+        Assert.True(handler.CompositionHasNonProtocolParticipant(protocolList));
+    }
+
+    [Fact]
+    public void CompositionHasNonProtocolParticipant_ObjCProtocolParticipant_ReturnsFalse()
+    {
+        // NSCoding is an ObjC protocol, not a class. A composition with only protocol
+        // participants (ObjC or otherwise) must not be flagged as class-bounded.
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.MyProtocol", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSCoding"),
+            new NamedTypeSpec("TestModule.MyProtocol"),
+        });
+
+        Assert.False(handler.CompositionHasNonProtocolParticipant(protocolList));
+    }
+
+    [Fact]
+    public void CompositionHasNonProtocolParticipant_MarkerProtocolOnly_ReturnsFalse()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+        });
+
+        Assert.False(handler.CompositionHasNonProtocolParticipant(protocolList));
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_ClassBoundComposition_CollapsesToObject()
+    {
+        // NSObject & MyProtocol must degrade to `object` — the class-bounded layout
+        // cannot be represented by a synthesised composition interface.
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.MyProtocol", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSObject"),
+            new NamedTypeSpec("TestModule.MyProtocol"),
+        });
+
+        Assert.Equal("object", handler.GetPublicExistentialType(protocolList));
+    }
+
+    /// <summary>
+    /// Minimal TypeDatabase that lets tests register arbitrary TypeRecords with a
+    /// specific <see cref="TypeRecordKind"/>, so <c>CompositionHasNonProtocolParticipant</c>
+    /// can be exercised against the Class/Protocol boundary it guards.
+    /// </summary>
+    private class ClassBoundCompositionMockDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+        public string AsyncLibraryName => null!;
+
+        public void Register(string moduleQualifiedName, TypeRecordKind kind)
+        {
+            _types[moduleQualifiedName] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("N", "T"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = kind,
+                EmittedMemberCount = 0,
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
+
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

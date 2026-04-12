@@ -56,8 +56,54 @@ public class OptionalProjection : ITypeProjection
     /// <summary>
     /// When this Optional appears as a generic parameter inside another container,
     /// use the full SwiftOptional type name with P/Invoke-level inner type.
+    /// Nullable-pointer-ABI inner types (classes, ObjC-bridged, ObjC-rooted) use
+    /// bare IntPtr because Swift's Optional&lt;ClassRef&gt; is nil-pointer-optimized:
+    /// the container element is an 8-byte pointer (0 = nil), not a SwiftOptional wrapper.
     /// </summary>
-    public string SwiftContainerGenericType => $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+    public string SwiftContainerGenericType =>
+        _innerProjection is ClassProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
+            ? "IntPtr"
+            : $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+
+    /// <summary>
+    /// Per-element conversion for when Optional is used as an array/dictionary element.
+    /// Needed because OptionalProjection has a different public type (T?) than the element's
+    /// P/Invoke representation, and ArrayProjection uses this in a .Select() conversion lambda.
+    /// Two layouts:
+    ///  - Nil-pointer optimized (class refs, ObjC types): bare IntPtr, 0 = nil → 8 bytes.
+    ///  - Tagged Optional (everything else): SwiftOptional&lt;inner&gt;.NewSome/NewNone → 9 bytes.
+    /// </summary>
+    public string? GetParameterElementConversion(string elementVar)
+    {
+        // Derive a unique pattern variable name from elementVar so that two optional element
+        // conversions in the same C# expression (e.g., dictionary with optional key and
+        // optional value) don't both declare `__v`, which would trigger CS0128.
+        var safeVar = elementVar.Replace(".", "_").Replace("[", "").Replace("]", "");
+        var patVar = $"__v_{safeVar}";
+
+        if (_innerProjection is ClassProjection)
+            return $"({elementVar} is {{ }} {patVar} ? {patVar}.Payload.DangerousGetHandle() : IntPtr.Zero)";
+        if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
+            return $"({elementVar} is {{ }} {patVar} ? {patVar}.Handle : IntPtr.Zero)";
+
+        // Tagged Optional path: build a SwiftOptional<inner> wrapper per element.
+        var optType = $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
+        var innerConv = _innerProjection.GetParameterElementConversion(patVar);
+        var someArg = innerConv ?? patVar;
+        return $"({elementVar} is {{ }} {patVar} ? {optType}.NewSome({someArg}) : {optType}.NewNone())";
+    }
+
+    /// <summary>
+    /// The tagged-optional element conversion path allocates SwiftOptional&lt;T&gt; wrappers per
+    /// element (via NewSome/NewNone). Those wrappers own native buffers and must be disposed
+    /// in the container's finally block. The nil-pointer-optimized paths (classes, ObjC types)
+    /// don't allocate anything, so no disposal is needed.
+    /// </summary>
+    public bool ElementRequiresDisposal =>
+        _innerProjection is not (ClassProjection
+            or ObjCBridgedProjection
+            or ObjCBridgeableProjection
+            or ObjCRootedClassProjection);
 
     /// <summary>
     /// The SwiftOptional type parameter — uses SwiftContainerGenericType which returns the correct

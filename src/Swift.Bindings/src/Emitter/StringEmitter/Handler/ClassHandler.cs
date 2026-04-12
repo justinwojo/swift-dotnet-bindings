@@ -656,11 +656,16 @@ namespace BindingsGeneration
             }
             else
             {
+                // Wrap the raw IntPtr in a SwiftHandle explicitly so the call resolves to the
+                // private SwiftHandle-taking constructor. Relying on the implicit IntPtr→SwiftHandle
+                // conversion causes CS0121 ambiguity when the class also has a public single-arg
+                // constructor whose parameter type accepts an implicit IntPtr conversion
+                // (e.g. SwiftOptional<IntPtr> for non-bridged optional parameters).
                 var text = $$"""
                 [EditorBrowsable(EditorBrowsableState.Never)]
                 static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
                 {
-                    var obj = new {{_typeNameWithGenerics}}(handle);
+                    var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                     Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
                     return obj;
                 }

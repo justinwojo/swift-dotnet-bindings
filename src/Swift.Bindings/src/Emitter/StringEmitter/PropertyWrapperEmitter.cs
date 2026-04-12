@@ -604,8 +604,15 @@ public static class PropertyWrapperEmitter
         // Add @MainActor when wrapping @MainActor-isolated properties.
         bool needsMainActorSetter = WrapperValidation.NeedsMainActorAnnotation(
             env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        // Prefer the setter-specific availability list when the ABI JSON tightens the
+        // setter above the property level (e.g. WorkoutKit.PowerThresholdAlert.metric
+        // setter is iOS 17.4 while the getter is iOS 17.0). Falls back to the property
+        // availability when the setter has no extra restrictions.
+        var setterAvailForWrapper = propertyDecl.SetterAvailabilityAnnotations is { Count: > 0 }
+            ? propertyDecl.SetterAvailabilityAnnotations
+            : propertyDecl.AvailabilityAnnotations;
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActorSetter,
-            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
+            WrapperEmitterHelpers.MergeAvailability(setterAvailForWrapper, env.ParentDecl));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}) {{");
         swiftWriter.Indent++;
 

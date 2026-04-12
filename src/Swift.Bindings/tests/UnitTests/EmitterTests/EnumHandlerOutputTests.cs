@@ -2795,6 +2795,33 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_SimpleEnumWithOptionalStringProperty_EmitsNullableGetter()
+    {
+        // LocalizedError conformance: errorDescription etc. return `String?`. The simple-enum
+        // extension emitter must accept Optional<Swift.String> and emit a `string?`-returning
+        // extension method whose Swift wrapper returns `UnsafeMutableRawPointer?` (nil = None).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("MyError", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("permissionDenied"));
+        enumDecl.Cases.Add(CreateCase("unknown"));
+        enumDecl.Properties.Add(CreateInstanceOptionalStringProperty("errorDescription", enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public enum MyError : int", csOutput);
+        // C# extension returns string?, checks IntPtr.Zero → null
+        Assert.Contains("string? GetErrorDescription(this MyError self)", csOutput);
+        Assert.Contains("if (resultPtr == IntPtr.Zero) return null;", csOutput);
+        Assert.Contains("Encoding.UTF8.GetString", csOutput);
+        Assert.Contains("PInvoke_SBW_Free", csOutput);
+        // Swift wrapper returns nullable pointer and guards for nil
+        Assert.Contains("UnsafeMutableRawPointer?", swiftOutput);
+        Assert.Contains("guard let result: String", swiftOutput);
+        Assert.Contains("else { return nil }", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_SimpleEnumWithStaticMethodReturningEnum_EmitsWithCast()
     {
         // BX2: Factory method returning same enum type → cast from underlying type
@@ -3196,6 +3223,39 @@ public class EnumHandlerOutputTests
                         CSSignature = new List<ArgumentDecl>
                         {
                             new() { SwiftTypeSpec = new NamedTypeSpec("Swift.String"), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+                        },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    private static PropertyDecl CreateInstanceOptionalStringProperty(string name, EnumDecl enumDecl, ModuleDecl moduleDecl)
+    {
+        var optStringSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String"));
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = optStringSpec,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = $"{name}_Get",
+                        MangledName = $"$s10TestModule{enumDecl.Name.Length}{enumDecl.Name}O{name}SSSgvg",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl>
+                        {
+                            new() { SwiftTypeSpec = optStringSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
                         },
                         GenericParameters = new List<GenericArgumentDecl>(),
                         ParentDecl = enumDecl, ModuleDecl = moduleDecl, Throws = false, IsAsync = false, Visibility = Visibility.Public

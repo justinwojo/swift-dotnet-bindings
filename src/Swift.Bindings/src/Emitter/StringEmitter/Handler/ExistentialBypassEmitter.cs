@@ -621,7 +621,13 @@ public static class ExistentialBypassEmitter
         }
         var callArgString = string.Join(", ", callArgs);
 
+        // Propagate parent-type availability so the wrapper compiles on device SDKs
+        // where the wrapped type may be gated on a newer OS version.
+        var methodAvailability = WrapperEmitterHelpers.MergeAvailability(
+            methodDecl.AvailabilityAnnotations, env.ParentDecl);
+
         swiftWriter.WriteLine();
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, methodAvailability);
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) {{");
         swiftWriter.Indent++;
@@ -797,7 +803,13 @@ public static class ExistentialBypassEmitter
         }
         var callArgString = string.Join(", ", callArgs);
 
+        // Propagate parent-type availability so the wrapper compiles on device SDKs
+        // where the wrapped type may be gated on a newer OS version.
+        var availability = WrapperEmitterHelpers.MergeAvailability(
+            env.MethodDecl.AvailabilityAnnotations, env.ParentDecl);
+
         swiftWriter.WriteLine();
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
@@ -808,6 +820,7 @@ public static class ExistentialBypassEmitter
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLine($"@_silgen_name(\"{freeSymbol}\")");
         swiftWriter.WriteLine($"public func {freeSymbol}(_ ptr: UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;

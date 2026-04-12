@@ -751,14 +751,18 @@ public class ClosureHandler
             coreReturnType = throws ? "Swift.SwiftVoid" : null!;
         }
 
-        // Build the final return type based on async and throws modifiers
+        // Build the final return type based on async and throws modifiers.
+        // BCL types are globally qualified so Swift types with matching names
+        // (e.g., TipKit.Tips.Action) can't shadow them in nested scopes.
         string finalReturnType;
         if (isAsync && throws)
         {
             // Async+throwing closures: error handling is via Swift continuation callback,
             // NOT via SwiftResult return type. User's delegate returns Task<T> and
             // exceptions are caught and forwarded to Swift's error callback.
-            finalReturnType = hasReturn ? $"Task<{coreReturnType}>" : "Task";
+            finalReturnType = hasReturn
+                ? $"global::System.Threading.Tasks.Task<{coreReturnType}>"
+                : "global::System.Threading.Tasks.Task";
         }
         else if (throws)
         {
@@ -771,7 +775,9 @@ public class ClosureHandler
         else if (isAsync)
         {
             // Async only: Task or Task<T>
-            finalReturnType = hasReturn ? $"Task<{coreReturnType}>" : "Task";
+            finalReturnType = hasReturn
+                ? $"global::System.Threading.Tasks.Task<{coreReturnType}>"
+                : "global::System.Threading.Tasks.Task";
         }
         else
         {
@@ -784,15 +790,15 @@ public class ClosureHandler
         {
             // Non-throwing, non-async void -> Action
             if (argTypes.Count == 0)
-                return "Action";
-            return $"Action<{string.Join(", ", argTypes)}>";
+                return "global::System.Action";
+            return $"global::System.Action<{string.Join(", ", argTypes)}>";
         }
         else
         {
             // All other cases -> Func
             if (argTypes.Count == 0)
-                return $"Func<{finalReturnType}>";
-            return $"Func<{string.Join(", ", argTypes)}, {finalReturnType}>";
+                return $"global::System.Func<{finalReturnType}>";
+            return $"global::System.Func<{string.Join(", ", argTypes)}, {finalReturnType}>";
         }
     }
 

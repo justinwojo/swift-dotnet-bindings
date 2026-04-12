@@ -313,7 +313,7 @@ public class ClassInheritanceEmissionTests
 
         var derivedBody = GetClassBody(output, "Dog");
         Assert.Contains("ISwiftObject.NewFromPayload", derivedBody);
-        Assert.Contains("var obj = new Dog(handle)", derivedBody);
+        Assert.Contains("var obj = new Dog(new SwiftHandle(handle))", derivedBody);
         Assert.Contains("Swift.Runtime.SwiftDisposeScope.TryRegister(obj)", derivedBody);
         Assert.Contains("return obj", derivedBody);
     }

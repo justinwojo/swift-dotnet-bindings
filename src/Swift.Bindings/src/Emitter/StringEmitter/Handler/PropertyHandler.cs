@@ -923,6 +923,34 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     {
         var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
 
+        // Setter-specific OS guard: when the ABI JSON marks the setter with a tighter
+        // introduced version than the property getter, emit accessor-level
+        // [SupportedOSPlatform] so C# consumers cannot call the setter under the
+        // getter's lower OS floor. Returns true when it emitted a `#pragma warning
+        // disable CA1416` that must be closed with a matching restore after the
+        // set accessor body — CA1416 does not narrow the inner backing-method call
+        // based on accessor attributes alone.
+        var emittedSetterPragma = AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(
+            csWriter,
+            propertyDecl.AvailabilityAnnotations,
+            propertyDecl.SetterAvailabilityAnnotations);
+        try
+        {
+            EmitSetterBody(csWriter, setter, propertyEnv, propertyDecl, isExistential,
+                isOptionalExistential, genericContext, isNarrowedNint, nativePropertyType, methodName);
+        }
+        finally
+        {
+            if (emittedSetterPragma)
+                AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue(csWriter);
+        }
+    }
+
+    private void EmitSetterBody(CSharpWriter csWriter, SetAccessorDecl setter, PropertyEnvironment propertyEnv, PropertyDecl propertyDecl,
+        bool isExistential, bool isOptionalExistential, GenericContext? genericContext,
+        bool isNarrowedNint, string? nativePropertyType, string methodName)
+    {
+
         // @_cdecl optional existential setter: marshal value to existential container
         // pointer + hasValue flag. The accessor method accepts (IntPtr, bool) matching
         // the Swift @_cdecl wrapper's decomposed optional parameters.
@@ -1152,14 +1180,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             accessor.Method.Visibility = Visibility.Public;
 
             // Propagate the property's @available annotations onto the synthesized async-property
-            // method so the @_cdecl wrapper carries them. The Swift parser only attaches
-            // availability to the property, not its synthesized accessor — without this,
-            // wrappers for newly-introduced async properties (e.g., StoreKit's iOS 26.2
-            // AppStore.ageRatingCode) fail to compile against older deployment targets.
+            // method so the @_cdecl wrapper carries them. Ensures wrappers for newly-introduced
+            // async properties (e.g., StoreKit's iOS 26.2 AppStore.ageRatingCode) carry matching
+            // deployment attributes. SwiftABIParser already copies the property's availability
+            // onto every accessor via CreatePropertyDecl — reassigning a fresh copy here is
+            // idempotent with that propagation and guards against future parser-side skips.
             if (propertyDecl.AvailabilityAnnotations is { Count: > 0 } propertyAvailability)
             {
-                accessor.Method.AvailabilityAnnotations ??= new List<AvailabilityAnnotation>();
-                accessor.Method.AvailabilityAnnotations.AddRange(propertyAvailability);
+                accessor.Method.AvailabilityAnnotations = new List<AvailabilityAnnotation>(propertyAvailability);
             }
 
             var accessorEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);

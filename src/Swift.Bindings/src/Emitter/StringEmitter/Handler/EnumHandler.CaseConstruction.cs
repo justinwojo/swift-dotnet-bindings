@@ -81,6 +81,18 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Skip enum cases whose bound-generic payload has ObjC-bridged type remap
+                // in a generic argument position (e.g., Trend<UnitTemperature> → Trend<NSUnitTemperature>).
+                // The outer generic type is emitted with `where T : ISwiftObject`, but the remapped
+                // NSObject-rooted type does not implement ISwiftObject — the factory would produce CS0311.
+                // The case remains constructable from native code (pattern matching still works in C#),
+                // we just can't emit a C#-side factory that passes the constraint check.
+                if (ContainsRemappedObjCTypeInGenericArgs(typeSpec))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has a bound generic payload with an ObjC-bridged type remap as a generic argument. Skipping case factory to avoid ISwiftObject constraint violation.");
+                    return false;
+                }
+
                 parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 
@@ -1112,6 +1124,33 @@ namespace BindingsGeneration
             result = NameProvider.EscapeForCSharpSignature(result);
 
             return string.IsNullOrEmpty(result) ? "value" : result;
+        }
+
+        /// <summary>
+        /// Walks a TypeSpec and returns true if any generic argument (at any nesting level)
+        /// is a NamedTypeSpec whose module-qualified name has an ObjC-bridged remap in
+        /// AppleFrameworkRegistry (e.g., Foundation.UnitTemperature → Foundation.NSUnitTemperature).
+        /// Remapped types are NSObject-rooted and do not implement ISwiftObject, so using them
+        /// as a generic argument where the outer type has `where T : ISwiftObject` produces CS0311.
+        /// </summary>
+        private static bool ContainsRemappedObjCTypeInGenericArgs(TypeSpec typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec named)
+                return false;
+
+            foreach (var genericArg in named.GenericParameters)
+            {
+                if (genericArg is NamedTypeSpec argNamed)
+                {
+                    if (AppleFrameworkRegistry.TryGetNetTypeName(argNamed.Name, out _))
+                        return true;
+                }
+                // Recurse into nested generics.
+                if (ContainsRemappedObjCTypeInGenericArgs(genericArg))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

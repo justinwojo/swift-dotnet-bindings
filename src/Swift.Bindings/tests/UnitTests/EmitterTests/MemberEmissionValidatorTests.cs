@@ -698,6 +698,76 @@ public class MemberEmissionValidatorTests
         Assert.False(MemberEmissionValidator.IsNetStaticClassType("UIKit.UIKeyboardType"));
     }
 
+    [Fact]
+    public void ReferencesUnsupportedModule_FoundationPredicate_ReturnsTrue()
+    {
+        // Foundation.Predicate is auto-bridged in Swift but not present in .NET Foundation —
+        // referencing it would produce CS0234. Now configured via apple-frameworks.json's
+        // netUnavailableTypes entry and surfaced through AppleFrameworkRegistry.
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(
+            new NamedTypeSpec("Foundation.Predicate")));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_FoundationLocalizedStringResource_ReturnsTrue()
+    {
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(
+            new NamedTypeSpec("Foundation.LocalizedStringResource")));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_OptionalFoundationPredicate_ReturnsTrue()
+    {
+        // SwiftOptional<Foundation.Predicate> — recursion into generic parameters.
+        var inner = new NamedTypeSpec("Foundation.Predicate");
+        var optional = new NamedTypeSpec("Swift.Optional", inner);
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(optional));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_NonUnavailableFoundationType_ReturnsFalse()
+    {
+        // Foundation.Date is supported and must not be flagged.
+        Assert.False(MemberEmissionValidator.ReferencesUnsupportedModule(
+            new NamedTypeSpec("Foundation.Date")));
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_TypeWithoutModulePrefix_DoesNotThrow()
+    {
+        // Regression for ArgumentException crash in ValidationRuleSet when a NamedTypeSpec
+        // lacked a module qualifier (e.g., unqualified generic parameter "Attributes").
+        // The Unemittable-flag lookup previously called SwiftTypeName.FromModuleQualifiedName
+        // unconditionally and threw. Now guarded by namedType.HasModule().
+        var typeSpec = new NamedTypeSpec("Attributes");
+        var exception = Record.Exception(() =>
+            MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, CreateTypeDatabase()));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void ReferencesUnsupportedModule_UnemittableTypeRecord_ReturnsTrue()
+    {
+        // Types flagged Unemittable (e.g., single-case no-payload enums marked so by the
+        // parser) must be treated as unsupported — no emitted C# type exists to reference.
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Marker"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Marker"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Marker"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.Unemittable,
+                Kind = TypeRecordKind.Enum,
+            });
+        db.AddModuleDatabase(module);
+
+        var typeSpec = new NamedTypeSpec("TestModule.Marker");
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(typeSpec, db));
+    }
+
     #endregion
 
     #region ContainsAssociatedTypeReference Tests

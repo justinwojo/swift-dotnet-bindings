@@ -346,6 +346,9 @@ public class EveryProtocolEmitter
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
 
         writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name}");
+        var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+            protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(writer, availAnnotations);
         writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
         writer.Indent++;
 
@@ -564,11 +567,14 @@ public class EveryProtocolEmitter
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var getterFunctionName = GetWitnessTableGetterFunctionName(protocolDecl);
         var mangledGetterName = GetWitnessTableGetterMangledName(protocolDecl);
+        var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+            protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+        var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availAnnotations, "            ");
 
         writer.WriteLines($$"""
             // Returns the protocol witness table pointer for EveryProtocol conforming to {{protocolDecl.Name}}.
             // C# calls this via P/Invoke to obtain the witness table for existential container construction.
-            @_silgen_name("{{mangledGetterName}}")
+            {{availPrefix}}@_silgen_name("{{mangledGetterName}}")
             public func {{getterFunctionName}}() -> UnsafeRawPointer {
                 let instance = EveryProtocol()
                 return withExtendedLifetime(instance) {
@@ -614,10 +620,13 @@ public class EveryProtocolEmitter
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
         var setFunctionName = GetSetVtableFunctionName(protocolDecl);
         var mangledSetFunctionName = GetSetVtableMangledName(protocolDecl);
+        var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+            protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+        var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availAnnotations, "            ");
 
         writer.WriteLines($$"""
             // Called by C# to register the protocol vtable
-            @_silgen_name("{{mangledSetFunctionName}}")
+            {{availPrefix}}@_silgen_name("{{mangledSetFunctionName}}")
             public func {{setFunctionName}}(uvt: UnsafeRawPointer) {
                 let vt: UnsafePointer<{{vtableName}}> = uvt.assumingMemoryBound(to: {{vtableName}}.self)
                 {{vtableInstanceName}} = vt.pointee
@@ -920,6 +929,9 @@ public class EveryProtocolEmitter
             // for static property requirements. Instance member vtable dispatch is not needed.
             var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
             writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name} (static/composition protocol)");
+            var staticAvailAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(writer, staticAvailAnnotations);
             writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
             // Emit stubs for static property requirements.
             // fatalError() returns Never, which satisfies any return type requirement.
@@ -2272,8 +2284,11 @@ public class EveryProtocolEmitter
         {
             var name = inherited.Name;
             var simpleName = GetSimpleName(name);
-            // Only NSObjectProtocol is a true blocker. AnyObject is satisfied by EveryProtocol.
-            if (simpleName is "NSObjectProtocol")
+            // NSObjectProtocol and other ObjC-rooted protocols require NSObject identity
+            // methods that EveryProtocol (plain Swift class) cannot provide. NSCoding/NSCopying
+            // /NSSecureCoding inherit from NSObjectProtocol and can only be conformed to by
+            // NSObject subclasses. AnyObject is satisfied by EveryProtocol.
+            if (simpleName is "NSObjectProtocol" or "NSCoding" or "NSSecureCoding" or "NSCopying" or "NSMutableCopying")
                 return true;
 
             // Intra-module transitive check: if an inherited protocol requires NSObjectProtocol,

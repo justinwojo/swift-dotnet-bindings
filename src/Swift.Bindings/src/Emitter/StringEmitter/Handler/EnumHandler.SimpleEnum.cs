@@ -278,11 +278,11 @@ namespace BindingsGeneration
             var bufferWriter = new CSharpWriter(bufferSw);
             bufferWriter.Indent = csWriter.Indent + 1;
 
-            // Pre-emit Utf8Slice struct and Free function at top level if any member returns String
-            var hasStringReturn = instanceProperties.Any(p => IsStringReturn(p.SwiftTypeSpec))
-                || staticProperties.Any(p => IsStringReturn(p.SwiftTypeSpec))
-                || instanceMethods.Any(m => IsStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec))
-                || staticMethods.Any(m => IsStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec));
+            // Pre-emit Utf8Slice struct and Free function at top level if any member returns String or String?
+            var hasStringReturn = instanceProperties.Any(p => IsStringOrOptionalStringReturn(p.SwiftTypeSpec))
+                || staticProperties.Any(p => IsStringOrOptionalStringReturn(p.SwiftTypeSpec))
+                || instanceMethods.Any(m => IsStringOrOptionalStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec))
+                || staticMethods.Any(m => IsStringOrOptionalStringReturn(m.CSSignature.FirstOrDefault()?.SwiftTypeSpec));
             if (hasStringReturn)
             {
                 var emissionCtx = context.GetEmissionContext();
@@ -592,7 +592,7 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
+            swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
 
             // Convert tag to enum value using switch. Always use switch-based reconstruction
@@ -655,7 +655,26 @@ namespace BindingsGeneration
                     swiftWriter.WriteLine($"case {tag}: fatalError(\"Case at index \\({tag}) is @_spi protected\")");
                     continue;
                 }
-                swiftWriter.WriteLine($"case {tag}: value = .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}");
+                var caseName = NameProvider.EscapeSwiftKeyword(caseDecl.Name);
+                var caseAvailability = GetTighterCaseAvailability(caseDecl, enumDecl);
+                if (caseAvailability.Count > 0)
+                {
+                    var clause = BuildIfAvailableClause(caseAvailability);
+                    swiftWriter.WriteLine($"case {tag}:");
+                    swiftWriter.Indent++;
+                    swiftWriter.WriteLine($"if #available({clause}) {{");
+                    swiftWriter.Indent++;
+                    swiftWriter.WriteLine($"value = .{caseName}");
+                    swiftWriter.Indent--;
+                    swiftWriter.WriteLine("} else {");
+                    swiftWriter.Indent++;
+                    swiftWriter.WriteLine($"fatalError(\"Case {caseDecl.Name} requires a newer OS version\")");
+                    swiftWriter.Indent--;
+                    swiftWriter.WriteLine("}");
+                    swiftWriter.Indent--;
+                    continue;
+                }
+                swiftWriter.WriteLine($"case {tag}: value = .{caseName}");
             }
             swiftWriter.WriteLine($"default: fatalError(\"Invalid enum tag\")");
             swiftWriter.WriteLine("}");
@@ -676,7 +695,64 @@ namespace BindingsGeneration
                 var tag = enumDecl.GetCaseTag(caseDecl);
                 swiftWriter.WriteLine($"case .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}: return {tag}");
             }
+            // Cases introduced in newer OS versions add a @unknown default implicitly
+            // (the switch is no longer exhaustive on the older deployment target).
+            if (enumDecl.Cases.Any(c => GetTighterCaseAvailability(c, enumDecl).Count > 0))
+            {
+                swiftWriter.WriteLine("@unknown default: fatalError(\"Unknown enum case\")");
+            }
             swiftWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Returns the case's availability annotations only when they introduce a tighter
+        /// platform intro than the parent enum — i.e., cases that require a newer OS version
+        /// than the enum itself. Returns empty when the case inherits the enum's intros.
+        /// Used by <see cref="EmitTagToEnumSwitch"/> to emit <c>#available</c> guards.
+        /// </summary>
+        private static List<AvailabilityAnnotation> GetTighterCaseAvailability(EnumCaseDecl caseDecl, EnumDecl enumDecl)
+        {
+            var result = new List<AvailabilityAnnotation>();
+            if (caseDecl.AvailabilityAnnotations is not { Count: > 0 } caseAvail)
+                return result;
+
+            var enumAvail = enumDecl.AvailabilityAnnotations;
+            foreach (var ca in caseAvail)
+            {
+                if (ca.Platform == null || ca.IntroducedVersion == null)
+                    continue;
+                // Skip if the enum itself introduces the same-or-newer version on this platform.
+                var parentVersion = enumAvail?.FirstOrDefault(pa =>
+                    string.Equals(pa.Platform, ca.Platform, StringComparison.OrdinalIgnoreCase))?.IntroducedVersion;
+                if (parentVersion != null && CompareSwiftVersions(parentVersion, ca.IntroducedVersion) >= 0)
+                    continue;
+                result.Add(ca);
+            }
+            return result;
+        }
+
+        private static string BuildIfAvailableClause(List<AvailabilityAnnotation> annotations)
+        {
+            var parts = annotations
+                .Where(a => a.Platform != null && a.IntroducedVersion != null)
+                .Select(a => $"{a.Platform} {a.IntroducedVersion}")
+                .ToList();
+            parts.Add("*");
+            return string.Join(", ", parts);
+        }
+
+        private static int CompareSwiftVersions(string a, string b)
+        {
+            var aParts = a.Split('.').Select(p => int.TryParse(p, out var v) ? v : 0).ToArray();
+            var bParts = b.Split('.').Select(p => int.TryParse(p, out var v) ? v : 0).ToArray();
+            int n = Math.Max(aParts.Length, bParts.Length);
+            for (int i = 0; i < n; i++)
+            {
+                int ai = i < aParts.Length ? aParts[i] : 0;
+                int bi = i < bParts.Length ? bParts[i] : 0;
+                if (ai != bi) return ai.CompareTo(bi);
+            }
+            return 0;
         }
 
         /// <summary>
@@ -711,12 +787,15 @@ namespace BindingsGeneration
             var returnTypeSpec = propertyDecl.SwiftTypeSpec;
             bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
             bool returnsString = IsStringReturn(returnTypeSpec);
+            bool returnsOptionalString = IsOptionalStringReturn(returnTypeSpec);
 
             string csReturnType;
             if (returnsEnum)
                 csReturnType = enumName;
             else if (returnsString)
                 csReturnType = "string";
+            else if (returnsOptionalString)
+                csReturnType = "string?";
             else
             {
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
@@ -734,14 +813,14 @@ namespace BindingsGeneration
 
             // Emit Swift wrapper
             EmitSimpleEnumPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
-                swiftScalarType, moduleName, returnsEnum, returnsString);
+                swiftScalarType, moduleName, returnsEnum, returnsString, returnsOptionalString);
 
             // Emit C# extension getter method
-            if (returnsString)
+            if (returnsString || returnsOptionalString)
             {
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
-                    wrapperSymbol, csUnderlyingType, moduleName, isStatic: false);
+                    wrapperSymbol, csUnderlyingType, moduleName, isStatic: false, isNullable: returnsOptionalString);
             }
             else
             {
@@ -912,12 +991,15 @@ namespace BindingsGeneration
             var returnTypeSpec = propertyDecl.SwiftTypeSpec;
             bool returnsEnum = IsSimpleEnumReturn(returnTypeSpec, enumDecl, typeDatabase);
             bool returnsString = IsStringReturn(returnTypeSpec);
+            bool returnsOptionalString = IsOptionalStringReturn(returnTypeSpec);
 
             string csReturnType;
             if (returnsEnum)
                 csReturnType = enumName;
             else if (returnsString)
                 csReturnType = "string";
+            else if (returnsOptionalString)
+                csReturnType = "string?";
             else
             {
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
@@ -934,13 +1016,13 @@ namespace BindingsGeneration
 
             // Emit Swift wrapper (no tag param for static)
             EmitSimpleEnumStaticPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
-                swiftScalarType, moduleName, returnsEnum, returnsString);
+                swiftScalarType, moduleName, returnsEnum, returnsString, returnsOptionalString);
 
-            if (returnsString)
+            if (returnsString || returnsOptionalString)
             {
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticPropertyAccessor(csWriter, enumName, propertyPascalName,
-                    wrapperSymbol, moduleName);
+                    wrapperSymbol, moduleName, isNullable: returnsOptionalString);
             }
             else
             {
@@ -980,12 +1062,47 @@ namespace BindingsGeneration
         // === Helper Methods for Simple Enum Emission ===
 
         /// <summary>
+        /// Builds a Swift-identifier-safe path that disambiguates nested enums sharing the
+        /// same leaf name across sibling parent types. For a top-level enum the path is just
+        /// the enum name, but a nested enum like <c>RoomPlan.RoomBuilder.BuildError</c> becomes
+        /// <c>RoomBuilder_BuildError</c> so its wrapper functions do not collide with a
+        /// sibling <c>RoomPlan.StructureBuilder.BuildError</c>'s wrappers.
+        /// </summary>
+        private static string GetSwiftWrapperIdentifierPath(EnumDecl enumDecl)
+        {
+            var qualified = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var dot = qualified.IndexOf('.');
+            if (dot < 0)
+                return qualified;
+            return qualified.Substring(dot + 1).Replace('.', '_');
+        }
+
+        /// <summary>
         /// Checks whether a TypeSpec represents a Swift.String return.
         /// </summary>
         private static bool IsStringReturn(TypeSpec? typeSpec)
         {
             return typeSpec is NamedTypeSpec named && named.Name == "Swift.String";
         }
+
+        /// <summary>
+        /// Checks whether a TypeSpec represents a Swift.Optional&lt;Swift.String&gt; return.
+        /// Used for LocalizedError conformance (errorDescription, failureReason, etc.).
+        /// </summary>
+        private static bool IsOptionalStringReturn(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named
+                && named.Name == "Swift.Optional"
+                && named.GenericParameters.Count == 1
+                && IsStringReturn(named.GenericParameters[0]);
+        }
+
+        /// <summary>
+        /// True if the type is either Swift.String or Swift.Optional&lt;Swift.String&gt;.
+        /// Both are emitted via the Utf8Slice path; nullable returns check for IntPtr.Zero.
+        /// </summary>
+        private static bool IsStringOrOptionalStringReturn(TypeSpec? typeSpec) =>
+            IsStringReturn(typeSpec) || IsOptionalStringReturn(typeSpec);
 
         /// <summary>
         /// Checks whether a TypeSpec represents a parameter of the same enum type.
@@ -1000,10 +1117,14 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitSimpleEnumPropertySwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
             PropertyDecl propertyDecl, string wrapperSymbol, string swiftScalarType,
-            string moduleName, bool returnsEnum, bool returnsString)
+            string moduleName, bool returnsEnum, bool returnsString, bool returnsOptionalString = false)
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
+            string swiftReturnType;
+            if (returnsOptionalString) swiftReturnType = "UnsafeMutableRawPointer?";
+            else if (returnsString) swiftReturnType = "UnsafeMutableRawPointer";
+            else if (returnsEnum) swiftReturnType = swiftScalarType;
+            else swiftReturnType = GetSwiftPropertyReturnType(propertyDecl);
 
             // Emit availability annotations from the enum, member, and ancestor chain.
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
@@ -1011,14 +1132,18 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
+            swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
             swiftWriter.Indent++;
 
             // Convert tag to enum value. Always use switch-based reconstruction
             // because C# enum values are sequential tags (ABI JSON lacks raw values).
             EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
 
-            if (returnsString)
+            if (returnsOptionalString)
+            {
+                EmitOptionalStringReturnSwiftBody(swiftWriter, $"value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+            else if (returnsString)
             {
                 EmitStringReturnSwiftBody(swiftWriter, $"value.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
             }
@@ -1042,10 +1167,14 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitSimpleEnumStaticPropertySwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
             PropertyDecl propertyDecl, string wrapperSymbol, string swiftScalarType,
-            string moduleName, bool returnsEnum, bool returnsString)
+            string moduleName, bool returnsEnum, bool returnsString, bool returnsOptionalString = false)
         {
             var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var swiftReturnType = returnsString ? "UnsafeMutableRawPointer" : (returnsEnum ? swiftScalarType : GetSwiftPropertyReturnType(propertyDecl));
+            string swiftReturnType;
+            if (returnsOptionalString) swiftReturnType = "UnsafeMutableRawPointer?";
+            else if (returnsString) swiftReturnType = "UnsafeMutableRawPointer";
+            else if (returnsEnum) swiftReturnType = swiftScalarType;
+            else swiftReturnType = GetSwiftPropertyReturnType(propertyDecl);
 
             // Emit availability annotations from the enum, member, and ancestor chain.
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
@@ -1053,10 +1182,14 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_get_{propertyDecl.Name}() -> {swiftReturnType} {{");
+            swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_get_{propertyDecl.Name}() -> {swiftReturnType} {{");
             swiftWriter.Indent++;
 
-            if (returnsString)
+            if (returnsOptionalString)
+            {
+                EmitOptionalStringReturnSwiftBody(swiftWriter, $"{enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
+            }
+            else if (returnsString)
             {
                 EmitStringReturnSwiftBody(swiftWriter, $"{enumQualifiedName}.{NameProvider.EscapeSwiftKeyword(propertyDecl.Name)}");
             }
@@ -1108,7 +1241,7 @@ namespace BindingsGeneration
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func _sbw_{enumDecl.Name}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
+            swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
             swiftWriter.Indent++;
 
             // Build method call with arguments
@@ -1162,6 +1295,25 @@ namespace BindingsGeneration
             swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
         }
 
+        /// <summary>
+        /// Emits the Swift body for an Optional&lt;String&gt; return: nil → return nil; some → allocate Utf8Slice.
+        /// Caller receives `UnsafeMutableRawPointer?`; C# side checks IntPtr.Zero for the None case.
+        /// </summary>
+        private static void EmitOptionalStringReturnSwiftBody(SwiftWriter swiftWriter, string expression)
+        {
+            swiftWriter.WriteLine($"guard let result: String = {expression} else {{ return nil }}");
+            swiftWriter.WriteLine("let utf8 = Array(result.utf8)");
+            swiftWriter.WriteLine("let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))");
+            swiftWriter.WriteLine("utf8.withUnsafeBufferPointer { src in");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine("if utf8.count > 0 { bufferPtr.initialize(from: src.baseAddress!, count: src.count) }");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine("let slicePtr = UnsafeMutablePointer<SBW_Utf8Slice>.allocate(capacity: 1)");
+            swiftWriter.WriteLine("slicePtr.initialize(to: SBW_Utf8Slice(ptr: bufferPtr, len: utf8.count))");
+            swiftWriter.WriteLine("return UnsafeMutableRawPointer(slicePtr)");
+        }
+
         // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).
         private string _wrapperLibName = "SwiftBindings";
 
@@ -1169,19 +1321,24 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits a C# string-returning extension method for an instance property using Utf8Slice marshalling.
+        /// When <paramref name="isNullable"/> is true, the return type is `string?` and IntPtr.Zero from
+        /// the Swift wrapper maps to null (used for Optional&lt;String&gt; returns like LocalizedError.errorDescription).
         /// </summary>
         private void EmitStringReturnExtensionMethod(CSharpWriter csWriter, string enumName,
             string propertyPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
-            bool isStatic)
+            bool isStatic, bool isNullable = false)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
             var selfParam = isStatic ? "" : $"this {enumName} self";
             var callArg = isStatic ? "" : $"({csUnderlyingType})self";
+            var returnType = isNullable ? "string?" : "string";
 
-            csWriter.WriteLine($"public static unsafe string Get{propertyPascalName}({selfParam})");
+            csWriter.WriteLine($"public static unsafe {returnType} Get{propertyPascalName}({selfParam})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}({callArg});");
+            if (isNullable)
+                csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -1277,17 +1434,22 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits a C# string-returning static property accessor using Utf8Slice marshalling.
+        /// When <paramref name="isNullable"/> is true, the return type is `string?` and IntPtr.Zero
+        /// from the Swift wrapper maps to null.
         /// </summary>
         private void EmitStringReturnStaticPropertyAccessor(CSharpWriter csWriter, string enumName,
-            string propertyPascalName, string wrapperSymbol, string moduleName)
+            string propertyPascalName, string wrapperSymbol, string moduleName, bool isNullable = false)
         {
-            csWriter.WriteLine($"public static unsafe string {propertyPascalName}");
+            var returnType = isNullable ? "string?" : "string";
+            csWriter.WriteLine($"public static unsafe {returnType} {propertyPascalName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}();");
+            if (isNullable)
+                csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;

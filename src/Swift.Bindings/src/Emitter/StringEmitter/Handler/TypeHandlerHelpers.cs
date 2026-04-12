@@ -254,11 +254,15 @@ namespace BindingsGeneration
         /// </summary>
         private void WriteNewFromPayloadNonFrozenStruct()
         {
+            // Wrap the raw IntPtr in a SwiftHandle explicitly so the call resolves to the
+            // private SwiftHandle-taking constructor, avoiding CS0121 ambiguity against any
+            // public single-arg constructor whose parameter accepts an implicit IntPtr conversion
+            // (e.g. SwiftOptional<IntPtr> for non-bridged optional parameters).
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                var obj = new {{_typeNameWithGenerics}}(handle);
+                var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                 Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
                 return obj;
             }

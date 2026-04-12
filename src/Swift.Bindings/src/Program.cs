@@ -1662,7 +1662,19 @@ namespace BindingsGeneration
                 if (rootNode == null) return null;
                 var children = rootNode["children"] as JArray;
                 if (children == null || children.Count == 0) return null;
-                var moduleName = children[0]?.Value<string>("moduleName");
+
+                // Skip compiler-internal __ObjC TypeAlias children that some frameworks
+                // (e.g., ActivityKit) emit at the front of the child list when they
+                // @_export themselves. Matches SwiftABIParser.GetModuleName() logic.
+                string? moduleName = null;
+                foreach (var child in children)
+                {
+                    var name = child?.Value<string>("moduleName");
+                    if (string.IsNullOrEmpty(name) || name == "__ObjC") continue;
+                    moduleName = name;
+                    break;
+                }
+                moduleName ??= children[0]?.Value<string>("moduleName");
                 return string.IsNullOrEmpty(moduleName) || moduleName == "NO_MODULE" ? null : moduleName;
             }
             catch

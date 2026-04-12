@@ -188,8 +188,12 @@ done; true"
       <_SwiftAppleFrameworkSdkSubpath Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">System/iOSSupport/System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
       <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
     </PropertyGroup>
-    <!-- Mac Catalyst fallback: if the framework isn't in iOSSupport, try the regular macOS path -->
-    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingPlatform)' == 'maccatalyst' AND !Exists('$(_SwiftAppleFrameworkDir)')">
+    <!-- Mac Catalyst fallback: if the framework isn't in iOSSupport, try the regular macOS path.
+         Check for the Modules/ subdirectory rather than the framework dir itself — some frameworks
+         (e.g., MusicKit) ship an empty stub framework at the iOSSupport path with only a Versions/
+         subdirectory and no swiftmodule, so Exists($dir) is true but the swiftinterface is absent.
+         The regular macOS SDK path usually carries both the macos and ios-macabi swiftmodule slices. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingPlatform)' == 'maccatalyst' AND !Exists('$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule')">
       <_SwiftAppleFrameworkSdkSubpath>System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
       <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
     </PropertyGroup>

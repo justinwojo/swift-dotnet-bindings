@@ -373,7 +373,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Action<(long, bool)>", result);
+        Assert.Equal("global::System.Action<(long, bool)>", result);
     }
 
     [Fact]
@@ -391,7 +391,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<(long, Swift.SwiftString)>", result);
+        Assert.Equal("global::System.Func<(long, Swift.SwiftString)>", result);
     }
 
     [Fact]
@@ -416,7 +416,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<(long, bool), (double, Swift.SwiftString)>", result);
+        Assert.Equal("global::System.Func<(long, bool), (double, Swift.SwiftString)>", result);
     }
 
     [Fact]
@@ -585,7 +585,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Action", result);
+        Assert.Equal("global::System.Action", result);
     }
 
     [Fact]
@@ -600,7 +600,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long>", result);
+        Assert.Equal("global::System.Func<long>", result);
     }
 
     [Fact]
@@ -615,7 +615,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long, bool>", result);
+        Assert.Equal("global::System.Func<long, bool>", result);
     }
 
     [Fact]
@@ -634,7 +634,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Action<long, bool, double>", result);
+        Assert.Equal("global::System.Action<long, bool, double>", result);
     }
 
     [Fact]
@@ -761,7 +761,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Action<Swift.SwiftResult<long, Swift.SwiftError>>", result);
+        Assert.Equal("global::System.Action<Swift.SwiftResult<long, Swift.SwiftError>>", result);
     }
 
     [Fact]
@@ -776,7 +776,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<Swift.SwiftArray<bool>>", result);
+        Assert.Equal("global::System.Func<Swift.SwiftArray<bool>>", result);
     }
 
     [Fact]
@@ -1050,7 +1050,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("Func<long?>", result);
+        Assert.Equal("global::System.Func<long?>", result);
     }
 
     #endregion
@@ -1068,7 +1068,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task>", result);
     }
 
     [Fact]
@@ -1084,7 +1084,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task<long>>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<long>>", result);
     }
 
     [Fact]
@@ -1100,7 +1100,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long, Task>", result);
+        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task>", result);
     }
 
     [Fact]
@@ -1116,7 +1116,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long, Task<bool>>", result);
+        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task<bool>>", result);
     }
 
     [Fact]
@@ -1157,7 +1157,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Swift.SwiftResult<Swift.SwiftVoid, SwiftError>>", result);
+        Assert.Equal("global::System.Func<Swift.SwiftResult<Swift.SwiftVoid, SwiftError>>", result);
     }
 
     [Fact]
@@ -1173,7 +1173,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Swift.SwiftResult<long, SwiftError>>", result);
+        Assert.Equal("global::System.Func<Swift.SwiftResult<long, SwiftError>>", result);
     }
 
     [Fact]
@@ -1189,7 +1189,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long, Swift.SwiftResult<bool, SwiftError>>", result);
+        Assert.Equal("global::System.Func<long, Swift.SwiftResult<bool, SwiftError>>", result);
     }
 
     // Note: Async+throwing closure delegate type tests are in the "Async+Throwing Closure Tests" region below.
@@ -1491,7 +1491,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpOptionalDelegateType(optionalClosure);
 
-        Assert.Equal("Func<Task>?", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task>?", result);
     }
 
     [Fact]
@@ -1505,7 +1505,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpOptionalDelegateType(optionalClosure);
 
-        Assert.Equal("Action?", result);
+        Assert.Equal("global::System.Action?", result);
     }
 
     [Fact]
@@ -1983,7 +1983,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task>", result);
     }
 
     [Fact]
@@ -2002,7 +2002,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<Task<long>>", result);
+        Assert.Equal("global::System.Func<global::System.Threading.Tasks.Task<long>>", result);
     }
 
     [Fact]
@@ -2021,7 +2021,7 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closureTypeSpec);
 
-        Assert.Equal("Func<long, Task<bool>>", result);
+        Assert.Equal("global::System.Func<long, global::System.Threading.Tasks.Task<bool>>", result);
     }
 
     [Fact]

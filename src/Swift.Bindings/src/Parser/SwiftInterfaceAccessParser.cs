@@ -1419,8 +1419,17 @@ public static class SwiftInterfaceAccessParser
                 }
             }
 
-            // If inside a foreign type extension, look for func/var declarations
-            if (!pushedScope && currentForeignExtension != null)
+            // If inside a foreign type extension, look for func/var declarations.
+            // BUT: skip members declared inside nested types within the extension body
+            // (e.g., `extension Foundation.PredicateExpressions { public enum X { var hashValue... } }`).
+            // Those members belong to X, not to PredicateExpressions. Detect this by checking
+            // whether the top of typeStack is a nested type pushed deeper than the foreign
+            // extension itself.
+            bool insideNestedType = currentForeignExtension != null
+                && typeStack.Count > 0
+                && typeStack.Peek().Depth > foreignExtensionDepth;
+
+            if (!pushedScope && currentForeignExtension != null && !insideNestedType)
             {
                 // Check for func declarations
                 if (ExtensionFuncRegex.IsMatch(trimmed))

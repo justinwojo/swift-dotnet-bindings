@@ -57,6 +57,20 @@ public static class ValidationRuleSet
                 // parameters, return types, or generic type arguments (CS0718/CS0723).
                 if (IsNetStaticClassType(namedType.Name))
                     return true;
+                // Types that are auto-bridged but not yet present in the .NET Foundation
+                // (or similar) assembly. Referencing them would produce CS0234.
+                if (IsNetUnavailableBridgedType(namedType.Name))
+                    return true;
+                // Types the emitter will never produce (e.g., single-case no-payload
+                // enums marked Unemittable). Skip anything referencing them so we don't
+                // leave dangling references to a type that will never exist.
+                if (typeDatabase != null && namedType.HasModule() &&
+                    typeDatabase.TryGetTypeRecord(
+                        SwiftTypeName.FromModuleQualifiedName(namedType.Name), out var unemittableRecord) &&
+                    unemittableRecord.Flags.HasFlag(TypeRecordFlags.Unemittable))
+                {
+                    return true;
+                }
                 if (namedType.HasModule() && IsUnsupportedConstraintModule(namedType.Module))
                 {
                     // Registered non-generic types (with C# ISwiftObject stubs) pass through.
@@ -280,6 +294,16 @@ public static class ValidationRuleSet
     /// </summary>
     public static bool IsNetStaticClassType(string moduleQualifiedName)
         => NetStaticClassTypes.Contains(moduleQualifiedName);
+
+    /// <summary>
+    /// Returns true if the type name refers to an auto-bridged Swift type that does not exist
+    /// in the .NET Foundation (or similar) assembly. Such references must be suppressed before
+    /// they reach the C# compiler to avoid CS0234. Data lives in <c>apple-frameworks.json</c>
+    /// under each framework's <c>netUnavailableTypes</c> entry — add new exclusions there so
+    /// the registry stays the single source of truth for Apple framework facts.
+    /// </summary>
+    public static bool IsNetUnavailableBridgedType(string moduleQualifiedName)
+        => AppleFrameworkRegistry.IsNetUnavailableType(moduleQualifiedName);
 
     #endregion
 

@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -2926,6 +2928,119 @@ public class DisposeBag {
         {
             var result = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(path);
             Assert.Contains("FTS5Tokenizer", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
+    #region GetForeignTypeExtensionMembers Tests
+
+    [Fact]
+    public void GetForeignTypeExtensionMembers_SkipsMembersOfNestedTypeDeclaredInsideExtension()
+    {
+        // Regression: when a foreign extension declares a nested type, the nested type's
+        // members must not be attributed to the outer foreign type. Previously, the parser
+        // would see `public var hashValue` inside the nested enum and emit a foreign-extension
+        // property on `Foundation.PredicateExpressions` itself, producing an invalid Swift
+        // wrapper `Unmanaged<Foundation.PredicateExpressions>.fromOpaque(...)` (caseless enum
+        // is not a class type, so Unmanaged rejects it).
+        var swiftInterface = """
+            extension Foundation.PredicateExpressions {
+              public static func build_donated<Input>(_ input: Input) -> Foundation.PredicateExpressions.Donated<Input>
+              public enum DonationFilterOperator : Swift.Codable, Swift.Sendable {
+                case equal
+                case notEqual
+                public var hashValue: Swift.Int {
+                  get
+                }
+                public func hash(into hasher: inout Swift.Hasher)
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var protocolNames = new HashSet<string>();
+            var moduleTypeNames = new HashSet<string>();
+            var result = SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers(
+                path, protocolNames, moduleTypeNames, "TipKit");
+
+            // Extension on Foundation.PredicateExpressions is detected as a foreign extension.
+            Assert.True(result.ContainsKey("Foundation.PredicateExpressions"));
+            var members = result["Foundation.PredicateExpressions"];
+
+            // The direct static method on PredicateExpressions must still be collected.
+            Assert.Contains(members, m => m.MethodName == "build_donated");
+
+            // The nested enum's `hashValue` property and `hash` method belong to
+            // DonationFilterOperator, NOT to PredicateExpressions — they must NOT appear
+            // as members of the outer extension.
+            Assert.DoesNotContain(members, m => m.MethodName == "hashValue");
+            Assert.DoesNotContain(members, m => m.MethodName == "hash");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetForeignTypeExtensionMembers_RealTipKitInterface_DoesNotEmitPredicateExpressionsHashValue()
+    {
+        // Run directly against the real TipKit swiftinterface as a spot-check. Only executes
+        // when the SDK file is present; skipped otherwise.
+        var path = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk/System/Library/Frameworks/TipKit.framework/Modules/TipKit.swiftmodule/arm64e-apple-ios.swiftinterface";
+        if (!File.Exists(path))
+            return;
+
+        var result = SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers(
+            path, new HashSet<string>(), new HashSet<string>(), "TipKit");
+
+        if (result.TryGetValue("Foundation.PredicateExpressions", out var members))
+        {
+            // hashValue on Foundation.PredicateExpressions must not exist — it belongs to
+            // the nested DonationFilterOperator enum, not the namespace-style outer enum.
+            var buggyMember = members.FirstOrDefault(m => m.MethodName == "hashValue");
+            Assert.Null(buggyMember);
+        }
+    }
+
+    [Fact]
+    public void GetForeignTypeExtensionMembers_WithAvailabilityAndDocAttributes_StillSkipsNestedMembers()
+    {
+        // Same regression as above but with the real-world attribute-heavy syntax Foundation
+        // uses: @available on the nested type + @_documentation(visibility: private) on each
+        // line. Needs to work even when multi-line attributes and the var/func contain
+        // whitespace/leading attributes.
+        var swiftInterface = """
+            @available(macOS 14.0, iOS 17.0, macCatalyst 17.0, tvOS 17.0, visionOS 1.0, watchOS 10.0, *)
+            extension Foundation.PredicateExpressions {
+              @available(macOS 14.0, iOS 17.0, macCatalyst 17.0, tvOS 17.0, visionOS 1.0, watchOS 10.0, *)
+              @_documentation(visibility: private) public enum DonationFilterOperator : Swift.Codable, Swift.Sendable {
+                case equal
+                case notEqual
+                public static func == (a: Foundation.PredicateExpressions.DonationFilterOperator, b: Foundation.PredicateExpressions.DonationFilterOperator) -> Swift.Bool
+                public func encode(to encoder: any Swift.Encoder) throws
+                public func hash(into hasher: inout Swift.Hasher)
+                public var hashValue: Swift.Int {
+                  get
+                }
+                public init(from decoder: any Swift.Decoder) throws
+              }
+            }
+            """;
+
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers(
+                path, new HashSet<string>(), new HashSet<string>(), "TipKit");
+
+            if (result.TryGetValue("Foundation.PredicateExpressions", out var members))
+            {
+                Assert.DoesNotContain(members, m => m.MethodName == "hashValue");
+                Assert.DoesNotContain(members, m => m.MethodName == "hash");
+                Assert.DoesNotContain(members, m => m.MethodName == "encode");
+            }
         }
         finally { File.Delete(path); }
     }

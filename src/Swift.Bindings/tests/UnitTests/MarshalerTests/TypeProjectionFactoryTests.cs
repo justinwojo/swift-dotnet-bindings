@@ -426,7 +426,7 @@ public class TypeProjectionFactoryTests
 
         Assert.NotNull(projection);
         Assert.IsType<ClosureProjection>(projection);
-        Assert.Equal("Action", projection.PublicType);
+        Assert.Equal("global::System.Action", projection.PublicType);
     }
 
     [Fact]

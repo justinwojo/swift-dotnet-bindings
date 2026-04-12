@@ -540,7 +540,13 @@ namespace BindingsGeneration
                 // C#'s DateTimeOffset is 12 bytes — ABI mismatch on NativeAOT. Use double.
                 // Uses NativeRemappedFrozen marker so GetCallArgumentString returns {name}Swift
                 // (matching DateProjection.GetParameterPlan's PInvokeExpression).
-                if (argument.SwiftTypeSpec is NamedTypeSpec dateArgSpec && dateArgSpec.Name == "Foundation.Date")
+                // Skip for accessors: the accessor signature uses raw `double` (per
+                // ShouldSkipProjectionForAccessor) and EmitTypeConversions skips projection
+                // marshalling for accessors, so `{name}Swift` would never be declared. The
+                // property setter body converts DateTimeOffset → double before calling the
+                // accessor, so the accessor can pass `value` through directly.
+                if (!_env.MethodDecl.IsAccessor &&
+                    argument.SwiftTypeSpec is NamedTypeSpec dateArgSpec && dateArgSpec.Name == "Foundation.Date")
                 {
                     AddParameter(new MarshalledType.NativeRemappedFrozen("double"), csName, inoutModifier);
                     continue;

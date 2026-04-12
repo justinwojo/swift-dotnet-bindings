@@ -56,3 +56,25 @@ public func modernFunction() -> String {
 public func legacyFunction() -> String {
     return "legacy"
 }
+
+// MARK: - Per-Accessor Availability (Setter tighter than Getter)
+//
+// Mirrors the real WorkoutKit.PowerThresholdAlert.metric shape where the getter is
+// available from iOS 17.0 but the setter is iOS 17.4. The generator must (1) emit
+// a stricter Swift @_cdecl wrapper for the setter, and (2) emit an accessor-level
+// [SupportedOSPlatform("ios17.4")] on the C# set accessor so consumers cannot call
+// it under the looser getter floor. Without both, the generated Swift wrapper will
+// try to reference a 17.4-only symbol under the 17.0 guard and fail to compile.
+
+@available(iOS 17.0, *)
+public struct SetterTighterThanGetter {
+    @usableFromInline internal var _storage: Int32 = 0
+
+    public init(initial: Int32) { self._storage = initial }
+
+    public var value: Int32 {
+        get { _storage }
+        @available(iOS 17.4, *)
+        set { _storage = newValue }
+    }
+}

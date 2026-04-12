@@ -572,6 +572,21 @@ namespace BindingsGeneration
                 EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl))
                 flags |= TypeRecordFlags.SimpleEnum;
 
+            // Single-case no-payload enums have TypeMetadata.Size == 0 and cannot be
+            // emitted as ISwiftObject (SafeHandle allocations break). They're also not
+            // simple/raw-value enums, so EnumHandler skips them entirely. Mark the record
+            // so member-level validators drop references to them.
+            bool emitsAsSimple =
+                (enumDecl.IsSimpleEnum && EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl)) ||
+                (enumDecl.IsStringRawValueSimpleEnum && EnumHandler.CanSafelyEmitAsSimpleEnum(enumDecl));
+            if (!emitsAsSimple &&
+                !enumDecl.IsNamespaceEnum &&
+                enumDecl.Cases.Count == 1 &&
+                !enumDecl.HasAssociatedValueCases)
+            {
+                flags |= TypeRecordFlags.Unemittable;
+            }
+
             return flags;
         }
 

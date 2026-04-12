@@ -33,8 +33,8 @@ public class AsyncProjection : ITypeProjection
     public ITypeProjection? InnerReturnProjection => _innerReturnProjection;
 
     public string PublicType => _innerReturnProjection != null
-        ? $"Task<{_innerReturnProjection.PublicType}>"
-        : "Task";
+        ? $"global::System.Threading.Tasks.Task<{_innerReturnProjection.PublicType}>"
+        : "global::System.Threading.Tasks.Task";
 
     public string PInvokeType => "void";
     public string? PInvokeAttribute => null;

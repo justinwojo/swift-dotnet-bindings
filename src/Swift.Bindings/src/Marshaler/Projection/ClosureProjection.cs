@@ -252,12 +252,16 @@ public class ClosureProjection : ITypeProjection
         var argTypes = _argProjections.Select(p => p.PublicType).ToList();
         var coreReturnType = _returnProjection?.PublicType;
 
-        // Wrap return type based on async/throws modifiers
+        // Wrap return type based on async/throws modifiers.
+        // BCL types are globally qualified so Swift types with matching names
+        // (e.g., TipKit.Tips.Action) can't shadow them in nested scopes.
         string? finalReturnType;
         if (_isAsync && _throws)
         {
             // Async+throwing: error via continuation, not SwiftResult
-            finalReturnType = coreReturnType != null ? $"Task<{coreReturnType}>" : "Task";
+            finalReturnType = coreReturnType != null
+                ? $"global::System.Threading.Tasks.Task<{coreReturnType}>"
+                : "global::System.Threading.Tasks.Task";
         }
         else if (_throws)
         {
@@ -268,7 +272,9 @@ public class ClosureProjection : ITypeProjection
         else if (_isAsync)
         {
             // Async only: Task or Task<T>
-            finalReturnType = coreReturnType != null ? $"Task<{coreReturnType}>" : "Task";
+            finalReturnType = coreReturnType != null
+                ? $"global::System.Threading.Tasks.Task<{coreReturnType}>"
+                : "global::System.Threading.Tasks.Task";
         }
         else
         {
@@ -278,12 +284,12 @@ public class ClosureProjection : ITypeProjection
         if (finalReturnType != null)
         {
             argTypes.Add(finalReturnType);
-            return $"Func<{string.Join(", ", argTypes)}>";
+            return $"global::System.Func<{string.Join(", ", argTypes)}>";
         }
 
         if (argTypes.Count == 0)
-            return "Action";
-        return $"Action<{string.Join(", ", argTypes)}>";
+            return "global::System.Action";
+        return $"global::System.Action<{string.Join(", ", argTypes)}>";
     }
 
     /// <summary>

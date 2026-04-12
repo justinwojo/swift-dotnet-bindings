@@ -44,7 +44,14 @@ public static class MemberEmissionValidator
             // will skip them, so we must treat them as unsupported here too.
             if (typeDatabase.TryGetTypeRecord(property.SwiftTypeSpec, out var record)
                 && record != TypeDatabaseExtensions.AnyType)
+            {
+                // Types that are present in the database but marked Unemittable (e.g.,
+                // single-case no-payload enums) are stripped by the emitter. Treat
+                // references to them as unsupported.
+                if (record.Flags.HasFlag(TypeRecordFlags.Unemittable))
+                    return true;
                 return false;
+            }
 
             // Unresolvable type from non-standard module → will be AnyType → skipped
             return true;
@@ -528,6 +535,35 @@ public static class MemberEmissionValidator
             }
         }
 
+        // Reject methods whose return type or any parameter is a DIRECT existential
+        // that IsSupportedExistential rejects — currently class-bounded compositions
+        // like `any ClassA & ProtoP`. WrapperEmitter.EmitExistentialContainerMarshalling
+        // would silently skip the container allocation for those args, leaving the body
+        // to pass the raw managed reference into a P/Invoke that expects a container.
+        // Skip the method instead of emitting an unsound cast / signature mismatch.
+        var existentialHandler = new ExistentialHandler(typeDatabase);
+        foreach (var argument in method.CSSignature)
+        {
+            if (existentialHandler.IsExistential(argument.SwiftTypeSpec))
+            {
+                var protocolList = existentialHandler.ToProtocolListTypeSpec(argument.SwiftTypeSpec);
+                if (protocolList != null && !existentialHandler.IsSupportedExistential(protocolList))
+                {
+                    skipDetails = "Method has a direct existential parameter or return type that is unsupported (class-bounded composition or unsupported protocol count).";
+                    return SkipReason.UnsupportedExistential;
+                }
+            }
+            if (existentialHandler.IsOptionalExistential(argument.SwiftTypeSpec))
+            {
+                var innerProtocolList = existentialHandler.UnwrapOptionalExistential(argument.SwiftTypeSpec);
+                if (innerProtocolList != null && !existentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    skipDetails = "Method has an Optional existential parameter or return type that is unsupported (class-bounded composition or unsupported protocol count).";
+                    return SkipReason.UnsupportedExistential;
+                }
+            }
+        }
+
         // B20: Check for unsupported closures in method parameters.
         // Mirrors property closure check in CanEmitProperty (lines 121-150).
         var closureHandler = new ClosureHandler(typeDatabase);
@@ -881,6 +917,35 @@ public static class MemberEmissionValidator
             {
                 skipDetails = $"Parameter '{arg.Name}' uses '{rawBufSpec.Name}', which is not yet supported for @_cdecl marshalling.";
                 return SkipReason.UnsupportedSignature;
+            }
+        }
+
+        // Reject methods whose return type or any parameter is a DIRECT existential
+        // that IsSupportedExistential rejects — currently class-bounded compositions
+        // like `any ClassA & ProtoP`. WrapperEmitter.EmitExistentialContainerMarshalling
+        // would silently skip the container allocation for those args, leaving the body
+        // to pass the raw managed reference into a P/Invoke that expects an ExistentialContainerN.
+        // Skip the method instead of emitting an unsound signature mismatch.
+        var directExistentialHandler = new ExistentialHandler(typeDatabase);
+        foreach (var arg in method.CSSignature)
+        {
+            if (directExistentialHandler.IsExistential(arg.SwiftTypeSpec))
+            {
+                var protocolList = directExistentialHandler.ToProtocolListTypeSpec(arg.SwiftTypeSpec);
+                if (protocolList != null && !directExistentialHandler.IsSupportedExistential(protocolList))
+                {
+                    skipDetails = $"Method has an unsupported direct existential on '{arg.Name}' (class-bounded composition or unsupported protocol count).";
+                    return SkipReason.UnsupportedExistential;
+                }
+            }
+            if (directExistentialHandler.IsOptionalExistential(arg.SwiftTypeSpec))
+            {
+                var innerProtocolList = directExistentialHandler.UnwrapOptionalExistential(arg.SwiftTypeSpec);
+                if (innerProtocolList != null && !directExistentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    skipDetails = $"Method has an unsupported Optional existential on '{arg.Name}' (class-bounded composition or unsupported protocol count).";
+                    return SkipReason.UnsupportedExistential;
+                }
             }
         }
 

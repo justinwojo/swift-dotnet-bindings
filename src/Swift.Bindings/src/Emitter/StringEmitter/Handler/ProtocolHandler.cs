@@ -397,13 +397,14 @@ namespace BindingsGeneration
             }
             if (protocolDecl.Name.StartsWith("_"))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+            var whereClause = GetInterfaceWhereClause(protocolDecl);
             if (inheritedInterfaces.Count > 0)
             {
-                csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}");
+                csWriter.WriteLine($"public interface {interfaceName} : {string.Join(", ", inheritedInterfaces)}{whereClause}");
             }
             else
             {
-                csWriter.WriteLine($"public interface {interfaceName}");
+                csWriter.WriteLine($"public interface {interfaceName}{whereClause}");
             }
             csWriter.WriteLine("{");
             // Flush the buffered body (already indented by bodyWriter)
@@ -501,7 +502,7 @@ namespace BindingsGeneration
             // If the protocol has associated types or Self requirement, make it generic
             if (protocolDecl.HasSelfRequirement)
             {
-                return $"{baseName}<TSelf> where TSelf : {baseName}<TSelf>";
+                return $"{baseName}<TSelf>";
             }
 
             if (protocolDecl.AssociatedTypes.Count > 0)
@@ -511,6 +512,24 @@ namespace BindingsGeneration
             }
 
             return baseName;
+        }
+
+        /// <summary>
+        /// Returns the generic constraint suffix (leading space + "where ...") for the
+        /// interface declaration, or an empty string if no constraints apply. Must be
+        /// appended AFTER the base interface list — placing the where clause before
+        /// the base list is a C# syntax error (CS1003).
+        /// </summary>
+        private static string GetInterfaceWhereClause(ProtocolDecl protocolDecl)
+        {
+            if (protocolDecl.HasSelfRequirement)
+            {
+                var baseName = NameProvider.GetInterfaceName(
+                    protocolDecl.Name,
+                    moduleName: protocolDecl.ModuleDecl?.Name ?? "");
+                return $" where TSelf : {baseName}<TSelf>";
+            }
+            return string.Empty;
         }
 
         /// <summary>

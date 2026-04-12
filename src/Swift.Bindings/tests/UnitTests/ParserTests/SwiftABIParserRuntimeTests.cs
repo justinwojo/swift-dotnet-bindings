@@ -611,6 +611,135 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_PropertyAvailability_PropagatesToGetSetAccessors()
+    {
+        // Property-level @available annotations must flow to the accessor MethodDecls so
+        // the private *_Get/*_Set backing methods emit matching [SupportedOSPlatform]
+        // attributes. Without this, backing methods that reference newer-SDK return/value
+        // types trigger CA1416 inside wider class-level surfaces (e.g. WeatherKit
+        // DayWeather.precipitationAmountByType: iOS 18+ payload on an iOS 16+ parent type).
+        var typeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        typeNode.PrintedName = "Int";
+
+        var getterAccessor = CreateNode(
+            kind: "Accessor",
+            name: "newProp",
+            mangledName: "$s10TestModule5ThingC7newPropSivg");
+        getterAccessor.AccessorKind = "get";
+        getterAccessor.Children = new[] { typeNode };
+
+        var setterAccessor = CreateNode(
+            kind: "Accessor",
+            name: "newProp",
+            mangledName: "$s10TestModule5ThingC7newPropSivs");
+        setterAccessor.AccessorKind = "set";
+        var voidNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        voidNode.PrintedName = "()";
+        setterAccessor.Children = new[] { voidNode, typeNode };
+
+        var varNode = CreateNode(
+            kind: "Var",
+            name: "newProp",
+            mangledName: "$s10TestModule5ThingC7newPropSivp");
+        varNode.DeclAttributes = new[] { "HasStorage", "AccessControl" };
+        varNode.Children = new[] { typeNode };
+        varNode.Accessors = new[] { getterAccessor, setterAccessor };
+
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "Thing",
+            mangledName: "$s10TestModule5ThingCN");
+        structNode.DeclAttributes = new[] { "AccessControl" };
+        structNode.Children = new[] { varNode };
+
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS",   "18.0", null, null, false, false, null, null),
+            new("macOS", "15.0", null, null, false, false, null, null),
+        };
+        var availability = new Dictionary<string, List<AvailabilityAnnotation>>
+        {
+            ["Thing.newProp"] = annotations,
+        };
+
+        using var fixture = CreateParserWithNodes(availability, structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var typeDecl = Assert.Single(result.ModuleDecl.Types);
+        var prop = Assert.Single(typeDecl.Properties);
+        Assert.NotNull(prop.AvailabilityAnnotations);
+        Assert.Equal(2, prop.AvailabilityAnnotations!.Count);
+
+        var getter = prop.Accessors.OfType<GetAccessorDecl>().Single();
+        Assert.NotNull(getter.Method.AvailabilityAnnotations);
+        Assert.Equal(2, getter.Method.AvailabilityAnnotations!.Count);
+        Assert.Equal("iOS",   getter.Method.AvailabilityAnnotations[0].Platform);
+        Assert.Equal("18.0",  getter.Method.AvailabilityAnnotations[0].IntroducedVersion);
+        Assert.Equal("macOS", getter.Method.AvailabilityAnnotations[1].Platform);
+
+        var setter = prop.Accessors.OfType<SetAccessorDecl>().Single();
+        Assert.NotNull(setter.Method.AvailabilityAnnotations);
+        Assert.Equal(2, setter.Method.AvailabilityAnnotations!.Count);
+        Assert.Equal("iOS",   setter.Method.AvailabilityAnnotations[0].Platform);
+        Assert.Equal("macOS", setter.Method.AvailabilityAnnotations[1].Platform);
+
+        // Each accessor must own a distinct list so downstream mutation (e.g.
+        // PropertyHandler's async-property path) cannot feed back into the parent
+        // PropertyDecl or its siblings.
+        Assert.NotSame(prop.AvailabilityAnnotations, getter.Method.AvailabilityAnnotations);
+        Assert.NotSame(prop.AvailabilityAnnotations, setter.Method.AvailabilityAnnotations);
+        Assert.NotSame(getter.Method.AvailabilityAnnotations, setter.Method.AvailabilityAnnotations);
+
+        getter.Method.AvailabilityAnnotations!.Add(
+            new AvailabilityAnnotation("tvOS", "18.0", null, null, false, false, null, null));
+        Assert.Equal(2, prop.AvailabilityAnnotations!.Count);
+        Assert.Equal(2, setter.Method.AvailabilityAnnotations!.Count);
+    }
+
+    [Fact]
+    public void ParseModule_PropertyWithoutAvailability_LeavesAccessorsUnannotated()
+    {
+        // Unannotated properties must not leave stale annotations on their accessors —
+        // the pipeline only propagates when the property itself has availability data.
+        var typeNode = CreateNode(kind: "TypeNominal", name: "Int", mangledName: "$sSi");
+        typeNode.PrintedName = "Int";
+
+        var getterAccessor = CreateNode(
+            kind: "Accessor",
+            name: "bareProp",
+            mangledName: "$s10TestModule5ThingC8barePropSivg");
+        getterAccessor.AccessorKind = "get";
+        getterAccessor.Children = new[] { typeNode };
+
+        var varNode = CreateNode(
+            kind: "Var",
+            name: "bareProp",
+            mangledName: "$s10TestModule5ThingC8barePropSivp");
+        varNode.DeclAttributes = new[] { "HasStorage", "AccessControl" };
+        varNode.Children = new[] { typeNode };
+        varNode.Accessors = new[] { getterAccessor };
+
+        var structNode = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "Thing",
+            mangledName: "$s10TestModule5ThingCN");
+        structNode.DeclAttributes = new[] { "AccessControl" };
+        structNode.Children = new[] { varNode };
+
+        using var fixture = CreateParserWithNodes(structNode);
+        var result = fixture.Parser.ParseModule();
+
+        var typeDecl = Assert.Single(result.ModuleDecl.Types);
+        var prop = Assert.Single(typeDecl.Properties);
+        Assert.Null(prop.AvailabilityAnnotations);
+
+        var getter = prop.Accessors.OfType<GetAccessorDecl>().Single();
+        Assert.Null(getter.Method.AvailabilityAnnotations);
+    }
+
+    [Fact]
     public void ParseModule_FinalClassMethodInheritsClassDispatch()
     {
         // In a final class, individual methods don't need Final attribute —
@@ -1083,6 +1212,13 @@ public class SwiftABIParserRuntimeTests
 
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
+        return CreateParserWithNodes(availabilityAnnotations: null, nodes);
+    }
+
+    private static ParserFixture CreateParserWithNodes(
+        Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations,
+        params Node[] nodes)
+    {
         var root = new ABIRootNode
         {
             ABIRoot = new RootNode
@@ -1101,7 +1237,8 @@ public class SwiftABIParserRuntimeTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            NullLogger.Instance);
+            NullLogger.Instance,
+            availabilityAnnotations: availabilityAnnotations);
 
         return new ParserFixture(parser, filePath);
     }

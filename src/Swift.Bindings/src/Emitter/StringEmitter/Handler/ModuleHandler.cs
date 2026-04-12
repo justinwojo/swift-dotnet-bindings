@@ -271,6 +271,11 @@ namespace BindingsGeneration
             // All in one initializer to guarantee ordering (framework resolver before any P/Invoke).
             csWriter.WriteLine();
             csWriter.WriteLine("#pragma warning disable CA2255 // ModuleInitializer is intentional in generated binding code");
+            // Eager type-metadata / factory registrations touch types that may carry
+            // [SupportedOSPlatform] annotations stricter than the callsite's floor. The
+            // initializer runs at module load from an arbitrary OS context and every
+            // call is wrapped in try/catch, so a CA1416 at this site is a false positive.
+            csWriter.WriteLine("#pragma warning disable CA1416 // ModuleInitializer registrations are best-effort across OS versions");
             csWriter.WriteLines($$"""
                 internal static class __SwiftFrameworkResolver_{{moduleName}}
                 {
@@ -286,7 +291,19 @@ namespace BindingsGeneration
                 // (e.g., types depending on framework initialization order) may fail during
                 // early startup. The factory and metadata are best-effort — types that fail
                 // here will fall back to the reflection path at call time.
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
+                //
+                // Generic types (name contains '<') get factory registration only; their metadata
+                // accessor can SIGSEGV in the Swift runtime during module init (not catchable in C#
+                // try/catch) because the Swift class isn't fully initialized yet. On-demand lookup
+                // via SwiftObjectHelper<T>.GetTypeMetadata() at actual call time works fine.
+                if (typeName.Contains('<'))
+                {
+                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); }} catch {{ }}");
+                }
+                else
+                {
+                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterSwiftObjectFactory<{typeName}>(); global::Swift.Runtime.SwiftObjectHelper<{typeName}>.GetTypeMetadata(); }} catch {{ }}");
+                }
             }
             foreach (var (typeName, protocolName) in conformances)
             {
@@ -326,6 +343,7 @@ namespace BindingsGeneration
                 }
                 """);
 
+            csWriter.WriteLine("#pragma warning restore CA1416");
             csWriter.WriteLine("#pragma warning restore CA2255");
         }
 
@@ -336,7 +354,7 @@ namespace BindingsGeneration
         {
             "UIKit", "AppKit", "CoreGraphics", "CoreText", "QuartzCore",
             "CoreFoundation", "CoreImage", "CoreAnimation", "CoreMedia",
-            "AVFoundation", "SceneKit", "SpriteKit", "Metal", "MetalKit",
+            "AVFoundation", "AVFAudio", "SceneKit", "SpriteKit", "Metal", "MetalKit",
             "GameplayKit", "MapKit", "CoreLocation", "CloudKit", "StoreKit",
             "HealthKit", "HomeKit", "WatchKit", "ARKit", "RealityKit",
             "PDFKit", "WebKit", "SafariServices", "AuthenticationServices",
@@ -609,6 +627,41 @@ namespace BindingsGeneration
                 .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
                 .ToList();
 
+            // Global dedup of EveryProtocol stubs is keyed by property name, so two protocols
+            // that each require a property with the SAME name but DIFFERENT types produce one
+            // successful conformance and one whose required member gets skipped (breaking the
+            // extension with "type 'EveryProtocol' does not conform"). Pre-scan to find such
+            // conflicting names and drop every protocol that participates, so the remaining
+            // conformances compile cleanly. Example: MusicKit.LibraryAlbumFilter.artistName is
+            // `String` while MusicKit.LibraryMusicVideoFilter.artistName is `String?`.
+            var propertyTypeCounts = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (var p in suitableProtocols)
+            {
+                foreach (var prop in p.Properties)
+                {
+                    if (prop.IsStatic || prop.IsObjCOptional)
+                        continue;
+                    if (!propertyTypeCounts.TryGetValue(prop.Name, out var types))
+                    {
+                        types = new HashSet<string>(StringComparer.Ordinal);
+                        propertyTypeCounts[prop.Name] = types;
+                    }
+                    types.Add(prop.SwiftTypeSpec.ToString());
+                }
+            }
+            var conflictingPropertyNames = propertyTypeCounts
+                .Where(kvp => kvp.Value.Count > 1)
+                .Select(kvp => kvp.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            if (conflictingPropertyNames.Count > 0)
+            {
+                suitableProtocols = suitableProtocols
+                    .Where(p => !p.Properties.Any(prop =>
+                        !prop.IsStatic && !prop.IsObjCOptional &&
+                        conflictingPropertyNames.Contains(prop.Name)))
+                    .ToList();
+            }
+
             if (!suitableProtocols.Any())
                 return;
 
@@ -745,6 +798,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Known cross-module protocols with associated types or Self requirements that
+        /// may not be present in the type database (e.g., Foundation types without .NET
+        /// bindings). Any protocol inheriting from one of these cannot receive an
+        /// EveryProtocol conformance.
+        /// </summary>
+        private static readonly HashSet<string> KnownCrossModuleProtocolsWithAssociatedTypes = new(StringComparer.Ordinal)
+        {
+            // Foundation predicate expression DSL (iOS 17+). Has associated type Output
+            // and is implemented by a closed set of compiler-known expression structs.
+            "Foundation.PredicateExpression",
+            "Foundation.StandardPredicateExpression",
+        };
+
+        /// <summary>
         /// Checks if a protocol transitively inherits from any protocol with associated types
         /// or Self requirements. These protocols cannot get EveryProtocol conformances because
         /// the associated type cannot be determined.
@@ -794,6 +861,12 @@ namespace BindingsGeneration
             {
                 var dotIndex = name.LastIndexOf('.');
                 var simpleName = dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
+
+                // Hardcoded cross-module list: catches Foundation.PredicateExpression and
+                // similar protocols that may not be registered in the type database but are
+                // known to carry associated-type requirements EveryProtocol cannot satisfy.
+                if (KnownCrossModuleProtocolsWithAssociatedTypes.Contains(name))
+                    return true;
 
                 // Intra-module check: look up the inherited protocol in the module
                 if (allProtocols != null)

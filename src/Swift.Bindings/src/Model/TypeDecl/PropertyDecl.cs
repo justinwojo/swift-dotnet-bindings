@@ -85,5 +85,14 @@ namespace BindingsGeneration
         /// Witness dispatch and EveryProtocol conformance should skip these properties.
         /// </summary>
         public bool IsObjCOptional { get; set; } = false;
+
+        /// <summary>
+        /// Setter-specific availability annotations when the setter is restricted to a
+        /// newer platform than the property getter. Read from the ABI JSON's
+        /// <c>intro_iOS</c>/<c>intro_Macosx</c>/etc. fields on the set accessor node and
+        /// merged with the property-level availability. When null, the setter inherits
+        /// <see cref="BaseDecl.AvailabilityAnnotations"/> from the property.
+        /// </summary>
+        public IReadOnlyList<AvailabilityAnnotation>? SetterAvailabilityAnnotations { get; set; }
     }
 }

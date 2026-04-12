@@ -263,35 +263,35 @@ public class TypeProjectionConsistencyTests
     {
         yield return new object[] { "Action<string>",
             MakeEscapingClosure(new[] { N("Swift.String") }, TupleTypeSpec.Empty),
-            "Action<string>", "SwiftClosureData", typeof(ClosureProjection) };
+            "global::System.Action<string>", "SwiftClosureData", typeof(ClosureProjection) };
 
         yield return new object[] { "Action (void→void)",
             MakeEscapingClosure(Array.Empty<TypeSpec>(), TupleTypeSpec.Empty),
-            "Action", "SwiftClosureData", typeof(ClosureProjection) };
+            "global::System.Action", "SwiftClosureData", typeof(ClosureProjection) };
 
         yield return new object[] { "Func<string, bool>",
             MakeEscapingClosure(new[] { N("Swift.String") }, N("Swift.Bool")),
-            "Func<string, bool>", "SwiftClosureData", typeof(ClosureProjection) };
+            "global::System.Func<string, bool>", "SwiftClosureData", typeof(ClosureProjection) };
 
         yield return new object[] { "Non-escaping closure",
             MakeNonEscapingClosure(new[] { N("Swift.Bool") }, TupleTypeSpec.Empty),
-            "Action<bool>", "delegate* unmanaged[Swift]<bool, IntPtr, void>", typeof(ClosureProjection) };
+            "global::System.Action<bool>", "delegate* unmanaged[Swift]<bool, IntPtr, void>", typeof(ClosureProjection) };
     }
 
     public static IEnumerable<object[]> AsyncTypes()
     {
         yield return new object[] { "Task<string>", N("Swift.String"), false,
-            "Task<string>", "void", typeof(AsyncProjection) };
+            "global::System.Threading.Tasks.Task<string>", "void", typeof(AsyncProjection) };
 
         yield return new object[] { "Task<bool>", N("Swift.Bool"), false,
-            "Task<bool>", "void", typeof(AsyncProjection) };
+            "global::System.Threading.Tasks.Task<bool>", "void", typeof(AsyncProjection) };
 
         yield return new object[] { "Task (void)", TupleTypeSpec.Empty, false,
-            "Task", "void", typeof(AsyncProjection) };
+            "global::System.Threading.Tasks.Task", "void", typeof(AsyncProjection) };
 
         yield return new object[] { "Task<(string, bool)>",
             MakeTuple(N("Swift.String"), N("Swift.Bool")), true,
-            "Task<(string, bool)>", "void", typeof(AsyncProjection) };
+            "global::System.Threading.Tasks.Task<(string, bool)>", "void", typeof(AsyncProjection) };
     }
 
     public static IEnumerable<object[]> DeepNestingTypes()

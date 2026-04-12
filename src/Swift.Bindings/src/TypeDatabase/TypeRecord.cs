@@ -78,6 +78,11 @@ public enum TypeRecordFlags
     // attempting to pass the Swift struct directly. Distinct from ObjCBridged (which marks
     // ObjC class wrappers) and nativeType (which controls public API remapping).
     ObjCBridgeable = 1 << 14,
+    // This flag indicates a type the emitter will skip entirely (e.g., single-case
+    // no-payload enums, which have TypeMetadata.Size == 0). Member-level validators
+    // treat references to such types as unsupported so that they don't emit dangling
+    // symbol references to a type that will never be generated.
+    Unemittable = 1 << 15,
 }
 
 /// <summary>

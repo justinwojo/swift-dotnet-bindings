@@ -208,11 +208,14 @@ namespace BindingsGeneration
             // (preserved in ILLink.Descriptors.xml), making it a reliable anchor.
             if (_enumDecl.Cases.Any())
                 _writer.WriteLine("""[global::System.Diagnostics.CodeAnalysis.DynamicDependency("Tag")]""");
+            // Wrap the raw IntPtr in a SwiftHandle explicitly so the call resolves to the
+            // private SwiftHandle-taking constructor, avoiding CS0121 ambiguity against any
+            // public single-arg constructor whose parameter accepts an implicit IntPtr conversion.
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
             static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
             {
-                var obj = new {{_typeNameWithGenerics}}(handle);
+                var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                 Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
                 return obj;
             }

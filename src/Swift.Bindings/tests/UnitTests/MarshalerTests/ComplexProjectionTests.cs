@@ -660,6 +660,89 @@ public class ComplexProjectionTests
         Assert.Contains("AsProjected", plan.PInvokeExpression);
     }
 
+    [Fact]
+    public void Optional_ElementConversion_NonFrozenStructInner_BuildsSwiftOptionalWrapper()
+    {
+        // Array<Optional<NonFrozenStruct>> — per-element conversion builds tagged SwiftOptional<IntPtr>
+        // (non-frozen structs are 9 bytes: 8-byte payload pointer + 1-byte tag).
+        var inner = new NonFrozenStructProjection("Tips.Rule");
+        var proj = new OptionalProjection(inner);
+        var conv = proj.GetParameterElementConversion("e");
+
+        Assert.NotNull(conv);
+        Assert.Contains("SwiftOptional<IntPtr>.NewSome", conv);
+        Assert.Contains("SwiftOptional<IntPtr>.NewNone", conv);
+        Assert.Contains("Payload.DangerousGetHandle()", conv);
+    }
+
+    [Fact]
+    public void Optional_ElementConversion_ClassInner_UsesNilPointerOptimization()
+    {
+        // Array<Optional<Class>> — Swift classes are nil-pointer-optimized (8-byte bare pointer, 0 = nil).
+        // Element conversion returns a bare IntPtr ternary, NOT a SwiftOptional<IntPtr> wrapper.
+        var inner = new ClassProjection("MyLoader");
+        var proj = new OptionalProjection(inner);
+        var conv = proj.GetParameterElementConversion("e");
+
+        Assert.NotNull(conv);
+        Assert.Contains("IntPtr.Zero", conv);
+        Assert.Contains("Payload.DangerousGetHandle()", conv);
+        Assert.DoesNotContain("SwiftOptional<", conv);
+    }
+
+    [Fact]
+    public void Optional_SwiftContainerGenericType_ClassInner_IsBareIntPtr()
+    {
+        // For Swift class refs inside Optional, the container element type is bare IntPtr
+        // (nil-pointer-optimized). SwiftOptional<IntPtr> would be 9 bytes — wrong ABI.
+        var proj = new OptionalProjection(new ClassProjection("MyLoader"));
+        Assert.Equal("IntPtr", proj.SwiftContainerGenericType);
+    }
+
+    [Fact]
+    public void Optional_SwiftContainerGenericType_NonFrozenStructInner_IsTaggedSwiftOptional()
+    {
+        // For non-frozen structs inside Optional, the container element type IS SwiftOptional<IntPtr>
+        // (9 bytes: payload pointer + discriminator byte) — no nil-pointer optimization.
+        var proj = new OptionalProjection(new NonFrozenStructProjection("Tips.Rule"));
+        Assert.Equal("SwiftOptional<IntPtr>", proj.SwiftContainerGenericType);
+    }
+
+    [Fact]
+    public void Optional_ElementConversion_DerivesPatternVarFromInput_NoCollision()
+    {
+        // Two optional element conversions in the same expression (e.g., dict key + value) must
+        // not both declare the same pattern variable — that would trigger CS0128 at compile time.
+        var proj = new OptionalProjection(new NonFrozenStructProjection("Tips.Rule"));
+        var keyConv = proj.GetParameterElementConversion("kv.Key");
+        var valConv = proj.GetParameterElementConversion("kv.Value");
+
+        Assert.NotNull(keyConv);
+        Assert.NotNull(valConv);
+        Assert.Contains("__v_kv_Key", keyConv);
+        Assert.Contains("__v_kv_Value", valConv);
+        // Pattern variables from the two conversions must be distinct.
+        Assert.DoesNotContain("__v_kv_Key", valConv);
+        Assert.DoesNotContain("__v_kv_Value", keyConv);
+    }
+
+    [Fact]
+    public void Optional_ElementRequiresDisposal_TaggedPath_IsTrue()
+    {
+        // Tagged optional path allocates SwiftOptional<T> wrappers per element — container
+        // parameter plans must dispose them in the finally block to avoid leaking native buffers.
+        var proj = new OptionalProjection(new NonFrozenStructProjection("Tips.Rule"));
+        Assert.True(proj.ElementRequiresDisposal);
+    }
+
+    [Fact]
+    public void Optional_ElementRequiresDisposal_NilPointerPath_IsFalse()
+    {
+        // Nil-pointer-optimized paths (classes, ObjC types) emit bare IntPtr element conversions
+        // with no allocation, so disposal is not required.
+        Assert.False(new OptionalProjection(new ClassProjection("MyLoader")).ElementRequiresDisposal);
+    }
+
     #endregion
 
     #region TupleProjection
@@ -788,7 +871,7 @@ public class ComplexProjectionTests
             isAsync: false,
             callbackName: "testCallback");
 
-        Assert.Equal("Action", proj.PublicType);
+        Assert.Equal("global::System.Action", proj.PublicType);
         Assert.Equal("SwiftClosureData", proj.PInvokeType);
     }
 
@@ -803,7 +886,7 @@ public class ComplexProjectionTests
             isAsync: false,
             callbackName: "testCallback");
 
-        Assert.Equal("Action<string, Int64>", proj.PublicType);
+        Assert.Equal("global::System.Action<string, Int64>", proj.PublicType);
     }
 
     [Fact]
@@ -817,7 +900,7 @@ public class ComplexProjectionTests
             isAsync: false,
             callbackName: "testCallback");
 
-        Assert.Equal("Func<string, bool>", proj.PublicType);
+        Assert.Equal("global::System.Func<string, bool>", proj.PublicType);
     }
 
     [Fact]
@@ -1000,7 +1083,7 @@ public class ComplexProjectionTests
     {
         var inner = new StringProjection();
         var proj = new AsyncProjection(inner, throws: true, callbackPrefix: "test");
-        Assert.Equal("Task<string>", proj.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task<string>", proj.PublicType);
         Assert.Equal("void", proj.PInvokeType);
     }
 
@@ -1008,7 +1091,7 @@ public class ComplexProjectionTests
     public void Async_Task_VoidReturn_Types()
     {
         var proj = new AsyncProjection(innerReturnProjection: null, throws: false, callbackPrefix: "test");
-        Assert.Equal("Task", proj.PublicType);
+        Assert.Equal("global::System.Threading.Tasks.Task", proj.PublicType);
         Assert.Equal("void", proj.PInvokeType);
     }
 

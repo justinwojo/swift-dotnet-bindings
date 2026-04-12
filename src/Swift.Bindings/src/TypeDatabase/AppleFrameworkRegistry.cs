@@ -26,6 +26,7 @@ internal static class AppleFrameworkRegistry
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
     private static readonly string[] _objcPrefixes;
     private static readonly HashSet<string> _knownModulesForElements;
+    private static readonly HashSet<string> _netUnavailableTypes;
 
     // --- JSON Model ---
 
@@ -69,6 +70,9 @@ internal static class AppleFrameworkRegistry
 
         [JsonProperty("excludeFromXml")]
         public string[]? ExcludeFromXml { get; set; }
+
+        [JsonProperty("netUnavailableTypes")]
+        public string[]? NetUnavailableTypes { get; set; }
     }
 
     // --- Static Constructor (loads from embedded JSON) ---
@@ -84,6 +88,7 @@ internal static class AppleFrameworkRegistry
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
+        _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
         var objcPrefixSet = new HashSet<string>(StringComparer.Ordinal);
 
         // Platform unavailable: build per-platform sets
@@ -135,6 +140,12 @@ internal static class AppleFrameworkRegistry
             {
                 foreach (var (swiftName, netName) in def.TypeRemaps)
                     _typeNameRemaps[$"{def.Module}.{swiftName}"] = netName;
+            }
+
+            if (def.NetUnavailableTypes != null)
+            {
+                foreach (var typeName in def.NetUnavailableTypes)
+                    _netUnavailableTypes.Add($"{def.Module}.{typeName}");
             }
         }
 
@@ -266,6 +277,16 @@ internal static class AppleFrameworkRegistry
     }
 
     public static bool IsKnownObjCRootClass(string name) => name is "NSObject" or "NSProxy";
+
+    /// <summary>
+    /// Returns true if the given module-qualified type name is an auto-bridged Swift type
+    /// that does NOT exist in the corresponding .NET assembly. Members referencing these
+    /// types cause CS0234 at compile time, so the generator suppresses them. Data is sourced
+    /// from <c>apple-frameworks.json</c>'s <c>netUnavailableTypes</c> entry per module — add
+    /// new exclusions there, not in code.
+    /// </summary>
+    public static bool IsNetUnavailableType(string moduleQualifiedName) =>
+        _netUnavailableTypes.Contains(moduleQualifiedName);
 
     public static bool IsKnownModuleForElements(string moduleName) =>
         _knownModulesForElements.Contains(moduleName);

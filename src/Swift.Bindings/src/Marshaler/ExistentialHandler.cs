@@ -80,6 +80,63 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Returns true when the composition includes at least one non-protocol participant
+    /// (e.g., a class, struct, or enum). Swift permits class-constrained existentials like
+    /// <c>ClassA &amp; ProtoP</c>, but C# has no <c>I{ClassA}</c> interface and the ABI
+    /// container is a class-bounded existential with a different layout than a regular
+    /// composition. We flag these so that <see cref="GetPublicExistentialType"/> collapses
+    /// them to <c>object</c> instead of synthesising a broken <c>I...And...</c> interface.
+    /// Iterates the RAW protocol list (not <see cref="GetEffectiveProtocols"/>) because
+    /// that helper strips ObjC-module participants up front, which would hide exactly
+    /// the class-bounded shape (e.g., <c>Foundation.NSObject &amp; SomeProtocol</c>) we
+    /// are trying to catch here.
+    /// </summary>
+    public bool CompositionHasNonProtocolParticipant(ProtocolListTypeSpec protocolList)
+    {
+        foreach (var p in protocolList.Protocols.Keys)
+        {
+            if (IsMarkerProtocol(p))
+                continue;
+
+            // Swift-side: resolved TypeRecord with a non-protocol kind.
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(p);
+                if (_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+                {
+                    if (typeRecord.Kind == TypeRecordKind.Class ||
+                        typeRecord.Kind == TypeRecordKind.Struct ||
+                        typeRecord.Kind == TypeRecordKind.Enum)
+                    {
+                        return true;
+                    }
+                    // A protocol TypeRecord is unambiguously a protocol participant.
+                    if (typeRecord.Kind == TypeRecordKind.Protocol)
+                        continue;
+                }
+            }
+            catch
+            {
+                // FromTypeSpec may throw for malformed names — fall through to the
+                // ObjC root-class heuristic below before giving up.
+            }
+
+            // Auto-bridged ObjC root classes: NSObject/NSProxy are the only canonical
+            // ObjC class roots we can identify purely from the type name. Anything
+            // else in Foundation/ObjectiveC could be either a class or a protocol
+            // (NSCoding, NSCopying, etc.), so we do NOT treat generic "ObjC module
+            // type" as class-bounded — only the narrow root-class set.
+            if (p.HasModule() &&
+                (p.Module == "Foundation" || p.Module == "ObjectiveC") &&
+                AppleFrameworkRegistry.IsKnownObjCRootClass(p.NameWithoutModule))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Determines whether the specified argument declaration represents an existential type
     /// (a protocol type or protocol composition).
     /// </summary>
@@ -176,6 +233,11 @@ public class ExistentialHandler
     /// Currently supports:
     /// - Protocol compositions with 0-8 protocols (Any through 8-protocol compositions)
     /// - Only protocols without associated types (PATs are not fully supported)
+    /// - Pure protocol compositions (no class-bounded participants — see
+    ///   <see cref="CompositionHasNonProtocolParticipant"/>). Class-bounded compositions
+    ///   use a different ABI container layout and would need their own marshalling
+    ///   path; they are skipped entirely so callers can't try to box a concrete class
+    ///   through the regular ExistentialContainerN route.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
     /// <returns><c>true</c> if the existential is supported; otherwise, <c>false</c>.</returns>
@@ -183,6 +245,16 @@ public class ExistentialHandler
     {
         // Check witness table count limit
         if (protocolList.Protocols.Count > MaxSupportedWitnessTables)
+            return false;
+
+        // Class-bounded compositions (e.g. `any ClassA & ProtoP`, `any NSObject & SomeProtocol`)
+        // box through a class-bounded existential container with a different layout than
+        // the regular ExistentialContainerN shape. We have no marshalling path for them,
+        // and degrading the public parameter to `object` still leaves the emitted body
+        // casting to `ISwiftExistentialConvertible<ExistentialContainer2>` — which the
+        // concrete class does not implement and which throws at the first real call.
+        // Reject the whole member instead.
+        if (CompositionHasNonProtocolParticipant(protocolList))
             return false;
 
         // All protocols in the composition must be known
@@ -356,6 +428,14 @@ public class ExistentialHandler
     /// <returns>The public-facing interface type name.</returns>
     public string GetPublicExistentialType(ProtocolListTypeSpec protocolList)
     {
+        // Class-constrained compositions (e.g. `any ClassA & ProtoP`) have no C# API
+        // representation — the ABI container is a class-bounded existential with a
+        // different layout than a regular composition, and there is no I{ClassName}
+        // interface for the class side. Collapse to object so callers skip the member
+        // or fall back to the raw container instead of synthesising a broken interface.
+        if (CompositionHasNonProtocolParticipant(protocolList))
+            return "object";
+
         // Filter markers and ObjC before dispatching on count.
         // Marker protocols (Sendable, Escapable, etc.) have no C# representation;
         // ObjC module types have no emitted interfaces.
@@ -376,11 +456,19 @@ public class ExistentialHandler
             // This handles multiple cases:
             //   - Metatype expressions (e.g., "Any.Type") misclassified as protocols → no TypeRecord → object
             //   - Real protocols with emitted interfaces → TypeRecord with Kind=Protocol → I{Name}
+            //   - PAT / Self-requirement protocols → emitted as generic interface I{Name}<TSelf>,
+            //     which can't be referenced without type arguments. Fall back to object so call
+            //     sites don't emit CS0305 references like `IReadOnlyList<ITip>` or `ITip? Foo_Get()`.
             try
             {
                 var swiftTypeName = SwiftTypeName.FromTypeSpec(firstProtocol);
                 if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
                     typeRecord.Kind != TypeRecordKind.Protocol)
+                {
+                    return "object";
+                }
+                if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+                    typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
                     return "object";
                 }
