@@ -60,6 +60,7 @@
     <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/MemoryManagement/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
