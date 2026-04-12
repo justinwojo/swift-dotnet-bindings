@@ -25,6 +25,7 @@
       "type": "string",
       "enum": [
         "AnalyzerTests",
+        "AssertBindingReportConstraints",
         "BindingTests",
         "BindingTestsStrict",
         "BuildAsyncWrapper",

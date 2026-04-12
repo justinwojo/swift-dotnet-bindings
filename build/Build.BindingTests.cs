@@ -464,6 +464,114 @@ partial class Build
     }
 
     // ============================================================
+    // AssertBindingReportConstraints — Session 5 (fix #11, commit 26f764f1)
+    //
+    // Build-side companion to the runtime test
+    // RuntimeTestsApp/EdgeCases/UnsafeRawBufferDeferralTests.cs. Reads
+    // BindingTests/output/binding-report.json from the host filesystem and
+    // asserts that the deferred UnsafeRawBufferHolder.readBuffer method
+    // appears with Reason=UnsupportedSignature. Runs after regeneration and
+    // before the iOS test launches — the runtime-side test process has no
+    // access to binding-report.json, so any assertion on its contents must
+    // live on the build host.
+    // ============================================================
+
+    Target AssertBindingReportConstraints => _ => _
+        .DependsOn(RegenerateBindings)
+        .Before(CompileCheckBindings, BuildAsyncWrapper, BuildBridge)
+        .Executes(() => AssertBindingReportDeferralExpectations());
+
+    void AssertBindingReportDeferralExpectations()
+    {
+        var reportPath = BtOutputDir / "binding-report.json";
+        if (!File.Exists(reportPath))
+            throw new Exception(
+                $"binding-report.json not found at {reportPath}. Regeneration must run " +
+                "before this assertion — check the target dependency chain in " +
+                "Build.BindingTests.cs.");
+
+        var json = File.ReadAllText(reportPath);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (!root.TryGetProperty("SkippedItems", out var items) ||
+            items.ValueKind != System.Text.Json.JsonValueKind.Array)
+            throw new Exception(
+                "binding-report.json is missing the SkippedItems array. The report " +
+                "schema changed — update AssertBindingReportDeferralExpectations() in " +
+                "build/Build.BindingTests.cs to match the new shape.");
+
+        const string ExpectedName = "readBuffer";
+        const string ExpectedContainingType = "SwiftBindingsTestLib.UnsafeRawBufferHolder";
+        const string ExpectedReason = "UnsupportedSignature";
+        const string ExpectedDetailsFragment = "UnsafeRawBufferPointer";
+
+        // Match on Kind + Name + ContainingType. Kind prevents a future
+        // non-method entry (Type, Property, etc.) with the same Name from
+        // colliding with the method we're pinning. The predicate is still not
+        // overload-safe because the report schema lacks a Signature field —
+        // if a future fixture adds a second readBuffer overload to
+        // UnsafeRawBufferHolder, extend this to also match on Details text.
+        System.Text.Json.JsonElement? match = null;
+        foreach (var item in items.EnumerateArray())
+        {
+            if (!item.TryGetProperty("Kind", out var kindElem) ||
+                kindElem.GetString() != "Method")
+                continue;
+            if (!item.TryGetProperty("Name", out var nameElem) ||
+                nameElem.GetString() != ExpectedName)
+                continue;
+            if (!item.TryGetProperty("ContainingType", out var containingElem) ||
+                containingElem.GetString() != ExpectedContainingType)
+                continue;
+            match = item;
+            break;
+        }
+
+        if (match is null)
+            throw new Exception(
+                $"Expected skipped method '{ExpectedName}' on type " +
+                $"'{ExpectedContainingType}' not found in binding-report.json. " +
+                "This is the build-side half of fix #11 (UnsafeRawBufferPointer " +
+                "parameter deferral, commit 26f764f1). If the method was renamed, " +
+                "its enclosing type was renamed, or the fixture file was deleted, " +
+                "update both this assertion and the runtime companion in " +
+                "RuntimeTestsApp/EdgeCases/UnsafeRawBufferDeferralTests.cs.");
+
+        var actualReason = match.Value.TryGetProperty("Reason", out var reasonElem)
+            ? reasonElem.GetString()
+            : null;
+        if (actualReason != ExpectedReason)
+            throw new Exception(
+                $"Skipped method '{ExpectedContainingType}.{ExpectedName}' has " +
+                $"Reason='{actualReason ?? "<null>"}', expected '{ExpectedReason}'. " +
+                "If the classification genuinely changed — e.g., the emitter gained " +
+                "support for UnsafeRawBufferPointer parameters — then fix #11's skip " +
+                "branch has been superseded and this build-side assertion plus its " +
+                "runtime companion in UnsafeRawBufferDeferralTests.cs should be " +
+                "retired together with a new positive test of the support.");
+
+        var actualDetails = match.Value.TryGetProperty("Details", out var detailsElem)
+            ? detailsElem.GetString() ?? string.Empty
+            : string.Empty;
+        if (!actualDetails.Contains(ExpectedDetailsFragment, StringComparison.Ordinal))
+            throw new Exception(
+                $"Skipped method '{ExpectedContainingType}.{ExpectedName}' has " +
+                $"Details='{actualDetails}', expected a substring containing " +
+                $"'{ExpectedDetailsFragment}'. The skip reason still classifies the " +
+                "method as UnsupportedSignature but the details text no longer names " +
+                "UnsafeRawBufferPointer — a downstream regression could silently " +
+                "reclassify other unsupported types with the same reason. Update the " +
+                "details check only after confirming the new wording still points at " +
+                "the UnsafeRawBufferPointer parameter deferral.");
+
+        Log.Information(
+            "AssertBindingReportConstraints: '{Type}.{Method}' deferred with " +
+            "Reason={Reason} — fix #11 pin holds.",
+            ExpectedContainingType, ExpectedName, ExpectedReason);
+    }
+
+    // ============================================================
     // BuildAsyncWrapper target — ports build-async-wrapper.sh
     // ============================================================
 
@@ -726,7 +834,7 @@ partial class Build
     // ============================================================
 
     Target BindingTests => _ => _
-        .DependsOn(CompileCheckBindings, BuildAsyncWrapper, BuildBridge)
+        .DependsOn(AssertBindingReportConstraints, CompileCheckBindings, BuildAsyncWrapper, BuildBridge)
         .After(Test)
         .Executes(() =>
         {
@@ -740,6 +848,12 @@ partial class Build
             ForceStrict = true;
             RunBuildXcframework();
             RunRegenerateBindings(strict: true);
+            // Direct call (not via the AssertBindingReportConstraints target).
+            // BindingTestsStrict orchestrates the pipeline imperatively
+            // instead of going through the target graph, so the helper is
+            // invoked inline here to keep parity with the normal BindingTests
+            // target's dependency-based invocation.
+            AssertBindingReportDeferralExpectations();
             RunCompileCheck();
             RunBuildAsyncWrapper();
             RunBuildBridge();
