@@ -265,10 +265,15 @@ public class SwiftObjectRegistryTests
         var handle1 = new IntPtr(90001);
         var handle2 = new IntPtr(90002);
 
-        SwiftObjectRegistry.Register(handle1, new TestProxy());
+        // Hold references to prevent GC from collecting the weak-referenced proxies
+        // before the Count assertions run.
+        var proxy1 = new TestProxy();
+        var proxy2 = new TestProxy();
+
+        SwiftObjectRegistry.Register(handle1, proxy1);
         Assert.Equal(initialCount + 1, SwiftObjectRegistry.Count);
 
-        SwiftObjectRegistry.Register(handle2, new TestProxy());
+        SwiftObjectRegistry.Register(handle2, proxy2);
         Assert.Equal(initialCount + 2, SwiftObjectRegistry.Count);
 
         SwiftObjectRegistry.Unregister(handle1);
@@ -276,6 +281,9 @@ public class SwiftObjectRegistryTests
 
         SwiftObjectRegistry.Unregister(handle2);
         Assert.Equal(initialCount, SwiftObjectRegistry.Count);
+
+        GC.KeepAlive(proxy1);
+        GC.KeepAlive(proxy2);
     }
 
     [Fact]
@@ -284,8 +292,9 @@ public class SwiftObjectRegistryTests
         var initialCount = SwiftObjectRegistry.StrongCount;
 
         var handle = new IntPtr(90003);
+        var proxy = new TestProxy();
 
-        SwiftObjectRegistry.RegisterStrong(handle, new TestProxy());
+        SwiftObjectRegistry.RegisterStrong(handle, proxy);
         Assert.Equal(initialCount + 1, SwiftObjectRegistry.StrongCount);
 
         SwiftObjectRegistry.ReleaseStrong(handle);
@@ -293,6 +302,7 @@ public class SwiftObjectRegistryTests
 
         // Cleanup
         SwiftObjectRegistry.Unregister(handle);
+        GC.KeepAlive(proxy);
     }
 
     [Fact]
