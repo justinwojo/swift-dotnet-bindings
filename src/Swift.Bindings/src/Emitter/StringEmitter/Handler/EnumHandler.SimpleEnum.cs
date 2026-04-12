@@ -135,6 +135,7 @@ namespace BindingsGeneration
                 }
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, caseDecl);
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
                 csWriter.WriteLine($"{casePascalName} = {tagValue},");
             }
 

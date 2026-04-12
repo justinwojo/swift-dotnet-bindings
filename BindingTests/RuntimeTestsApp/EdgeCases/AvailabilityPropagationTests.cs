@@ -62,18 +62,12 @@ public class AvailabilityPropagationTests : TestBase
     }
 
     /// <summary>
-    /// Latent-bug pin for per-case <c>@available</c> on simple integer-raw-value
-    /// enums. The enclosing <c>StagedFeature</c> enum is <c>@available(iOS 16, *)</c>;
+    /// Per-case <c>@available</c> propagation on simple integer-raw-value enums.
+    /// The enclosing <c>StagedFeature</c> enum is <c>@available(iOS 16, *)</c>;
     /// <c>.enhanced</c> (iOS 17) and <c>.experimental</c> (iOS 18) have tighter
-    /// per-case floors. The emitted C# enum fields should carry matching
-    /// <c>[SupportedOSPlatform]</c> attributes, but <c>EnumHandler.SimpleEnum</c>
-    /// only calls <c>XmlDocCommentEmitter</c> per case — <c>AvailabilityAttributeEmitter</c>
-    /// is never invoked on <c>EnumCaseDecl</c>. Consumers can currently <c>switch</c>
-    /// on <c>StagedFeature.Experimental</c> from an iOS 16 baseline with no
-    /// CA1416 diagnostic. This test pins the *current broken* emission so the
-    /// suite goes green today; when the per-case path is extended, the
-    /// <c>AssertEqual(0, …)</c> assertions will start failing and the fixer
-    /// must flip them to <c>AssertTrue</c> for the expected platform versions.
+    /// per-case floors. The emitted C# enum fields must carry matching
+    /// <c>[SupportedOSPlatform]</c> attributes so consumers get CA1416
+    /// diagnostics when referencing platform-gated cases.
     /// </summary>
     public void TestStagedFeaturePerCaseAvailability()
     {
@@ -84,24 +78,24 @@ public class AvailabilityPropagationTests : TestBase
         var enhancedAttrs = enhancedField!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
         TestLogger.Info($"StagedFeature.Enhanced SupportedOSPlatform attrs: " +
             $"[{string.Join(", ", enhancedAttrs.Select(a => a.PlatformName))}]");
-        // LATENT-BUG PIN: flip to AssertTrue(ios17.0) when EnumHandler.SimpleEnum
-        // (src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.SimpleEnum.cs:137)
-        // starts calling AvailabilityAttributeEmitter per case.
-        AssertEqual(0, enhancedAttrs.Length,
-            "Documents current broken emission: StagedFeature.Enhanced carries no " +
-            "per-case availability attribute. When EnumHandler.SimpleEnum starts calling " +
-            "AvailabilityAttributeEmitter per case, flip this to AssertTrue for ios17.0.");
+        var ios17 = enhancedAttrs.FirstOrDefault(a =>
+            string.Equals(a.PlatformName, "ios17.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(ios17 is not null,
+            "StagedFeature.Enhanced must carry SupportedOSPlatform(\"ios17.0\"). " +
+            "EnumHandler.SimpleEnum emits per-case availability via " +
+            "AvailabilityAttributeEmitter. A failure here means the per-case " +
+            "@available propagation has regressed.");
 
         var experimentalField = enumType.GetField("Experimental", BindingFlags.Public | BindingFlags.Static);
         AssertTrue(experimentalField is not null, "StagedFeature.Experimental field must exist.");
         var experimentalAttrs = experimentalField!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
         TestLogger.Info($"StagedFeature.Experimental SupportedOSPlatform attrs: " +
             $"[{string.Join(", ", experimentalAttrs.Select(a => a.PlatformName))}]");
-        // LATENT-BUG PIN: flip to AssertTrue(ios18.0) when per-case emission lands.
-        AssertEqual(0, experimentalAttrs.Length,
-            "Documents current broken emission: StagedFeature.Experimental carries no " +
-            "per-case availability attribute. When the fix lands, flip this to " +
-            "AssertTrue for ios18.0.");
+        var ios18 = experimentalAttrs.FirstOrDefault(a =>
+            string.Equals(a.PlatformName, "ios18.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(ios18 is not null,
+            "StagedFeature.Experimental must carry SupportedOSPlatform(\"ios18.0\"). " +
+            "A failure here means the per-case @available propagation has regressed.");
     }
 
     /// <summary>

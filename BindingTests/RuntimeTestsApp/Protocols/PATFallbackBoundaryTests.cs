@@ -11,51 +11,23 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Runtime coverage for fix #7 (commit 4235d568): the "PAT / Self-requirement
-/// protocol fallback to object" branch in
-/// <c>ExistentialHandler.GetPublicExistentialType()</c>
-/// (src/Swift.Bindings/src/Marshaler/ExistentialHandler.cs:459-474).
+/// Runtime coverage for the PAT / Self-requirement protocol fallback to
+/// <c>object</c> in <c>ExistentialHandler.GetPublicExistentialType()</c>.
 ///
-/// <para>
-/// Fix #7 has two observable halves and this test pins both:
-/// </para>
+/// <para>Two halves pinned here:</para>
 /// <list type="number">
 ///   <item>
-///     <b>Compile-time half (WORKING, pinned by <see cref="TestReadTaggedAssociatorIsLoweredToObjectParameter"/>).</b>
-///     A free function that takes <c>any TaggedAssociator</c> where
-///     <c>TaggedAssociator</c> has an <c>associatedtype Item</c> must lower to
-///     a public C# function whose parameter type is the literal <c>object</c>
-///     (not <c>ITaggedAssociator&lt;TSelf&gt;</c> which would need a type
-///     argument that isn't in scope at the call site). This is the part of
-///     fix #7 that TipKit and WeatherKit needed to compile at all.
+///     <b>Compile-time half (<see cref="TestReadTaggedAssociatorIsLoweredToObjectParameter"/>).</b>
+///     A free function taking <c>any TaggedAssociator</c> (where TaggedAssociator
+///     has <c>associatedtype Item</c>) must lower to <c>object</c> parameter.
 ///   </item>
 ///   <item>
-///     <b>Runtime dispatch half (BROKEN, pinned by
-///     <see cref="TestReadTaggedAssociatorDispatchLatentBug"/>).</b>
-///     Passing a concrete conformer <i>value</i> through the <c>object</c>
-///     parameter must box into an <c>ExistentialContainer1</c> pointing at
-///     the conformer's <c>TaggedAssociator</c> witness table, so that Swift
-///     can dispatch <c>.tag</c> back to the concrete type. Today this path
-///     throws <see cref="InvalidCastException"/> from
-///     <c>ExistentialContainerFactory.GetOrCreate&lt;object&gt;</c> because
-///     the generator does not emit <c>IExistentialBoxable</c> on PAT-conformer
-///     classes and does not populate the per-type protocol-conformance symbol
-///     dictionary. Fix #7 only closed the emit-to-<c>object</c> half; the
-///     runtime boxing half is the follow-up that needs to land for the
-///     dispatch assertion to flip to asserting concrete tag values.
+///     <b>Runtime dispatch half (<see cref="TestReadTaggedAssociatorDispatch"/>).</b>
+///     Passing a concrete conformer through the <c>object</c> parameter boxes
+///     into an <c>ExistentialContainer1</c> with the conformer's witness table
+///     so Swift dispatches <c>.tag</c> to the concrete type.
 ///   </item>
 /// </list>
-///
-/// <para>
-/// <b>Why this test exists even though dispatch is broken</b>: a BindingTests
-/// runtime pin for the compile-time half (#1 above) prevents fix #7 from
-/// regressing silently — reverting the <c>HasAssociatedTypes</c> branch would
-/// emit <c>ITaggedAssociator&lt;TSelf&gt; assoc</c> at this call site and
-/// <c>nuke binding-tests</c> would fail to compile the runtime test before
-/// the simulator even launches. The latent-bug pin on #2 documents the
-/// follow-up work and flips to a real dispatch assertion when the generator
-/// fix lands.
-/// </para>
 /// </summary>
 public class PATFallbackBoundaryTests : TestBase
 {
@@ -102,18 +74,14 @@ public class PATFallbackBoundaryTests : TestBase
     }
 
     /// <summary>
-    /// Fix #7 runtime-dispatch half: pins the current broken state where
-    /// passing an <see cref="IntTaggedAssociator"/> through the <c>object</c>
-    /// parameter throws <see cref="InvalidCastException"/> from
-    /// <c>Swift.Runtime.ExistentialContainerFactory.GetOrCreate&lt;object&gt;</c>.
-    /// The generator currently does not emit <c>IExistentialBoxable</c> on
-    /// PAT-conformer classes — its <c>_protocolConformanceSymbols</c>
-    /// dictionary is empty on every conformer generated for a protocol with
-    /// <c>hasAssociatedTypes=true</c> — so the factory's cascade (check for
-    /// <c>ISwiftExistentialConvertible</c>, then <c>IExistentialBoxable</c>,
-    /// otherwise throw) lands on the throw branch.
+    /// Fix #7 runtime-dispatch half: verifies that passing an
+    /// <see cref="IntTaggedAssociator"/> through the <c>object</c> parameter
+    /// successfully boxes into an <c>ExistentialContainer1</c> and dispatches
+    /// the protocol's <c>.tag</c> property back to the concrete conformer.
+    /// Also tests <see cref="StringTaggedAssociator"/> to prove the dispatch
+    /// routes to the concrete conformer, not a shared default implementation.
     /// </summary>
-    public void TestReadTaggedAssociatorDispatchLatentBug()
+    public void TestReadTaggedAssociatorDispatch()
     {
         using var intAssoc = new IntTaggedAssociator();
 
@@ -124,58 +92,26 @@ public class PATFallbackBoundaryTests : TestBase
         AssertEqual("int-tagged-associator", intAssoc.Tag,
             "IntTaggedAssociator.Tag must return its direct string even before " +
             "the existential boundary path is exercised. If this fails the failure " +
-            "is below the existential layer and the latent-bug pin below is noise.");
+            "is below the existential layer and the dispatch assertion below is noise.");
 
-        // Only IntTaggedAssociator is exercised here by design. The fixture
-        // also defines StringTaggedAssociator specifically to prove that the
-        // dispatch resolves to the *concrete* conformer's `.tag` and not a
-        // shared default implementation — but asserting two conformers only
-        // makes sense after the latent-bug pin flips. Until then a second
-        // throw-assertion would be redundant noise.
-        Exception? thrown = null;
-        string? dispatched = null;
-        try
-        {
-            dispatched = TestLibFunctions.ReadTaggedAssociator(intAssoc);
-        }
-        catch (Exception ex)
-        {
-            thrown = ex;
-        }
+        var dispatched = TestLibFunctions.ReadTaggedAssociator(intAssoc);
+        TestLogger.Info($"ReadTaggedAssociator(IntTaggedAssociator) returned \"{dispatched}\"");
 
-        TestLogger.Info(thrown is null
-            ? $"ReadTaggedAssociator(IntTaggedAssociator) returned \"{dispatched}\""
-            : $"ReadTaggedAssociator(IntTaggedAssociator) threw {thrown.GetType().Name}: {thrown.Message}");
+        AssertEqual("int-tagged-associator", dispatched,
+            "ReadTaggedAssociator must dispatch .tag through the PAT existential " +
+            "container to the concrete IntTaggedAssociator conformer. The generator " +
+            "emits IExistentialBoxable and populates _protocolConformanceSymbols with " +
+            "a typeof(object) entry for PAT conformances.");
 
-        // LATENT-BUG PIN: flip to AssertEqual("int-tagged-associator", dispatched)
-        // when the generator starts emitting IExistentialBoxable on PAT-conformer
-        // classes AND populating the _protocolConformanceSymbols dictionary with
-        // the TaggedAssociator conformance symbol. Until then, the factory cascade
-        // in src/Swift.Runtime/src/Swift/Runtime/ExistentialContainer.cs:928-940
-        // lands on the throw branch because IntTaggedAssociator implements neither
-        // ISwiftExistentialConvertible<ExistentialContainer1> nor IExistentialBoxable.
-        // The generator work is in the emitter/existential-boxing path that is
-        // currently gated off for protocols with hasAssociatedTypes=true.
-        //
-        // Flip checklist — when the runtime half lands:
-        //   1. Replace the InvalidCastException assertion below with
-        //      AssertEqual("int-tagged-associator", dispatched).
-        //   2. Add a StringTaggedAssociator sibling call and assert
-        //      "string-tagged-associator" to prove the boxing routes to the
-        //      concrete conformer rather than a default implementation.
-        //   3. Delete the note above about only one conformer being exercised.
-        //   4. Mirror the flip in Session 6's
-        //      BindingTests/RuntimeTestsApp/SmokeTests/TipKitSmokeTests.cs
-        //      (TestReadTipKitSmokeIdentifierDispatchLatentBug) — both pins
-        //      share the same generator code path and must move in lockstep
-        //      so the synthetic and real-framework coverage don't drift.
-        AssertTrue(thrown is InvalidCastException,
-            "Documents current broken dispatch for PAT fallback: passing an " +
-            "IntTaggedAssociator value through ReadTaggedAssociator(object) must " +
-            "throw InvalidCastException today because the factory cannot box a " +
-            "concrete PAT-conformer into an ExistentialContainer1. When the " +
-            "generator starts emitting IExistentialBoxable on PAT-conformer classes, " +
-            "this assertion will start failing and the fixer must follow the flip " +
-            "checklist above.");
+        // Second conformer proves the dispatch routes to the concrete type,
+        // not a shared default implementation.
+        using var stringAssoc = new StringTaggedAssociator();
+        var dispatched2 = TestLibFunctions.ReadTaggedAssociator(stringAssoc);
+        TestLogger.Info($"ReadTaggedAssociator(StringTaggedAssociator) returned \"{dispatched2}\"");
+
+        AssertEqual("string-tagged-associator", dispatched2,
+            "ReadTaggedAssociator must dispatch .tag to StringTaggedAssociator " +
+            "(not IntTaggedAssociator), proving the existential container carries " +
+            "the correct witness table for each concrete conformer.");
     }
 }

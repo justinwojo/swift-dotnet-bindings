@@ -919,6 +919,22 @@ internal static class ProtocolConformanceHelper
             }
         }
 
+        // PAT conformances: the generic interface (e.g., ITaggedAssociator<TSelf>) can't be
+        // referenced without type arguments, so we don't add it to the interface list. But we
+        // still need IExistentialBoxable so the concrete type can be boxed when passed through
+        // an 'object' parameter (the PAT fallback from ExistentialHandler.GetPublicExistentialType).
+        //
+        // Multi-PAT guard: if a type conforms to multiple PAT protocols, the typeof(object)
+        // dictionary key is ambiguous — we can't know which protocol the call site intended.
+        // Rather than silently selecting the wrong witness table (which would pass the wrong
+        // PWT into Swift and produce bad dispatch or a crash), we skip the PAT boxing path
+        // entirely for multi-PAT conformers. They fall back to the pre-fix InvalidCastException,
+        // which is a clear failure rather than silent corruption.
+        if (!hasProtocolConformance && CountPatConformances(conformances, typeDatabase) == 1)
+        {
+            hasProtocolConformance = true;
+        }
+
         // Add IExistentialBoxable if any protocol conformances were emitted.
         // This enables concrete types to be passed where protocol existentials are expected
         // (e.g., passing ECB where 'any BlockMode' is needed) via ExistentialContainerFactory.GetOrCreate.
@@ -966,6 +982,27 @@ internal static class ProtocolConformanceHelper
                 entries.Add($"{{typeof({protocol}), \"{protocolConformanceSymbol}\"}}");
             }
 
+        // PAT conformances: keyed on typeof(object) because ExistentialHandler lowers
+        // PAT protocol parameters to the literal 'object' C# type, so BoxAsExistential1
+        // is called with TProtocol=object and the dictionary lookup uses typeof(object).
+        // Skipped for multi-PAT types where the key is ambiguous (see GetImplementedInterfaces).
+        if (CountPatConformances(conformances, typeDatabase) == 1)
+        {
+            foreach (var conformance in conformances)
+            {
+                if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var patRecord))
+                    continue;
+                if (patRecord.Kind != TypeRecordKind.Protocol)
+                    continue;
+                if (!patRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                    continue;
+                if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
+                    continue;
+                entries.Add($"{{typeof(object), \"{conformance.ProtocolConformanceDescriptor}\"}}");
+                break;
+            }
+        }
+
         return string.Join(",\n", entries);
     }
 
@@ -1006,7 +1043,39 @@ internal static class ProtocolConformanceHelper
 
             names.Add(ifaceName);
         }
+
+        // PAT conformances: register with "object" name to match the typeof(object) dictionary key.
+        // Skipped for multi-PAT types where the key is ambiguous (see GetImplementedInterfaces).
+        if (CountPatConformances(conformances, typeDatabase) == 1)
+            names.Add("object");
+
         return names;
+    }
+
+    /// <summary>
+    /// Counts how many PAT (Protocol with Associated Types) conformances a type has
+    /// that could be boxed via the typeof(object) dictionary key. Used to guard against
+    /// multi-PAT ambiguity: when count > 1, the typeof(object) key can't disambiguate
+    /// which protocol's witness table to use, so PAT boxing is skipped entirely.
+    /// </summary>
+    private static int CountPatConformances(IEnumerable<TypeConformance> conformances, ITypeDatabase typeDatabase)
+    {
+        int count = 0;
+        foreach (var conformance in conformances)
+        {
+            if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
+                continue;
+            if (record.Kind != TypeRecordKind.Protocol)
+                continue;
+            if (!record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                continue;
+            if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
+                continue;
+            count++;
+            if (count > 1)
+                break; // No need to keep counting
+        }
+        return count;
     }
 
     internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)

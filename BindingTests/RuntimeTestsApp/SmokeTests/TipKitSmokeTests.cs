@@ -60,21 +60,12 @@ namespace RuntimeTestsApp.SmokeTests;
 ///     the ability to read or write the <c>viewStyle</c> property.
 ///   </item>
 ///   <item>
-///     <b>Fix #7 runtime-dispatch half (latent bug) pinned on the TipKit
-///     surface.</b> <see cref="TestReadTipKitSmokeIdentifierDispatchLatentBug"/>
-///     actually invokes the generator-emitted
+///     <b>Fix #7 runtime-dispatch half on the TipKit surface.</b>
+///     <see cref="TestReadTipKitSmokeIdentifierDispatch"/> invokes
 ///     <c>TestLibFunctions.ReadTipKitSmokeIdentifier(object)</c> on a live
-///     <c>TipKitSmokeMinimalTip</c> and asserts it throws
-///     <see cref="InvalidCastException"/> today, because the generator does
-///     not emit <c>IExistentialBoxable</c> on synthetic PAT conformers —
-///     the <c>_protocolConformanceSymbols</c> dictionary on
-///     <c>TipKitSmokeMinimalTip</c> is empty (verified in the generated
-///     <c>SwiftBindingsTestLib.cs</c>). This is the real-framework pin of the
-///     same latent bug that Session 5's
-///     <c>PATFallbackBoundaryTests.TestReadTaggedAssociatorDispatchLatentBug</c>
-///     pins on the synthetic <c>TaggedAssociator</c> fixture — when the
-///     generator starts emitting <c>IExistentialBoxable</c> for PAT conformers,
-///     follow the flip checklist on that test to re-point both.
+///     <c>TipKitSmokeMinimalTip</c> and asserts it returns a non-empty
+///     <c>Tip.id</c> string, proving the PAT existential container correctly
+///     boxes the conformer with its witness table.
 ///   </item>
 /// </list>
 ///
@@ -210,67 +201,25 @@ public class TipKitSmokeTests : TestBase
     }
 
     /// <summary>
-    /// Fix #7 runtime-dispatch half pinned on the real TipKit surface: invokes
-    /// <c>TestLibFunctions.ReadTipKitSmokeIdentifier(new TipKitSmokeMinimalTip())</c>
-    /// and confirms it throws <see cref="InvalidCastException"/> today. Same
-    /// latent bug as
-    /// <c>PATFallbackBoundaryTests.TestReadTaggedAssociatorDispatchLatentBug</c>:
-    /// the generator does not emit <c>IExistentialBoxable</c> on PAT conformers,
-    /// so <c>TipKitSmokeMinimalTip</c>'s <c>_protocolConformanceSymbols</c>
-    /// dictionary is empty (verified against generated
-    /// <c>output/SwiftBindingsTestLib.cs</c>). The factory cascade in
-    /// <c>Swift.Runtime.ExistentialContainerFactory.GetOrCreate&lt;object&gt;</c>
-    /// cannot find a conformance witness and lands on the throw branch.
+    /// Fix #7 runtime-dispatch half on the real TipKit surface: verifies that
+    /// passing a <see cref="TipKitSmokeMinimalTip"/> through the <c>object</c>
+    /// parameter successfully boxes into an <c>ExistentialContainer1</c> and
+    /// dispatches <c>Tip.id</c> back to the concrete conformer.
     /// </summary>
     [SupportedOSPlatform("ios17.0")]
-    public void TestReadTipKitSmokeIdentifierDispatchLatentBug()
+    public void TestReadTipKitSmokeIdentifierDispatch()
     {
         using var tip = new TipKitSmokeMinimalTip();
 
-        Exception? thrown = null;
-        string? dispatched = null;
-        try
-        {
-            dispatched = TestLibFunctions.ReadTipKitSmokeIdentifier(tip);
-        }
-        catch (Exception ex)
-        {
-            thrown = ex;
-        }
+        var dispatched = TestLibFunctions.ReadTipKitSmokeIdentifier(tip);
+        TestLogger.Info($"ReadTipKitSmokeIdentifier(TipKitSmokeMinimalTip) returned \"{dispatched}\"");
 
-        TestLogger.Info(thrown is null
-            ? $"ReadTipKitSmokeIdentifier(TipKitSmokeMinimalTip) returned \"{dispatched}\""
-            : $"ReadTipKitSmokeIdentifier(TipKitSmokeMinimalTip) threw {thrown.GetType().Name}: {thrown.Message}");
-
-        // LATENT-BUG PIN: flip to an AssertTrue on a concrete `.id` string when
-        // the generator starts emitting IExistentialBoxable on PAT conformers
-        // AND populating _protocolConformanceSymbols for cross-module protocol
-        // conformances (TipKit.Tip → TipKitSmokeMinimalTip's conformance witness).
-        // Until then, ExistentialContainerFactory.GetOrCreate<object> in
-        // src/Swift.Runtime/src/Swift/Runtime/ExistentialContainer.cs cannot box
-        // the value because TipKitSmokeMinimalTip implements neither
-        // ISwiftExistentialConvertible<ExistentialContainer1> nor
-        // IExistentialBoxable.
-        //
-        // Flip checklist — when the runtime half lands:
-        //   1. Replace the InvalidCastException assertion below with
-        //      AssertTrue(!string.IsNullOrEmpty(dispatched), ...). The Swift
-        //      `Tip.id` default comes from a protocol extension (usually the
-        //      fully-qualified type name); the exact string is implementation-
-        //      defined, so assert non-empty rather than an exact value.
-        //   2. Mirror the flip in Session 5's
-        //      PATFallbackBoundaryTests.TestReadTaggedAssociatorDispatchLatentBug
-        //      — both pins must move together since they share the same
-        //      generator code path.
-        AssertTrue(thrown is InvalidCastException,
-            "Documents current broken dispatch for PAT fallback on real TipKit surface: " +
-            "passing a TipKitSmokeMinimalTip value through ReadTipKitSmokeIdentifier(object) " +
-            "must throw InvalidCastException today because the factory cannot box a " +
-            "PAT-conformer into an ExistentialContainer1. When the generator starts emitting " +
-            "IExistentialBoxable on PAT-conformer structs and populating " +
-            "_protocolConformanceSymbols for cross-module protocol witnesses, this assertion " +
-            "will start failing and the fixer must follow the flip checklist above AND the " +
-            "matching checklist in PATFallbackBoundaryTests.");
+        // Tip.id default comes from a protocol extension (usually the fully-qualified
+        // type name); the exact string is implementation-defined, so assert non-empty.
+        AssertTrue(!string.IsNullOrEmpty(dispatched),
+            "ReadTipKitSmokeIdentifier must dispatch Tip.id through the PAT existential " +
+            "container to the concrete TipKitSmokeMinimalTip conformer and return a " +
+            "non-empty identifier string.");
     }
 }
 
