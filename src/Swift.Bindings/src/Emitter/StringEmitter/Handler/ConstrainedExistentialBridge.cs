@@ -26,6 +26,19 @@ namespace BindingsGeneration;
 public static class ConstrainedExistentialBridge
 {
     /// <summary>
+    /// Minimum OS versions required for parameterized protocol types (any Protocol&lt;T, U&gt;).
+    /// Swift 5.7 / Xcode 14 feature — runtime support requires these platform versions.
+    /// </summary>
+    private static readonly IReadOnlyList<AvailabilityAnnotation> ParameterizedExistentialFloor = new[]
+    {
+        new AvailabilityAnnotation("iOS", "16.0", null, null, false, false, null, null),
+        new AvailabilityAnnotation("macOS", "13.0", null, null, false, false, null, null),
+        new AvailabilityAnnotation("macCatalyst", "16.0", null, null, false, false, null, null),
+        new AvailabilityAnnotation("tvOS", "16.0", null, null, false, false, null, null),
+        new AvailabilityAnnotation("watchOS", "9.0", null, null, false, false, null, null),
+        new AvailabilityAnnotation("visionOS", "1.0", null, null, false, false, null, null),
+    };
+    /// <summary>
     /// Classification of a parameter for the constrained existential bridge.
     /// </summary>
     private enum BridgeParamKind
@@ -180,11 +193,18 @@ public static class ConstrainedExistentialBridge
         var moduleLibPath = env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
         var wrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
 
+        // Compute merged availability: parameterized existential floor + member/parent annotations.
+        // Keeps the strictest version per platform so the wrapper isn't exposed too early.
+        var mergedAvailability = MergeParameterizedExistentialAvailability(
+            methodDecl.AvailabilityAnnotations, classDecl);
+
         // --- Emit Swift wrapper ---
-        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports, classDecl.IsMainActorIsolated);
+        EmitSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, bridgeParams, methodDecl, neededImports,
+            classDecl.IsMainActorIsolated, mergedAvailability);
 
         // --- Emit C# constructor ---
-        EmitCSharpConstructor(csWriter, env, classDecl, typeNameWithGenerics, wrapperSymbol, wrapperLibPath, bridgeParams);
+        EmitCSharpConstructor(csWriter, env, classDecl, typeNameWithGenerics, wrapperSymbol, wrapperLibPath,
+            bridgeParams, mergedAvailability);
 
         return true;
     }
@@ -196,7 +216,8 @@ public static class ConstrainedExistentialBridge
         List<BridgeParam> bridgeParams,
         MethodDecl methodDecl,
         HashSet<string> neededImports,
-        bool isMainActorIsolated = false)
+        bool isMainActorIsolated = false,
+        IReadOnlyList<AvailabilityAnnotation>? availability = null)
     {
         // Build Swift parameter list
         var swiftParams = new List<string>();
@@ -245,6 +266,10 @@ public static class ConstrainedExistentialBridge
         }
 
         swiftWriter.WriteLine();
+        // Parameterized protocol types (any Protocol<T, U>) require iOS 16+ / macOS 13+ / etc.
+        // The merged availability includes both the parameterized existential floor and any
+        // member/parent availability, using the strictest version per platform.
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         if (isMainActorIsolated)
             swiftWriter.WriteLine("@MainActor");
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
@@ -298,7 +323,8 @@ public static class ConstrainedExistentialBridge
         string typeNameWithGenerics,
         string wrapperSymbol,
         string wrapperLibPath,
-        List<BridgeParam> bridgeParams)
+        List<BridgeParam> bridgeParams,
+        IReadOnlyList<AvailabilityAnnotation>? availability = null)
     {
         var accessModifier = NameProvider.GetAccessModifier(env.MethodDecl.Visibility);
         var constructorName = typeNameWithGenerics.Contains('<')
@@ -372,6 +398,10 @@ public static class ConstrainedExistentialBridge
         var pInvokeCall = env.PInvokeHelperContext != null
             ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
             : wrapperSymbol;
+
+        // Emit [SupportedOSPlatform] attributes so C# consumers get a CA1416 warning
+        // when targeting an OS below the parameterized existential (or wrapped API) floor.
+        EmitCSharpAvailability(csWriter, availability);
 
         // Emit constructor
         csWriter.WriteLine($"{accessModifier} unsafe {constructorName}({paramString})");
@@ -483,5 +513,88 @@ public static class ConstrainedExistentialBridge
         }
         catch { }
         return null;
+    }
+
+    /// <summary>
+    /// Merges the parameterized existential floor with member/parent availability annotations.
+    /// Keeps the strictest (highest) version per platform so the wrapper isn't exposed too early.
+    /// For example, if the parent class requires iOS 17.0 and the existential floor is iOS 16.0,
+    /// the result contains iOS 17.0 (not both).
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation> MergeParameterizedExistentialAvailability(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        ClassDecl classDecl)
+    {
+        // Start with the parameterized existential floor
+        var byPlatform = new Dictionary<string, AvailabilityAnnotation>();
+        foreach (var ann in ParameterizedExistentialFloor)
+            byPlatform[ann.Platform!] = ann;
+
+        // Merge member/parent annotations, keeping the strictest version per platform
+        var apiAnnotations = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, classDecl);
+        if (apiAnnotations != null)
+        {
+            foreach (var ann in apiAnnotations)
+            {
+                if (ann.Platform == null || ann.IntroducedVersion == null)
+                    continue;
+                if (byPlatform.TryGetValue(ann.Platform, out var existing))
+                {
+                    if (CompareVersions(ann.IntroducedVersion, existing.IntroducedVersion!) > 0)
+                        byPlatform[ann.Platform] = ann;
+                }
+                else
+                {
+                    byPlatform[ann.Platform] = ann;
+                }
+            }
+        }
+
+        return byPlatform.Values.ToList();
+    }
+
+    /// <summary>
+    /// Compares two dotted version strings (e.g., "16.0" vs "17.4"). Returns positive if a &gt; b.
+    /// </summary>
+    private static int CompareVersions(string a, string b)
+    {
+        var aParts = a.Split('.');
+        var bParts = b.Split('.');
+        for (int i = 0; i < Math.Max(aParts.Length, bParts.Length); i++)
+        {
+            int av = i < aParts.Length && int.TryParse(aParts[i], out var ai) ? ai : 0;
+            int bv = i < bParts.Length && int.TryParse(bParts[i], out var bi) ? bi : 0;
+            if (av != bv) return av - bv;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Emits C# [SupportedOSPlatform] attributes matching the merged availability.
+    /// Uses the same platform mapping as AvailabilityAttributeEmitter.
+    /// </summary>
+    private static void EmitCSharpAvailability(CSharpWriter csWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return;
+
+        foreach (var ann in annotations)
+        {
+            if (ann.Platform == null || ann.IntroducedVersion == null)
+                continue;
+            // Map Swift platform names to .NET SupportedOSPlatform identifiers
+            var dotnetPlatform = ann.Platform switch
+            {
+                "iOS" => "ios",
+                "macOS" => "macos",
+                "tvOS" => "tvos",
+                "watchOS" => "watchos",
+                "macCatalyst" => "maccatalyst",
+                _ => null
+            };
+            if (dotnetPlatform == null) continue; // Skip visionOS — no .NET equivalent yet
+            var version = ann.IntroducedVersion.Contains('.') ? ann.IntroducedVersion : ann.IntroducedVersion + ".0";
+            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{dotnetPlatform}{version}\")]");
+        }
     }
 }

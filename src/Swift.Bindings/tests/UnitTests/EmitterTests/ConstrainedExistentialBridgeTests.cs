@@ -173,6 +173,13 @@ public class ConstrainedExistentialBridgeTests
 
         Assert.True(result);
         var swift = swiftOut.ToString();
+        // Parameterized existential floor: one @available per platform
+        Assert.Contains("@available(iOS 16.0, *)", swift);
+        Assert.Contains("@available(macOS 13.0, *)", swift);
+        Assert.Contains("@available(macCatalyst 16.0, *)", swift);
+        Assert.Contains("@available(tvOS 16.0, *)", swift);
+        Assert.Contains("@available(watchOS 9.0, *)", swift);
+        Assert.Contains("@available(visionOS 1.0, *)", swift);
         Assert.Contains("@_silgen_name(\"SBW_ScannerModel_init_", swift);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swift);
         Assert.Contains("as! any TestModule.CameraFrameAnalyzer<TestModule.CameraFrame, TestModule.UIEvent>", swift);
@@ -210,6 +217,10 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains(".SwiftHandle", cs);
         Assert.Contains("new SwiftClassHandle<ScannerModel>", cs);
         Assert.DoesNotContain("NativeMemory.Alloc", cs);
+        // Parameterized existential floor propagated to C# constructor
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios16.0\")]", cs);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"macos13.0\")]", cs);
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"maccatalyst16.0\")]", cs);
     }
 
     [Fact]
@@ -534,6 +545,53 @@ public class ConstrainedExistentialBridgeTests
         Assert.True(result);
         var swift = swiftOut.ToString();
         Assert.Contains("@MainActor", swift);
+    }
+
+    #endregion
+
+    #region Availability Merging Tests
+
+    [Fact]
+    public void TryEmitConstructor_ParentAvailabilityStricterThanFloor_UsesParentVersion()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassBoundProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("ScannerModel", moduleDecl, typeDatabase);
+        // Parent class requires iOS 17.0 — stricter than the parameterized existential floor (iOS 16.0)
+        classDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new AvailabilityAnnotation("iOS", "17.0", null, null, false, false, null, null),
+        };
+
+        var protocol = new NamedTypeSpec("TestModule.CameraFrameAnalyzer",
+            new TypeSpec[] { new NamedTypeSpec("TestModule.CameraFrame"), new NamedTypeSpec("TestModule.UIEvent") });
+        var protocolList = new ProtocolListTypeSpec(new[] { protocol });
+
+        var constructor = CreateConstructorDecl(classDecl, moduleDecl, new[]
+        {
+            CreateArgumentDecl("analyzer", protocolList)
+        });
+
+        var env = new MethodEnvironment(constructor, typeDatabase);
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var csWriter = new CSharpWriter(csOut);
+        var swiftWriter = new SwiftWriter(swiftOut);
+
+        var result = ConstrainedExistentialBridge.TryEmitConstructor(csWriter, swiftWriter, env, _logger);
+
+        Assert.True(result);
+        var swift = swiftOut.ToString();
+        // iOS: parent's 17.0 wins over floor's 16.0
+        Assert.Contains("@available(iOS 17.0, *)", swift);
+        Assert.DoesNotContain("@available(iOS 16.0, *)", swift);
+        // Other platforms still use the floor
+        Assert.Contains("@available(macOS 13.0, *)", swift);
+
+        var cs = csOut.ToString();
+        // C# side also gets the stricter version
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios17.0\")]", cs);
+        Assert.DoesNotContain("ios16.0", cs);
     }
 
     #endregion
