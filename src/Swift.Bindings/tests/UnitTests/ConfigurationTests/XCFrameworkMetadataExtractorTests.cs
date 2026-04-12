@@ -70,15 +70,15 @@ namespace BindingsGeneration.Tests
     public class MetadataMinOSClampingTests
     {
         [Fact]
-        public void ClampMinimumOSVersion_Below16_ClampsTo16()
+        public void ClampMinimumOSVersion_Below15_ClampsTo15()
         {
-            Assert.Equal("16.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("13.0"));
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("13.0"));
         }
 
         [Fact]
-        public void ClampMinimumOSVersion_Exactly15_ClampsTo16()
+        public void ClampMinimumOSVersion_Exactly15_Returns15()
         {
-            Assert.Equal("16.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("15.0"));
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("15.0"));
         }
 
         [Fact]
@@ -96,13 +96,13 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ClampMinimumOSVersion_Null_ReturnsFallback()
         {
-            Assert.Equal("16.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null));
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(null));
         }
 
         [Fact]
         public void ClampMinimumOSVersion_Empty_ReturnsFallback()
         {
-            Assert.Equal("16.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(""));
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(""));
         }
     }
 
@@ -130,7 +130,7 @@ namespace BindingsGeneration.Tests
                 Assert.Equal("12.8.0", metadata.PackageVersion);
                 Assert.False(metadata.IsVersionPlaceholder);
                 Assert.Equal("13.0", metadata.MinimumOSVersion);
-                Assert.Equal("16.0", metadata.EffectiveMinimumOSVersion); // clamped
+                Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion); // clamped
                 Assert.Equal("18.0", metadata.SdkVersion);
                 Assert.Equal("Nuke", metadata.ModuleName);
             }
@@ -256,7 +256,7 @@ namespace BindingsGeneration.Tests
                 Assert.Equal("3.2.1", json["packageVersion"]?.ToString());
                 Assert.False(json["isVersionPlaceholder"]?.Value<bool>());
                 Assert.Equal("13.0", json["minimumOSVersion"]?.ToString());
-                Assert.Equal("16.0", json["effectiveMinimumOSVersion"]?.ToString());
+                Assert.Equal("15.0", json["effectiveMinimumOSVersion"]?.ToString());
                 Assert.NotNull(json["platforms"]);
             }
             finally { Directory.Delete(dir, true); }
@@ -274,7 +274,7 @@ namespace BindingsGeneration.Tests
                     PackageVersion = "0.0.0",
                     IsVersionPlaceholder = true,
                     MinimumOSVersion = "15.0",
-                    EffectiveMinimumOSVersion = "16.0",
+                    EffectiveMinimumOSVersion = "15.0",
                     SdkVersion = null,
                     ModuleName = "PlaceholderLib",
                     Platforms = new List<string>()
@@ -295,7 +295,7 @@ namespace BindingsGeneration.Tests
             PackageVersion = "3.2.1",
             IsVersionPlaceholder = false,
             MinimumOSVersion = "13.0",
-            EffectiveMinimumOSVersion = "16.0",
+            EffectiveMinimumOSVersion = "15.0",
             SdkVersion = "18.0",
             ModuleName = "TestModule",
             Platforms = new List<string> { "ios-simulator" }
@@ -509,7 +509,7 @@ namespace BindingsGeneration.Tests
                 <Project>
                   <PropertyGroup>
                     <_SwiftBindingPackageVersion>1.2.3</_SwiftBindingPackageVersion>
-                    <_SwiftBindingMinimumOSVersion>16.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
                     <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
                     <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapper}</_SwiftBindingHasWrapperXCFramework>

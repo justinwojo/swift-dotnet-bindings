@@ -19,10 +19,22 @@
       "defaultValue": "0.0.0-dev",
       "replaces": "0.0.0-dev"
     },
+    "appleFramework": {
+      "type": "parameter",
+      "datatype": "string",
+      "displayName": "Apple Framework",
+      "description": "Name of an Apple system framework to bind (e.g., WeatherKit, CryptoKit). Scaffolds a multi-TFM project with SwiftAppleFrameworkTarget.",
+      "defaultValue": "",
+      "replaces": "APPLE_FRAMEWORK_NAME"
+    },
+    "isAppleFramework": {
+      "type": "computed",
+      "value": "(appleFramework != '')"
+    },
     "platform": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "The target Apple platform.",
+      "description": "The target Apple platform (ignored when --apple-framework is set).",
       "defaultValue": "ios",
       "choices": [
         { "choice": "ios", "description": "iOS (net10.0-ios)" },
@@ -39,6 +51,7 @@
         "evaluator": "C++",
         "datatype": "string",
         "cases": [
+          { "condition": "(isAppleFramework)", "value": "net10.0-ios" },
           { "condition": "(platform == 'ios')", "value": "net10.0-ios" },
           { "condition": "(platform == 'macos')", "value": "net10.0-macos" },
           { "condition": "(platform == 'tvos')", "value": "net10.0-tvos" },
@@ -50,10 +63,21 @@
   "postActions": [
     {
       "actionId": "AC1156F7-BB77-4DB8-B28F-24EEBCCA1E5C",
+      "condition": "(!isAppleFramework)",
       "description": "Next steps",
       "manualInstructions": [
         {
           "text": "\nNext steps:\n  1. Copy your .xcframework into the project directory\n     (or add <SwiftFramework Include=\"path/to/Library.xcframework\" /> to the .csproj)\n  2. Run 'dotnet build' to generate and compile the C# bindings\n  3. Reference this project from your .NET MAUI or iOS app\n\nFor more information, see: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started"
+        }
+      ]
+    },
+    {
+      "actionId": "AC1156F7-BB77-4DB8-B28F-24EEBCCA1E5C",
+      "condition": "(isAppleFramework)",
+      "description": "Next steps",
+      "manualInstructions": [
+        {
+          "text": "\nNext steps:\n  1. Run 'dotnet build' to generate and compile the C# bindings\n  2. Reference this project from your .NET MAUI or iOS app\n\nFor more information, see: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Getting-Started"
         }
       ]
     }

@@ -685,7 +685,7 @@ namespace BindingsGeneration.Tests
             PackageVersion = "0.0.0",
             IsVersionPlaceholder = true,
             MinimumOSVersion = null,
-            EffectiveMinimumOSVersion = "16.0",
+            EffectiveMinimumOSVersion = "15.0",
             SdkVersion = null,
             ModuleName = module,
             Platforms = new List<string>()
@@ -813,7 +813,7 @@ namespace BindingsGeneration.Tests
                         PackageVersion = "0.0.0",
                         IsVersionPlaceholder = true,
                         MinimumOSVersion = null,
-                        EffectiveMinimumOSVersion = "16.0",
+                        EffectiveMinimumOSVersion = "15.0",
                         SdkVersion = null,
                         ModuleName = "StoreKit",
                         Platforms = new List<string>()

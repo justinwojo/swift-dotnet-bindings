@@ -1040,7 +1040,7 @@ namespace BindingsGeneration
         internal static string ResolveDeploymentTarget(
             string dylibPath, ILogger logger, ICommandRunner? commandRunner = null)
         {
-            const string fallback = "16.0";
+            const string fallback = "15.0";
 
             var frameworkDir = Path.GetDirectoryName(dylibPath);
             if (string.IsNullOrEmpty(frameworkDir))
@@ -1050,12 +1050,11 @@ namespace BindingsGeneration
             var data = PlistReader.ReadPlistDict(infoPlistPath, commandRunner, logger);
             if (data != null && data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
             {
-                // Ensure minimum 16.0 for parameterized protocol syntax (any AsyncSequence<T, E>)
-                // which the generator may emit in wrapper code. Parameterized existentials
-                // require Swift 5.7 runtime support (iOS 16.0+).
-                var resolved = EnforceMinimumDeploymentTarget(minOSStr, "16.0");
+                // Enforce .NET 10 iOS floor. Features requiring newer SDKs (parameterized
+                // existentials, etc.) are handled by @available attributes on generated wrappers.
+                var resolved = EnforceMinimumDeploymentTarget(minOSStr, "15.0");
                 if (resolved != minOSStr)
-                    logger.LogInformation("Raised deployment target from {Source} to {Resolved} (parameterized protocols require 16.0+).", minOSStr, resolved);
+                    logger.LogInformation("Raised deployment target from {Source} to {Resolved} (.NET 10 iOS floor).", minOSStr, resolved);
                 else
                     logger.LogInformation("Resolved deployment target {Version} from source framework.", resolved);
                 return resolved;

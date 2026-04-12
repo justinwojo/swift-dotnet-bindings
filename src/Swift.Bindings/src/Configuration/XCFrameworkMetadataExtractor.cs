@@ -59,7 +59,7 @@ namespace BindingsGeneration
     /// </summary>
     public static class XCFrameworkMetadataExtractor
     {
-        private const string MinOSFloor = "16.0";
+        private const string MinOSFloor = "15.0";
 
         /// <summary>
         /// Extracts metadata from an xcframework's inner framework Info.plist.
@@ -180,7 +180,7 @@ namespace BindingsGeneration
                 PackageVersion = "1.0.0",
                 IsVersionPlaceholder = true,
                 MinimumOSVersion = null,
-                EffectiveMinimumOSVersion = "16.0",
+                EffectiveMinimumOSVersion = "15.0",
                 SdkVersion = null,
                 ModuleName = moduleName,
                 Platforms = platforms

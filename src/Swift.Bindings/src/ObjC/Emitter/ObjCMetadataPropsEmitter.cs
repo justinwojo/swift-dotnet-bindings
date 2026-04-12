@@ -59,7 +59,7 @@ public static class ObjCMetadataPropsEmitter
                 PackageVersion = "1.0.0",
                 IsVersionPlaceholder = true,
                 MinimumOSVersion = null,
-                EffectiveMinimumOSVersion = "16.0",
+                EffectiveMinimumOSVersion = "15.0",
                 SdkVersion = null,
                 ModuleName = moduleName,
                 Platforms = new List<string>()
