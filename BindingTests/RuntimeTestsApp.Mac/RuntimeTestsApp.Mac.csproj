@@ -1,13 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-macos</TargetFramework>
     <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+    <!-- Disable codesign: native dylibs are injected post-build by the Nuke target,
+         which invalidates the bundle signature. This is a local debug test runner. -->
+    <EnableCodeSigning>false</EnableCodeSigning>
     <!-- Same warning suppressions as RuntimeTestsApp -->
-    <NoWarn>CS0169;SB0001;SB0002;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
@@ -42,17 +49,19 @@
 
   <!-- Test classes (portable — reference SwiftBindingsTestLib types, not UIKit) -->
   <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Collisions/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/EdgeCases/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
-    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
-    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
-    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
-    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
-    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
@@ -64,12 +73,37 @@
     <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
   </Target>
 
-  <!-- Generated bindings (macOS-targeted) -->
+  <!-- Generated bindings (shared output/ dir — macOS clobbers iOS, same as tvOS) -->
   <ItemGroup>
-    <Compile Include="../output-macos/SwiftBindingsTestLib.cs" Condition="Exists('../output-macos/SwiftBindingsTestLib.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLib.cs" Condition="Exists('../output/SwiftBindingsTestLib.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
   </ItemGroup>
 
-  <!-- Native libraries are injected by Nuke's runtime-tests-macos target.
-       NativeReference is not supported for net10.0 console apps.
-       The target copies dylibs from xcframework slices into the output directory. -->
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+
+  <!-- Main test library and dependency xcframeworks. These are rebuilt by
+       the Nuke runtime-tests-macos target before each run. Additional native
+       artifacts (async wrapper, runtime dylib) are injected by the Nuke target
+       into the output directory. -->
+  <ItemGroup>
+    <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <NativeReference Include="../output/SwiftBindings.xcframework"
+                     Condition="Exists('../output/SwiftBindings.xcframework/macos-arm64')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
 </Project>

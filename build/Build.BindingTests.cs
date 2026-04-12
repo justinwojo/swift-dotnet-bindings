@@ -757,9 +757,9 @@ partial class Build
         .After(BuildAsyncWrapper)
         .Executes(() => RunBuildBridge());
 
-    void RunBuildBridge(string target = "simulator")
+    void RunBuildBridge(string target = "simulator", ApplePlatform? platformOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
         string sliceId, sdkName, targetTriple, plistPlatform;
 
         if (target == "device" && platform.HasDeviceSlice)

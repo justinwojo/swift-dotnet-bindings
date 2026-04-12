@@ -218,9 +218,6 @@ partial class Build
     // --skip-build implies --skip-regen (matches run-runtime-tests.sh line 56-59).
     bool EffectiveSkipRegen => SkipRegen || SkipBuild;
 
-    // macOS uses a separate output directory for its bindings
-    AbsolutePath BtMacOSOutputDir => BindingTestsDir / "output-macos";
-
     const string RuntimeTestsBundleId = "com.swiftbindings.runtimetestsapp";
 
     // ------------------------------------------------------------------
@@ -947,39 +944,52 @@ partial class Build
 
             RejectSkipBuildWithActiveSmokeFlags();
 
+            var platform = ApplePlatform.MacOS;
+
             if (!EffectiveSkipRegen)
             {
-                // Build xcframework for macOS
-                RunBuildXcframework(platformOverride: ApplePlatform.MacOS);
-                // Generate macOS-specific bindings
+                RunBuildXcframework(platformOverride: platform);
                 RunRegenerateMacOSBindings();
-                // Build async wrappers for macOS
-                RunBuildAsyncWrapper(platformOverride: ApplePlatform.MacOS, outputDirOverride: BtMacOSOutputDir);
+                RunBuildAsyncWrapper(platformOverride: platform);
             }
             else
             {
-                AssertBindingsNotStale(BtMacOSOutputDir);
+                AssertBindingsNotStale(expectedPlatform: platform);
             }
 
             if (!SkipBuild)
             {
                 Log.Information("--- Building RuntimeTestsApp.Mac ---");
+
+                // Clean previous app bundle to avoid codesign "unsealed contents"
+                // errors from previously injected dylibs.
+                var macBuildDir = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
+                    $"{DotNetTfm}-macos" / "osx-arm64";
+                var appBundle = macBuildDir / "RuntimeTestsApp.Mac.app";
+                if (Directory.Exists(appBundle))
+                {
+                    appBundle.DeleteDirectory();
+                    Log.Information("Cleaned previous app bundle.");
+                }
+
                 DotNetBuild(s => s
                     .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.Mac")
                     .SetConfiguration("Debug")
                     .SetVerbosity(DotNetVerbosity.quiet));
 
-                var outputBin = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-                    DotNetTfm / "osx-arm64";
-                if (!File.Exists(outputBin / "RuntimeTestsApp.Mac"))
-                    throw new Exception("Build failed - macOS executable not found");
+                if (!Directory.Exists(appBundle))
+                    throw new Exception($"Build failed - macOS app bundle not found at {appBundle}");
+
+                // Inject native libs that NativeReference doesn't cover.
+                // Codesigning is disabled in the csproj so injected dylibs
+                // don't invalidate the bundle signature.
+                var monoBundle = appBundle / "Contents" / "MonoBundle";
+                InjectMacOSNativeLibraries(monoBundle);
 
                 Log.Information("Build successful.");
-
-                InjectMacOSNativeLibraries(outputBin);
             }
 
-            // Run natively on macOS (no simulator/device)
+            // Run natively on macOS via the .app bundle's native executable
             RunOnMacOS();
         });
 
@@ -1044,13 +1054,7 @@ partial class Build
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateBindings(strict: false, platformOverride: platform);
                 RunBuildAsyncWrapper(platformOverride: platform);
-                // RunBuildBridge() is intentionally skipped on tvOS: the bridge
-                // builder still reads ResolvedPlatform (defaults to iOS) and
-                // compiles against ios-arm64-simulator slice/SDK. Parameterising
-                // it on ApplePlatform is tracked as a Session 8.5 follow-up in
-                // src/docs/apple-frameworks-bindingtests-plan.md. Until that
-                // lands, the tvOS runner has no bridge artefact — any test that
-                // depends on BridgeModule symbols is guarded elsewhere.
+                RunBuildBridge(platformOverride: platform);
             }
             else
             {
@@ -1535,10 +1539,15 @@ partial class Build
 
         var output = new ConcurrentQueue<string>();
         using var process = new Process();
+        // net10.0-macos produces a .app bundle — launch the native executable
+        // directly instead of `dotnet run`.
+        var macExe = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
+            $"{DotNetTfm}-macos" / "osx-arm64" / "RuntimeTestsApp.Mac.app" /
+            "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
         process.StartInfo = new ProcessStartInfo
         {
-            FileName = "dotnet",
-            Arguments = $"run --project \"{BindingTestsDir / "RuntimeTestsApp.Mac"}\" --no-build -c Debug -- {launchArgs}",
+            FileName = macExe,
+            Arguments = launchArgs,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -2057,60 +2066,15 @@ partial class Build
     }
 
     // ============================================================
-    // Native Artifact Injection (macOS)
-    // ============================================================
-
-    /// <summary>
-    /// Injects native libraries into the macOS output directory as flat dylibs.
-    /// macOS doesn't use framework bundles — just copies dylibs directly.
-    /// </summary>
-    void InjectMacOSNativeLibraries(AbsolutePath outputBin)
-    {
-        var macosPlatform = ApplePlatform.MacOS;
-
-        // 1. SwiftBindingsTestLib dylib from xcframework
-        var xcfwSlice = BtXcframeworkDir / macosPlatform.SimulatorSliceId /
-            $"{ModuleName}.framework" / ModuleName;
-        if (File.Exists(xcfwSlice))
-        {
-            File.Copy(xcfwSlice, outputBin / $"lib{ModuleName}.dylib", overwrite: true);
-            Log.Information("Injected {Module} dylib.", ModuleName);
-        }
-        else
-        {
-            Log.Warning("{Module} dylib not found at {Path}", ModuleName, xcfwSlice);
-        }
-
-        // 2. SwiftBindings async wrapper dylib
-        var asyncSlice = BtMacOSOutputDir / $"{WrapperModule}.xcframework" /
-            macosPlatform.SimulatorSliceId / $"{WrapperModule}.framework" / WrapperModule;
-        if (File.Exists(asyncSlice))
-        {
-            File.Copy(asyncSlice, outputBin / $"lib{WrapperModule}.dylib", overwrite: true);
-            Log.Information("Injected {Module} async wrapper dylib.", WrapperModule);
-        }
-
-        // 3. Runtime dylib
-        var runtimeDylib = RootDirectory / "src" / "Swift.Runtime" / "native" / "macos" /
-            "libSwiftBindingsRuntime.dylib";
-        if (File.Exists(runtimeDylib))
-        {
-            File.Copy(runtimeDylib, outputBin / "libSwiftBindingsRuntime.dylib", overwrite: true);
-            Log.Information("Injected libSwiftBindingsRuntime.dylib.");
-        }
-        else
-        {
-            Log.Warning("libSwiftBindingsRuntime.dylib not found at {Path}", runtimeDylib);
-        }
-    }
-
-    // ============================================================
     // macOS Binding Generation
     // ============================================================
 
     /// <summary>
-    /// Generates macOS-specific bindings. Simpler than RunRegenerateBindings:
-    /// no dependency bindings, no strict mode, uses --platform macos.
+    /// Generates macOS bindings. Uses the shared output dir (BtOutputDir) but
+    /// skips --async-library because the generator's async wrapper separation
+    /// doesn't work with --platform macos. Async wrappers are compiled from the
+    /// inline Swift wrapper files by RunBuildAsyncWrapper.
+    /// Also generates dependency module bindings (unlike the original version).
     /// </summary>
     void RunRegenerateMacOSBindings()
     {
@@ -2118,34 +2082,134 @@ partial class Build
 
         EnsureGeneratorBuilt();
 
-        if (Directory.Exists(BtMacOSOutputDir))
-            BtMacOSOutputDir.DeleteDirectory();
-        BtMacOSOutputDir.CreateDirectory();
+        if (Directory.Exists(BtOutputDir))
+            ((AbsolutePath)BtOutputDir).DeleteDirectory();
+        BtOutputDir.CreateDirectory();
 
         var genArgs = new List<string>
         {
             $"\"{GeneratorDll}\"",
             $"--xcframework \"{BtXcframeworkDir}\"",
             "--platform macos",
-            $"-o \"{BtMacOSOutputDir}\"",
+            $"-o \"{BtOutputDir}\"",
         };
+
+        // Note: --async-library, --framework-dependency, and --symbolgraph are
+        // intentionally not passed for macOS. All three cause the generator to
+        // produce no C# output when combined with --platform macos (generator
+        // limitation). The wrapper compilation (which needs dep search paths)
+        // is handled separately by RunBuildAsyncWrapper.
+        //
+        // Without --async-library, the generator uses the default wrapper
+        // library name "{Module}SwiftBindings" instead of the WrapperModule
+        // constant ("SwiftBindings"). We post-process the generated C# to
+        // fix this so DllImport/LibraryImport names match the compiled wrapper.
+        //
+        // Without --framework-dependency, cross-module APIs (e.g. functions
+        // accepting dependency module types) are emitted as unsupported
+        // placeholders. This is acceptable — macOS cross-module coverage is
+        // not a priority and the runner doesn't include CrossModule/ tests.
 
         var genProcess = ProcessTasks.StartProcess(
             "dotnet", string.Join(" ", genArgs),
             workingDirectory: BindingTestsDir,
             logOutput: false);
         genProcess.WaitForExit();
+        var exitCode = genProcess.ExitCode;
 
-        if (genProcess.ExitCode != 0)
-            Log.Warning("macOS binding generation exited with code {ExitCode} (non-fatal)", genProcess.ExitCode);
+        File.WriteAllText(BtOutputDir / "generator-exit-code", exitCode.ToString());
 
-        var csCount = Directory.GetFiles(BtMacOSOutputDir, "*.cs", SearchOption.AllDirectories).Length;
-        var swiftCount = Directory.GetFiles(BtMacOSOutputDir, "*.swift", SearchOption.AllDirectories).Length;
+        if (exitCode != 0)
+            Log.Warning("macOS binding generation exited with code {ExitCode} (non-fatal)", exitCode);
+
+        // Fix wrapper library name: without --async-library, the generator
+        // defaults to "{Module}SwiftBindings" but RunBuildAsyncWrapper compiles
+        // the wrapper as WrapperModule ("SwiftBindings").
+        var defaultWrapperName = $"{ModuleName}{WrapperModule}";
+        foreach (var csFile in Directory.GetFiles(BtOutputDir, "*.cs"))
+        {
+            var content = File.ReadAllText(csFile);
+            if (content.Contains(defaultWrapperName))
+            {
+                content = content.Replace(
+                    $"\"{defaultWrapperName}\"",
+                    $"\"{WrapperModule}\"");
+                File.WriteAllText(csFile, content);
+            }
+        }
+
+        // Generate dependency module bindings
+        if (Directory.Exists(BtDepXcframeworkDir))
+        {
+            Log.Information("=== Generating dependency bindings for {Module} ===", DepModuleName);
+            var depOutputDir = BtOutputDir / "dep";
+            depOutputDir.CreateDirectory();
+
+            var depArgs = new List<string>
+            {
+                $"\"{GeneratorDll}\"",
+                $"--xcframework \"{BtDepXcframeworkDir}\"",
+                "--platform macos",
+                $"-o \"{depOutputDir}\"",
+            };
+
+            var depProcess = ProcessTasks.StartProcess(
+                "dotnet", string.Join(" ", depArgs),
+                workingDirectory: BindingTestsDir,
+                logOutput: false);
+            depProcess.WaitForExit();
+
+            if (depProcess.ExitCode != 0)
+                Log.Warning("Dependency binding generation exited with code {ExitCode} (non-fatal)", depProcess.ExitCode);
+
+            // Consolidate dependency CS files to root output dir
+            foreach (var csFile in Directory.GetFiles(depOutputDir, "*.cs"))
+            {
+                var dest = BtOutputDir / Path.GetFileName(csFile);
+                File.Copy(csFile, dest, overwrite: true);
+            }
+
+            // Consolidate dependency Swift wrappers to dep-swift/ for RunBuildAsyncWrapper
+            var depSwiftDir = BtOutputDir / "dep-swift";
+            depSwiftDir.CreateDirectory();
+            foreach (var swiftFile in Directory.GetFiles(depOutputDir, "*.swift"))
+            {
+                var dest = depSwiftDir / Path.GetFileName(swiftFile);
+                File.Copy(swiftFile, dest, overwrite: true);
+            }
+
+            // Consolidate dependency wrapper xcframework
+            foreach (var dir in Directory.GetDirectories(depOutputDir, "*.xcframework"))
+            {
+                var destDir = BtOutputDir / Path.GetFileName(dir);
+                if (Directory.Exists(destDir))
+                    ((AbsolutePath)destDir).DeleteDirectory();
+                Directory.Move(dir, destDir);
+            }
+        }
+
+        var csCount = Directory.GetFiles(BtOutputDir, "*.cs", SearchOption.AllDirectories).Length;
+        var swiftCount = Directory.GetFiles(BtOutputDir, "*.swift", SearchOption.AllDirectories).Length;
         Log.Information("Generated (macOS): {CsCount} C# files, {SwiftCount} Swift wrapper files", csCount, swiftCount);
 
-        // Stamp the active smoke-flag set so AssertBindingsNotStale can detect
-        // flag-set drift under a later --skip-regen run.
-        StampSmokeFlagsSidecar(BtMacOSOutputDir);
+        StampSmokeFlagsSidecar(BtOutputDir);
+        StampTargetPlatformSidecar(BtOutputDir, ApplePlatform.MacOS);
+    }
+
+    // ============================================================
+    // Native Artifact Injection (macOS)
+    // ============================================================
+
+    /// <summary>
+    /// Injects native libraries into the macOS app output.
+    /// With net10.0-macos, NativeReference in the csproj handles xcframeworks
+    /// (SwiftBindingsTestLib, dependency, async wrapper). This function injects
+    /// the runtime dylib and dependency wrapper which don't have NativeReference.
+    /// </summary>
+    void InjectMacOSNativeLibraries(AbsolutePath outputBin)
+    {
+        InjectRuntimeDylib(outputBin, nativeSubdir: "macos");
+        InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacOS);
     }
 
     // ============================================================

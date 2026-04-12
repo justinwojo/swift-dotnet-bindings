@@ -54,15 +54,7 @@
   <!-- Domain test classes. tvOS has the same UIKit surface iOS uses, so most
        test classes compile unchanged. SmokeTests/ is intentionally excluded —
        per-framework smoke gating is per-flag opt-in and lives on iOS simulator
-       today. SwiftUIBridge/ is also excluded: the tvOS runner in
-       Build.RuntimeTests.cs currently skips RunBuildBridge() because the bridge
-       compiler hardcodes iOS triples/SDK, so no SwiftBindingsTestLibBridge
-       native artifact is produced/injected for tvOS. Compiling the bridge tests
-       here would turn into DllNotFoundException at launch. Re-enable once
-       Session 8.5 parameterizes RunBuildBridge() on ApplePlatform (see
-       src/docs/apple-frameworks-bindingtests-plan.md). If a test truly can't
-       run on tvOS at runtime, prefer compile-time exclusion here over a silent
-       skip in the test body. -->
+       today. -->
   <ItemGroup>
     <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
@@ -78,6 +70,8 @@
     <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
+    <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include -->
+    <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -90,12 +84,19 @@
     <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
   </ItemGroup>
 
-  <!-- SwiftUI bridge is intentionally NOT compiled here. See the SwiftUIBridge/
-       exclusion comment above — without a tvOS bridge native artifact, defining
-       SWIFTUI_BRIDGE or pulling in the generated bridge C# would produce tests
-       that fail at launch with DllNotFoundException. Restore when Session 8.5
-       lands a tvOS-aware RunBuildBridge(). -->
-
+  <!-- SwiftUI bridge (conditional on generated output) -->
+  <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <DefineConstants>$(DefineConstants);SWIFTUI_BRIDGE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLib.SwiftUIBridge.cs')">
+    <Compile Include="../output/SwiftBindingsTestLib.SwiftUIBridge.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../SwiftBridge/SwiftBindingsTestLibBridge.framework')
+                         AND '$(RuntimeIdentifier)' == 'tvossimulator-arm64'">
+    <NativeReference Include="../SwiftBridge/SwiftBindingsTestLibBridge.framework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
 
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">

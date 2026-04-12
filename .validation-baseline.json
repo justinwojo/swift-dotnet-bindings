@@ -1,11 +1,11 @@
 {
-  "git_sha": "1ae93ccc",
+  "git_sha": "159d7ce5",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49752,
+        "lines": 49742,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 76602,
+        "lines": 76571,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,7 +110,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12035,
+        "lines": 12024,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
