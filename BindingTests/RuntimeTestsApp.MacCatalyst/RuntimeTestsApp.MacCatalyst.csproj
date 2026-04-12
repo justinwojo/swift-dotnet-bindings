@@ -1,0 +1,111 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-maccatalyst</TargetFramework>
+    <RuntimeIdentifier>maccatalyst-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <!-- Disable IL linker to avoid trim analysis errors with SupportedOSPlatformAttribute -->
+    <MtouchLink>None</MtouchLink>
+    <!-- Disable build-time codesign: native dylibs are injected post-build by the
+         Nuke target. The Nuke target re-signs the bundle bottom-up after injection. -->
+    <EnableCodeSigning>false</EnableCodeSigning>
+    <!-- Same warning suppressions as RuntimeTestsApp -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <!-- Source generator output persisted to obj/ for manifest extraction -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  </PropertyGroup>
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types (SwiftSelf, SwiftError, etc.) -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Shared test infrastructure (portable — no iOS dependencies) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestBase.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestDescriptors.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+  </ItemGroup>
+
+  <!-- Global usings shared with RuntimeTestsApp -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/GlobalUsings.cs" />
+  </ItemGroup>
+
+  <!-- Test classes (portable — reference SwiftBindingsTestLib types, not UIKit) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Collisions/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/EdgeCases/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
+    <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include but inactive -->
+    <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
+  </ItemGroup>
+
+  <!-- Extract test manifest from source generator output into a host-visible file. -->
+  <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
+          Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
+    <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
+
+  <!-- Generated bindings (shared output/ dir — Catalyst clobbers other platforms, same as macOS/tvOS) -->
+  <ItemGroup>
+    <Compile Include="../output/SwiftBindingsTestLib.cs" Condition="Exists('../output/SwiftBindingsTestLib.cs')" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+
+  <!-- Main test library and dependency xcframeworks. These are rebuilt by
+       the Nuke runtime-tests-catalyst target before each run. Additional native
+       artifacts (async wrapper, runtime dylib) are injected by the Nuke target
+       into the output directory. -->
+  <ItemGroup>
+    <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <NativeReference Include="../output/SwiftBindings.xcframework"
+                     Condition="Exists('../output/SwiftBindings.xcframework/ios-arm64-maccatalyst')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+</Project>

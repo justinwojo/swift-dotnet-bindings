@@ -106,4 +106,84 @@
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>
+
+  <!-- Apple-framework smoke tests (shared source files, gated by #if symbols) -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/SmokeTests/CryptoKitSmokeTests.cs" />
+    <Compile Include="../RuntimeTestsApp/SmokeTests/WeatherKitSmokeTests.cs" />
+  </ItemGroup>
+
+  <!-- CryptoKit macOS smoke test: mirrors the iOS block in RuntimeTestsApp.csproj
+       but targets the macOS snapshot (CryptoKitSnapshot-macOS/) with the macos-arm64
+       xcframework slice and osx-arm64 RID. Same Enable property (EnableCryptoKitSmoke)
+       gates both iOS and macOS; the RID condition ensures only the matching block
+       activates in each project.
+
+       Opt in via: nuke runtime-tests-macos enable-cryptokit-smoke -->
+  <PropertyGroup>
+    <CryptoKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/CryptoKitSnapshot-macOS/</CryptoKitSnapshotDir>
+    <CryptoKitSnapshotCsproj>$(CryptoKitSnapshotDir)CryptoKit.Swift.macOS.csproj</CryptoKitSnapshotCsproj>
+    <CryptoKitSnapshotProjectRefTargets>$(CryptoKitSnapshotDir)CryptoKit.Swift.macOS.ProjectReference.targets</CryptoKitSnapshotProjectRefTargets>
+    <CryptoKitSnapshotXcframework>$(CryptoKitSnapshotDir)CryptoKitSwiftBindings.xcframework</CryptoKitSnapshotXcframework>
+    <CryptoKitSmokeEnabled Condition="'$(EnableCryptoKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'osx-arm64' AND Exists('$(CryptoKitSnapshotCsproj)') AND Exists('$(CryptoKitSnapshotXcframework)/macos-arm64') AND Exists('$(CryptoKitSnapshotProjectRefTargets)')">true</CryptoKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_CryptoKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableCryptoKitSmoke)' == 'true' AND '$(CryptoKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'osx-arm64'"
+           Text="EnableCryptoKitSmoke=true requires RuntimeIdentifier=osx-arm64 (got '$(RuntimeIdentifier)'). The macOS snapshot's wrapper xcframework only ships a macos-arm64 slice." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotCsproj)')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` or `nuke runtime-tests-macos --enable-cryptokit-smoke` which regenerates automatically." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotXcframework)/macos-arm64')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotXcframework)/macos-arm64 is missing. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotProjectRefTargets)')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(CryptoKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);CRYPTOKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(CryptoKitSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(CryptoKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(CryptoKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableCryptoKitSmoke)' == 'true' AND Exists('$(CryptoKitSnapshotProjectRefTargets)')" />
+
+  <!-- WeatherKit macOS smoke test: mirrors the iOS block in RuntimeTestsApp.csproj
+       but targets the macOS snapshot (WeatherKitSnapshot-macOS/) with the macos-arm64
+       xcframework slice and osx-arm64 RID.
+
+       Opt in via: nuke runtime-tests-macos enable-weatherkit-smoke -->
+  <PropertyGroup>
+    <WeatherKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/WeatherKitSnapshot-macOS/</WeatherKitSnapshotDir>
+    <WeatherKitSnapshotCsproj>$(WeatherKitSnapshotDir)WeatherKit.Swift.macOS.csproj</WeatherKitSnapshotCsproj>
+    <WeatherKitSnapshotProjectRefTargets>$(WeatherKitSnapshotDir)WeatherKit.Swift.macOS.ProjectReference.targets</WeatherKitSnapshotProjectRefTargets>
+    <WeatherKitSnapshotXcframework>$(WeatherKitSnapshotDir)WeatherKitSwiftBindings.xcframework</WeatherKitSnapshotXcframework>
+    <WeatherKitSmokeEnabled Condition="'$(EnableWeatherKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'osx-arm64' AND Exists('$(WeatherKitSnapshotCsproj)') AND Exists('$(WeatherKitSnapshotXcframework)/macos-arm64') AND Exists('$(WeatherKitSnapshotProjectRefTargets)')">true</WeatherKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_WeatherKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableWeatherKitSmoke)' == 'true' AND '$(WeatherKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'osx-arm64'"
+           Text="EnableWeatherKitSmoke=true requires RuntimeIdentifier=osx-arm64 (got '$(RuntimeIdentifier)'). The macOS snapshot's wrapper xcframework only ships a macos-arm64 slice." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotCsproj)')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` or `nuke runtime-tests-macos --enable-weatherkit-smoke` which regenerates automatically." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotXcframework)/macos-arm64')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotXcframework)/macos-arm64 is missing. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotProjectRefTargets)')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(WeatherKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);WEATHERKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WeatherKitSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(WeatherKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(WeatherKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableWeatherKitSmoke)' == 'true' AND Exists('$(WeatherKitSnapshotProjectRefTargets)')" />
 </Project>

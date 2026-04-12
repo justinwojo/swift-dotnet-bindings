@@ -4,6 +4,9 @@
 // Simple SwiftUI Views for bridge parameter type testing.
 // Each View exercises one parameter kind from the v2 bridge emitter.
 
+// SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
+// compiler environment despite the module importing successfully.
+#if !targetEnvironment(macCatalyst)
 import SwiftUI
 
 /// Tests BoundEnum parameter kind.
@@ -302,3 +305,4 @@ public struct ClassReturnClosureView: View {
         Text("ClassReturn: \(factory(1).getValue())")
     }
 }
+#endif

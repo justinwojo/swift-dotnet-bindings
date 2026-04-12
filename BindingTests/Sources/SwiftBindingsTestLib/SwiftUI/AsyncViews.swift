@@ -4,6 +4,9 @@
 // Async chain SwiftUI Views for bridge async inference testing.
 // Each View has constructor dependencies that require async construction chains.
 
+// SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
+// compiler environment despite the module importing successfully.
+#if !targetEnvironment(macCatalyst)
 import SwiftUI
 
 /// View with a single async dependency: AsyncService.
@@ -51,3 +54,4 @@ public struct MixedAsyncView: View {
         Text("Mixed: \(service.getKey()) count=\(count) enabled=\(enabled ? "true" : "false")")
     }
 }
+#endif

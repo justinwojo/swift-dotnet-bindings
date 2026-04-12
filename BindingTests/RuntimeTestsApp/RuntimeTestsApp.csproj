@@ -441,6 +441,144 @@
   <Import Project="$(MusicKitSnapshotProjectRefTargets)"
           Condition="'$(EnableMusicKitSmoke)' == 'true' AND Exists('$(MusicKitSnapshotProjectRefTargets)')" />
 
+  <!-- WorkoutKit smoke test (Apple-framework direct-mode pipeline). Mirrors the
+       MusicKit block. WorkoutKit is iOS 17.0+, pure Swift framework — no extern
+       alias needed. Metadata-only assertions (no HealthKit authorization). -->
+  <PropertyGroup>
+    <WorkoutKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/WorkoutKitSnapshot/</WorkoutKitSnapshotDir>
+    <WorkoutKitSnapshotCsproj>$(WorkoutKitSnapshotDir)WorkoutKit.Swift.iOS.csproj</WorkoutKitSnapshotCsproj>
+    <WorkoutKitSnapshotProjectRefTargets>$(WorkoutKitSnapshotDir)WorkoutKit.Swift.iOS.ProjectReference.targets</WorkoutKitSnapshotProjectRefTargets>
+    <WorkoutKitSnapshotXcframework>$(WorkoutKitSnapshotDir)WorkoutKitSwiftBindings.xcframework</WorkoutKitSnapshotXcframework>
+    <WorkoutKitSmokeEnabled Condition="'$(EnableWorkoutKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(WorkoutKitSnapshotCsproj)') AND Exists('$(WorkoutKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(WorkoutKitSnapshotProjectRefTargets)')">true</WorkoutKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_WorkoutKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableWorkoutKitSmoke)' == 'true' AND '$(WorkoutKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableWorkoutKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(WorkoutKitSnapshotCsproj)')"
+           Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WorkoutKit` (or `nuke runtime-tests-simulator --enable-workoutkit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(WorkoutKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework WorkoutKit`." />
+    <Error Condition="!Exists('$(WorkoutKitSnapshotProjectRefTargets)')"
+           Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework WorkoutKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(WorkoutKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);WORKOUTKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WorkoutKitSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(WorkoutKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(WorkoutKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableWorkoutKitSmoke)' == 'true' AND Exists('$(WorkoutKitSnapshotProjectRefTargets)')" />
+
+  <!-- RoomPlan smoke test (Apple-framework direct-mode pipeline). RoomPlan is
+       iOS 17.0+, pure Swift framework — no extern alias needed. Metadata-only
+       assertions (no LiDAR/ARSession). -->
+  <PropertyGroup>
+    <RoomPlanSnapshotDir>$(MSBuildThisFileDirectory)../obj/RoomPlanSnapshot/</RoomPlanSnapshotDir>
+    <RoomPlanSnapshotCsproj>$(RoomPlanSnapshotDir)RoomPlan.Swift.iOS.csproj</RoomPlanSnapshotCsproj>
+    <RoomPlanSnapshotProjectRefTargets>$(RoomPlanSnapshotDir)RoomPlan.Swift.iOS.ProjectReference.targets</RoomPlanSnapshotProjectRefTargets>
+    <RoomPlanSnapshotXcframework>$(RoomPlanSnapshotDir)RoomPlanSwiftBindings.xcframework</RoomPlanSnapshotXcframework>
+    <RoomPlanSmokeEnabled Condition="'$(EnableRoomPlanSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(RoomPlanSnapshotCsproj)') AND Exists('$(RoomPlanSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(RoomPlanSnapshotProjectRefTargets)')">true</RoomPlanSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_RoomPlanSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableRoomPlanSmoke)' == 'true' AND '$(RoomPlanSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableRoomPlanSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(RoomPlanSnapshotCsproj)')"
+           Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework RoomPlan` (or `nuke runtime-tests-simulator --enable-roomplan-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(RoomPlanSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework RoomPlan`." />
+    <Error Condition="!Exists('$(RoomPlanSnapshotProjectRefTargets)')"
+           Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework RoomPlan`." />
+  </Target>
+  <PropertyGroup Condition="'$(RoomPlanSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);ROOMPLAN_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(RoomPlanSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(RoomPlanSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(RoomPlanSnapshotProjectRefTargets)"
+          Condition="'$(EnableRoomPlanSmoke)' == 'true' AND Exists('$(RoomPlanSnapshotProjectRefTargets)')" />
+
+  <!-- ProximityReader smoke test (Apple-framework direct-mode pipeline).
+       ProximityReader is iOS 17.4+, pure Swift framework — no extern alias needed.
+       Metadata-only assertions (no NFC hardware). Known bug: skip
+       MobileDocumentReaderError.errorDescription (emitter asymmetry). -->
+  <PropertyGroup>
+    <ProximityReaderSnapshotDir>$(MSBuildThisFileDirectory)../obj/ProximityReaderSnapshot/</ProximityReaderSnapshotDir>
+    <ProximityReaderSnapshotCsproj>$(ProximityReaderSnapshotDir)ProximityReader.Swift.iOS.csproj</ProximityReaderSnapshotCsproj>
+    <ProximityReaderSnapshotProjectRefTargets>$(ProximityReaderSnapshotDir)ProximityReader.Swift.iOS.ProjectReference.targets</ProximityReaderSnapshotProjectRefTargets>
+    <ProximityReaderSnapshotXcframework>$(ProximityReaderSnapshotDir)ProximityReaderSwiftBindings.xcframework</ProximityReaderSnapshotXcframework>
+    <ProximityReaderSmokeEnabled Condition="'$(EnableProximityReaderSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(ProximityReaderSnapshotCsproj)') AND Exists('$(ProximityReaderSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(ProximityReaderSnapshotProjectRefTargets)')">true</ProximityReaderSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_ProximityReaderSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableProximityReaderSmoke)' == 'true' AND '$(ProximityReaderSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableProximityReaderSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(ProximityReaderSnapshotCsproj)')"
+           Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework ProximityReader` (or `nuke runtime-tests-simulator --enable-proximityreader-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(ProximityReaderSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework ProximityReader`." />
+    <Error Condition="!Exists('$(ProximityReaderSnapshotProjectRefTargets)')"
+           Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework ProximityReader`." />
+  </Target>
+  <PropertyGroup Condition="'$(ProximityReaderSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);PROXIMITYREADER_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ProximityReaderSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(ProximityReaderSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(ProximityReaderSnapshotProjectRefTargets)"
+          Condition="'$(EnableProximityReaderSmoke)' == 'true' AND Exists('$(ProximityReaderSnapshotProjectRefTargets)')" />
+
+  <!-- LiveCommunicationKit smoke test (Apple-framework direct-mode pipeline).
+       LiveCommunicationKit requires iOS 26.0+ (SupportedOSPlatformVersion=26.0 in
+       snapshot csproj). Pure Swift framework — no extern alias needed.
+       Metadata-only assertions (no VoIP/CallKit session). -->
+  <PropertyGroup>
+    <LiveCommunicationKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/LiveCommunicationKitSnapshot/</LiveCommunicationKitSnapshotDir>
+    <LiveCommunicationKitSnapshotCsproj>$(LiveCommunicationKitSnapshotDir)LiveCommunicationKit.Swift.iOS.csproj</LiveCommunicationKitSnapshotCsproj>
+    <LiveCommunicationKitSnapshotProjectRefTargets>$(LiveCommunicationKitSnapshotDir)LiveCommunicationKit.Swift.iOS.ProjectReference.targets</LiveCommunicationKitSnapshotProjectRefTargets>
+    <LiveCommunicationKitSnapshotXcframework>$(LiveCommunicationKitSnapshotDir)LiveCommunicationKitSwiftBindings.xcframework</LiveCommunicationKitSnapshotXcframework>
+    <LiveCommunicationKitSmokeEnabled Condition="'$(EnableLiveCommunicationKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(LiveCommunicationKitSnapshotCsproj)') AND Exists('$(LiveCommunicationKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(LiveCommunicationKitSnapshotProjectRefTargets)')">true</LiveCommunicationKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_LiveCommunicationKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableLiveCommunicationKitSmoke)' == 'true' AND '$(LiveCommunicationKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableLiveCommunicationKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(LiveCommunicationKitSnapshotCsproj)')"
+           Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework LiveCommunicationKit` (or `nuke runtime-tests-simulator --enable-livecommunicationkit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(LiveCommunicationKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework LiveCommunicationKit`." />
+    <Error Condition="!Exists('$(LiveCommunicationKitSnapshotProjectRefTargets)')"
+           Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework LiveCommunicationKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(LiveCommunicationKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);LIVECOMMUNICATIONKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(LiveCommunicationKitSmokeEnabled)' == 'true'">
+    <ProjectReference Include="$(LiveCommunicationKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(LiveCommunicationKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableLiveCommunicationKitSmoke)' == 'true' AND Exists('$(LiveCommunicationKitSnapshotProjectRefTargets)')" />
+
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">

@@ -10,6 +10,9 @@
 //   FormatMenuView        → RichTextKit.Menu (closure with BoundStruct arg)
 //   RichToolbarView       → RichTextKit toolbar views (dual string params)
 
+// SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
+// compiler environment despite the module importing successfully.
+#if !targetEnvironment(macCatalyst)
 import SwiftUI
 
 // MARK: - Zero-Parameter Init (AlertToast BlurView pattern)
@@ -188,3 +191,4 @@ public struct ResultWithStructView: View {
         Text("ResultWithStruct")
     }
 }
+#endif

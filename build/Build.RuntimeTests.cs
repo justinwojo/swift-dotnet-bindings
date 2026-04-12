@@ -85,6 +85,28 @@ partial class Build
     [Parameter("Opt in to the MusicKit smoke tests (regenerates BindingTests/obj/MusicKitSnapshot/ in-tree)")]
     readonly bool EnableMusicKitSmoke;
 
+    // Opt-in to the WorkoutKit Apple-framework smoke tests. Off by default.
+    // WorkoutKit is iOS 17.0+, metadata-only assertions (no HealthKit authorization).
+    [Parameter("Opt in to the WorkoutKit smoke tests (regenerates BindingTests/obj/WorkoutKitSnapshot/ in-tree)")]
+    readonly bool EnableWorkoutKitSmoke;
+
+    // Opt-in to the RoomPlan Apple-framework smoke tests. Off by default.
+    // RoomPlan is iOS 17.0+, metadata-only assertions (no LiDAR/ARSession).
+    [Parameter("Opt in to the RoomPlan smoke tests (regenerates BindingTests/obj/RoomPlanSnapshot/ in-tree)")]
+    readonly bool EnableRoomPlanSmoke;
+
+    // Opt-in to the ProximityReader Apple-framework smoke tests. Off by default.
+    // ProximityReader is iOS 17.4+, metadata-only assertions (no NFC hardware).
+    // Known bug: MobileDocumentReaderError.errorDescription is skipped.
+    [Parameter("Opt in to the ProximityReader smoke tests (regenerates BindingTests/obj/ProximityReaderSnapshot/ in-tree)")]
+    readonly bool EnableProximityReaderSmoke;
+
+    // Opt-in to the LiveCommunicationKit Apple-framework smoke tests. Off by default.
+    // LiveCommunicationKit requires iOS 26.0+ (SupportedOSPlatformVersion=26.0).
+    // Metadata-only assertions (no VoIP/CallKit session).
+    [Parameter("Opt in to the LiveCommunicationKit smoke tests (regenerates BindingTests/obj/LiveCommunicationKitSnapshot/ in-tree)")]
+    readonly bool EnableLiveCommunicationKitSmoke;
+
     /// <summary>
     /// A single opt-in smoke flag. <see cref="FlagName"/> is the user-visible
     /// CLI option (used in error messages and log lines); <see cref="Define"/>
@@ -117,6 +139,14 @@ partial class Build
             flags.Add(new SmokeFlag("--enable-tipkit-smoke", "TIPKIT_SMOKE"));
         if (EnableMusicKitSmoke)
             flags.Add(new SmokeFlag("--enable-musickit-smoke", "MUSICKIT_SMOKE"));
+        if (EnableWorkoutKitSmoke)
+            flags.Add(new SmokeFlag("--enable-workoutkit-smoke", "WORKOUTKIT_SMOKE"));
+        if (EnableRoomPlanSmoke)
+            flags.Add(new SmokeFlag("--enable-roomplan-smoke", "ROOMPLAN_SMOKE"));
+        if (EnableProximityReaderSmoke)
+            flags.Add(new SmokeFlag("--enable-proximityreader-smoke", "PROXIMITYREADER_SMOKE"));
+        if (EnableLiveCommunicationKitSmoke)
+            flags.Add(new SmokeFlag("--enable-livecommunicationkit-smoke", "LIVECOMMUNICATIONKIT_SMOKE"));
         // Sort by Define at the source so every downstream consumer — log
         // messages, `-D` compiler args, the `.smoke-flags` sidecar — observes
         // the same stable order. Without this the log could print
@@ -274,12 +304,37 @@ partial class Build
     AbsolutePath MusicKitSnapshotProjectRefTargets =>
         MusicKitSnapshotDir / "MusicKit.Swift.iOS.ProjectReference.targets";
 
-    // Swift-side target triple shared by all Apple-framework snapshots. It
-    // must match what the generator resolves via --platform-target simulator
-    // (arm64-apple-ios-simulator slice under the iphonesimulator SDK). The
-    // minimum deployment version (15.0) matches what the original StoreKit 2
-    // reproducer used and covers every framework we currently care about.
-    const string AppleSnapshotDigesterTarget = "arm64-apple-ios15.0-simulator";
+    // WorkoutKit snapshot — iOS 17.0+.
+    AbsolutePath WorkoutKitSnapshotDir => BindingTestsDir / "obj" / "WorkoutKitSnapshot";
+    AbsolutePath WorkoutKitSnapshotCsproj => WorkoutKitSnapshotDir / "WorkoutKit.Swift.iOS.csproj";
+    AbsolutePath WorkoutKitSnapshotProjectRefTargets =>
+        WorkoutKitSnapshotDir / "WorkoutKit.Swift.iOS.ProjectReference.targets";
+
+    // RoomPlan snapshot — iOS 17.0+.
+    AbsolutePath RoomPlanSnapshotDir => BindingTestsDir / "obj" / "RoomPlanSnapshot";
+    AbsolutePath RoomPlanSnapshotCsproj => RoomPlanSnapshotDir / "RoomPlan.Swift.iOS.csproj";
+    AbsolutePath RoomPlanSnapshotProjectRefTargets =>
+        RoomPlanSnapshotDir / "RoomPlan.Swift.iOS.ProjectReference.targets";
+
+    // ProximityReader snapshot — iOS 17.4+.
+    AbsolutePath ProximityReaderSnapshotDir => BindingTestsDir / "obj" / "ProximityReaderSnapshot";
+    AbsolutePath ProximityReaderSnapshotCsproj => ProximityReaderSnapshotDir / "ProximityReader.Swift.iOS.csproj";
+    AbsolutePath ProximityReaderSnapshotProjectRefTargets =>
+        ProximityReaderSnapshotDir / "ProximityReader.Swift.iOS.ProjectReference.targets";
+
+    // LiveCommunicationKit snapshot — iOS 26.0+ (SupportedOSPlatformVersion=26.0).
+    AbsolutePath LiveCommunicationKitSnapshotDir => BindingTestsDir / "obj" / "LiveCommunicationKitSnapshot";
+    AbsolutePath LiveCommunicationKitSnapshotCsproj => LiveCommunicationKitSnapshotDir / "LiveCommunicationKit.Swift.iOS.csproj";
+    AbsolutePath LiveCommunicationKitSnapshotProjectRefTargets =>
+        LiveCommunicationKitSnapshotDir / "LiveCommunicationKit.Swift.iOS.ProjectReference.targets";
+
+    // CryptoKit macOS snapshot — same framework as iOS, different platform target.
+    // Snapshot dir uses the "-macOS" suffix to coexist with the iOS snapshot.
+    AbsolutePath CryptoKitMacOSSnapshotDir => BindingTestsDir / "obj" / "CryptoKitSnapshot-macOS";
+
+    // WeatherKit macOS snapshot — same layout as CryptoKit macOS.
+    AbsolutePath WeatherKitMacOSSnapshotDir => BindingTestsDir / "obj" / "WeatherKitSnapshot-macOS";
+
     const string AppleSnapshotSwiftRuntimeVersion = "0.0.0-dev";
     // Name of the fingerprint stamp file written at the end of every successful
     // snapshot regeneration. Read during the freshness check in
@@ -405,15 +460,18 @@ partial class Build
     /// targets must always generate cleanly for the smoke tests to mean
     /// anything.
     /// </remarks>
-    void RegenerateAppleFrameworkSnapshot(string frameworkName, AbsolutePath snapshotDir, bool force)
+    void RegenerateAppleFrameworkSnapshot(string frameworkName, AbsolutePath snapshotDir, bool force,
+        ApplePlatform? platform = null)
     {
+        platform ??= ApplePlatform.IOS;
         ValidateAppleFrameworkName(frameworkName);
-        Log.Information("--- Regenerating {Framework} snapshot ---", frameworkName);
+        Log.Information("--- Regenerating {Framework} snapshot ({Platform}) ---", frameworkName, platform.Name);
         Log.Information("    Output: {Dir}", snapshotDir);
 
+        var platformSuffix = platform.PackageSuffix; // "iOS", "macOS", etc.
         var abiJsonPath = snapshotDir / $"{frameworkName}.abi.json";
-        var csprojPath = snapshotDir / $"{frameworkName}.Swift.iOS.csproj";
-        var projRefTargetsPath = snapshotDir / $"{frameworkName}.Swift.iOS.ProjectReference.targets";
+        var csprojPath = snapshotDir / $"{frameworkName}.Swift.{platformSuffix}.csproj";
+        var projRefTargetsPath = snapshotDir / $"{frameworkName}.Swift.{platformSuffix}.ProjectReference.targets";
         var csFilePath = snapshotDir / $"{frameworkName}.cs";
         var wrapperSwiftPath = snapshotDir / $"{frameworkName}.Wrapper.swift";
         var fingerprintStampPath = snapshotDir / AppleSnapshotFingerprintStampName;
@@ -428,21 +486,22 @@ partial class Build
         // generator's -l help text.
         var libraryNameArg = $@"\@rpath/{frameworkName}.framework/{frameworkName}";
 
-        // Step A: resolve the iphonesimulator SDK root via xcrun. We shell out
-        // instead of hardcoding /Applications/Xcode.app because a contributor
-        // may have xcode-select pointed at a non-default Xcode install.
-        var sdkPath = RunXcrunCapture("--sdk iphonesimulator --show-sdk-path");
+        // Step A: resolve the SDK root via xcrun. We shell out instead of
+        // hardcoding /Applications/Xcode.app because a contributor may have
+        // xcode-select pointed at a non-default Xcode install.
+        var sdkName = platform.SimulatorSdkName; // "iphonesimulator", "macosx", etc.
+        var sdkPath = RunXcrunCapture($"--sdk {sdkName} --show-sdk-path");
         if (string.IsNullOrWhiteSpace(sdkPath))
         {
             throw new Exception(
-                "xcrun --sdk iphonesimulator --show-sdk-path returned an empty path. " +
+                $"xcrun --sdk {sdkName} --show-sdk-path returned an empty path. " +
                 "Is Xcode installed and selected via `xcode-select --switch`?");
         }
 
         var swiftinterfacePath = (AbsolutePath)sdkPath /
             "System" / "Library" / "Frameworks" / $"{frameworkName}.framework" /
             "Modules" / $"{frameworkName}.swiftmodule" /
-            "arm64-apple-ios-simulator.swiftinterface";
+            $"{platform.SimulatorModuleSuffix}.swiftinterface";
         var tbdPath = (AbsolutePath)sdkPath /
             "System" / "Library" / "Frameworks" / $"{frameworkName}.framework" / $"{frameworkName}.tbd";
 
@@ -450,7 +509,7 @@ partial class Build
         {
             throw new Exception(
                 $"{frameworkName} swiftinterface not found at {swiftinterfacePath}. " +
-                $"SDK root was {sdkPath} (from xcrun). Check your Xcode install.");
+                $"SDK root was {sdkPath} (from xcrun --sdk {sdkName}). Check your Xcode install.");
         }
         if (!File.Exists(tbdPath))
         {
@@ -503,13 +562,14 @@ partial class Build
         // -dump-sdk command emits a JSON description of the module's public
         // API surface that the generator consumes as its -a input in manual
         // mode.
-        Log.Information("    Dumping {Framework} ABI via swift-api-digester", frameworkName);
+        Log.Information("    Dumping {Framework} ABI via swift-api-digester ({Platform})", frameworkName, platform.Name);
+        var digesterTarget = platform.SimulatorTarget; // e.g. "arm64-apple-ios15.0-simulator" or "arm64-apple-macos12.0"
         var digesterArgs = string.Join(" ", new[]
         {
             "swift-api-digester",
             "-dump-sdk",
             "-module", frameworkName,
-            "-target", AppleSnapshotDigesterTarget,
+            "-target", digesterTarget,
             "-sdk", $"\"{sdkPath}\"",
             "-o", $"\"{abiJsonPath}\"",
         });
@@ -539,7 +599,7 @@ partial class Build
         EnsureGeneratorBuilt();
 
         Log.Information("    Running generator (manual mode, -a/-d/-t/-s)");
-        var genArgs = string.Join(" ", new[]
+        var genArgsList = new List<string>
         {
             $"\"{GeneratorDll}\"",
             $"-a \"{abiJsonPath}\"",
@@ -547,11 +607,16 @@ partial class Build
             $"-t \"{tbdPath}\"",
             $"-s \"{swiftinterfacePath}\"",
             $"-l \"{libraryNameArg}\"",
-            "--platform ios",
-            "--platform-target simulator",
-            $"--swift-runtime-version {AppleSnapshotSwiftRuntimeVersion}",
-            $"-o \"{snapshotDir}\"",
-        });
+            $"--platform {platform.Name}",
+        };
+        // macOS has no simulator/device distinction — omit --platform-target.
+        // iOS/tvOS must specify "simulator" so the generator resolves the
+        // correct xcframework slice and emits the right RID.
+        if (platform.HasSimulatorPlistVariant)
+            genArgsList.Add("--platform-target simulator");
+        genArgsList.Add($"--swift-runtime-version {AppleSnapshotSwiftRuntimeVersion}");
+        genArgsList.Add($"-o \"{snapshotDir}\"");
+        var genArgs = string.Join(" ", genArgsList);
         var genProc = ProcessTasks.StartProcess(
             "dotnet", genArgs,
             workingDirectory: snapshotDir,
@@ -783,6 +848,14 @@ partial class Build
                     RegenerateAppleFrameworkSnapshot("TipKit", TipKitSnapshotDir, force: false);
                 if (EnableMusicKitSmoke)
                     RegenerateAppleFrameworkSnapshot("MusicKit", MusicKitSnapshotDir, force: false);
+                if (EnableWorkoutKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("WorkoutKit", WorkoutKitSnapshotDir, force: false);
+                if (EnableRoomPlanSmoke)
+                    RegenerateAppleFrameworkSnapshot("RoomPlan", RoomPlanSnapshotDir, force: false);
+                if (EnableProximityReaderSmoke)
+                    RegenerateAppleFrameworkSnapshot("ProximityReader", ProximityReaderSnapshotDir, force: false);
+                if (EnableLiveCommunicationKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("LiveCommunicationKit", LiveCommunicationKitSnapshotDir, force: false);
 
                 Log.Information("--- Building RuntimeTestsApp ---");
                 if (EnableStoreKitSmoke)
@@ -795,6 +868,14 @@ partial class Build
                     Log.Information("    TipKit smoke tests: ENABLED (--enable-tipkit-smoke)");
                 if (EnableMusicKitSmoke)
                     Log.Information("    MusicKit smoke tests: ENABLED (--enable-musickit-smoke)");
+                if (EnableWorkoutKitSmoke)
+                    Log.Information("    WorkoutKit smoke tests: ENABLED (--enable-workoutkit-smoke)");
+                if (EnableRoomPlanSmoke)
+                    Log.Information("    RoomPlan smoke tests: ENABLED (--enable-roomplan-smoke)");
+                if (EnableProximityReaderSmoke)
+                    Log.Information("    ProximityReader smoke tests: ENABLED (--enable-proximityreader-smoke)");
+                if (EnableLiveCommunicationKitSmoke)
+                    Log.Information("    LiveCommunicationKit smoke tests: ENABLED (--enable-livecommunicationkit-smoke)");
                 DotNetBuild(s =>
                 {
                     var built = s
@@ -804,7 +885,7 @@ partial class Build
                     // Any smoke flag needs SwiftBindingsRepoRoot so the snapshot csproj
                     // resolves SwiftBindings.Runtime via the in-tree ProjectReference
                     // fallback instead of the [0.0.0-dev] sentinel PackageReference.
-                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke || EnableTipKitSmoke || EnableMusicKitSmoke)
+                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke || EnableTipKitSmoke || EnableMusicKitSmoke || EnableWorkoutKitSmoke || EnableRoomPlanSmoke || EnableProximityReaderSmoke || EnableLiveCommunicationKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
                     if (EnableCryptoKitSmoke)
                         built = built.SetProperty("EnableCryptoKitSmoke", "true");
@@ -814,6 +895,14 @@ partial class Build
                         built = built.SetProperty("EnableTipKitSmoke", "true");
                     if (EnableMusicKitSmoke)
                         built = built.SetProperty("EnableMusicKitSmoke", "true");
+                    if (EnableWorkoutKitSmoke)
+                        built = built.SetProperty("EnableWorkoutKitSmoke", "true");
+                    if (EnableRoomPlanSmoke)
+                        built = built.SetProperty("EnableRoomPlanSmoke", "true");
+                    if (EnableProximityReaderSmoke)
+                        built = built.SetProperty("EnableProximityReaderSmoke", "true");
+                    if (EnableLiveCommunicationKitSmoke)
+                        built = built.SetProperty("EnableLiveCommunicationKitSmoke", "true");
                     // SwiftBindingsRepoRoot above is what lets the generator-emitted
                     // <Framework>.Swift.iOS.csproj resolve SwiftBindings.Runtime via the
                     // in-tree ProjectReference fallback (see the snapshot csproj's
@@ -944,6 +1033,19 @@ partial class Build
 
             RejectSkipBuildWithActiveSmokeFlags();
 
+            // macOS only supports CryptoKit and WeatherKit smokes — reject everything else.
+            var unsupported = GetActiveSmokeFlags()
+                .Where(f => f.Define is not ("CRYPTOKIT_SMOKE" or "WEATHERKIT_SMOKE"))
+                .ToList();
+            if (unsupported.Count > 0)
+            {
+                var names = string.Join(", ", unsupported.Select(f => f.FlagName));
+                throw new Exception(
+                    $"{names}: smoke flags are not supported by runtime-tests-macos. " +
+                    "Only --enable-cryptokit-smoke and --enable-weatherkit-smoke are wired for macOS. " +
+                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+            }
+
             var platform = ApplePlatform.MacOS;
 
             if (!EffectiveSkipRegen)
@@ -959,7 +1061,21 @@ partial class Build
 
             if (!SkipBuild)
             {
+                // Regenerate Apple-framework macOS snapshots before building.
+                // Same pattern as iOS (RuntimeTestsSimulator) — the regen is
+                // gated on the same Enable*Smoke CLI parameters and uses the
+                // macOS-specific snapshot directories that coexist alongside
+                // the iOS snapshots under BindingTests/obj/.
+                if (EnableCryptoKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("CryptoKit", CryptoKitMacOSSnapshotDir, force: false, ApplePlatform.MacOS);
+                if (EnableWeatherKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("WeatherKit", WeatherKitMacOSSnapshotDir, force: false, ApplePlatform.MacOS);
+
                 Log.Information("--- Building RuntimeTestsApp.Mac ---");
+                if (EnableCryptoKitSmoke)
+                    Log.Information("    CryptoKit smoke tests: ENABLED (--enable-cryptokit-smoke)");
+                if (EnableWeatherKitSmoke)
+                    Log.Information("    WeatherKit smoke tests: ENABLED (--enable-weatherkit-smoke)");
 
                 // Clean previous app bundle to avoid codesign "unsealed contents"
                 // errors from previously injected dylibs.
@@ -972,10 +1088,20 @@ partial class Build
                     Log.Information("Cleaned previous app bundle.");
                 }
 
-                DotNetBuild(s => s
-                    .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.Mac")
-                    .SetConfiguration("Debug")
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                DotNetBuild(s =>
+                {
+                    var built = s
+                        .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.Mac")
+                        .SetConfiguration("Debug")
+                        .SetVerbosity(DotNetVerbosity.quiet);
+                    if (EnableCryptoKitSmoke || EnableWeatherKitSmoke)
+                        built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
+                    if (EnableCryptoKitSmoke)
+                        built = built.SetProperty("EnableCryptoKitSmoke", "true");
+                    if (EnableWeatherKitSmoke)
+                        built = built.SetProperty("EnableWeatherKitSmoke", "true");
+                    return built;
+                });
 
                 if (!Directory.Exists(appBundle))
                     throw new Exception($"Build failed - macOS app bundle not found at {appBundle}");
@@ -999,6 +1125,88 @@ partial class Build
         });
 
     // ============================================================
+    // RuntimeTestsCatalyst — Mac Catalyst runner
+    //
+    // Mirror of RuntimeTestsMacOS but targets net10.0-maccatalyst. Catalyst
+    // apps produce macOS .app bundles and run directly on the host — same
+    // deployment mechanism as macOS. The xcframework uses the
+    // ios-arm64-maccatalyst slice (macOS SDK, -macabi target triple).
+    //
+    // No smoke wiring: Catalyst shares the same test matrix as macOS and
+    // the primary goal is verifying the Catalyst binding/runtime path works.
+    // ============================================================
+
+    Target RuntimeTestsCatalyst => _ => _
+        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict)
+        .Executes(() =>
+        {
+            Log.Information("=========================================");
+            Log.Information(" BindingTests Runtime Tests (Mac Catalyst)");
+            Log.Information("=========================================");
+
+            // Catalyst has no smoke wiring — reject any active smoke flags.
+            var activeSmoke = GetActiveSmokeFlags();
+            if (activeSmoke.Count > 0)
+            {
+                var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
+                throw new Exception(
+                    $"{names}: smoke flags are not supported by runtime-tests-catalyst. " +
+                    "Per-framework smoke wiring is not implemented for Catalyst. " +
+                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+            }
+            RejectSkipBuildWithActiveSmokeFlags();
+
+            var platform = ApplePlatform.MacCatalyst;
+
+            if (!EffectiveSkipRegen)
+            {
+                RunBuildXcframework(platformOverride: platform);
+                RunRegenerateMacOSBindings(platformOverride: platform);
+                RunBuildAsyncWrapper(platformOverride: platform);
+            }
+            else
+            {
+                AssertBindingsNotStale(expectedPlatform: platform);
+            }
+
+            if (!SkipBuild)
+            {
+                Log.Information("--- Building RuntimeTestsApp.MacCatalyst ---");
+
+                // Clean previous app bundle to avoid codesign "unsealed contents"
+                // errors from previously injected dylibs.
+                var catalystBuildDir = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
+                    $"{DotNetTfm}-maccatalyst" / "maccatalyst-arm64";
+                var appBundle = catalystBuildDir / "RuntimeTestsApp.MacCatalyst.app";
+                if (Directory.Exists(appBundle))
+                {
+                    appBundle.DeleteDirectory();
+                    Log.Information("Cleaned previous app bundle.");
+                }
+
+                DotNetBuild(s => s
+                    .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.MacCatalyst")
+                    .SetConfiguration("Debug")
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                if (!Directory.Exists(appBundle))
+                    throw new Exception($"Build failed - Catalyst app bundle not found at {appBundle}");
+
+                // Inject native libs that NativeReference doesn't cover.
+                var monoBundle = appBundle / "Contents" / "MonoBundle";
+                InjectCatalystNativeLibraries(monoBundle);
+
+                // Re-sign the .app bundle after dylib injection.
+                CodesignMacOSApp(appBundle, exeNameOverride: "RuntimeTestsApp.MacCatalyst");
+
+                Log.Information("Build successful.");
+            }
+
+            // Run natively on macOS via the .app bundle's native executable
+            RunOnCatalyst();
+        });
+
+    // ============================================================
     // RuntimeTestsTvOSSimulator — NO DependsOn, manages pipeline internally
     //
     // Mirror of RuntimeTestsSimulator but targets the tvOS simulator. Shares
@@ -1015,7 +1223,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsTvOSSimulator => _ => _
-        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict)
+        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -1626,6 +1834,103 @@ partial class Build
         ReportRuntimeTestResult(result, "macOS", jsonlResults);
     }
 
+    void RunOnCatalyst()
+    {
+        Log.Information("--- Running on Mac Catalyst ---");
+
+        // Catalyst uses --platform simulator (Mono JIT mode, same as macOS).
+        // Pass --results-path so JSONL is written outside the .app bundle.
+        var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / "swift-bindings-catalyst-results";
+        Directory.CreateDirectory(catalystResultsDir);
+        // Remove stale JSONL from previous runs so a crash doesn't report old results.
+        var staleJsonl = catalystResultsDir / "test-results.jsonl";
+        if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
+        var launchArgs = $"--platform simulator --results-path \"{catalystResultsDir}\"";
+        if (FlakeDetect) launchArgs += " --flake-detect";
+        if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
+
+        Log.Information("Launching RuntimeTestsApp.MacCatalyst (timeout: {Timeout}s)...", Timeout);
+
+        var output = new ConcurrentQueue<string>();
+        using var process = new Process();
+        // net10.0-maccatalyst produces a .app bundle — launch the native executable
+        // directly instead of `dotnet run`.
+        var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
+            $"{DotNetTfm}-maccatalyst" / "maccatalyst-arm64" / "RuntimeTestsApp.MacCatalyst.app" /
+            "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst";
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = catalystExe,
+            Arguments = launchArgs,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        var sw = Stopwatch.StartNew();
+        var testResult = TestResult.Timeout;
+        bool resultsFlushed = false;
+
+        while (sw.Elapsed < TimeSpan.FromSeconds(Timeout))
+        {
+            if (process.HasExited)
+            {
+                Thread.Sleep(100);
+                var text = string.Join("\n", output);
+                resultsFlushed = text.Contains("RESULTS FLUSHED");
+                if (text.Contains("TEST SUCCESS")) testResult = TestResult.Success;
+                else if (text.Contains("TEST FAILURE")) testResult = TestResult.Failure;
+                else testResult = TestResult.LaunchFailure;
+                break;
+            }
+
+            var currentText = string.Join("\n", output);
+            if (currentText.Contains("RESULTS FLUSHED"))
+            {
+                resultsFlushed = true;
+                if (currentText.Contains("TEST SUCCESS")) { testResult = TestResult.Success; break; }
+                if (currentText.Contains("TEST FAILURE")) { testResult = TestResult.Failure; break; }
+            }
+
+            Thread.Sleep(250);
+        }
+
+        if (!process.HasExited)
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch { }
+        }
+
+        var finalOutput = string.Join("\n", output);
+        int? exitCode = null;
+        try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
+
+        var result = new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
+
+        Log.Information("");
+        Log.Information("=== APP OUTPUT ===");
+        Log.Information(result.Output);
+
+        // JSONL is written to --results-path (temp dir outside the .app bundle).
+        JsonlTestResults? jsonlResults = null;
+        var catalystJsonlPath = catalystResultsDir / "test-results.jsonl";
+        if (File.Exists(catalystJsonlPath))
+        {
+            jsonlResults = JsonlTestResults.ParseFile(catalystJsonlPath);
+            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+        }
+
+        ReportRuntimeTestResult(result, "Mac Catalyst", jsonlResults);
+    }
+
     // ============================================================
     // Crash Diagnostics
     // ============================================================
@@ -2085,9 +2390,10 @@ partial class Build
     /// inline Swift wrapper files by RunBuildAsyncWrapper.
     /// Also generates dependency module bindings (unlike the original version).
     /// </summary>
-    void RunRegenerateMacOSBindings()
+    void RunRegenerateMacOSBindings(ApplePlatform? platformOverride = null)
     {
-        Log.Information("=== Generating macOS bindings for {Module} ===", ModuleName);
+        var platform = platformOverride ?? ApplePlatform.MacOS;
+        Log.Information("=== Generating {Platform} bindings for {Module} ===", platform.Name, ModuleName);
 
         EnsureGeneratorBuilt();
 
@@ -2099,15 +2405,15 @@ partial class Build
         {
             $"\"{GeneratorDll}\"",
             $"--xcframework \"{BtXcframeworkDir}\"",
-            "--platform macos",
+            $"--platform {platform.Name}",
             $"-o \"{BtOutputDir}\"",
         };
 
         // Note: --async-library, --framework-dependency, and --symbolgraph are
-        // intentionally not passed for macOS. All three cause the generator to
-        // produce no C# output when combined with --platform macos (generator
-        // limitation). The wrapper compilation (which needs dep search paths)
-        // is handled separately by RunBuildAsyncWrapper.
+        // intentionally not passed for macOS/Catalyst. All three cause the
+        // generator to produce no C# output when combined with desktop-class
+        // platforms (generator limitation). The wrapper compilation (which needs
+        // dep search paths) is handled separately by RunBuildAsyncWrapper.
         //
         // Without --async-library, the generator uses the default wrapper
         // library name "{Module}SwiftBindings" instead of the WrapperModule
@@ -2116,7 +2422,7 @@ partial class Build
         //
         // Without --framework-dependency, cross-module APIs (e.g. functions
         // accepting dependency module types) are emitted as unsupported
-        // placeholders. This is acceptable — macOS cross-module coverage is
+        // placeholders. This is acceptable — desktop cross-module coverage is
         // not a priority and the runner doesn't include CrossModule/ tests.
 
         var genProcess = ProcessTasks.StartProcess(
@@ -2129,7 +2435,7 @@ partial class Build
         File.WriteAllText(BtOutputDir / "generator-exit-code", exitCode.ToString());
 
         if (exitCode != 0)
-            Log.Warning("macOS binding generation exited with code {ExitCode} (non-fatal)", exitCode);
+            Log.Warning("{Platform} binding generation exited with code {ExitCode} (non-fatal)", platform.Name, exitCode);
 
         // Fix wrapper library name: without --async-library, the generator
         // defaults to "{Module}SwiftBindings" but RunBuildAsyncWrapper compiles
@@ -2158,7 +2464,7 @@ partial class Build
             {
                 $"\"{GeneratorDll}\"",
                 $"--xcframework \"{BtDepXcframeworkDir}\"",
-                "--platform macos",
+                $"--platform {platform.Name}",
                 $"-o \"{depOutputDir}\"",
             };
 
@@ -2199,10 +2505,10 @@ partial class Build
 
         var csCount = Directory.GetFiles(BtOutputDir, "*.cs", SearchOption.AllDirectories).Length;
         var swiftCount = Directory.GetFiles(BtOutputDir, "*.swift", SearchOption.AllDirectories).Length;
-        Log.Information("Generated (macOS): {CsCount} C# files, {SwiftCount} Swift wrapper files", csCount, swiftCount);
+        Log.Information("Generated ({Platform}): {CsCount} C# files, {SwiftCount} Swift wrapper files", platform.Name, csCount, swiftCount);
 
         StampSmokeFlagsSidecar(BtOutputDir);
-        StampTargetPlatformSidecar(BtOutputDir, ApplePlatform.MacOS);
+        StampTargetPlatformSidecar(BtOutputDir, platform);
     }
 
     // ============================================================
@@ -2221,6 +2527,17 @@ partial class Build
         InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacOS);
     }
 
+    /// <summary>
+    /// Injects native libraries into the Mac Catalyst app output.
+    /// Same pattern as macOS: NativeReference handles xcframeworks, this injects
+    /// the runtime dylib and dependency wrapper.
+    /// </summary>
+    void InjectCatalystNativeLibraries(AbsolutePath outputBin)
+    {
+        InjectRuntimeDylib(outputBin, nativeSubdir: "maccatalyst");
+        InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacCatalyst);
+    }
+
     // ============================================================
     // macOS Code Signing
     // ============================================================
@@ -2232,9 +2549,9 @@ partial class Build
     /// Apple Silicon kills binaries with invalid signatures (SIGKILL / exit 137).
     /// Signs bottom-up: dylibs → frameworks → main exe → bundle.
     /// </summary>
-    void CodesignMacOSApp(AbsolutePath appBundle)
+    void CodesignMacOSApp(AbsolutePath appBundle, string? exeNameOverride = null)
     {
-        Log.Information("Re-signing macOS .app bundle after native library injection...");
+        Log.Information("Re-signing .app bundle after native library injection...");
 
         // Sign all dylibs in MonoBundle
         var monoBundle = appBundle / "Contents" / "MonoBundle";
@@ -2264,7 +2581,8 @@ partial class Build
         }
 
         // Sign the main executable
-        var mainExe = appBundle / "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
+        var exeName = exeNameOverride ?? "RuntimeTestsApp.Mac";
+        var mainExe = appBundle / "Contents" / "MacOS" / exeName;
         ProcessTasks.StartProcess("codesign", $"--force -s - \"{mainExe}\"")
             .AssertZeroExitCode();
 
@@ -2272,7 +2590,7 @@ partial class Build
         ProcessTasks.StartProcess("codesign", $"--force -s - \"{appBundle}\"")
             .AssertZeroExitCode();
 
-        Log.Information("macOS .app bundle re-signed successfully.");
+        Log.Information(".app bundle re-signed successfully.");
     }
 
     // ============================================================

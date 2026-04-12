@@ -8,12 +8,13 @@ using RuntimeTestsApp.Infrastructure;
 using Swift.Runtime;
 using SwiftBindingsTestLib;
 
-namespace RuntimeTestsApp.Mac;
+namespace RuntimeTestsApp.MacCatalyst;
 
 /// <summary>
-/// macOS console-based test runner. Same reflection-based discovery as the iOS
-/// RuntimeTestsApp but without UIKit — runs directly on macOS with an NSRunLoop
-/// on the main thread to service GCD dispatch sources for Swift async callbacks.
+/// Mac Catalyst console-based test runner. Same reflection-based discovery as the
+/// macOS RuntimeTestsApp.Mac but targeting net10.0-maccatalyst. Runs directly on
+/// macOS with an NSRunLoop on the main thread to service GCD dispatch sources for
+/// Swift async callbacks.
 /// </summary>
 public class Program
 {
@@ -24,7 +25,7 @@ public class Program
 
     static int Main(string[] args)
     {
-        // Parse arguments directly (no NSProcessInfo needed on macOS)
+        // Parse arguments directly (no NSProcessInfo needed — runs natively on macOS)
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--platform" && i + 1 < args.Length)
@@ -85,7 +86,7 @@ public class Program
     {
         TestLogger.Clear();
 
-        TestLogger.Info("=== RUNTIME TESTS (macOS) ===");
+        TestLogger.Info("=== RUNTIME TESTS (Mac Catalyst) ===");
         TestLogger.Info($"Platform: {Platform}");
         if (ClassFilter != null)
             TestLogger.Info($"Class filter: {ClassFilter}");
@@ -239,7 +240,7 @@ public class Program
         if (libraryName == "SwiftBindingsTestLib" || libraryName == "SwiftBindings"
             || libraryName == "SwiftBindingsTestLibBridge")
         {
-            // On macOS, try @rpath first, then direct dylib load
+            // On Mac Catalyst, try @rpath first, then direct dylib load
             var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
             if (NativeLibrary.TryLoad(frameworkPath, out var handle))
             {

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-#if canImport(AuthenticationServices) && !os(tvOS) && !os(watchOS)
+#if canImport(AuthenticationServices) && !os(tvOS) && !os(watchOS) && !targetEnvironment(macCatalyst)
 import AuthenticationServices
 
 // MARK: - OptionalAutoBridgeStruct (fix #13, compile-only)

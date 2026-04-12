@@ -95,11 +95,32 @@ public record ApplePlatform
         SimulatorPlistVariant = "simulator",
     };
 
+    public static ApplePlatform MacCatalyst { get; } = new()
+    {
+        Name = "maccatalyst",
+        SimulatorSdkName = "macosx",
+        SimulatorTarget = "arm64-apple-ios15.0-macabi",
+        SimulatorSliceId = "ios-arm64-maccatalyst",
+        SimulatorModuleSuffix = "arm64-apple-ios-macabi",
+        SimulatorPlistPlatform = "MacOSX",
+        DeviceSdkName = null,
+        DeviceTarget = null,
+        DeviceSliceId = null,
+        DeviceModuleSuffix = null,
+        DevicePlistPlatform = null,
+        MinOsVersion = "15.0",
+        TfmSuffix = "maccatalyst",
+        PackageSuffix = "MacCatalyst",
+        SupportedPlatform = "ios",
+        SimulatorPlistVariant = "maccatalyst",
+    };
+
     public static ApplePlatform FromName(string name) => name.ToLowerInvariant() switch
     {
         "ios" => IOS,
         "macos" => MacOS,
         "tvos" => TvOS,
+        "maccatalyst" => MacCatalyst,
         _ => throw new ArgumentException($"Unknown platform: {name}")
     };
 }
