@@ -314,7 +314,7 @@ partial class Build
         .DependsOn(BuildXcframework)
         .Executes(() => RunRegenerateBindings(Strict || ForceStrict));
 
-    void RunRegenerateBindings(bool strict)
+    void RunRegenerateBindings(bool strict, ApplePlatform? platformOverride = null)
     {
         Log.Information("=== Regenerating bindings for {Module} ===", ModuleName);
 
@@ -326,7 +326,9 @@ partial class Build
             ((AbsolutePath)BtOutputDir).DeleteDirectory();
         BtOutputDir.CreateDirectory();
 
-        // Build generator arguments
+        // Build generator arguments. --platform threads through the generator so
+        // tvOS and Catalyst emit their own TPV-aware csprojs (and skip bindings
+        // that don't have availability coverage for the target platform).
         var genArgs = new List<string>
         {
             $"\"{GeneratorDll}\"",
@@ -334,6 +336,8 @@ partial class Build
             $"-o \"{BtOutputDir}\"",
             $"--async-library {WrapperModule}",
         };
+        if (platformOverride != null && platformOverride.Name != "ios")
+            genArgs.Add($"--platform {platformOverride.Name}");
 
         if (Directory.Exists(BtSymbolgraphDir))
         {
@@ -377,8 +381,21 @@ partial class Build
             var depOutputDir = BtOutputDir / "dep";
             depOutputDir.CreateDirectory();
 
+            // Dependency invocation must mirror the main module's --platform or
+            // a tvOS-flavoured main regen will stamp the shared output as tvOS
+            // while the dependency bindings are still emitted for the generator
+            // default (iOS), producing mixed-platform output under one sidecar.
+            var depArgs = new List<string>
+            {
+                $"\"{GeneratorDll}\"",
+                $"--xcframework \"{BtDepXcframeworkDir}\"",
+                $"-o \"{depOutputDir}\"",
+            };
+            if (platformOverride != null && platformOverride.Name != "ios")
+                depArgs.Add($"--platform {platformOverride.Name}");
+
             var depProcess = ProcessTasks.StartProcess(
-                "dotnet", $"\"{GeneratorDll}\" --xcframework \"{BtDepXcframeworkDir}\" -o \"{depOutputDir}\"",
+                "dotnet", string.Join(" ", depArgs),
                 workingDirectory: BindingTestsDir,
                 logOutput: false);
             depProcess.WaitForExit();
@@ -431,6 +448,12 @@ partial class Build
         // Stamp the active smoke-flag set so AssertBindingsNotStale can
         // detect flag-set drift under a later --skip-regen run.
         StampSmokeFlagsSidecar(BtOutputDir);
+
+        // Same idea on a different axis: stamp the platform so a later
+        // --skip-regen run across platform boundaries (iOS regen then tvOS
+        // --skip-regen) is rejected instead of silently reusing mismatched
+        // bindings.
+        StampTargetPlatformSidecar(BtOutputDir, platformOverride ?? ApplePlatform.IOS);
     }
 
     void EnsureGeneratorBuilt()

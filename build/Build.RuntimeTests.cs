@@ -171,6 +171,13 @@ partial class Build
     // ------------------------------------------------------------------
     const string SmokeFlagsSidecarName = ".smoke-flags";
 
+    // Sibling of .smoke-flags — stamps the generator --platform used for the
+    // last regen, so AssertBindingsNotStale can reject --skip-regen across
+    // platform boundaries (e.g. running `nuke runtime-tests-tvos-simulator
+    // --skip-regen` after a previous iOS regen would otherwise silently reuse
+    // iOS-flavored bindings).
+    const string TargetPlatformSidecarName = ".target-platform";
+
     static string FormatSmokeFlagsForSidecar(IReadOnlyList<SmokeFlag> flags)
     {
         // Sort by Define so the stamp is insensitive to registration order in
@@ -193,6 +200,19 @@ partial class Build
         var sidecar = outputDir / SmokeFlagsSidecarName;
         outputDir.CreateDirectory();
         File.WriteAllText(sidecar, FormatSmokeFlagsForSidecar(GetActiveSmokeFlags()));
+    }
+
+    /// <summary>
+    /// Writes the generator --platform used for the last regen into a sidecar
+    /// alongside the generated bindings. Same loud-failure invariant as
+    /// <see cref="StampSmokeFlagsSidecar"/> — just a different axis (platform
+    /// instead of smoke-flag set).
+    /// </summary>
+    void StampTargetPlatformSidecar(AbsolutePath outputDir, ApplePlatform platform)
+    {
+        var sidecar = outputDir / TargetPlatformSidecarName;
+        outputDir.CreateDirectory();
+        File.WriteAllText(sidecar, platform.Name);
     }
 
     // --skip-build implies --skip-regen (matches run-runtime-tests.sh line 56-59).
@@ -741,7 +761,7 @@ partial class Build
             }
             else
             {
-                AssertBindingsNotStale();
+                AssertBindingsNotStale(expectedPlatform: ApplePlatform.IOS);
             }
 
             // Step 2: Build RuntimeTestsApp (unless --skip-build)
@@ -879,7 +899,7 @@ partial class Build
             }
             else
             {
-                AssertBindingsNotStale();
+                AssertBindingsNotStale(expectedPlatform: ApplePlatform.IOS);
                 AssertDeviceSliceExists();
             }
 
@@ -964,6 +984,113 @@ partial class Build
         });
 
     // ============================================================
+    // RuntimeTestsTvOSSimulator — NO DependsOn, manages pipeline internally
+    //
+    // Mirror of RuntimeTestsSimulator but targets the tvOS simulator. Shares
+    // the same binding output directory, xcframework, and runtime-test sources
+    // as the iOS target; the iOS and tvOS regen paths clobber each other's
+    // xcframeworks in BindingTests/.build/ by design — each target rebuilds
+    // from scratch. We intentionally do NOT share state across targets, and
+    // smoke flags are rejected up front because there is no tvOS snapshot
+    // wiring.
+    //
+    // Per the design doc: no tvOS device runner (NativeAOT), no per-framework
+    // smoke gating. The tvOS csproj excludes SmokeTests/ at the Compile-item
+    // level for the same reason.
+    // ============================================================
+
+    Target RuntimeTestsTvOSSimulator => _ => _
+        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict)
+        .Executes(() =>
+        {
+            Log.Information("=========================================");
+            Log.Information(" BindingTests Runtime Tests (tvOS Simulator)");
+            Log.Information("=========================================");
+            Log.Information("Skip regeneration: {SkipRegen}", EffectiveSkipRegen);
+            Log.Information("Skip build: {SkipBuild}", SkipBuild);
+            Log.Information("Timeout: {Timeout}s", Timeout);
+            if (!string.IsNullOrEmpty(ClassFilter))
+                Log.Information("Class filter: {ClassFilter}", ClassFilter);
+            if (FlakeDetect)
+                Log.Information("Flake detection: enabled");
+
+            // tvOS has no smoke wiring today — any active smoke flag is a
+            // configuration error, not something to quietly ignore.
+            var activeSmoke = GetActiveSmokeFlags();
+            if (activeSmoke.Count > 0)
+            {
+                var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
+                throw new Exception(
+                    $"{names}: smoke flags are not supported by runtime-tests-tvos-simulator. " +
+                    "Per-framework smoke wiring lives on the iOS simulator runner only. " +
+                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+            }
+            RejectSkipBuildWithActiveSmokeFlags();
+
+            var platform = ApplePlatform.TvOS;
+
+            // Step 1: Conditionally run binding pipeline (tvOS-flavored).
+            // RunRegenerateBindings needs the platform so the generator emits
+            // tvOS-correct availability attributes and filters out bindings whose
+            // Swift types don't exist on tvOS (e.g. AuthenticationServices.
+            // ASAuthorizationPublicKeyCredentialParameters is iOS/macOS only).
+            //
+            // We deliberately skip RunCompileCheck() here: CompileCheck targets
+            // net10.0-ios, so invoking it on tvOS-regenerated output is a TFM
+            // mismatch. The dotnet build of RuntimeTestsApp.tvOS below is the
+            // real compile gate for the tvOS output.
+            if (!EffectiveSkipRegen)
+            {
+                RunBuildXcframework(platformOverride: platform);
+                RunRegenerateBindings(strict: false, platformOverride: platform);
+                RunBuildAsyncWrapper(platformOverride: platform);
+                // RunBuildBridge() is intentionally skipped on tvOS: the bridge
+                // builder still reads ResolvedPlatform (defaults to iOS) and
+                // compiles against ios-arm64-simulator slice/SDK. Parameterising
+                // it on ApplePlatform is tracked as a Session 8.5 follow-up in
+                // src/docs/apple-frameworks-bindingtests-plan.md. Until that
+                // lands, the tvOS runner has no bridge artefact — any test that
+                // depends on BridgeModule symbols is guarded elsewhere.
+            }
+            else
+            {
+                AssertBindingsNotStale(expectedPlatform: platform);
+            }
+
+            // Step 2: Build RuntimeTestsApp.tvOS (unless --skip-build)
+            if (!SkipBuild)
+            {
+                Log.Information("--- Building RuntimeTestsApp.tvOS ---");
+                DotNetBuild(s => s
+                    .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.tvOS")
+                    .SetConfiguration("Debug")
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                var appFrameworks = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
+                    $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app" / "Frameworks";
+
+                if (!Directory.Exists(BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
+                    $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app"))
+                    throw new Exception("Build failed - tvOS app bundle not found");
+
+                Log.Information("Build successful.");
+
+                // Inject all 4 native artifacts into app bundle Frameworks/
+                InjectRuntimeDylib(appFrameworks, nativeSubdir: "tvossimulator");
+                InjectAsyncWrapper(appFrameworks, platformOverride: platform);
+                InjectDependencyFramework(appFrameworks, platformOverride: platform);
+                InjectDependencyWrapper(appFrameworks, platformOverride: platform);
+            }
+            else
+            {
+                Log.Information("--- Steps 1-2: Skipped (--skip-build) ---");
+            }
+
+            // Step 3: Install + run on tvOS simulator
+            RunOnTvOSSimulator();
+        });
+
+    // ============================================================
     // Shared Helpers: Simulator Execution
     // ============================================================
 
@@ -1017,7 +1144,8 @@ partial class Build
             Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
             var result = SimCtl.Launch(
                 device.Udid, RuntimeTestsBundleId,
-                args.ToArray(), TimeSpan.FromSeconds(Timeout));
+                args.ToArray(), TimeSpan.FromSeconds(Timeout),
+                appName: "RuntimeTestsApp");
             lastResult = result;
 
             // Show output
@@ -1026,7 +1154,7 @@ partial class Build
             Log.Information(result.Output);
 
             // Crash diagnostics
-            HandleCrashDiagnostics(result, device.Udid, crashLogsBefore);
+            HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp");
 
             // Try to retrieve JSONL results from sandbox
             JsonlTestResults? runResults = null;
@@ -1144,6 +1272,86 @@ partial class Build
         // Report final aggregated result
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
         ReportRuntimeTestResult(lastResult!, "Simulator", finalJsonl);
+    }
+
+    // ============================================================
+    // Shared Helpers: tvOS Simulator Execution
+    //
+    // Thin mirror of RunOnSimulator. The tvOS runner has no interactive UI
+    // and no resume-on-crash loop — the test surface is smaller (no smoke
+    // tests, UIKit-only regressions already excluded at compile time), and
+    // every runtime crash on tvOS is just as "our bug" as on iOS, so the
+    // simpler one-shot flow keeps the new target from becoming a second
+    // place where crash-recovery plumbing has to evolve.
+    // ============================================================
+
+    void RunOnTvOSSimulator()
+    {
+        Log.Information("--- Running on tvOS Simulator ---");
+        Log.Information("tvOS runner is single-shot by design: no resume-on-crash. " +
+            "A crashing test class will prevent later classes from running — fix the " +
+            "crash, don't add a retry loop.");
+
+        SimCtl.SimDevice device;
+        if (!string.IsNullOrEmpty(DeviceUdid))
+        {
+            // Loud-fail on family mismatch: a caller passing an iOS UDID here
+            // would otherwise hit a confusing install-time error. Validate
+            // against simctl's own device family listing before touching install.
+            var tvDevices = SimCtl.ListDevices(SimCtl.TvOSAppleTVFamily.RuntimeFilter);
+            if (!tvDevices.Any(d => string.Equals(d.Udid, DeviceUdid, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new Exception(
+                    $"--device-udid {DeviceUdid} is not a tvOS simulator. " +
+                    $"runtime-tests-tvos-simulator only accepts tvOS devices; " +
+                    $"drop the flag or pass a tvOS UDID from `xcrun simctl list devices tvOS`.");
+            }
+            device = new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "");
+        }
+        else
+        {
+            device = SimCtl.EnsureBootedDevice(SimCtl.TvOSAppleTVFamily);
+        }
+        Log.Information("Using simulator: {Name} ({Udid})", device.Name, device.Udid);
+
+        var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / "bin" / "Debug" /
+            $"{DotNetTfm}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
+
+        var crashLogsBefore = SimCtl.CountCrashLogs("RuntimeTestsApp.tvOS");
+
+        SimCtl.Install(device.Udid, appPath);
+
+        var args = new List<string> { "--platform", "simulator" };
+        if (FlakeDetect) args.AddRange(["--flake-detect"]);
+        if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
+
+        Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
+        var result = SimCtl.Launch(
+            device.Udid, RuntimeTestsBundleId,
+            args.ToArray(), TimeSpan.FromSeconds(Timeout),
+            appName: "RuntimeTestsApp.tvOS");
+
+        Log.Information("");
+        Log.Information("=== APP OUTPUT ===");
+        Log.Information(result.Output);
+
+        HandleCrashDiagnostics(result, device.Udid, crashLogsBefore, appName: "RuntimeTestsApp.tvOS");
+
+        // Try to retrieve JSONL results from sandbox
+        JsonlTestResults? jsonlResults = null;
+        var jsonlContent = SimCtl.CopyResultsFromSandbox(device.Udid, RuntimeTestsBundleId);
+        if (jsonlContent != null)
+        {
+            jsonlResults = JsonlTestResults.Parse(jsonlContent);
+            Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
+            File.WriteAllText("/tmp/runtime-tests-tvos.jsonl", jsonlContent);
+        }
+        else
+        {
+            Log.Debug("JSONL retrieval failed");
+        }
+
+        ReportRuntimeTestResult(result, "tvOS Simulator", jsonlResults);
     }
 
     // ============================================================
@@ -1404,16 +1612,20 @@ partial class Build
     // Crash Diagnostics
     // ============================================================
 
-    void HandleCrashDiagnostics(LaunchResult result, string simulatorUdid, int crashLogsBefore)
+    // appName identifies which app's crash logs to look at. CountCrashLogs and
+    // FindLatestCrashLog glob `{appName}*.ips`, which is a prefix match — so
+    // "RuntimeTestsApp" cross-contaminates with "RuntimeTestsApp.tvOS". Callers
+    // MUST pass the exact basename of the app they launched.
+    void HandleCrashDiagnostics(LaunchResult result, string simulatorUdid, int crashLogsBefore, string appName)
     {
         if (result.Result is not (TestResult.Crash or TestResult.LaunchFailure or TestResult.Timeout))
             return;
 
         // Check crash log count delta
-        var crashLogsAfter = SimCtl.CountCrashLogs("RuntimeTestsApp");
+        var crashLogsAfter = SimCtl.CountCrashLogs(appName);
         if (crashLogsAfter > crashLogsBefore)
         {
-            var crashLog = SimCtl.FindLatestCrashLog("RuntimeTestsApp");
+            var crashLog = SimCtl.FindLatestCrashLog(appName);
             if (crashLog != null)
             {
                 Log.Error("Crash log detected: {Path}", crashLog);
@@ -1428,7 +1640,7 @@ partial class Build
         }
 
         // Read device log for crash evidence
-        var deviceLog = SimCtl.ReadLog(simulatorUdid, TimeSpan.FromMinutes(3), "RuntimeTestsApp");
+        var deviceLog = SimCtl.ReadLog(simulatorUdid, TimeSpan.FromMinutes(3), appName);
         if (!string.IsNullOrEmpty(deviceLog))
         {
             var isMonoJitCrash = SimCtl.IsMonoJitCrash(deviceLog) ||
@@ -1460,7 +1672,7 @@ partial class Build
             else if (deviceLog.Contains("EXC_BAD_ACCESS") || deviceLog.Contains("SIGABRT"))
             {
                 Log.Warning("");
-                Log.Warning("=== DEVICE LOG (last 3 min, RuntimeTestsApp) ===");
+                Log.Warning("=== DEVICE LOG (last 3 min, {AppName}) ===", appName);
                 var logLines = deviceLog.Split('\n').TakeLast(30);
                 foreach (var line in logLines)
                     Log.Warning("  {Line}", line);
@@ -1647,7 +1859,7 @@ partial class Build
     // Staleness Detection
     // ============================================================
 
-    void AssertBindingsNotStale(AbsolutePath? outputDirOverride = null)
+    void AssertBindingsNotStale(AbsolutePath? outputDirOverride = null, ApplePlatform? expectedPlatform = null)
     {
         var outputDir = outputDirOverride ?? BtOutputDir;
         var bindingsFile = outputDir / $"{ModuleName}.cs";
@@ -1673,6 +1885,26 @@ partial class Build
                 "The smoke flag set has changed since bindings were last regenerated; " +
                 $"rerun without --skip-regen. Stamped={FormatSidecarForMessage(stampedFlags)}, " +
                 $"current={FormatSidecarForMessage(currentFlags)}. Sidecar: {sidecar}.");
+        }
+
+        // Same loud-failure invariant for --platform: if the caller is asking
+        // for tvOS bindings but the last regen stamped "ios", the generated
+        // output is platform-wrong and --skip-regen must be rejected. Missing
+        // sidecar is treated as "ios" for back-compat with bindings produced
+        // before this sidecar existed.
+        if (expectedPlatform != null)
+        {
+            var platformSidecar = outputDir / TargetPlatformSidecarName;
+            var stampedPlatform = File.Exists(platformSidecar)
+                ? File.ReadAllText(platformSidecar).Trim()
+                : "ios";
+            if (stampedPlatform != expectedPlatform.Name)
+            {
+                throw new InvalidOperationException(
+                    "The target platform has changed since bindings were last regenerated; " +
+                    $"rerun without --skip-regen. Stamped={stampedPlatform}, " +
+                    $"current={expectedPlatform.Name}. Sidecar: {platformSidecar}.");
+            }
         }
 
         var bindingsTime = File.GetLastWriteTimeUtc(bindingsFile);
@@ -1713,10 +1945,11 @@ partial class Build
 
     /// <summary>
     /// Injects libSwiftBindingsRuntime.dylib into the app bundle Frameworks/ directory.
+    /// Defaults to the iOS simulator runtime; pass "tvossimulator" for tvOS.
     /// </summary>
-    void InjectRuntimeDylib(AbsolutePath appFrameworks)
+    void InjectRuntimeDylib(AbsolutePath appFrameworks, string nativeSubdir = "iossimulator")
     {
-        var runtimeDylib = RootDirectory / "src" / "Swift.Runtime" / "native" / "iossimulator" /
+        var runtimeDylib = RootDirectory / "src" / "Swift.Runtime" / "native" / nativeSubdir /
             "libSwiftBindingsRuntime.dylib";
 
         appFrameworks.CreateDirectory();
@@ -1736,9 +1969,9 @@ partial class Build
     /// Injects the SwiftBindings async wrapper framework into the app bundle.
     /// The resolver uses @rpath/SwiftBindings.framework/SwiftBindings.
     /// </summary>
-    void InjectAsyncWrapper(AbsolutePath appFrameworks)
+    void InjectAsyncWrapper(AbsolutePath appFrameworks, ApplePlatform? platformOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
         var wrapperSlice = BtOutputDir / $"{WrapperModule}.xcframework" /
             platform.SimulatorSliceId / $"{WrapperModule}.framework" / WrapperModule;
 
@@ -1759,9 +1992,9 @@ partial class Build
     /// <summary>
     /// Injects the SwiftBindingsTestLibDependency framework into the app bundle.
     /// </summary>
-    void InjectDependencyFramework(AbsolutePath appFrameworks)
+    void InjectDependencyFramework(AbsolutePath appFrameworks, ApplePlatform? platformOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
         var depFwDir = BtDepXcframeworkDir / platform.SimulatorSliceId /
             $"{DepModuleName}.framework";
 
@@ -1792,9 +2025,9 @@ partial class Build
     /// <summary>
     /// Injects the dependency wrapper framework into the app bundle.
     /// </summary>
-    void InjectDependencyWrapper(AbsolutePath appFrameworks)
+    void InjectDependencyWrapper(AbsolutePath appFrameworks, ApplePlatform? platformOverride = null)
     {
-        var platform = ResolvedPlatform;
+        var platform = platformOverride ?? ResolvedPlatform;
         var depWrapperName = $"{DepModuleName}SwiftBindings";
         var depWrapperDir = BtOutputDir / $"{depWrapperName}.xcframework" /
             platform.SimulatorSliceId / $"{depWrapperName}.framework";

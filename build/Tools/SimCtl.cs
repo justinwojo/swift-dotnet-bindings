@@ -20,7 +20,28 @@ public static class SimCtl
 {
     public record SimDevice(string Udid, string Name, string State, bool IsAvailable, string Runtime);
 
-    static readonly string[] PreferredDevices = ["iPhone 16", "iPhone 16 Pro", "iPhone 15 Pro", "iPhone 15"];
+    /// <summary>
+    /// Describes a family of Apple simulators (iOS iPhone, tvOS Apple TV, ...) for device discovery.
+    /// Keeping the selection criteria in one record avoids sprawling per-family EnsureBooted overloads
+    /// and makes it obvious why a given booted device was picked.
+    /// </summary>
+    public record SimDeviceFamily(
+        string DisplayName,
+        string RuntimeFilter,
+        string NameContains,
+        IReadOnlyList<string> PreferredDevices);
+
+    public static readonly SimDeviceFamily IOSiPhoneFamily = new(
+        DisplayName: "iPhone",
+        RuntimeFilter: "iOS",
+        NameContains: "iPhone",
+        PreferredDevices: ["iPhone 16", "iPhone 16 Pro", "iPhone 15 Pro", "iPhone 15"]);
+
+    public static readonly SimDeviceFamily TvOSAppleTVFamily = new(
+        DisplayName: "Apple TV",
+        RuntimeFilter: "tvOS",
+        NameContains: "Apple TV",
+        PreferredDevices: ["Apple TV 4K (3rd generation)", "Apple TV 4K", "Apple TV"]);
 
     static readonly string CrashLogDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -65,32 +86,37 @@ public static class SimCtl
 
     /// <summary>
     /// Returns an already-booted simulator, or finds a preferred one and boots it.
-    /// Preferred device list matches the bash script: iPhone 16, 15 Pro, 15.
+    /// Defaults to the iPhone family for backwards compatibility with the iOS runner.
     /// </summary>
-    public static SimDevice EnsureBootedDevice()
+    public static SimDevice EnsureBootedDevice(SimDeviceFamily? family = null)
     {
+        family ??= IOSiPhoneFamily;
+
         // Check for already-booted
-        var booted = ListDevices("iOS")
-            .FirstOrDefault(d => d.State == "Booted");
+        var booted = ListDevices(family.RuntimeFilter)
+            .FirstOrDefault(d => d.State == "Booted"
+                && d.Name.Contains(family.NameContains, StringComparison.OrdinalIgnoreCase));
         if (booted != null)
         {
-            Log.Information("Using already-booted simulator: {Name} ({Udid})", booted.Name, booted.Udid);
+            Log.Information("Using already-booted {Family} simulator: {Name} ({Udid})",
+                family.DisplayName, booted.Name, booted.Udid);
             return booted;
         }
 
-        // Find preferred device to boot
-        var available = ListDevices("iOS")
-            .Where(d => d.IsAvailable && d.Name.Contains("iPhone"))
+        var available = ListDevices(family.RuntimeFilter)
+            .Where(d => d.IsAvailable
+                && d.Name.Contains(family.NameContains, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var device = PreferredDevices
+        var device = family.PreferredDevices
             .Select(pref => available.FirstOrDefault(d => d.Name == pref))
             .FirstOrDefault(d => d != null)
             ?? available.FirstOrDefault()
             ?? throw new InvalidOperationException(
-                "No available iPhone simulator found. Install one via Xcode.");
+                $"No available {family.DisplayName} simulator found. Install one via Xcode.");
 
-        Log.Information("Booting simulator: {Name} ({Udid})", device.Name, device.Udid);
+        Log.Information("Booting {Family} simulator: {Name} ({Udid})",
+            family.DisplayName, device.Name, device.Udid);
         Boot(device.Udid);
         return device;
     }
@@ -120,8 +146,11 @@ public static class SimCtl
     /// Launches app on simulator, captures console output, and detects test completion or crash.
     /// Waits for RESULTS FLUSHED marker before checking TEST SUCCESS/TEST FAILURE to ensure
     /// JSONL results are fully written before the process is killed.
+    /// <paramref name="appName"/> identifies which crash logs to search for on the non-happy-path
+    /// (prefix-matched against <c>{appName}*.ips</c>); callers MUST pass the exact basename of
+    /// the app they launched — bundleId is shared across iOS and tvOS so we can't derive it.
     /// </summary>
-    public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout)
+    public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout, string appName)
     {
         var launchArgs = string.Join(" ", args);
         var output = new ConcurrentQueue<string>();
@@ -202,7 +231,7 @@ public static class SimCtl
         // Check crash logs if no clear test result
         string? crashLog = null;
         if (result is TestResult.Crash or TestResult.LaunchFailure or TestResult.Timeout)
-            crashLog = FindLatestCrashLog("RuntimeTestsApp");
+            crashLog = FindLatestCrashLog(appName);
 
         return new LaunchResult(result, finalOutput, exitCode, crashLog, resultsFlushed);
     }
@@ -278,12 +307,19 @@ public static class SimCtl
     public static string ReadLog(string udid, TimeSpan interval, string processName)
     {
         var minutes = Math.Max(1, (int)Math.Ceiling(interval.TotalMinutes));
+        // The eventMessage CONTAINS fallback is a substring match and would
+        // otherwise let an iOS `RuntimeTestsApp` query sweep up any ReportCrash
+        // line that mentions `RuntimeTestsApp.tvOS`. Exclude the tvOS sibling
+        // explicitly when querying for the plain iOS app name.
+        var crashMessageClause = $"eventMessage CONTAINS \"{processName}\"";
+        if (!processName.Contains(".tvOS"))
+            crashMessageClause += $" AND NOT eventMessage CONTAINS \"{processName}.tvOS\"";
         try
         {
             var process = ProcessTasks.StartProcess(
                 "xcrun",
                 $"simctl spawn {udid} log show --last {minutes}m " +
-                $"--predicate 'process == \"{processName}\" OR (process == \"ReportCrash\" AND eventMessage CONTAINS \"{processName}\")' " +
+                $"--predicate 'process == \"{processName}\" OR (process == \"ReportCrash\" AND {crashMessageClause})' " +
                 "--style compact",
                 logOutput: false,
                 timeout: 15000);
@@ -304,7 +340,7 @@ public static class SimCtl
     public static int CountCrashLogs(string appName)
     {
         if (!Directory.Exists(CrashLogDir)) return 0;
-        return Directory.GetFiles(CrashLogDir, $"{appName}*.ips").Length;
+        return EnumerateCrashLogsForApp(appName).Count();
     }
 
     /// <summary>
@@ -313,9 +349,28 @@ public static class SimCtl
     public static string? FindLatestCrashLog(string appName)
     {
         if (!Directory.Exists(CrashLogDir)) return null;
-        return Directory.GetFiles(CrashLogDir, $"{appName}*.ips")
+        return EnumerateCrashLogsForApp(appName)
             .OrderByDescending(File.GetLastWriteTime)
             .FirstOrDefault();
+    }
+
+    // Crash report filenames follow `<appName>-<timestamp>-<host>.ips` or
+    // `<appName>_<timestamp>.ips`. A plain glob of `{appName}*.ips` also
+    // matches sibling bundles that start with the same prefix, e.g. querying
+    // `RuntimeTestsApp` would sweep up `RuntimeTestsApp.tvOS-*.ips`. Require
+    // that whatever follows the prefix is a real separator so we don't
+    // cross-contaminate diagnostics across platforms.
+    static IEnumerable<string> EnumerateCrashLogsForApp(string appName)
+    {
+        return Directory.GetFiles(CrashLogDir, $"{appName}*.ips")
+            .Where(path =>
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                if (name.Length == appName.Length) return true;
+                if (!name.StartsWith(appName)) return false;
+                var sep = name[appName.Length];
+                return sep == '-' || sep == '_';
+            });
     }
 
     /// <summary>

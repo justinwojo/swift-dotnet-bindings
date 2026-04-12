@@ -42,6 +42,7 @@
         "RuntimeTestsDevice",
         "RuntimeTestsMacOS",
         "RuntimeTestsSimulator",
+        "RuntimeTestsTvOSSimulator",
         "RuntimeUnitTests",
         "SmokeTest",
         "Test",

@@ -817,6 +817,54 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("'@(_ResolvedDepXCFramework)' == ''", explicitLine);
         }
 
+        // ------------------------------------------------------------------
+        // Mac Catalyst framework resolver fallback
+        //
+        // Catalyst frameworks that ship only a regular macOS slice — no
+        // iOSSupport/ variant — must still resolve at compile time. Sdk.targets
+        // probes System/iOSSupport/System/Library/Frameworks first and, when
+        // the .swiftmodule is missing there, falls back to the regular
+        // System/Library/Frameworks path. Both paths are pure MSBuild XML, so
+        // the cheap, deterministic gate is string assertions on Sdk.targets.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Targets_CatalystFrameworkResolver_PrimaryPathIsIosSupport()
+        {
+            Assert.Contains(
+                "'$(_SwiftBindingPlatform)' == 'maccatalyst'",
+                TargetsContent);
+            Assert.Contains(
+                "System/iOSSupport/System/Library/Frameworks",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CatalystFrameworkResolver_FallbackGuardedOnMissingSwiftmodule()
+        {
+            Assert.Contains(
+                "!Exists('$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule')",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_CatalystFrameworkResolver_FallbackReassignsToRegularMacosPath()
+        {
+            var primaryIdx = TargetsContent.IndexOf(
+                "System/iOSSupport/System/Library/Frameworks",
+                StringComparison.Ordinal);
+            Assert.True(primaryIdx >= 0);
+
+            var fallbackIdx = TargetsContent.IndexOf(
+                "<_SwiftAppleFrameworkSdkSubpath>System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>",
+                primaryIdx,
+                StringComparison.Ordinal);
+            Assert.True(fallbackIdx > primaryIdx,
+                "Catalyst fallback reassignment must appear AFTER the iOSSupport primary " +
+                "assignment so the regular macOS path is used only when the iOSSupport " +
+                "variant is missing.");
+        }
+
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;

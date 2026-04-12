@@ -1,0 +1,124 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-tvos</TargetFramework>
+    <RuntimeIdentifier>tvossimulator-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.swiftbindings.runtimetestsapp</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <!-- tvOS simulator defaults to NativeAOT which trips on Unicode identifiers
+       in generated wrapper symbols (e.g. Café). Use the Mono interpreter so the
+       tvOS runner executes under the same family of runtime as the iOS simulator
+       Mono JIT path — the point of this runner is cross-platform smoke coverage,
+       not a second NativeAOT gate. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'tvossimulator-arm64'">
+    <MtouchLink>None</MtouchLink>
+    <UseInterpreter>true</UseInterpreter>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="Info.plist" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Shared test infrastructure from RuntimeTestsApp -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/GlobalUsings.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestBase.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestDescriptors.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
+  </ItemGroup>
+
+  <!-- Domain test classes. tvOS has the same UIKit surface iOS uses, so most
+       test classes compile unchanged. SmokeTests/ is intentionally excluded —
+       per-framework smoke gating is per-flag opt-in and lives on iOS simulator
+       today. SwiftUIBridge/ is also excluded: the tvOS runner in
+       Build.RuntimeTests.cs currently skips RunBuildBridge() because the bridge
+       compiler hardcodes iOS triples/SDK, so no SwiftBindingsTestLibBridge
+       native artifact is produced/injected for tvOS. Compiling the bridge tests
+       here would turn into DllNotFoundException at launch. Re-enable once
+       Session 8.5 parameterizes RunBuildBridge() on ApplePlatform (see
+       src/docs/apple-frameworks-bindingtests-plan.md). If a test truly can't
+       run on tvOS at runtime, prefer compile-time exclusion here over a silent
+       skip in the test body. -->
+  <ItemGroup>
+    <Compile Include="../RuntimeTestsApp/Async/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Closures/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Collisions/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Concurrency/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/EdgeCases/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/ErrorHandling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Generics/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Lifetime/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Marshalling/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Metadata/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Operators/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Patterns/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Protocols/**/*.cs" />
+    <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../output/SwiftBindingsTestLib.cs" />
+    <Compile Include="../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')">
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+
+  <!-- SwiftUI bridge is intentionally NOT compiled here. See the SwiftUIBridge/
+       exclusion comment above — without a tvOS bridge native artifact, defining
+       SWIFTUI_BRIDGE or pulling in the generated bridge C# would produce tests
+       that fail at launch with DllNotFoundException. Restore when Session 8.5
+       lands a tvOS-aware RunBuildBridge(). -->
+
+
+  <ItemGroup>
+    <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <NativeReference Include="../output/SwiftBindings.xcframework"
+                     Condition="Exists('../output/SwiftBindings.xcframework/tvos-arm64-simulator')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
+  <!-- Extract test manifest from source generator output into a host-visible file. -->
+  <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
+          Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
+    <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
+  </Target>
+</Project>

@@ -164,6 +164,11 @@ public class PATFallbackBoundaryTests : TestBase
         //      "string-tagged-associator" to prove the boxing routes to the
         //      concrete conformer rather than a default implementation.
         //   3. Delete the note above about only one conformer being exercised.
+        //   4. Mirror the flip in Session 6's
+        //      BindingTests/RuntimeTestsApp/SmokeTests/TipKitSmokeTests.cs
+        //      (TestReadTipKitSmokeIdentifierDispatchLatentBug) — both pins
+        //      share the same generator code path and must move in lockstep
+        //      so the synthetic and real-framework coverage don't drift.
         AssertTrue(thrown is InvalidCastException,
             "Documents current broken dispatch for PAT fallback: passing an " +
             "IntTaggedAssociator value through ReadTaggedAssociator(object) must " +
