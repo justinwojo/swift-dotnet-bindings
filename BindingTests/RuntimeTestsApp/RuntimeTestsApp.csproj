@@ -253,6 +253,96 @@
        entirely, exactly the behavior we want. -->
   <Import Project="$(StoreKitSnapshotProjectRefTargets)"
           Condition="'$(EnableStoreKitSmoke)' == 'true' AND Exists('$(StoreKitSnapshotProjectRefTargets)')" />
+
+  <!-- CryptoKit smoke test (Apple-framework direct-mode pipeline) — Session 2 of the
+       apple-frameworks-bindingtests plan. Mirrors the StoreKit block above but with two
+       simplifications: (1) no extern alias — CryptoKit is a pure Swift framework and
+       Microsoft.iOS does not ship a CryptoKit namespace, so the Swift-side types do not
+       collide with anything in default discovery; (2) uses the canonical
+       <Framework>Snapshot/ path produced by the generalized RegenerateAppleFrameworkSnapshot
+       helper instead of StoreKit's legacy StoreKit2Snapshot/ name.
+
+       Opt in via `nuke runtime-tests-simulator enable-cryptokit-smoke`, which
+       regenerates BindingTests/obj/CryptoKitSnapshot/ (gitignored) before the build.
+       Simulator-only today; the snapshot ships a single ios-arm64-simulator wrapper slice. -->
+  <PropertyGroup>
+    <CryptoKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/CryptoKitSnapshot/</CryptoKitSnapshotDir>
+    <CryptoKitSnapshotCsproj>$(CryptoKitSnapshotDir)CryptoKit.Swift.iOS.csproj</CryptoKitSnapshotCsproj>
+    <CryptoKitSnapshotProjectRefTargets>$(CryptoKitSnapshotDir)CryptoKit.Swift.iOS.ProjectReference.targets</CryptoKitSnapshotProjectRefTargets>
+    <CryptoKitSnapshotXcframework>$(CryptoKitSnapshotDir)CryptoKitSwiftBindings.xcframework</CryptoKitSnapshotXcframework>
+    <CryptoKitSmokeEnabled Condition="'$(EnableCryptoKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(CryptoKitSnapshotCsproj)') AND Exists('$(CryptoKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(CryptoKitSnapshotProjectRefTargets)')">true</CryptoKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_CryptoKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableCryptoKitSmoke)' == 'true' AND '$(CryptoKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableCryptoKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotCsproj)')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` (or `nuke runtime-tests-simulator --enable-cryptokit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(CryptoKitSnapshotProjectRefTargets)')"
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(CryptoKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);CRYPTOKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(CryptoKitSmokeEnabled)' == 'true'">
+    <!-- No <Aliases> — CryptoKit is Swift-only and does not collide with Microsoft.iOS. -->
+    <ProjectReference Include="$(CryptoKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <!-- Same Exists()-gated Import rationale as the StoreKit block: MSBuild evaluates
+       Imports at project load, before PropertyGroup logic runs, so we cannot use the
+       derived $(CryptoKitSmokeEnabled) property and must guard on the raw opt-in
+       property plus Exists() of the imported file. -->
+  <Import Project="$(CryptoKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableCryptoKitSmoke)' == 'true' AND Exists('$(CryptoKitSnapshotProjectRefTargets)')" />
+
+  <!-- WeatherKit smoke test (Apple-framework direct-mode pipeline) — Session 3 of the
+       apple-frameworks-bindingtests plan. Mirrors the CryptoKit block: no extern alias
+       (WeatherKit is pure Swift, no Microsoft.iOS namespace collision), canonical
+       <Framework>Snapshot/ path, simulator-only slice.
+
+       Opt in via `nuke runtime-tests-simulator enable-weatherkit-smoke`, which
+       regenerates BindingTests/obj/WeatherKitSnapshot/ (gitignored) before the build.
+       The smoke test deliberately avoids any API that would hit the WeatherKit.entitlement
+       or the network — it exercises WeatherError metadata + reflection-based
+       availability propagation only. See WeatherKitSmokeTests.cs. -->
+  <PropertyGroup>
+    <WeatherKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/WeatherKitSnapshot/</WeatherKitSnapshotDir>
+    <WeatherKitSnapshotCsproj>$(WeatherKitSnapshotDir)WeatherKit.Swift.iOS.csproj</WeatherKitSnapshotCsproj>
+    <WeatherKitSnapshotProjectRefTargets>$(WeatherKitSnapshotDir)WeatherKit.Swift.iOS.ProjectReference.targets</WeatherKitSnapshotProjectRefTargets>
+    <WeatherKitSnapshotXcframework>$(WeatherKitSnapshotDir)WeatherKitSwiftBindings.xcframework</WeatherKitSnapshotXcframework>
+    <WeatherKitSmokeEnabled Condition="'$(EnableWeatherKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(WeatherKitSnapshotCsproj)') AND Exists('$(WeatherKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(WeatherKitSnapshotProjectRefTargets)')">true</WeatherKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_WeatherKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableWeatherKitSmoke)' == 'true' AND '$(WeatherKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableWeatherKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotCsproj)')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` (or `nuke runtime-tests-simulator --enable-weatherkit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(WeatherKitSnapshotProjectRefTargets)')"
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(WeatherKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);WEATHERKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(WeatherKitSmokeEnabled)' == 'true'">
+    <!-- No <Aliases> — WeatherKit is Swift-only and does not collide with Microsoft.iOS. -->
+    <ProjectReference Include="$(WeatherKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(WeatherKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableWeatherKitSmoke)' == 'true' AND Exists('$(WeatherKitSnapshotProjectRefTargets)')" />
+
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">

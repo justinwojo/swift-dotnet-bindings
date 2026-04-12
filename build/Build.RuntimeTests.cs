@@ -29,6 +29,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Nuke.Common;
 using Nuke.Common.IO;
@@ -50,6 +51,127 @@ partial class Build
     // RegenerateStoreKit2Snapshot() below for the pipeline.
     [Parameter("Opt in to the StoreKit 2 smoke tests (regenerates BindingTests/obj/StoreKit2Snapshot/ in-tree)")]
     readonly bool EnableStoreKitSmoke;
+
+    // Opt-in to the CryptoKit Apple-framework smoke tests. Off by default for the
+    // same reason as StoreKit: the direct-mode pipeline regenerates an in-tree
+    // snapshot against the active Xcode SDK and runs a hermetic, metadata-only
+    // assertion chain that has no business in the default validation gate.
+    [Parameter("Opt in to the CryptoKit smoke tests (regenerates BindingTests/obj/CryptoKitSnapshot/ in-tree)")]
+    readonly bool EnableCryptoKitSmoke;
+
+    // Opt-in to the WeatherKit Apple-framework smoke tests. Off by default for
+    // the same reasons as StoreKit/CryptoKit. WeatherKit's smoke assertions are
+    // strictly metadata-only — no WeatherService calls, no entitlement usage —
+    // so the test can run in any environment where the framework dylib is
+    // reachable by dyld.
+    [Parameter("Opt in to the WeatherKit smoke tests (regenerates BindingTests/obj/WeatherKitSnapshot/ in-tree)")]
+    readonly bool EnableWeatherKitSmoke;
+
+    /// <summary>
+    /// A single opt-in smoke flag. <see cref="FlagName"/> is the user-visible
+    /// CLI option (used in error messages and log lines); <see cref="Define"/>
+    /// is the Swift / C# conditional-compilation symbol threaded through
+    /// <c>swiftc -D</c>, <c>swift-frontend -D</c>, and the generated bindings'
+    /// <c>#if</c> gates. Every new <c>Enable&lt;Framework&gt;Smoke</c>
+    /// parameter MUST be registered in <see cref="GetActiveSmokeFlags"/> so
+    /// the build-infra plumbing (SkipBuild rejection, `-D` threading through
+    /// <c>CompileModuleSlice</c>, `.smoke-flags` staleness stamping) picks it
+    /// up automatically.
+    /// </summary>
+    readonly record struct SmokeFlag(string FlagName, string Define);
+
+    /// <summary>
+    /// Collects the smoke flags the caller enabled on this invocation. This is
+    /// the single registration point for every <c>Enable&lt;Framework&gt;Smoke</c>
+    /// parameter — add one line here when a new smoke test lands and the rest
+    /// of the build-infra plumbing picks it up for free.
+    /// </summary>
+    IReadOnlyList<SmokeFlag> GetActiveSmokeFlags()
+    {
+        var flags = new List<SmokeFlag>();
+        if (EnableStoreKitSmoke)
+            flags.Add(new SmokeFlag("--enable-storekit-smoke", "STOREKIT_SMOKE"));
+        if (EnableCryptoKitSmoke)
+            flags.Add(new SmokeFlag("--enable-cryptokit-smoke", "CRYPTOKIT_SMOKE"));
+        if (EnableWeatherKitSmoke)
+            flags.Add(new SmokeFlag("--enable-weatherkit-smoke", "WEATHERKIT_SMOKE"));
+        // Sort by Define at the source so every downstream consumer — log
+        // messages, `-D` compiler args, the `.smoke-flags` sidecar — observes
+        // the same stable order. Without this the log could print
+        // `STOREKIT_SMOKE, CRYPTOKIT_SMOKE` while the sidecar stores
+        // `CRYPTOKIT_SMOKE\nSTOREKIT_SMOKE`, which makes "flag set drifted"
+        // error messages needlessly confusing.
+        return flags.OrderBy(f => f.Define, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// Rejects <c>--skip-build</c> in combination with any active
+    /// <c>Enable&lt;Framework&gt;Smoke</c> flag. Per-framework snapshots are
+    /// regenerated and consumed as part of the app build; honoring
+    /// <c>--skip-build</c> with smoke enabled would run the previous session's
+    /// app bundle (pinned to whatever Swift.Runtime version built it) against
+    /// the current in-tree Swift.Runtime — the stale-AOT footgun originally
+    /// documented in <c>src/docs/0.8.0-storekit2-exploration.md</c>. Every new
+    /// smoke flag registered in <see cref="GetActiveSmokeFlags"/> is covered
+    /// automatically — callers do not need to update this guard.
+    /// </summary>
+    void RejectSkipBuildWithActiveSmokeFlags()
+    {
+        if (!SkipBuild)
+            return;
+
+        var active = GetActiveSmokeFlags();
+        if (active.Count == 0)
+            return;
+
+        var names = string.Join(", ", active.Select(f => f.FlagName));
+        throw new Exception(
+            $"--skip-build and {names} are mutually incompatible: " +
+            "per-framework smoke snapshots are regenerated and consumed as part of the app " +
+            "build, so skipping the build would leave the previous app bundle pinned to " +
+            "whatever Swift.Runtime version built it. That is the stale-AOT footgun " +
+            "documented in src/docs/0.8.0-storekit2-exploration.md. Drop --skip-build or " +
+            "drop the smoke flag and rerun.");
+    }
+
+    // ------------------------------------------------------------------
+    // Smoke-flag staleness sidecar
+    //
+    // AssertBindingsNotStale only compares Swift source mtimes against the
+    // generated .cs output, so a `--skip-regen` run after the Enable*Smoke
+    // flag set has changed would happily reuse a Swift xcframework that was
+    // compiled with a different set of `-D FOO_SMOKE` defines — and the smoke
+    // fixture would be missing from (or stuck in) the dylib. To close that
+    // hole, every regen stamps the active flag set into this sidecar, and
+    // AssertBindingsNotStale rejects `--skip-regen` when the current set
+    // doesn't match. Loud failure, same principle as the snapshot freshness
+    // fingerprint above.
+    // ------------------------------------------------------------------
+    const string SmokeFlagsSidecarName = ".smoke-flags";
+
+    static string FormatSmokeFlagsForSidecar(IReadOnlyList<SmokeFlag> flags)
+    {
+        // Sort by Define so the stamp is insensitive to registration order in
+        // GetActiveSmokeFlags — renaming or reordering entries shouldn't force
+        // a regen as long as the enabled set is the same.
+        return string.Join(
+            "\n",
+            flags.Select(f => f.Define).OrderBy(d => d, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Writes the active smoke-flag set to a sidecar file alongside the
+    /// generated bindings. Called by every regen path (iOS, device, macOS) as
+    /// the last step after bindings have been successfully regenerated. The
+    /// sidecar is later consulted by <see cref="AssertBindingsNotStale"/> to
+    /// detect flag-set drift under <c>--skip-regen</c>.
+    /// </summary>
+    void StampSmokeFlagsSidecar(AbsolutePath outputDir)
+    {
+        var sidecar = outputDir / SmokeFlagsSidecarName;
+        outputDir.CreateDirectory();
+        File.WriteAllText(sidecar, FormatSmokeFlagsForSidecar(GetActiveSmokeFlags()));
+    }
 
     // --skip-build implies --skip-regen (matches run-runtime-tests.sh line 56-59).
     bool EffectiveSkipRegen => SkipRegen || SkipBuild;
@@ -77,85 +199,183 @@ partial class Build
     // `.ProjectReference.targets`, and the whole incremental-build graph stays
     // coherent across Swift.Runtime rebuilds.
     // ------------------------------------------------------------------
+    // StoreKit predates the generalized Apple-snapshot path and keeps its
+    // original directory name ("StoreKit2Snapshot") because RuntimeTestsApp.csproj
+    // hardcodes it. New frameworks use the canonical <Framework>Snapshot layout
+    // produced by the shared RegenerateAppleFrameworkSnapshot helper below.
     AbsolutePath StoreKitSnapshotDir => BindingTestsDir / "obj" / "StoreKit2Snapshot";
     AbsolutePath StoreKitSnapshotAbiJson => StoreKitSnapshotDir / "StoreKit.abi.json";
     AbsolutePath StoreKitSnapshotCsproj => StoreKitSnapshotDir / "StoreKit.Swift.iOS.csproj";
     AbsolutePath StoreKitSnapshotProjectRefTargets =>
         StoreKitSnapshotDir / "StoreKit.Swift.iOS.ProjectReference.targets";
-    // Persistent fingerprint of (generator + runtime sources + snapshot tooling)
-    // written at the end of every successful regen and compared during the
-    // freshness check. Without this stamp, IsStoreKitSnapshotFresh would only
-    // notice changes to the Xcode SDK inputs — a generator edit, a constant
-    // tweak inside Build.RuntimeTests.cs, or a change to the inline
-    // Directory.Build.targets template would all leave the snapshot stale.
-    AbsolutePath StoreKitSnapshotFingerprintStamp =>
-        StoreKitSnapshotDir / ".snapshot-fingerprint";
 
-    // Swift-side hardcodes for the digester dump. The target triple needs to
-    // match what the generator will resolve via --platform-target simulator
+    // CryptoKit snapshot — canonical <Framework>Snapshot layout produced by the
+    // generalized RegenerateAppleFrameworkSnapshot helper. No legacy path quirks
+    // like StoreKit2Snapshot.
+    AbsolutePath CryptoKitSnapshotDir => BindingTestsDir / "obj" / "CryptoKitSnapshot";
+    AbsolutePath CryptoKitSnapshotCsproj => CryptoKitSnapshotDir / "CryptoKit.Swift.iOS.csproj";
+    AbsolutePath CryptoKitSnapshotProjectRefTargets =>
+        CryptoKitSnapshotDir / "CryptoKit.Swift.iOS.ProjectReference.targets";
+
+    // WeatherKit snapshot — same canonical <Framework>Snapshot layout as CryptoKit.
+    AbsolutePath WeatherKitSnapshotDir => BindingTestsDir / "obj" / "WeatherKitSnapshot";
+    AbsolutePath WeatherKitSnapshotCsproj => WeatherKitSnapshotDir / "WeatherKit.Swift.iOS.csproj";
+    AbsolutePath WeatherKitSnapshotProjectRefTargets =>
+        WeatherKitSnapshotDir / "WeatherKit.Swift.iOS.ProjectReference.targets";
+
+    // Swift-side target triple shared by all Apple-framework snapshots. It
+    // must match what the generator resolves via --platform-target simulator
     // (arm64-apple-ios-simulator slice under the iphonesimulator SDK). The
-    // minimum deployment version (15.0) matches what Session 4 used during
-    // the original reproducer and what StoreKit 2's API surface requires.
-    const string StoreKitDigesterModule = "StoreKit";
-    const string StoreKitDigesterTarget = "arm64-apple-ios15.0-simulator";
-    // The backslash is the System.CommandLine escape for the response-file
-    // prefix `@`. Without it, System.CommandLine interprets `@rpath/...` as a
-    // path to a response file (and emits "Error reading response file"). The
-    // backslash is stripped by the parser before the value reaches
-    // BindingsGeneratorCommand, so IsSystemFrameworkTarget still sees a plain
-    // "@rpath/StoreKit.framework/StoreKit" and enables the csproj + wrapper
-    // compilation branch. Documented by the generator's -l help text.
-    const string StoreKitSnapshotLibraryNameArg = @"\@rpath/StoreKit.framework/StoreKit";
-    const string StoreKitSnapshotSwiftRuntimeVersion = "0.0.0-dev";
+    // minimum deployment version (15.0) matches what the original StoreKit 2
+    // reproducer used and covers every framework we currently care about.
+    const string AppleSnapshotDigesterTarget = "arm64-apple-ios15.0-simulator";
+    const string AppleSnapshotSwiftRuntimeVersion = "0.0.0-dev";
+    // Name of the fingerprint stamp file written at the end of every successful
+    // snapshot regeneration. Read during the freshness check in
+    // IsAppleFrameworkSnapshotFresh to detect generator / tooling drift that a
+    // plain mtime comparison would miss.
+    const string AppleSnapshotFingerprintStampName = ".snapshot-fingerprint";
 
     // ============================================================
-    // StoreKit 2 snapshot regeneration (in-tree, first-class)
+    // Apple-framework snapshot regeneration (generalized)
     // ============================================================
+
+    [Parameter("Apple framework name for regen-apple-snapshot (e.g. CryptoKit)")]
+    readonly string? Framework;
+
+    /// <summary>
+    /// Exposes <see cref="RegenerateAppleFrameworkSnapshot"/> as a manually
+    /// invokable nuke target so contributors can rebuild an in-tree Apple
+    /// framework snapshot on demand. Requires <c>--framework &lt;name&gt;</c>;
+    /// the snapshot directory is derived as
+    /// <c>BindingTests/obj/&lt;Framework&gt;Snapshot/</c>.
+    /// </summary>
+    // Matches the canonical Apple framework-name shape (e.g. StoreKit, CryptoKit,
+    // WeatherKit). Deliberately narrow: the name is interpolated into filesystem
+    // paths AND into command-line arguments for xcrun / the generator, so any
+    // whitespace, path separator, or shell-significant character could escape
+    // the snapshot dir or corrupt the tool invocation. Framework names in the
+    // Apple SDK are all PascalCase identifiers, so this is not a real restriction.
+    static readonly Regex AppleFrameworkNameRegex =
+        new("^[A-Za-z][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
+    static void ValidateAppleFrameworkName(string frameworkName)
+    {
+        if (!AppleFrameworkNameRegex.IsMatch(frameworkName))
+            throw new Exception(
+                $"Invalid Apple framework name '{frameworkName}'. Expected a PascalCase " +
+                "identifier (letters / digits / underscore, leading letter) — e.g. " +
+                "CryptoKit, WeatherKit, StoreKit. This restriction exists because the " +
+                "name is interpolated directly into filesystem paths and command-line " +
+                "arguments for swift-api-digester and the generator.");
+    }
+
+    Target RegenerateAppleSnapshot => _ => _
+        .Description("Regenerate an in-tree Apple framework snapshot under BindingTests/obj/<Framework>Snapshot/. Requires --framework <name>.")
+        .Executes(() =>
+        {
+            if (string.IsNullOrWhiteSpace(Framework))
+                throw new Exception(
+                    "nuke regen-apple-snapshot requires --framework <name>. " +
+                    "Example: nuke regen-apple-snapshot --framework CryptoKit");
+            ValidateAppleFrameworkName(Framework);
+
+            var snapshotDir = BindingTestsDir / "obj" / $"{Framework}Snapshot";
+            RegenerateAppleFrameworkSnapshot(Framework, snapshotDir, force: true);
+        });
 
     /// <summary>
     /// Exposes <see cref="RegenerateStoreKit2Snapshot"/> as a manually invokable
-    /// nuke target so contributors can rebuild the StoreKit 2 snapshot on demand
-    /// (e.g. after an Xcode upgrade changes the bundled swiftinterface). The
-    /// runtime test targets call the helper directly — they do NOT DependsOn
-    /// this target — because the conditional-prerequisite wiring in Step 4 needs
-    /// to gate on <c>EnableStoreKitSmoke</c> at runtime, not at target declaration.
+    /// nuke target. StoreKit keeps its own top-level target (instead of asking
+    /// contributors to remember the <c>--framework StoreKit</c> + custom dir
+    /// combo) because <c>RuntimeTestsApp.csproj</c> hardcodes the
+    /// <c>StoreKit2Snapshot/</c> path and the runtime test pipeline calls
+    /// <see cref="RegenerateStoreKit2Snapshot"/> directly during
+    /// <c>--enable-storekit-smoke</c> runs.
     /// </summary>
     Target RegenerateStoreKitSnapshot => _ => _
         .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
         .Executes(() => RegenerateStoreKit2Snapshot(force: true));
 
     /// <summary>
-    /// Regenerates the in-tree StoreKit 2 snapshot at
-    /// <see cref="StoreKitSnapshotDir"/> by (1) invoking
-    /// <c>xcrun swift-api-digester</c> against the active iphonesimulator SDK
-    /// to produce a fresh ABI JSON dump, then (2) running the generator in
-    /// manual mode (<c>-a / -d / -t / -s / -l</c>) to emit the C# bindings,
-    /// Swift wrapper source, and project files. The output includes
-    /// <see cref="StoreKitSnapshotProjectRefTargets"/>, which
-    /// <c>RuntimeTestsApp.csproj</c> imports (in Step 3) to wire the
-    /// generator-emitted NativeReference through the ProjectReference graph.
+    /// Thin wrapper around <see cref="RegenerateAppleFrameworkSnapshot"/> that
+    /// preserves StoreKit's non-canonical snapshot directory name
+    /// (<c>StoreKit2Snapshot</c>, hardcoded in <c>RuntimeTestsApp.csproj</c>)
+    /// while routing through the shared generalized path. All other frameworks
+    /// should call <see cref="RegenerateAppleFrameworkSnapshot"/> directly or
+    /// go through the <c>regen-apple-snapshot</c> nuke target.
     /// </summary>
-    /// <param name="force">
-    /// When <c>true</c>, always regenerate regardless of output staleness.
-    /// Used by the on-demand <see cref="RegenerateStoreKitSnapshot"/> target.
-    /// When <c>false</c>, skip regeneration if every output file exists and
-    /// every one is at least as new as the Xcode SDK input files — this makes
-    /// repeat smoke-enabled runs effectively free.
-    /// </param>
-    /// <remarks>
-    /// Failure mode for a missing Xcode install: the initial <c>xcrun --sdk
-    /// iphonesimulator --show-sdk-path</c> call returns a non-zero exit code
-    /// or an empty path, and the helper throws a loud exception pointing the
-    /// user at Xcode installation. The generator invocation itself also
-    /// throws on any non-zero exit — this is NOT the same permissive
-    /// "generator may exit non-zero for unsupported features" path used by
-    /// <c>RunRegenerateBindings</c>, because Apple SDK targets must always
-    /// succeed cleanly for the smoke test to have any meaning.
-    /// </remarks>
     void RegenerateStoreKit2Snapshot(bool force)
     {
-        Log.Information("--- Regenerating StoreKit 2 snapshot ---");
-        Log.Information("    Output: {Dir}", StoreKitSnapshotDir);
+        RegenerateAppleFrameworkSnapshot("StoreKit", StoreKitSnapshotDir, force);
+    }
+
+    /// <summary>
+    /// Regenerates an in-tree snapshot of the public ABI of a Swift-first
+    /// Apple framework. Used by the per-framework smoke tests to produce a
+    /// fresh set of C# bindings + Swift wrapper against the currently-selected
+    /// Xcode SDK. Pipeline: (1) resolve the iphonesimulator SDK via xcrun,
+    /// (2) locate the framework's swiftinterface and tbd under the SDK,
+    /// (3) incremental freshness gate against the tooling fingerprint,
+    /// (4) wipe the output dir, (5) dump ABI JSON via swift-api-digester,
+    /// (6) invoke the generator in manual mode, (7) drop a snapshot-local
+    /// Directory.Build.targets to disable TreatWarningsAsErrors for the
+    /// Apple-SDK full-surface binding, (8) verify required outputs exist,
+    /// (9) stamp the fingerprint file.
+    /// </summary>
+    /// <param name="frameworkName">
+    /// Apple framework to regenerate (e.g. <c>StoreKit</c>, <c>CryptoKit</c>).
+    /// Drives the digester module, the generator <c>-l @rpath</c> arg, the
+    /// canonical swiftinterface/tbd lookup paths under the iPhoneSimulator
+    /// SDK, and the expected generator output filenames.
+    /// </param>
+    /// <param name="snapshotDir">
+    /// Output directory for the ABI JSON and all generator artifacts. Must be
+    /// under <c>BindingTests/obj/</c> so the top-level <c>[Oo]bj/</c> gitignore
+    /// rule keeps it out of the repo. The StoreKit wrapper above passes a
+    /// non-canonical path (<c>StoreKit2Snapshot</c>) for backwards compatibility
+    /// with <c>RuntimeTestsApp.csproj</c>; new frameworks use the canonical
+    /// <c>&lt;Framework&gt;Snapshot</c> layout from the
+    /// <see cref="RegenerateAppleSnapshot"/> target.
+    /// </param>
+    /// <param name="force">
+    /// When <c>true</c>, always regenerate regardless of output staleness.
+    /// When <c>false</c>, skip regeneration if every output file exists, the
+    /// stamped fingerprint matches the current (generator + runtime + tooling)
+    /// fingerprint, and every output file is at least as new as every Xcode
+    /// SDK input file. This makes repeat smoke-enabled runs effectively free.
+    /// </param>
+    /// <remarks>
+    /// Failure modes are loud: missing Xcode install throws pointing at
+    /// <c>xcode-select --switch</c>; missing swiftinterface/tbd throws with the
+    /// resolved SDK root; non-zero digester or generator exit throws. This is
+    /// NOT the same permissive "generator may exit non-zero for unsupported
+    /// features" path used by <see cref="RunRegenerateBindings"/> — Apple-SDK
+    /// targets must always generate cleanly for the smoke tests to mean
+    /// anything.
+    /// </remarks>
+    void RegenerateAppleFrameworkSnapshot(string frameworkName, AbsolutePath snapshotDir, bool force)
+    {
+        ValidateAppleFrameworkName(frameworkName);
+        Log.Information("--- Regenerating {Framework} snapshot ---", frameworkName);
+        Log.Information("    Output: {Dir}", snapshotDir);
+
+        var abiJsonPath = snapshotDir / $"{frameworkName}.abi.json";
+        var csprojPath = snapshotDir / $"{frameworkName}.Swift.iOS.csproj";
+        var projRefTargetsPath = snapshotDir / $"{frameworkName}.Swift.iOS.ProjectReference.targets";
+        var csFilePath = snapshotDir / $"{frameworkName}.cs";
+        var wrapperSwiftPath = snapshotDir / $"{frameworkName}.Wrapper.swift";
+        var fingerprintStampPath = snapshotDir / AppleSnapshotFingerprintStampName;
+
+        // The backslash is the System.CommandLine escape for the response-file
+        // prefix `@`. Without it, System.CommandLine interprets `@rpath/...`
+        // as a path to a response file (and emits "Error reading response
+        // file"). The backslash is stripped by the parser before the value
+        // reaches BindingsGeneratorCommand, so IsSystemFrameworkTarget still
+        // sees a plain "@rpath/<Framework>.framework/<Framework>" and enables
+        // the csproj + wrapper compilation branch. Documented by the
+        // generator's -l help text.
+        var libraryNameArg = $@"\@rpath/{frameworkName}.framework/{frameworkName}";
 
         // Step A: resolve the iphonesimulator SDK root via xcrun. We shell out
         // instead of hardcoding /Applications/Xcode.app because a contributor
@@ -169,23 +389,40 @@ partial class Build
         }
 
         var swiftinterfacePath = (AbsolutePath)sdkPath /
-            "System" / "Library" / "Frameworks" / "StoreKit.framework" /
-            "Modules" / "StoreKit.swiftmodule" /
+            "System" / "Library" / "Frameworks" / $"{frameworkName}.framework" /
+            "Modules" / $"{frameworkName}.swiftmodule" /
             "arm64-apple-ios-simulator.swiftinterface";
         var tbdPath = (AbsolutePath)sdkPath /
-            "System" / "Library" / "Frameworks" / "StoreKit.framework" / "StoreKit.tbd";
+            "System" / "Library" / "Frameworks" / $"{frameworkName}.framework" / $"{frameworkName}.tbd";
 
         if (!File.Exists(swiftinterfacePath))
         {
             throw new Exception(
-                $"StoreKit swiftinterface not found at {swiftinterfacePath}. " +
+                $"{frameworkName} swiftinterface not found at {swiftinterfacePath}. " +
                 $"SDK root was {sdkPath} (from xcrun). Check your Xcode install.");
         }
         if (!File.Exists(tbdPath))
         {
             throw new Exception(
-                $"StoreKit.tbd not found at {tbdPath}. SDK root was {sdkPath}.");
+                $"{frameworkName}.tbd not found at {tbdPath}. SDK root was {sdkPath}.");
         }
+
+        // Directory.Build.targets is part of the snapshot contract (it turns off
+        // TreatWarningsAsErrors for the Apple-SDK full-surface build) and is
+        // written deterministically by this method on every regen. Include it in
+        // the freshness gate so a hand-deletion invalidates the cache; otherwise
+        // the next run would silently compile the snapshot against the repo-wide
+        // warnings-as-errors rules and fail in a confusing way far from the
+        // snapshot code.
+        var directoryBuildTargetsPath = snapshotDir / "Directory.Build.targets";
+        var requiredOutputs = new (string Label, AbsolutePath Path)[]
+        {
+            ("C# bindings", csFilePath),
+            ("generated csproj", csprojPath),
+            ("ProjectReference.targets", projRefTargetsPath),
+            ("Swift wrapper source", wrapperSwiftPath),
+            ("Directory.Build.targets", directoryBuildTargetsPath),
+        };
 
         // Step B: incremental skip check. Both the ABI JSON (digester output)
         // and the generator outputs must exist AND be at least as new as the
@@ -193,7 +430,10 @@ partial class Build
         // everything — we don't bother trying to skip just one of the two
         // phases because the cost of a full regen is ~10s and the logic of
         // partial staleness is far more error-prone than the savings.
-        if (!force && IsStoreKitSnapshotFresh(swiftinterfacePath, tbdPath))
+        if (!force && IsAppleFrameworkSnapshotFresh(
+                requiredOutputs.Select(r => r.Path).Append(abiJsonPath).ToArray(),
+                fingerprintStampPath,
+                swiftinterfacePath, tbdPath))
         {
             Log.Information("    Snapshot is up to date relative to Xcode SDK inputs — skipping regeneration");
             return;
@@ -204,28 +444,27 @@ partial class Build
         // mix of .cs, .swift, .csproj, .targets, and .xcframework artifacts,
         // and a stale file from a previous generator version (e.g. a file the
         // generator no longer emits) would silently survive an in-place regen.
-        if (Directory.Exists(StoreKitSnapshotDir))
-            ((AbsolutePath)StoreKitSnapshotDir).DeleteDirectory();
-        StoreKitSnapshotDir.CreateDirectory();
+        if (Directory.Exists(snapshotDir))
+            snapshotDir.DeleteDirectory();
+        snapshotDir.CreateDirectory();
 
-        // Step C: dump the StoreKit ABI via swift-api-digester. The -dump-sdk
-        // command emits a JSON description of the module's public API surface
-        // that the generator consumes as its -a input in manual mode. This is
-        // the same command Session 4 used for the original reproducer, now
-        // owned by this target instead of a one-shot shell script.
-        Log.Information("    Dumping StoreKit ABI via swift-api-digester");
+        // Step C: dump the framework ABI via swift-api-digester. The
+        // -dump-sdk command emits a JSON description of the module's public
+        // API surface that the generator consumes as its -a input in manual
+        // mode.
+        Log.Information("    Dumping {Framework} ABI via swift-api-digester", frameworkName);
         var digesterArgs = string.Join(" ", new[]
         {
             "swift-api-digester",
             "-dump-sdk",
-            "-module", StoreKitDigesterModule,
-            "-target", StoreKitDigesterTarget,
+            "-module", frameworkName,
+            "-target", AppleSnapshotDigesterTarget,
             "-sdk", $"\"{sdkPath}\"",
-            "-o", $"\"{StoreKitSnapshotAbiJson}\"",
+            "-o", $"\"{abiJsonPath}\"",
         });
         var digesterProc = ProcessTasks.StartProcess(
             "xcrun", digesterArgs,
-            workingDirectory: StoreKitSnapshotDir,
+            workingDirectory: snapshotDir,
             logOutput: true);
         digesterProc.WaitForExit();
         if (digesterProc.ExitCode != 0)
@@ -234,15 +473,14 @@ partial class Build
                 $"swift-api-digester exited with code {digesterProc.ExitCode}. " +
                 $"Arguments: {digesterArgs}");
         }
-        if (!File.Exists(StoreKitSnapshotAbiJson))
+        if (!File.Exists(abiJsonPath))
         {
             throw new Exception(
-                $"swift-api-digester exited successfully but did not produce " +
-                $"{StoreKitSnapshotAbiJson}.");
+                $"swift-api-digester exited successfully but did not produce {abiJsonPath}.");
         }
 
-        var abiJsonSize = new FileInfo(StoreKitSnapshotAbiJson).Length;
-        Log.Information("    ABI JSON: {Path} ({Size:N0} bytes)", StoreKitSnapshotAbiJson, abiJsonSize);
+        var abiJsonSize = new FileInfo(abiJsonPath).Length;
+        Log.Information("    ABI JSON: {Path} ({Size:N0} bytes)", abiJsonPath, abiJsonSize);
 
         // Step D: run the generator in manual mode against the digester dump.
         // The generator is shared with BindingTests, so EnsureGeneratorBuilt()
@@ -253,69 +491,45 @@ partial class Build
         var genArgs = string.Join(" ", new[]
         {
             $"\"{GeneratorDll}\"",
-            $"-a \"{StoreKitSnapshotAbiJson}\"",
+            $"-a \"{abiJsonPath}\"",
             $"-d \"{tbdPath}\"",
             $"-t \"{tbdPath}\"",
             $"-s \"{swiftinterfacePath}\"",
-            $"-l \"{StoreKitSnapshotLibraryNameArg}\"",
+            $"-l \"{libraryNameArg}\"",
             "--platform ios",
             "--platform-target simulator",
-            $"--swift-runtime-version {StoreKitSnapshotSwiftRuntimeVersion}",
-            $"-o \"{StoreKitSnapshotDir}\"",
+            $"--swift-runtime-version {AppleSnapshotSwiftRuntimeVersion}",
+            $"-o \"{snapshotDir}\"",
         });
         var genProc = ProcessTasks.StartProcess(
             "dotnet", genArgs,
-            workingDirectory: StoreKitSnapshotDir,
+            workingDirectory: snapshotDir,
             logOutput: true);
         genProc.WaitForExit();
         if (genProc.ExitCode != 0)
         {
             throw new Exception(
-                $"Generator exited with code {genProc.ExitCode} regenerating the StoreKit snapshot. " +
+                $"Generator exited with code {genProc.ExitCode} regenerating the {frameworkName} snapshot. " +
                 $"Unlike BindingTests, Apple-framework targets must always generate cleanly — " +
                 $"investigate the generator output above.");
         }
 
         // Step E (prep): drop a snapshot-local Directory.Build.targets that
-        // adds CA1416 to NoWarn after the csproj body runs. The repo root
-        // ships <TreatWarningsAsErrors>True</TreatWarningsAsErrors>, so any
-        // Apple-SDK API whose availability is gated on a newer min-OS version
-        // (e.g. StoreKit.Transaction.RefundRequestStatus, tvOS 17+) converts
-        // the expected CA1416 warnings into 235+ hard build errors.
-        //
-        // Why Directory.Build.targets and NOT Directory.Build.props: the
-        // generator-emitted csproj sets an explicit <NoWarn>CS0169;CA1420</NoWarn>
-        // in its PropertyGroup. Directory.Build.props is imported BEFORE the
-        // project body, so any NoWarn set there is overwritten by the csproj's
-        // literal assignment. Directory.Build.targets imports AFTER the body,
-        // so the $(NoWarn) expansion picks up the csproj value and the append
-        // survives.
-        //
-        // Why not patch the generator: CA1416 is NOT a generator-wide problem.
-        // Non-snapshot consumers want to see the warning, decide whether to
-        // raise their deployment target, and make an informed call. This
-        // suppression is specific to the snapshot's full-API-surface binding
-        // strategy combined with the smoke tests' runtime-safe entry points.
-        //
-        // Regenerated on every run because the regen step wipes the directory
-        // first. Do NOT hand-edit the emitted file.
-        // Disable TreatWarningsAsErrors for the snapshot csproj. The repo-wide
+        // disables TreatWarningsAsErrors for the snapshot csproj. The repo-wide
         // Directory.Build.props (/Directory.Build.props, root) turns warnings
         // into errors, which is the right default for first-party source but
-        // the wrong default for a reflection of Apple's full public StoreKit
-        // API surface. Binding every public entry point legitimately surfaces
-        // CA1416 (platform availability — Transaction.RefundRequestStatus is
-        // tvOS 17+ only), CA1422 (obsoleted APIs — PromotionalOffer is
-        // replaced in iOS 26 by JWS), CS0436 (AppStore collides with
-        // Microsoft.iOS's StoreKit ObjC binding; consumers resolve via
-        // `extern alias StoreKitSwift`), CS8604 (nullable-annotation noise in
-        // the async completion bridges), and a long tail of similar codes.
-        // None of those block the smoke tests — the tests only dereference
-        // runtime-safe entry points — but under warnings-as-errors they all
-        // become hard failures and turn the snapshot build into a whack-a-mole
-        // session of NoWarn codes. Keeping this OFF is the right scope: the
-        // snapshot is test scaffolding, not a shipping package, so "any
-        // compile error ≠ warning" is the right gate.
+        // the wrong default for a reflection of an Apple framework's full
+        // public API surface. Binding every public entry point legitimately
+        // surfaces CA1416 (platform availability), CA1422 (obsoleted APIs),
+        // CS0436 (type collisions with Microsoft.iOS ObjC bindings), CS8604
+        // (nullable-annotation noise in async completion bridges), and a long
+        // tail of similar codes. None of those block the smoke tests — the
+        // tests only dereference runtime-safe entry points — but under
+        // warnings-as-errors they all become hard failures and turn the
+        // snapshot build into a whack-a-mole session of NoWarn codes. Keeping
+        // this OFF is the right scope: the snapshot is test scaffolding, not
+        // a shipping package, so "any compile error ≠ warning" is the right
+        // gate.
         //
         // Why Directory.Build.targets and NOT Directory.Build.props: the
         // generator-emitted csproj sets explicit PropertyGroup values in its
@@ -328,7 +542,7 @@ partial class Build
         //
         // Regenerated on every run because the regen step wipes the directory
         // first. Do NOT hand-edit the emitted file.
-        File.WriteAllText(StoreKitSnapshotDir / "Directory.Build.targets",
+        File.WriteAllText(snapshotDir / "Directory.Build.targets",
             """
             <Project>
               <PropertyGroup>
@@ -339,17 +553,10 @@ partial class Build
             """);
 
         // Step E: verify the key output files exist. These are the files that
-        // Step 3's RuntimeTestsApp.csproj rewrite will reference, so if the
-        // generator silently produced a partial output (e.g. dropped the
-        // .ProjectReference.targets file because of a regression) we want to
-        // know now, not at app-build time with a confusing MSBuild error.
-        var requiredOutputs = new (string Label, AbsolutePath Path)[]
-        {
-            ("C# bindings", StoreKitSnapshotDir / "StoreKit.cs"),
-            ("generated csproj", StoreKitSnapshotCsproj),
-            ("ProjectReference.targets", StoreKitSnapshotProjectRefTargets),
-            ("Swift wrapper source", StoreKitSnapshotDir / "StoreKit.Wrapper.swift"),
-        };
+        // RuntimeTestsApp.csproj will reference, so if the generator silently
+        // produced a partial output (e.g. dropped the .ProjectReference.targets
+        // file because of a regression) we want to know now, not at app-build
+        // time with a confusing MSBuild error.
         foreach (var (label, path) in requiredOutputs)
         {
             if (!File.Exists(path))
@@ -363,40 +570,35 @@ partial class Build
         // Step F: write the freshness stamp. This is the LAST step so a partial
         // failure (e.g. generator throws mid-emit) leaves no stamp behind and
         // the next run will see the snapshot as stale and re-regenerate.
-        File.WriteAllText(StoreKitSnapshotFingerprintStamp, ComputeStoreKitSnapshotFingerprint());
+        File.WriteAllText(fingerprintStampPath, ComputeAppleSnapshotFingerprint());
 
-        Log.Information("    StoreKit 2 snapshot regenerated: {Dir}", StoreKitSnapshotDir);
+        Log.Information("    {Framework} snapshot regenerated: {Dir}", frameworkName, snapshotDir);
     }
 
     /// <summary>
-    /// Returns <c>true</c> when every required StoreKit snapshot output file
-    /// exists, the recorded snapshot fingerprint matches the current
-    /// (source + tooling) fingerprint, AND every output file is at least as
+    /// Returns <c>true</c> when every required snapshot output file exists,
+    /// the recorded snapshot fingerprint matches the current (generator +
+    /// runtime + tooling) fingerprint, AND every output file is at least as
     /// new as every Xcode SDK input file. Any missing output, fingerprint
     /// drift, or newer input means "regenerate."
     /// </summary>
     /// <remarks>
     /// The mtime check by itself is not sufficient. A generator edit, a tweak
-    /// to one of the snapshot constants in this file, or a change to the
-    /// inline <c>Directory.Build.targets</c> template would all leave the
-    /// snapshot files older than the SDK inputs — and the freshness check
-    /// would happily reuse the stale generated StoreKit bindings against the
-    /// new generator. The fingerprint stamp closes that hole by hashing the
-    /// generator + runtime source tree (via <see cref="ComputeSourceFingerprint"/>)
-    /// AND the snapshot tooling source itself (<c>Build.RuntimeTests.cs</c>),
-    /// so any of those changes invalidates the snapshot.
+    /// to one of the snapshot constants, or a change to the inline
+    /// <c>Directory.Build.targets</c> template would all leave the snapshot
+    /// files older than the SDK inputs — and the freshness check would
+    /// happily reuse the stale generated bindings against the new generator.
+    /// The fingerprint stamp closes that hole by hashing the generator +
+    /// runtime source tree (via <see cref="ComputeSourceFingerprint"/>) AND
+    /// the snapshot tooling source itself (<c>Build.RuntimeTests.cs</c>), so
+    /// any of those changes invalidates the snapshot.
     /// </remarks>
-    bool IsStoreKitSnapshotFresh(AbsolutePath swiftinterfacePath, AbsolutePath tbdPath)
+    bool IsAppleFrameworkSnapshotFresh(
+        IReadOnlyList<AbsolutePath> requiredOutputs,
+        AbsolutePath fingerprintStampPath,
+        AbsolutePath swiftinterfacePath,
+        AbsolutePath tbdPath)
     {
-        var requiredOutputs = new[]
-        {
-            StoreKitSnapshotAbiJson,
-            StoreKitSnapshotCsproj,
-            StoreKitSnapshotProjectRefTargets,
-            StoreKitSnapshotDir / "StoreKit.cs",
-            StoreKitSnapshotDir / "StoreKit.Wrapper.swift",
-        };
-
         foreach (var outputPath in requiredOutputs)
         {
             if (!File.Exists(outputPath))
@@ -407,10 +609,10 @@ partial class Build
         // generator/runtime/tooling fingerprint. A missing stamp indicates a
         // partially-completed previous regen; a mismatched stamp indicates a
         // generator or tooling change since the snapshot was last written.
-        if (!File.Exists(StoreKitSnapshotFingerprintStamp))
+        if (!File.Exists(fingerprintStampPath))
             return false;
-        var recordedFingerprint = File.ReadAllText(StoreKitSnapshotFingerprintStamp).Trim();
-        var currentFingerprint = ComputeStoreKitSnapshotFingerprint();
+        var recordedFingerprint = File.ReadAllText(fingerprintStampPath).Trim();
+        var currentFingerprint = ComputeAppleSnapshotFingerprint();
         if (recordedFingerprint != currentFingerprint)
             return false;
 
@@ -427,12 +629,12 @@ partial class Build
     /// <summary>
     /// Combines <see cref="ComputeSourceFingerprint"/> (generator + runtime
     /// source tree) with a SHA256 hash of <c>Build.RuntimeTests.cs</c> itself.
-    /// The latter covers the snapshot tooling: the digester args, the generator
-    /// CLI flags, the inline <c>Directory.Build.targets</c> template, and the
-    /// snapshot path constants — anything that, if changed, should force a
-    /// regen of the in-tree StoreKit 2 snapshot.
+    /// The latter covers the shared snapshot tooling: the digester args, the
+    /// generator CLI flags, the inline <c>Directory.Build.targets</c>
+    /// template, and the snapshot path constants — anything that, if changed,
+    /// should force a regen of every in-tree Apple framework snapshot.
     /// </summary>
-    string ComputeStoreKitSnapshotFingerprint()
+    string ComputeAppleSnapshotFingerprint()
     {
         var sourceFingerprint = ComputeSourceFingerprint();
         var toolingFile = RootDirectory / "build" / "Build.RuntimeTests.cs";
@@ -492,28 +694,7 @@ partial class Build
             if (FlakeDetect)
                 Log.Information("Flake detection: enabled");
 
-            // Reject --skip-build + --enable-storekit-smoke up front. The
-            // snapshot regeneration runs inside the !SkipBuild branch, and the
-            // app bundle's copy of StoreKit.Swift.iOS.dll is only refreshed as
-            // part of the app build. Silently honoring --skip-build with smoke
-            // enabled would run the previous session's (possibly stale) snapshot
-            // against the current in-tree Swift.Runtime — the exact stale-AOT
-            // footgun we set out to fix. Fail loudly instead so the user can
-            // either drop --skip-build (accept the rebuild cost) or drop
-            // --enable-storekit-smoke (skip the StoreKit smoke tests for this
-            // iteration). This is the ONLY flag combination we refuse — every
-            // other combination is either a normal full run or a default
-            // non-smoke run, both of which are safe.
-            if (SkipBuild && EnableStoreKitSmoke)
-            {
-                throw new Exception(
-                    "--skip-build and --enable-storekit-smoke are mutually incompatible: " +
-                    "the StoreKit 2 snapshot is regenerated and consumed as part of the app " +
-                    "build, so skipping the build would leave the previous app bundle's " +
-                    "StoreKit.Swift.iOS.dll pinned to whatever Swift.Runtime version built it. " +
-                    "That is the stale-AOT footgun documented in src/docs/0.8.0-storekit2-exploration.md. " +
-                    "Drop one of the two flags and rerun.");
-            }
+            RejectSkipBuildWithActiveSmokeFlags();
 
             // Step 1: Conditionally run binding pipeline
             if (!EffectiveSkipRegen)
@@ -543,42 +724,46 @@ partial class Build
                 // edge that would run on every target invocation.
                 if (EnableStoreKitSmoke)
                     RegenerateStoreKit2Snapshot(force: false);
+                if (EnableCryptoKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("CryptoKit", CryptoKitSnapshotDir, force: false);
+                if (EnableWeatherKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("WeatherKit", WeatherKitSnapshotDir, force: false);
 
                 Log.Information("--- Building RuntimeTestsApp ---");
                 if (EnableStoreKitSmoke)
                     Log.Information("    StoreKit 2 smoke tests: ENABLED (--enable-storekit-smoke)");
+                if (EnableCryptoKitSmoke)
+                    Log.Information("    CryptoKit smoke tests: ENABLED (--enable-cryptokit-smoke)");
+                if (EnableWeatherKitSmoke)
+                    Log.Information("    WeatherKit smoke tests: ENABLED (--enable-weatherkit-smoke)");
                 DotNetBuild(s =>
                 {
                     var built = s
                         .SetProjectFile(BindingTestsDir / "RuntimeTestsApp")
                         .SetConfiguration("Debug")
                         .SetVerbosity(DotNetVerbosity.quiet);
-                    if (EnableStoreKitSmoke)
-                    {
-                        built = built.SetProperty("EnableStoreKitSmoke", "true");
-                        // Plumb SwiftBindingsRepoRoot as a global MSBuild property so
-                        // the generator-emitted StoreKit.Swift.iOS.csproj resolves its
-                        // SwiftBindings.Runtime dependency via the in-tree ProjectReference
-                        // fallback (see the snapshot csproj's Condition="'$(SwiftBindingsRepoRoot)' != ''"
-                        // ProjectReference line). Without this, the csproj falls through
-                        // to the `[0.0.0-dev]` sentinel PackageReference which has no
-                        // matching NuGet and fails with NU1102 during the app build.
-                        // Scoped to smoke-enabled only: non-smoke builds never consume
-                        // the snapshot ProjectReference, so passing this property has
-                        // no effect for them but also no downside — we keep it gated to
-                        // avoid polluting the default build's property bag.
+                    // Any smoke flag needs SwiftBindingsRepoRoot so the snapshot csproj
+                    // resolves SwiftBindings.Runtime via the in-tree ProjectReference
+                    // fallback instead of the [0.0.0-dev] sentinel PackageReference.
+                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
-                        // NOTE: IncludeSwiftBindingsRuntimeNative=false is no longer
-                        // forced here as a global property. The snapshot ProjectReference
-                        // in RuntimeTestsApp.csproj now sets it via AdditionalProperties,
-                        // which becomes the global property bag for the snapshot's build
-                        // and cascades through to its transitive Swift.Runtime
-                        // ProjectReference — exactly the dedupe path the global -p:
-                        // workaround used to fake. The in-csproj form means a raw
-                        // `dotnet build RuntimeTestsApp.csproj -p:EnableStoreKitSmoke=true
-                        // -p:SwiftBindingsRepoRoot=...` invocation outside of Nuke also
-                        // succeeds without needing an extra `-p:IncludeSwiftBindingsRuntimeNative=false`.
-                    }
+                    if (EnableCryptoKitSmoke)
+                        built = built.SetProperty("EnableCryptoKitSmoke", "true");
+                    if (EnableWeatherKitSmoke)
+                        built = built.SetProperty("EnableWeatherKitSmoke", "true");
+                    // SwiftBindingsRepoRoot above is what lets the generator-emitted
+                    // <Framework>.Swift.iOS.csproj resolve SwiftBindings.Runtime via the
+                    // in-tree ProjectReference fallback (see the snapshot csproj's
+                    // Condition="'$(SwiftBindingsRepoRoot)' != ''" ProjectReference line).
+                    // Without it, the csproj falls through to the `[0.0.0-dev]` sentinel
+                    // PackageReference which has no matching NuGet and fails with NU1102.
+                    // IncludeSwiftBindingsRuntimeNative=false is not forced here as a
+                    // global property — the snapshot ProjectReferences in RuntimeTestsApp.csproj
+                    // set it via <AdditionalProperties> so it cascades through to the
+                    // transitive Swift.Runtime ProjectReference without polluting the
+                    // non-smoke build's global property bag.
+                    if (EnableStoreKitSmoke)
+                        built = built.SetProperty("EnableStoreKitSmoke", "true");
                     return built;
                 });
 
@@ -618,6 +803,8 @@ partial class Build
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (Device)");
             Log.Information("=========================================");
+
+            RejectSkipBuildWithActiveSmokeFlags();
 
             // Step 0: Find connected device
             PhysicalDeviceInfo device;
@@ -691,6 +878,8 @@ partial class Build
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (macOS)");
             Log.Information("=========================================");
+
+            RejectSkipBuildWithActiveSmokeFlags();
 
             if (!EffectiveSkipRegen)
             {
@@ -1421,6 +1610,25 @@ partial class Build
             throw new InvalidOperationException(
                 $"Bindings not found at {bindingsFile}. Run without --skip-regen first.");
 
+        // Reject --skip-regen when the set of Enable<Framework>Smoke flags
+        // has changed since the last regeneration. The Swift xcframework was
+        // compiled with a specific set of `-D FOO_SMOKE` defines, and reusing
+        // those artifacts against a different flag set would either miss the
+        // smoke fixture entirely (flag added since last regen) or carry it
+        // when the caller no longer wants it (flag removed). Same loud-failure
+        // principle as the snapshot freshness fingerprint: the user rerun
+        // without `--skip-regen` so the full pipeline sees the new flag set.
+        var sidecar = outputDir / SmokeFlagsSidecarName;
+        var currentFlags = FormatSmokeFlagsForSidecar(GetActiveSmokeFlags());
+        var stampedFlags = File.Exists(sidecar) ? File.ReadAllText(sidecar) : string.Empty;
+        if (stampedFlags != currentFlags)
+        {
+            throw new InvalidOperationException(
+                "The smoke flag set has changed since bindings were last regenerated; " +
+                $"rerun without --skip-regen. Stamped={FormatSidecarForMessage(stampedFlags)}, " +
+                $"current={FormatSidecarForMessage(currentFlags)}. Sidecar: {sidecar}.");
+        }
+
         var bindingsTime = File.GetLastWriteTimeUtc(bindingsFile);
         var swiftSourceDir = BindingTestsDir / "Sources" / "SwiftBindingsTestLib";
 
@@ -1435,6 +1643,13 @@ partial class Build
                 "Run without --skip-regen to regenerate.");
 
         Log.Information("Staleness check passed: bindings are up to date.");
+    }
+
+    static string FormatSidecarForMessage(string raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return "(none)";
+        return raw.Replace("\n", ",");
     }
 
     void AssertDeviceSliceExists()
@@ -1648,6 +1863,10 @@ partial class Build
         var csCount = Directory.GetFiles(BtMacOSOutputDir, "*.cs", SearchOption.AllDirectories).Length;
         var swiftCount = Directory.GetFiles(BtMacOSOutputDir, "*.swift", SearchOption.AllDirectories).Length;
         Log.Information("Generated (macOS): {CsCount} C# files, {SwiftCount} Swift wrapper files", csCount, swiftCount);
+
+        // Stamp the active smoke-flag set so AssertBindingsNotStale can detect
+        // flag-set drift under a later --skip-regen run.
+        StampSmokeFlagsSidecar(BtMacOSOutputDir);
     }
 
     // ============================================================

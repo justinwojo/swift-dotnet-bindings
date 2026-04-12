@@ -45,8 +45,18 @@ partial class Build
         var frameworkDir = simBuildDir / $"{ModuleName}.framework";
         var depFrameworkDir = simBuildDir / $"{DepModuleName}.framework";
 
+        // Derive the active smoke-flag Swift defines once here so every
+        // CompileModuleSlice invocation below — main + dependency, simulator +
+        // device, for whichever platform override we're running — sees the same
+        // set. Passing this independently per call site is how `#if FOO_SMOKE`
+        // fixtures stay consistent across the dylib compile and the ABI JSON
+        // dump, which is a hard prerequisite for any smoke test to work.
+        var swiftDefines = GetActiveSmokeFlags().Select(f => f.Define).ToList();
+
         Log.Information("=== Building {Module} ===", ModuleName);
         Log.Information("Platform: {Platform}, Target: {Target}", platform.Name, platform.SimulatorTarget);
+        if (swiftDefines.Count > 0)
+            Log.Information("Active smoke defines: {Defines}", string.Join(", ", swiftDefines));
 
         // macOS ignores --include-device
         var requestedIncludeDevice = includeDeviceOverride ?? IncludeDevice;
@@ -62,21 +72,23 @@ partial class Build
         CompileModuleSlice(
             DepModuleName, platform.SimulatorTarget, sdkPath,
             platform.SimulatorModuleSuffix, platform.MinOsVersion, platform.SimulatorPlistPlatform,
-            depFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null);
+            depFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null,
+            swiftDefines: swiftDefines);
 
         // --- Build main module ---
         var mainSourceFiles = GetMainSourceFiles();
         CompileModuleSlice(
             ModuleName, platform.SimulatorTarget, sdkPath,
             platform.SimulatorModuleSuffix, platform.MinOsVersion, platform.SimulatorPlistPlatform,
-            frameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { simBuildDir.ToString() });
+            frameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { simBuildDir.ToString() },
+            swiftDefines: swiftDefines);
 
         // --- Extract symbol graph ---
         ExtractSymbolGraph(platform, sdkPath, simBuildDir);
 
         // --- Device slice (optional, iOS/tvOS only) ---
         if (includeDevice)
-            BuildDeviceSlices(platform, mainSourceFiles);
+            BuildDeviceSlices(platform, mainSourceFiles, swiftDefines);
 
         // --- Create xcframeworks ---
         CreateXcframeworks(platform, includeDevice, simBuildDir);
@@ -89,10 +101,20 @@ partial class Build
     /// Compiles a single framework slice (simulator or device) for a given module.
     /// Produces dylib, swiftmodule, swiftinterface, TBD, ABI JSON, and Info.plist.
     /// </summary>
+    /// <param name="swiftDefines">
+    /// Conditional-compilation defines (-D) to pass to BOTH the dylib compile
+    /// (swiftc) AND the ABI JSON dump (swift-frontend). Must be applied to both
+    /// invocations: if the two views disagree, `#if FOO_SMOKE` fixtures either
+    /// land in the dylib but aren't visible to the binding generator (missing
+    /// wrappers) or show up in the generator output but aren't present in the
+    /// dylib at runtime (undefined symbols at load time). The caller is
+    /// responsible for deriving this list from the set of enabled smoke flags.
+    /// </param>
     void CompileModuleSlice(
         string moduleName, string target, string sdkPath,
         string moduleSuffix, string minOs, string plistPlatform,
-        string frameworkDir, IReadOnlyList<string> sourceFiles, string[]? frameworkSearchPaths)
+        string frameworkDir, IReadOnlyList<string> sourceFiles, string[]? frameworkSearchPaths,
+        IReadOnlyList<string>? swiftDefines = null)
     {
         Log.Information("--- Building {Module} ({Target}) ---", moduleName, target);
 
@@ -117,6 +139,13 @@ partial class Build
         if (frameworkSearchPaths != null)
             foreach (var path in frameworkSearchPaths)
                 settings.AddFrameworkSearchPath(path);
+
+        if (swiftDefines != null)
+            foreach (var define in swiftDefines)
+            {
+                settings.AddExtraArgument("-D");
+                settings.AddExtraArgument(define);
+            }
 
         SwiftCompiler.Execute(settings);
 
@@ -143,6 +172,13 @@ partial class Build
             foreach (var path in frameworkSearchPaths)
                 frontendSettings.AddFrameworkSearchPath(path);
 
+        if (swiftDefines != null)
+            foreach (var define in swiftDefines)
+            {
+                frontendSettings.AddExtraArgument("-D");
+                frontendSettings.AddExtraArgument(define);
+            }
+
         SwiftFrontend.Execute(frontendSettings);
 
         // Info.plist
@@ -154,7 +190,10 @@ partial class Build
         Log.Information("{Module} built: {Dir}", moduleName, frameworkDir);
     }
 
-    void BuildDeviceSlices(ApplePlatform platform, IReadOnlyList<string> mainSourceFiles)
+    void BuildDeviceSlices(
+        ApplePlatform platform,
+        IReadOnlyList<string> mainSourceFiles,
+        IReadOnlyList<string> swiftDefines)
     {
         var deviceSdkPath = XcRun.GetSdkPath(platform.DeviceSdkName!);
         var deviceBuildDir = BtBuildDir / platform.DeviceSliceId!;
@@ -170,13 +209,15 @@ partial class Build
         CompileModuleSlice(
             DepModuleName, platform.DeviceTarget!, deviceSdkPath,
             platform.DeviceModuleSuffix!, platform.MinOsVersion, platform.DevicePlistPlatform!,
-            depDeviceFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null);
+            depDeviceFrameworkDir, GetDepSourceFiles(), frameworkSearchPaths: null,
+            swiftDefines: swiftDefines);
 
         // Build main module device slice
         CompileModuleSlice(
             ModuleName, platform.DeviceTarget!, deviceSdkPath,
             platform.DeviceModuleSuffix!, platform.MinOsVersion, platform.DevicePlistPlatform!,
-            deviceFrameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { deviceBuildDir.ToString() });
+            deviceFrameworkDir, mainSourceFiles, frameworkSearchPaths: new[] { deviceBuildDir.ToString() },
+            swiftDefines: swiftDefines);
     }
 
     void ExtractSymbolGraph(ApplePlatform platform, string sdkPath, string simBuildDir)
@@ -386,6 +427,10 @@ partial class Build
         var csCount = Directory.GetFiles(BtOutputDir, "*.cs", SearchOption.AllDirectories).Length;
         var swiftCount = Directory.GetFiles(BtOutputDir, "*.swift", SearchOption.AllDirectories).Length;
         Log.Information("Generated: {CsCount} C# files, {SwiftCount} Swift wrapper files", csCount, swiftCount);
+
+        // Stamp the active smoke-flag set so AssertBindingsNotStale can
+        // detect flag-set drift under a later --skip-regen run.
+        StampSmokeFlagsSidecar(BtOutputDir);
     }
 
     void EnsureGeneratorBuilt()

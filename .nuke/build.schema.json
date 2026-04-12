@@ -35,6 +35,7 @@
         "CompileCheckBindings",
         "Fetch",
         "Pack",
+        "RegenerateAppleSnapshot",
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
         "RuntimeTestsDevice",
@@ -126,9 +127,17 @@
           "type": "string",
           "description": "Pre-booted simulator or device UDID"
         },
+        "EnableCryptoKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the CryptoKit smoke tests (regenerates BindingTests/obj/CryptoKitSnapshot/ in-tree)"
+        },
         "EnableStoreKitSmoke": {
           "type": "boolean",
           "description": "Opt in to the StoreKit 2 smoke tests (regenerates BindingTests/obj/StoreKit2Snapshot/ in-tree)"
+        },
+        "EnableWeatherKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the WeatherKit smoke tests (regenerates BindingTests/obj/WeatherKitSnapshot/ in-tree)"
         },
         "FetchFirst": {
           "type": "boolean",
@@ -145,6 +154,10 @@
         "Force": {
           "type": "boolean",
           "description": "Force rebuild even if cached"
+        },
+        "Framework": {
+          "type": "string",
+          "description": "Apple framework name for regen-apple-snapshot (e.g. CryptoKit)"
         },
         "IncludeDevice": {
           "type": "boolean",

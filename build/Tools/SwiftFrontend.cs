@@ -53,9 +53,11 @@ public class SwiftFrontendSettings
 
     private readonly List<string> _frameworkSearchPaths = new();
     private readonly List<string> _includeSearchPaths = new();
+    private readonly List<string> _extraArguments = new();
 
     public IReadOnlyList<string> FrameworkSearchPaths => _frameworkSearchPaths;
     public IReadOnlyList<string> IncludeSearchPaths => _includeSearchPaths;
+    public IReadOnlyList<string> ExtraArguments => _extraArguments;
 
     public SwiftFrontendSettings SetSwiftInterfacePath(string value) { SwiftInterfacePath = value; return this; }
     public SwiftFrontendSettings SetTarget(string value) { Target = value; return this; }
@@ -67,6 +69,7 @@ public class SwiftFrontendSettings
     public SwiftFrontendSettings AddFrameworkSearchPath(string path) { _frameworkSearchPaths.Add(path); return this; }
     public SwiftFrontendSettings AddFrameworkSearchPaths(params string[] paths) { _frameworkSearchPaths.AddRange(paths); return this; }
     public SwiftFrontendSettings AddIncludeSearchPath(string path) { _includeSearchPaths.Add(path); return this; }
+    public SwiftFrontendSettings AddExtraArgument(string arg) { _extraArguments.Add(arg); return this; }
 
     /// <summary>
     /// Builds the argument string for xcrun swift-frontend.
@@ -88,6 +91,8 @@ public class SwiftFrontendSettings
 
         foreach (var path in _frameworkSearchPaths) { args.Add("-F"); args.Add(path); }
         foreach (var path in _includeSearchPaths) { args.Add("-I"); args.Add(path); }
+
+        args.AddRange(_extraArguments);
 
         if (AbiDescriptorPath != null) { args.Add("-emit-abi-descriptor-path"); args.Add(AbiDescriptorPath); }
 
