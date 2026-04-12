@@ -981,10 +981,15 @@ partial class Build
                     throw new Exception($"Build failed - macOS app bundle not found at {appBundle}");
 
                 // Inject native libs that NativeReference doesn't cover.
-                // Codesigning is disabled in the csproj so injected dylibs
-                // don't invalidate the bundle signature.
                 var monoBundle = appBundle / "Contents" / "MonoBundle";
                 InjectMacOSNativeLibraries(monoBundle);
+
+                // Re-sign the .app bundle after dylib injection. The build
+                // produces a linker-signed binary, but injecting dylibs into
+                // MonoBundle/Frameworks invalidates the sealed-resource hash.
+                // macOS kills unsigned/invalid bundles with SIGKILL on Apple
+                // Silicon. Bottom-up signing: dylibs → frameworks → exe → bundle.
+                CodesignMacOSApp(appBundle);
 
                 Log.Information("Build successful.");
             }
@@ -1530,8 +1535,12 @@ partial class Build
     {
         Log.Information("--- Running on macOS ---");
 
-        // macOS uses --platform simulator (Mono JIT mode, same as simulator)
-        var launchArgs = "--platform simulator";
+        // macOS uses --platform simulator (Mono JIT mode, same as simulator).
+        // Pass --results-path so JSONL is written outside the .app bundle
+        // (writing inside would invalidate the code signature seal).
+        var macResultsDir = (AbsolutePath)Path.GetTempPath() / "swift-bindings-macos-results";
+        Directory.CreateDirectory(macResultsDir);
+        var launchArgs = $"--platform simulator --results-path \"{macResultsDir}\"";
         if (FlakeDetect) launchArgs += " --flake-detect";
         if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
 
@@ -1551,7 +1560,7 @@ partial class Build
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
         };
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -1605,9 +1614,9 @@ partial class Build
         Log.Information("=== APP OUTPUT ===");
         Log.Information(result.Output);
 
-        // macOS: try to read JSONL from working directory (dotnet run uses repo root as cwd)
+        // JSONL is written to --results-path (temp dir outside the .app bundle).
         JsonlTestResults? jsonlResults = null;
-        var macJsonlPath = RootDirectory / "test-results.jsonl";
+        var macJsonlPath = macResultsDir / "test-results.jsonl";
         if (File.Exists(macJsonlPath))
         {
             jsonlResults = JsonlTestResults.ParseFile(macJsonlPath);
@@ -2210,6 +2219,60 @@ partial class Build
     {
         InjectRuntimeDylib(outputBin, nativeSubdir: "macos");
         InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacOS);
+    }
+
+    // ============================================================
+    // macOS Code Signing
+    // ============================================================
+
+    /// <summary>
+    /// Re-signs the macOS .app bundle after native library injection.
+    /// net10.0-macos builds produce a linker-signed binary, but injecting
+    /// dylibs post-build invalidates the sealed-resource hashes. macOS on
+    /// Apple Silicon kills binaries with invalid signatures (SIGKILL / exit 137).
+    /// Signs bottom-up: dylibs → frameworks → main exe → bundle.
+    /// </summary>
+    void CodesignMacOSApp(AbsolutePath appBundle)
+    {
+        Log.Information("Re-signing macOS .app bundle after native library injection...");
+
+        // Sign all dylibs in MonoBundle
+        var monoBundle = appBundle / "Contents" / "MonoBundle";
+        foreach (var dylib in Directory.GetFiles(monoBundle, "*.dylib"))
+        {
+            ProcessTasks.StartProcess("codesign", $"--force -s - \"{dylib}\"")
+                .AssertZeroExitCode();
+        }
+
+        // Sign frameworks injected into MonoBundle (e.g. dependency wrapper
+        // framework placed there by InjectDependencyWrapper).
+        foreach (var fw in Directory.GetDirectories(monoBundle, "*.framework"))
+        {
+            ProcessTasks.StartProcess("codesign", $"--force -s - \"{fw}\"")
+                .AssertZeroExitCode();
+        }
+
+        // Sign frameworks under Contents/Frameworks (NativeReference items)
+        var frameworks = appBundle / "Contents" / "Frameworks";
+        if (Directory.Exists(frameworks))
+        {
+            foreach (var fw in Directory.GetDirectories(frameworks, "*.framework"))
+            {
+                ProcessTasks.StartProcess("codesign", $"--force -s - \"{fw}\"")
+                    .AssertZeroExitCode();
+            }
+        }
+
+        // Sign the main executable
+        var mainExe = appBundle / "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
+        ProcessTasks.StartProcess("codesign", $"--force -s - \"{mainExe}\"")
+            .AssertZeroExitCode();
+
+        // Sign the bundle itself
+        ProcessTasks.StartProcess("codesign", $"--force -s - \"{appBundle}\"")
+            .AssertZeroExitCode();
+
+        Log.Information("macOS .app bundle re-signed successfully.");
     }
 
     // ============================================================

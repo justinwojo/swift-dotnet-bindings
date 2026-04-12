@@ -10,8 +10,8 @@
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
-    <!-- Disable codesign: native dylibs are injected post-build by the Nuke target,
-         which invalidates the bundle signature. This is a local debug test runner. -->
+    <!-- Disable build-time codesign: native dylibs are injected post-build by the
+         Nuke target. The Nuke target re-signs the bundle bottom-up after injection. -->
     <EnableCodeSigning>false</EnableCodeSigning>
     <!-- Same warning suppressions as RuntimeTestsApp -->
     <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>

@@ -18,6 +18,7 @@ public class Program
     static TestPlatform Platform = TestPlatform.Simulator;
     static bool FlakeDetect;
     static string? ClassFilter;
+    static string? ResultsPath;
 
     static async Task<int> Main(string[] args)
     {
@@ -42,6 +43,11 @@ public class Program
                 ClassFilter = args[i + 1];
                 i++;
             }
+            else if (args[i] == "--results-path" && i + 1 < args.Length)
+            {
+                ResultsPath = args[i + 1];
+                i++;
+            }
         }
 
         // Register resolver for bundled frameworks BEFORE any Swift types are accessed.
@@ -62,8 +68,13 @@ public class Program
 
         var results = new TestResults();
 
-        // Initialize JSONL output for crash-safe structured results
-        var jsonlPath = Path.Combine(Directory.GetCurrentDirectory(), "test-results.jsonl");
+        // Initialize JSONL output for crash-safe structured results.
+        // Use --results-path if provided (Nuke passes a path outside the .app bundle
+        // so writing JSONL doesn't invalidate the code signature seal). Fall back to
+        // CWD for manual invocation.
+        var jsonlPath = ResultsPath != null
+            ? Path.Combine(ResultsPath, "test-results.jsonl")
+            : Path.Combine(Directory.GetCurrentDirectory(), "test-results.jsonl");
         TestLogger.Info($"JSONL output: {jsonlPath}");
         results.InitializeJsonl(jsonlPath);
 
