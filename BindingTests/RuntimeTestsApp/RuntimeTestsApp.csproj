@@ -343,6 +343,104 @@
   <Import Project="$(WeatherKitSnapshotProjectRefTargets)"
           Condition="'$(EnableWeatherKitSmoke)' == 'true' AND Exists('$(WeatherKitSnapshotProjectRefTargets)')" />
 
+  <!-- TipKit smoke test (Apple-framework direct-mode pipeline) — Session 6 of the
+       apple-frameworks-bindingtests plan. Mirrors the CryptoKit/WeatherKit blocks:
+       no extern alias (TipKit is pure Swift, Microsoft.iOS ships no TipKit namespace —
+       verified by grepping Microsoft.iOS.dll for "TipKit"), canonical
+       <Framework>Snapshot/ path, simulator-only slice.
+
+       Opt in via `nuke runtime-tests-simulator` with the enable-tipkit-smoke
+       flag, which regenerates BindingTests/obj/TipKitSnapshot/ before the build
+       AND rebuilds SwiftBindingsTestLib with `-D TIPKIT_SMOKE` so the
+       TipKitSmokeTip.swift fixture's concrete `TipKitSmokeMinimalTip: Tip`
+       conformer lands in the dylib. The `-D` threading through BOTH `swiftc`
+       and `swift-frontend` (ABI JSON dump) is what Session 1's
+       CompileModuleSlice plumbing exists for — if either side drops the define,
+       the compiled C# smoke test cannot reference the generator-emitted symbol
+       and the simulator run fails at compile time.
+
+       See TipKitSmokeTests.cs for the runtime assertions (PAT fallback
+       reflection pin on the real TipKit.TipUICollectionReusableView.ViewStyle
+       property, plus a latent-bug dispatch pin on the synthetic fixture). -->
+  <PropertyGroup>
+    <TipKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/TipKitSnapshot/</TipKitSnapshotDir>
+    <TipKitSnapshotCsproj>$(TipKitSnapshotDir)TipKit.Swift.iOS.csproj</TipKitSnapshotCsproj>
+    <TipKitSnapshotProjectRefTargets>$(TipKitSnapshotDir)TipKit.Swift.iOS.ProjectReference.targets</TipKitSnapshotProjectRefTargets>
+    <TipKitSnapshotXcframework>$(TipKitSnapshotDir)TipKitSwiftBindings.xcframework</TipKitSnapshotXcframework>
+    <TipKitSmokeEnabled Condition="'$(EnableTipKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(TipKitSnapshotCsproj)') AND Exists('$(TipKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(TipKitSnapshotProjectRefTargets)')">true</TipKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_TipKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableTipKitSmoke)' == 'true' AND '$(TipKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableTipKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(TipKitSnapshotCsproj)')"
+           Text="EnableTipKitSmoke=true but $(TipKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework TipKit` (or `nuke runtime-tests-simulator --enable-tipkit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(TipKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableTipKitSmoke=true but $(TipKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework TipKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(TipKitSnapshotProjectRefTargets)')"
+           Text="EnableTipKitSmoke=true but $(TipKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework TipKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(TipKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);TIPKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TipKitSmokeEnabled)' == 'true'">
+    <!-- No <Aliases> — TipKit is Swift-only and does not collide with Microsoft.iOS. -->
+    <ProjectReference Include="$(TipKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(TipKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableTipKitSmoke)' == 'true' AND Exists('$(TipKitSnapshotProjectRefTargets)')" />
+
+  <!-- MusicKit smoke test (Apple-framework direct-mode pipeline) — Session 7 of the
+       apple-frameworks-bindingtests plan. Mirrors the CryptoKit/WeatherKit/TipKit blocks:
+       no extern alias (MusicKit is pure Swift; Microsoft.iOS ships MediaPlayer types
+       under the MediaPlayer namespace, not MusicKit — verified by grepping
+       Microsoft.iOS.dll for "MusicKit"), canonical <Framework>Snapshot/ path,
+       simulator-only slice.
+
+       Opt in via `nuke runtime-tests-simulator` with the enable-musickit-smoke
+       flag, which regenerates BindingTests/obj/MusicKitSnapshot/ (gitignored)
+       before the build. The smoke test deliberately avoids anything that would
+       hit MusicAuthorization or the MusicCatalog network — it exercises MusicKit
+       metadata (MusicItemID round-trip) and the per-property `@available`
+       propagation path (fix #2) through reflection on Song.AudioVariants only.
+       See MusicKitSmokeTests.cs. -->
+  <PropertyGroup>
+    <MusicKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/MusicKitSnapshot/</MusicKitSnapshotDir>
+    <MusicKitSnapshotCsproj>$(MusicKitSnapshotDir)MusicKit.Swift.iOS.csproj</MusicKitSnapshotCsproj>
+    <MusicKitSnapshotProjectRefTargets>$(MusicKitSnapshotDir)MusicKit.Swift.iOS.ProjectReference.targets</MusicKitSnapshotProjectRefTargets>
+    <MusicKitSnapshotXcframework>$(MusicKitSnapshotDir)MusicKitSwiftBindings.xcframework</MusicKitSnapshotXcframework>
+    <MusicKitSmokeEnabled Condition="'$(EnableMusicKitSmoke)' == 'true' AND '$(RuntimeIdentifier)' == 'iossimulator-arm64' AND Exists('$(MusicKitSnapshotCsproj)') AND Exists('$(MusicKitSnapshotXcframework)/ios-arm64-simulator') AND Exists('$(MusicKitSnapshotProjectRefTargets)')">true</MusicKitSmokeEnabled>
+  </PropertyGroup>
+  <Target Name="_MusicKitSmokeGateCheck" BeforeTargets="BeforeBuild"
+          Condition="'$(EnableMusicKitSmoke)' == 'true' AND '$(MusicKitSmokeEnabled)' != 'true'">
+    <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
+           Text="EnableMusicKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
+    <Error Condition="!Exists('$(MusicKitSnapshotCsproj)')"
+           Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework MusicKit` (or `nuke runtime-tests-simulator --enable-musickit-smoke` which regenerates automatically)." />
+    <Error Condition="!Exists('$(MusicKitSnapshotXcframework)/ios-arm64-simulator')"
+           Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework MusicKit` — the snapshot may have been partially regenerated." />
+    <Error Condition="!Exists('$(MusicKitSnapshotProjectRefTargets)')"
+           Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotProjectRefTargets) is missing. The wrapper NativeReference is injected via this generator-emitted file; without it the smoke test would compile but fail at runtime. Rerun `nuke regenerate-apple-snapshot --framework MusicKit`." />
+  </Target>
+  <PropertyGroup Condition="'$(MusicKitSmokeEnabled)' == 'true'">
+    <DefineConstants>$(DefineConstants);MUSICKIT_SMOKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(MusicKitSmokeEnabled)' == 'true'">
+    <!-- No <Aliases> — MusicKit is Swift-only and does not collide with Microsoft.iOS
+         (which exposes MediaPlayer types under the MediaPlayer namespace). -->
+    <ProjectReference Include="$(MusicKitSnapshotCsproj)">
+      <AdditionalProperties>IncludeSwiftBindingsRuntimeNative=false</AdditionalProperties>
+      <ReferenceOutputAssembly>true</ReferenceOutputAssembly>
+      <Private>true</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MusicKitSnapshotProjectRefTargets)"
+          Condition="'$(EnableMusicKitSmoke)' == 'true' AND Exists('$(MusicKitSnapshotProjectRefTargets)')" />
+
   <!-- Device bridge framework -->
   <ItemGroup Condition="Exists('../SwiftBridge/device/SwiftBindingsTestLibBridge.framework')
                          AND '$(RuntimeIdentifier)' == 'ios-arm64'">

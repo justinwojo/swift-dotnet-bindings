@@ -132,9 +132,17 @@
           "type": "boolean",
           "description": "Opt in to the CryptoKit smoke tests (regenerates BindingTests/obj/CryptoKitSnapshot/ in-tree)"
         },
+        "EnableMusicKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the MusicKit smoke tests (regenerates BindingTests/obj/MusicKitSnapshot/ in-tree)"
+        },
         "EnableStoreKitSmoke": {
           "type": "boolean",
           "description": "Opt in to the StoreKit 2 smoke tests (regenerates BindingTests/obj/StoreKit2Snapshot/ in-tree)"
+        },
+        "EnableTipKitSmoke": {
+          "type": "boolean",
+          "description": "Opt in to the TipKit smoke tests (regenerates BindingTests/obj/TipKitSnapshot/ in-tree)"
         },
         "EnableWeatherKitSmoke": {
           "type": "boolean",

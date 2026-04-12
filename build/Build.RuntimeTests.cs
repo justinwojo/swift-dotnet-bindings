@@ -67,6 +67,24 @@ partial class Build
     [Parameter("Opt in to the WeatherKit smoke tests (regenerates BindingTests/obj/WeatherKitSnapshot/ in-tree)")]
     readonly bool EnableWeatherKitSmoke;
 
+    // Opt-in to the TipKit Apple-framework smoke tests. Off by default for the
+    // same reasons as StoreKit/CryptoKit/WeatherKit. TipKit's smoke fixture is
+    // a synthetic Swift `Tip`-conforming type guarded by `#if TIPKIT_SMOKE`,
+    // exercised through an `any Tip` parameter — the real-framework pin of
+    // fix #7 (PAT fallback to `object` at parameter position).
+    [Parameter("Opt in to the TipKit smoke tests (regenerates BindingTests/obj/TipKitSnapshot/ in-tree)")]
+    readonly bool EnableTipKitSmoke;
+
+    // Opt-in to the MusicKit Apple-framework smoke tests. Off by default for
+    // the same reasons as the other Apple-framework smokes. MusicKit's smoke
+    // assertions are strictly metadata-only — no MusicCatalog network calls,
+    // no MusicAuthorization.request() sheet — so the test can run in any
+    // environment where the framework dylib is reachable by dyld. Pins the
+    // property / per-case `@available` propagation path (fix #2) on a real
+    // Tier-A framework via reflection-only assertions.
+    [Parameter("Opt in to the MusicKit smoke tests (regenerates BindingTests/obj/MusicKitSnapshot/ in-tree)")]
+    readonly bool EnableMusicKitSmoke;
+
     /// <summary>
     /// A single opt-in smoke flag. <see cref="FlagName"/> is the user-visible
     /// CLI option (used in error messages and log lines); <see cref="Define"/>
@@ -95,6 +113,10 @@ partial class Build
             flags.Add(new SmokeFlag("--enable-cryptokit-smoke", "CRYPTOKIT_SMOKE"));
         if (EnableWeatherKitSmoke)
             flags.Add(new SmokeFlag("--enable-weatherkit-smoke", "WEATHERKIT_SMOKE"));
+        if (EnableTipKitSmoke)
+            flags.Add(new SmokeFlag("--enable-tipkit-smoke", "TIPKIT_SMOKE"));
+        if (EnableMusicKitSmoke)
+            flags.Add(new SmokeFlag("--enable-musickit-smoke", "MUSICKIT_SMOKE"));
         // Sort by Define at the source so every downstream consumer — log
         // messages, `-D` compiler args, the `.smoke-flags` sidecar — observes
         // the same stable order. Without this the log could print
@@ -222,6 +244,18 @@ partial class Build
     AbsolutePath WeatherKitSnapshotCsproj => WeatherKitSnapshotDir / "WeatherKit.Swift.iOS.csproj";
     AbsolutePath WeatherKitSnapshotProjectRefTargets =>
         WeatherKitSnapshotDir / "WeatherKit.Swift.iOS.ProjectReference.targets";
+
+    // TipKit snapshot — same canonical <Framework>Snapshot layout as CryptoKit/WeatherKit.
+    AbsolutePath TipKitSnapshotDir => BindingTestsDir / "obj" / "TipKitSnapshot";
+    AbsolutePath TipKitSnapshotCsproj => TipKitSnapshotDir / "TipKit.Swift.iOS.csproj";
+    AbsolutePath TipKitSnapshotProjectRefTargets =>
+        TipKitSnapshotDir / "TipKit.Swift.iOS.ProjectReference.targets";
+
+    // MusicKit snapshot — same canonical <Framework>Snapshot layout as CryptoKit/WeatherKit/TipKit.
+    AbsolutePath MusicKitSnapshotDir => BindingTestsDir / "obj" / "MusicKitSnapshot";
+    AbsolutePath MusicKitSnapshotCsproj => MusicKitSnapshotDir / "MusicKit.Swift.iOS.csproj";
+    AbsolutePath MusicKitSnapshotProjectRefTargets =>
+        MusicKitSnapshotDir / "MusicKit.Swift.iOS.ProjectReference.targets";
 
     // Swift-side target triple shared by all Apple-framework snapshots. It
     // must match what the generator resolves via --platform-target simulator
@@ -728,6 +762,10 @@ partial class Build
                     RegenerateAppleFrameworkSnapshot("CryptoKit", CryptoKitSnapshotDir, force: false);
                 if (EnableWeatherKitSmoke)
                     RegenerateAppleFrameworkSnapshot("WeatherKit", WeatherKitSnapshotDir, force: false);
+                if (EnableTipKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("TipKit", TipKitSnapshotDir, force: false);
+                if (EnableMusicKitSmoke)
+                    RegenerateAppleFrameworkSnapshot("MusicKit", MusicKitSnapshotDir, force: false);
 
                 Log.Information("--- Building RuntimeTestsApp ---");
                 if (EnableStoreKitSmoke)
@@ -736,6 +774,10 @@ partial class Build
                     Log.Information("    CryptoKit smoke tests: ENABLED (--enable-cryptokit-smoke)");
                 if (EnableWeatherKitSmoke)
                     Log.Information("    WeatherKit smoke tests: ENABLED (--enable-weatherkit-smoke)");
+                if (EnableTipKitSmoke)
+                    Log.Information("    TipKit smoke tests: ENABLED (--enable-tipkit-smoke)");
+                if (EnableMusicKitSmoke)
+                    Log.Information("    MusicKit smoke tests: ENABLED (--enable-musickit-smoke)");
                 DotNetBuild(s =>
                 {
                     var built = s
@@ -745,12 +787,16 @@ partial class Build
                     // Any smoke flag needs SwiftBindingsRepoRoot so the snapshot csproj
                     // resolves SwiftBindings.Runtime via the in-tree ProjectReference
                     // fallback instead of the [0.0.0-dev] sentinel PackageReference.
-                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke)
+                    if (EnableStoreKitSmoke || EnableCryptoKitSmoke || EnableWeatherKitSmoke || EnableTipKitSmoke || EnableMusicKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
                     if (EnableCryptoKitSmoke)
                         built = built.SetProperty("EnableCryptoKitSmoke", "true");
                     if (EnableWeatherKitSmoke)
                         built = built.SetProperty("EnableWeatherKitSmoke", "true");
+                    if (EnableTipKitSmoke)
+                        built = built.SetProperty("EnableTipKitSmoke", "true");
+                    if (EnableMusicKitSmoke)
+                        built = built.SetProperty("EnableMusicKitSmoke", "true");
                     // SwiftBindingsRepoRoot above is what lets the generator-emitted
                     // <Framework>.Swift.iOS.csproj resolve SwiftBindings.Runtime via the
                     // in-tree ProjectReference fallback (see the snapshot csproj's
