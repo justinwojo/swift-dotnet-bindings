@@ -110,6 +110,10 @@ public static class SwiftFrameworkResolver
         $"@rpath/{libraryName}.dylib",
         $"@executable_path/lib{libraryName}.dylib",
         $"@executable_path/{libraryName}.dylib",
+        // macOS .app bundles: Content items with CopyToOutputDirectory land in
+        // Contents/Resources/, which is @executable_path/../Resources/.
+        $"@executable_path/../Resources/lib{libraryName}.dylib",
+        $"@executable_path/../Resources/{libraryName}.dylib",
     ];
 
     internal static IntPtr ResolveSwiftFramework(

@@ -193,9 +193,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -271,9 +274,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -336,9 +342,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -482,9 +491,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -646,9 +658,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -1031,13 +1046,14 @@ public static class SwiftInterfaceAccessParser
             if (extMatch.Success && openBraces > 0)
             {
                 var qualifiedName = extMatch.Groups[1].Value;
-                var dotIdx = qualifiedName.LastIndexOf('.');
-                var unqualifiedName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                typeStack.Push((unqualifiedName, braceDepth));
+                // Strip module prefix (first component) to get the full type path.
+                var firstDotIdx = qualifiedName.IndexOf('.');
+                var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                typeStack.Push((typePath, braceDepth));
                 pushedScope = true;
 
                 // Check if this is a protocol extension
-                if (protocolNames.Contains(unqualifiedName))
+                if (protocolNames.Contains(typePath))
                 {
                     currentProtocolExtension = qualifiedName;
                     protocolExtensionDepth = braceDepth;
@@ -1371,9 +1387,10 @@ public static class SwiftInterfaceAccessParser
             if (extMatch.Success && openBraces > 0)
             {
                 var qualifiedName = extMatch.Groups[1].Value;
-                var lastDotIdx = qualifiedName.LastIndexOf('.');
-                var unqualifiedName = lastDotIdx >= 0 ? qualifiedName.Substring(lastDotIdx + 1) : qualifiedName;
-                typeStack.Push((unqualifiedName, braceDepth));
+                // Strip module prefix (first component) to get the full type path.
+                var firstDotIdx = qualifiedName.IndexOf('.');
+                var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                typeStack.Push((typePath, braceDepth));
                 pushedScope = true;
 
                 // Check if this is a foreign type extension:
@@ -1385,7 +1402,6 @@ public static class SwiftInterfaceAccessParser
                 // For nested types like "StoreKit.Product.SubscriptionPeriod", the module is
                 // "StoreKit" and "Product.SubscriptionPeriod" is the nested type path.
                 bool isForeign = false;
-                int firstDotIdx = qualifiedName.IndexOf('.');
                 if (firstDotIdx >= 0)
                 {
                     // Qualified name — first segment is the module qualifier
@@ -1395,12 +1411,12 @@ public static class SwiftInterfaceAccessParser
                 else
                 {
                     // Unqualified — foreign if not in this module's types or protocols
-                    isForeign = !moduleTypeNames.Contains(unqualifiedName) &&
-                                !protocolNames.Contains(unqualifiedName);
+                    isForeign = !moduleTypeNames.Contains(typePath) &&
+                                !protocolNames.Contains(typePath);
                 }
 
                 // Exclude protocol extensions (already handled by GetProtocolExtensionMethods)
-                if (isForeign && !protocolNames.Contains(unqualifiedName))
+                if (isForeign && !protocolNames.Contains(typePath))
                 {
                     currentForeignExtension = qualifiedName;
                     foreignExtensionDepth = braceDepth;
@@ -1657,7 +1673,9 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    // Extract unqualified type name: "CryptoSwift.AES" → "AES"
+                    // Use last component (simple type name) for member key matching.
+                    // IsInternalFromPublicMemberNames queries with typeDecl.Name (simple name),
+                    // so member keys must use the same format.
                     var dotIdx = qualifiedName.LastIndexOf('.');
                     var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
                     typeStack.Push((typeName, braceDepth));
@@ -2100,9 +2118,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -2257,9 +2278,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -2357,9 +2381,12 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
-                    var dotIdx = qualifiedName.LastIndexOf('.');
-                    var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
-                    typeStack.Push((typeName, braceDepth));
+                    // Strip module prefix (first component) to get the full type path.
+                    // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
+                    // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
                 }
             }
 
@@ -2559,6 +2586,8 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
+                    // Use last component (simple type name) for member key matching.
+                    // ABI parser queries _parameterNames with parentDecl.Name (simple name).
                     var dotIdx = qualifiedName.LastIndexOf('.');
                     var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
                     typeStack.Push((typeName, braceDepth));
@@ -2652,6 +2681,8 @@ public static class SwiftInterfaceAccessParser
                 if (extMatch.Success && openBraces > 0)
                 {
                     var qualifiedName = extMatch.Groups[1].Value;
+                    // Use last component (simple type name) for member key matching.
+                    // ABI parser queries _typedThrowsErrors with parentDecl.Name (simple name).
                     var dotIdx = qualifiedName.LastIndexOf('.');
                     var typeName = dotIdx >= 0 ? qualifiedName.Substring(dotIdx + 1) : qualifiedName;
                     typeStack.Push((typeName, braceDepth));

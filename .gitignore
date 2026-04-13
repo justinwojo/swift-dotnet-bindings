@@ -214,6 +214,7 @@ BindingTests/output-macos/
 BindingTests/SwiftBridge/device/
 BindingTests/RuntimeTestsApp/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.Mac/TestClasses.g.txt
+BindingTests/RuntimeTestsApp.MacCatalyst/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.tvOS/TestClasses.g.txt
 
 # Fetched library xcframeworks (rebuilt by nuke fetch)

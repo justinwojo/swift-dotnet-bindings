@@ -1,5 +1,5 @@
 {
-  "git_sha": "7fe2fda2",
+  "git_sha": "ed1f4c43",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12566,
+        "lines": 12567,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,14 +33,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21782,
+        "lines": 21812,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 76571,
+        "lines": 76569,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58494,
+        "lines": 58486,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32025,
+        "lines": 32022,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23446,
+        "lines": 23462,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23446,
+        "lines": 23462,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23446,
+        "lines": 23462,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32170,
+        "lines": 32299,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14690,
+        "lines": 14708,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,21 +649,21 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 32,
-        "lines": 27246,
+        "lines": 27264,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 3,
-        "lines": 8183,
+        "lines": 8214,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 30491,
+        "lines": 30640,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
