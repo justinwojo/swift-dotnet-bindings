@@ -1,0 +1,43 @@
+{
+  "$schema": "specialization-hints.schema.json",
+  "protocols": [
+    {
+      "protocol": "Swift.DataProtocol",
+      "conformers": [
+        { "swiftType": "Foundation.Data", "csharpType": "Data" },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" }
+      ]
+    },
+    {
+      "protocol": "Foundation.ContiguousBytes",
+      "conformers": [
+        { "swiftType": "Foundation.Data", "csharpType": "Data" },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" }
+      ]
+    },
+    {
+      "protocol": "Swift.Sequence",
+      "conformers": [
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" },
+        { "swiftType": "Foundation.Data", "csharpType": "Data" }
+      ]
+    },
+    {
+      "protocol": "SwiftBindingsTestLib.AttributeKind",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.ColorAttribute", "csharpType": "ColorAttribute" },
+        { "swiftType": "SwiftBindingsTestLib.SizeAttribute", "csharpType": "SizeAttribute" },
+        { "swiftType": "SwiftBindingsTestLib.FlagAttribute", "csharpType": "FlagAttribute" }
+      ]
+    },
+    {
+      "protocol": "RoomPlan.CapturedRoomAttribute",
+      "conformers": [
+        { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },
+        { "swiftType": "RoomPlan.CapturedRoom.Object.Category.SofaType", "csharpType": "RoomPlan.SofaType" },
+        { "swiftType": "RoomPlan.CapturedRoom.Object.Category.TableType", "csharpType": "RoomPlan.TableType" },
+        { "swiftType": "RoomPlan.CapturedRoom.Object.Category.StorageType", "csharpType": "RoomPlan.StorageType" }
+      ]
+    }
+  ]
+}

@@ -629,6 +629,27 @@ public static class MethodWrapperEmitter
         var dispatchMethodName = $"_sbw_dispatch_{methodHash}";
         var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
 
+        // Guard: extension methods in generic static dispatch emit an unconditional
+        // conformance extension (no constraint propagation). If the parent type has
+        // another method with the same base Swift name, the call inside the wrapper
+        // can resolve to the wrong overload. Skip the wrapper in that case.
+        if (methodDecl.IsExtensionMethod)
+        {
+            var baseName = methodDecl.Name; // Parser name (e.g., "map")
+            bool hasNameCollision = parentTypeDecl.Methods.Any(m =>
+                m != methodDecl && m.Name == baseName && !m.IsAccessor);
+            if (hasNameCollision)
+            {
+                swiftWriter.WriteLine();
+                swiftWriter.WriteLines($$"""
+                    // Generic static dispatch wrapper skipped for '{{swiftMethodName}}':
+                    // extension method has same-name overload on parent type — unconstrained
+                    // extension cannot disambiguate (constraint propagation not yet supported).
+                    """);
+                return;
+            }
+        }
+
         // For string returns in generic static dispatch, we need Utf8Slice infrastructure
         if (isString)
         {
@@ -816,7 +837,10 @@ public static class MethodWrapperEmitter
             // T return: write to resultPtr using the concrete type from the extension
             // Use sugared names (T, Element) instead of ABI names (τ_0_0)
             var returnSwiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(returnTypeSpec, abiToSugaredName);
-            extensionBodyLines.Add($"let result = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
+            // Explicit type annotation forces Swift to resolve the correct overload
+            // when multiple methods share the same base name but differ in return type
+            // (e.g., map(JSONObject:) -> N throws vs map(JSONObject:) -> N?)
+            extensionBodyLines.Add($"let result: {returnSwiftType} = {tryPrefix}obj.{swiftMethodName}({methodCallArgString})");
             extensionBodyLines.Add($"resultPtr.initializeMemory(as: {returnSwiftType}.self, repeating: result, count: 1)");
         }
         else if (cdeclNeedsResultPtr)

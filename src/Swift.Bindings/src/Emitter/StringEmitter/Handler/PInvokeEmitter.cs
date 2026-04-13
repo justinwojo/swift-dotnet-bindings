@@ -106,8 +106,7 @@ namespace BindingsGeneration
             // Handle tuple return types
             // Generic-element tuples (e.g., (T, U)) fall through to the indirect result check below,
             // which adds SwiftIndirectResult + void return. This only works for sync methods —
-            // async methods skip indirect result (MarshallingHelpers returns false for async),
-            // so generic-element tuples on async methods are unsupported.
+            // async methods use flattened callback params instead of indirect result.
             if (_env.TupleHandler.IsTuple(returnType.SwiftTypeSpec))
             {
                 var tupleTypeSpec = (TupleTypeSpec)returnType.SwiftTypeSpec;
@@ -131,8 +130,19 @@ namespace BindingsGeneration
                 }
                 if (_env.MethodDecl.IsAsync)
                 {
-                    // Async methods don't use indirect result, so generic-element tuples are unsupported
-                    SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                    // Async P/Invoke returns void (PInvokeEmitHelper overrides to "void").
+                    // Tuple callbacks are emitted by EmitAsyncWrapperForTuple with flattened
+                    // params — they don't use ReturnType. Set it to the tuple type for
+                    // consistency; unsupported tuples get AnyType (method effectively skipped).
+                    if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
+                        _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
+                    {
+                        SetReturnType(_env.TupleHandler.GetPInvokeTupleType(tupleTypeSpec, _genericContext));
+                    }
+                    else
+                    {
+                        SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
+                    }
                     return;
                 }
                 // Generic-element tuples (sync): fall through to indirect result handling
@@ -310,8 +320,20 @@ namespace BindingsGeneration
             {
                 // Our Swift wrapper expects: callback, errorCallback, task (handle), then method arguments
                 // No context parameter needed - we handle the callback in Swift
-                AddParameter(MarshalledType.AsyncCallback, NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl));
-                AddParameter(MarshalledType.AsyncErrorCallback, NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl));
+                // For generic parent types, callbacks are hoisted to the PInvokeHelper class.
+                // CallExpression provides the qualified reference for the P/Invoke call site.
+                var callbackName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
+                var errorCallbackName = NameProvider.GetAsyncErrorCallbackFieldName(_env.MethodDecl);
+                string? callbackCallExpr = null;
+                string? errorCallbackCallExpr = null;
+                if (_env.PInvokeHelperContext != null)
+                {
+                    var helperClass = _env.PInvokeHelperContext.HelperClassName;
+                    callbackCallExpr = $"{helperClass}.{callbackName}";
+                    errorCallbackCallExpr = $"{helperClass}.{errorCallbackName}";
+                }
+                _parameters.Add(new Parameter(MarshalledType.AsyncCallback, callbackName, CallExpression: callbackCallExpr));
+                _parameters.Add(new Parameter(MarshalledType.AsyncErrorCallback, errorCallbackName, CallExpression: errorCallbackCallExpr));
                 AddParameter(MarshalledType.AsyncTask, "handle");
             }
         }

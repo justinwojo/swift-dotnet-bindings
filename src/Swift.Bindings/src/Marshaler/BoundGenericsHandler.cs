@@ -489,6 +489,19 @@ public class BoundGenericsHandler
         if (IsUnconstrainedContainerWithProjectableElements(namedTypeSpec))
             return false;
 
+        // Measurement<UnitType> — non-frozen generic struct with ObjC-bridged unit args.
+        // The C# Measurement<T> class has no ISwiftObject constraint on T (it uses VWT-backed
+        // storage and resolves unit metadata via the ObjC runtime). Bypass the check so members
+        // with Measurement parameters/returns are not skipped.
+        if (namedTypeSpec.Name == "Foundation.Measurement")
+            return false;
+
+        // ManagedSettings.Token<Kind> — non-frozen generic struct used as typed identifier.
+        // The marker type args (Application, ActivityCategory, WebDomain) are phantom types
+        // that don't implement ISwiftObject. Bypass so FamilyControls token properties are emitted.
+        if (namedTypeSpec.Name == "ManagedSettings.Token")
+            return false;
+
         // Swift.Optional (SwiftOptional<T>) has no ISwiftObject constraint on T,
         // so tuples are valid generic args. All other emitted generics have
         // 'where T : ISwiftObject', making ValueTuple args a CS0311 error.

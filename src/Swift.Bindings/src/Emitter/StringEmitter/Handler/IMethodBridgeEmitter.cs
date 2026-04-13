@@ -217,6 +217,9 @@ namespace BindingsGeneration
             {
                 reducedMethodKey = BaseHandler.GetProjectedCSharpMethodKey(
                     reducedMethodDecl, context.MethodEnv.TypeDatabase, context.Logger);
+                // Apply collision suffix so disambiguated methods check the correct key
+                if (context.MethodEnv.CollisionIndex > 0)
+                    reducedMethodKey = BaseHandler.ApplyCollisionSuffixToKey(reducedMethodKey, context.MethodEnv.CollisionIndex);
                 if (context.MethodEnv.EmittedProjectedSignatures.Contains(reducedMethodKey))
                 {
                     context.Logger.LogDebug(

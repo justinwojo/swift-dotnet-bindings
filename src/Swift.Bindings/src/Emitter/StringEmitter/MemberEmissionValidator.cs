@@ -68,13 +68,15 @@ public static class MemberEmissionValidator
         PropertyDecl property,
         ITypeDatabase typeDatabase,
         out string? skipDetails,
-        out string? projectedTypeName)
+        out string? projectedTypeName,
+        ConcreteSpecializationEngine? specializationEngine = null)
     {
         skipDetails = null;
         projectedTypeName = null;
 
         var asyncStreamHandler = new AsyncStreamHandler(typeDatabase);
-        var existentialHandler = new ExistentialHandler(typeDatabase);
+        var existentialHandler = new ExistentialHandler(typeDatabase)
+            { SpecializationEngine = specializationEngine };
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 

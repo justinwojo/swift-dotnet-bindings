@@ -119,9 +119,31 @@ public class MemberValidationPipeline
                 bool isAsync = methodDecl.IsAsync;
                 if (hasThunkClosure || isAsync)
                 {
+                    // Async methods in generic types: completion callbacks are hoisted
+                    // to the PInvokeHelper class by EmitAsyncWrapper. Allow through
+                    // unless they ALSO have thunk closures that can't be bridged,
+                    // OR the return type references parent generic type parameters
+                    // (callbacks can't use generic params since [UnmanagedCallersOnly]
+                    // methods and non-generic helper classes can't be parameterized).
+                    if (isAsync && !hasThunkClosure)
+                    {
+                        // Check if return type involves parent generic type parameters
+                        if (methodDecl.ParentDecl is TypeDecl { IsGeneric: true } parentTd)
+                        {
+                            var parentParamNames = new HashSet<string>(
+                                parentTd.GenericParameters.Select(p => p.TypeName));
+                            var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+                            if (TypeSpecHelpers.ContainsAnyTypeName(returnTypeSpec, parentParamNames))
+                            {
+                                return ValidationResult.Skip(SkipReason.GenericTypeCallback,
+                                    "Async callback references parent generic type parameters in return type.");
+                            }
+                        }
+                        // Pure async with non-generic return — callbacks hoisted by EmitAsyncWrapper
+                    }
                     // Allow MethodClosureBridge/NestedClosureBridge-eligible methods through —
                     // they hoist callbacks to the helper class like ProtocolExtensionClosureBridge.
-                    if (!MethodClosureBridge.IsEligible(methodDecl, closureHandler, _typeDatabase) &&
+                    else if (!MethodClosureBridge.IsEligible(methodDecl, closureHandler, _typeDatabase) &&
                         !NestedClosureBridge.IsEligible(methodDecl, closureHandler, _typeDatabase))
                     {
                         return ValidationResult.Skip(SkipReason.GenericTypeCallback,

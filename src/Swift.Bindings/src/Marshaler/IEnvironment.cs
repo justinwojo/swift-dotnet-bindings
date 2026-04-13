@@ -132,15 +132,30 @@ namespace BindingsGeneration
         public IReadOnlySet<string>? SiblingPropertyNames { get; } = siblingPropertyNames;
 
         /// <summary>
-        /// Gets the C# method name, resolving any collisions with property names.
+        /// Collision disambiguation index for methods with projected C# signature collisions.
+        /// 0 = no collision (first occurrence). Positive values append a numeric suffix (2, 3, ...)
+        /// so that multiple Swift overloads that project to the same C# signature remain accessible.
         /// </summary>
-        public string CSharpMethodName => NameProvider.GetPublicMethodName(
-            MethodDecl.Name, MethodDecl.IsAsync,
-            hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
-            SiblingPropertyNames,
-            isSelfReturning: IsSelfReturning,
-            parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name,
-            parameterCount: MethodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        public int CollisionIndex { get; set; }
+
+        /// <summary>
+        /// Gets the C# method name, resolving any collisions with property names
+        /// and applying collision disambiguation suffix when needed.
+        /// </summary>
+        public string CSharpMethodName
+        {
+            get
+            {
+                var name = NameProvider.GetPublicMethodName(
+                    MethodDecl.Name, MethodDecl.IsAsync,
+                    hasReturnValue: !MethodDecl.IsAccessor && MethodDecl.CSSignature.Count > 0 && !MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
+                    SiblingPropertyNames,
+                    isSelfReturning: IsSelfReturning,
+                    parentTypeName: (MethodDecl.ParentDecl as TypeDecl)?.Name,
+                    parameterCount: MethodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+                return CollisionIndex > 0 ? $"{name}{CollisionIndex + 1}" : name;
+            }
+        }
 
         /// <summary>
         /// Returns true if the method returns its declaring type (fluent/builder pattern).

@@ -25,6 +25,13 @@ public class ExistentialHandler
     /// </summary>
     public string? CurrentModuleName { get; set; }
 
+    /// <summary>
+    /// Optional concrete specialization engine for discovering known conformers
+    /// of PAT protocols. When set, existentials for PAT protocols with finite
+    /// known conformers use ExistentialUnion (try-cast) instead of falling back to object.
+    /// </summary>
+    public ConcreteSpecializationEngine? SpecializationEngine { get; set; }
+
     public ExistentialHandler(ITypeDatabase typeDatabase, SortedDictionary<string, List<string>>? compositionCollector = null)
     {
         _typeDatabase = typeDatabase;
@@ -470,6 +477,14 @@ public class ExistentialHandler
                 if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
                     typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
+                    // PAT protocol with known conformers → ExistentialUnion (try-cast pattern)
+                    // instead of falling back to object which makes the member unusable.
+                    if (SpecializationEngine != null)
+                    {
+                        var conformers = SpecializationEngine.GetConformers(swiftTypeName);
+                        if (conformers.Count > 0)
+                            return "Swift.Runtime.ExistentialUnion";
+                    }
                     return "object";
                 }
             }

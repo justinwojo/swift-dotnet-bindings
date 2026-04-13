@@ -141,6 +141,7 @@ namespace BindingsGeneration
                     // (e.g., Swift count(_:) vs count(distinct:) which both project to GetCount<T0>(T0))
                     var emittedMethodSignatures = new HashSet<string>();
                     var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+                    var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
                     var pipeline = new MemberValidationPipeline(env.TypeDatabase);
                     foreach (MethodDecl methodDecl in moduleDecl.Methods)
                     {
@@ -167,20 +168,32 @@ namespace BindingsGeneration
                         }
                         emittedMethodSignatures.Add(signatureKey);
 
-                        // Secondary dedup: projected C# public signature
+                        // Secondary dedup: projected C# public signature.
+                        // Non-constructor collisions are disambiguated with numeric suffix.
                         var projectedKey = GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, _logger);
+                        int collisionIndex = 0;
                         if (!emittedProjectedSignatures.Add(projectedKey))
                         {
-                            _logger.LogDebug($"Skipping free function '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
-                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
-                            csWriter.WriteLine();
-                            continue;
+                            // Free functions are never constructors — always disambiguate.
+                            // Loop until a free suffix is found — a natural name like "Foo2"
+                            // could already occupy the suffixed slot.
+                            if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var count))
+                                count = 0;
+                            string disambiguatedKey;
+                            do
+                            {
+                                collisionIndex = ++count;
+                                disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                            } while (!emittedProjectedSignatures.Add(disambiguatedKey));
+                            projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+
+                            _logger.LogDebug($"Disambiguating free function '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
                         }
 
                         if (conductor.TryGetMethodHandler(methodDecl, out var methodHandler))
                         {
                             var methodEnv = new MethodEnvironment(methodDecl, env.TypeDatabase, compositionCollector: context.CompositionCollector);
+                            methodEnv.CollisionIndex = collisionIndex;
                             methodEnv.EmittedProjectedSignatures = emittedProjectedSignatures;
                             methodHandler.Emit(csWriter, swiftWriter, methodEnv, conductor, context);
                         }

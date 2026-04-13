@@ -111,7 +111,7 @@ namespace BindingsGeneration
             // Platform-aware database loading: skip databases for frameworks that are
             // entirely absent on the target platform. Unused entries are harmless (lookup-based),
             // but skipping them avoids spurious type resolution for unavailable frameworks.
-            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml" };
+            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml", "ManagedSettingsDatabase.xml" };
             foreach (var database in builtInDatabases)
             {
                 LoadBuiltInDatabase(database);
@@ -447,6 +447,11 @@ namespace BindingsGeneration
                 // Create per-module emission context (replaces static mutable state + ResetForModule)
                 var emissionContext = new ModuleEmissionContext();
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
+
+                // Create concrete specialization engine and index module-local conformances
+                var specializationEngine = new ConcreteSpecializationEngine(typeDatabase);
+                specializationEngine.IndexModuleConformances(decl);
+                emissionContext.SpecializationEngine = specializationEngine;
 
                 // Parse protocol names first — needed by both protocol and foreign extension paths
                 var protocolNames = !string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath)

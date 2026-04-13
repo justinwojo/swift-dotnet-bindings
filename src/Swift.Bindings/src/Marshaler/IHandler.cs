@@ -194,6 +194,8 @@ namespace BindingsGeneration
             var emittedMethodSignatures = new HashSet<string>();
             // B15: Secondary dedup based on projected C# public signature
             var emittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+            // Track collision counts per projected key for disambiguation suffix generation
+            var projectedKeyCollisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
 
             var sortedDecl = TopologicallySortTypes(decl);
             var emissionCtx = context.GetEmissionContext();
@@ -353,23 +355,44 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // B15: Secondary dedup based on projected C# public method signature
+                    // B15: Secondary dedup based on projected C# public method signature.
+                    // For non-constructor methods, collisions are disambiguated with numeric suffix
+                    // (e.g., HandleNextAction, HandleNextAction2). Constructors can't be renamed in C#,
+                    // so constructor collisions are still skipped.
                     var projectedKey = GetProjectedCSharpMethodKey(methodDecl, typeDatabase, _logger);
+                    int collisionIndex = 0;
                     if (!emittedProjectedSignatures.Add(projectedKey))
                     {
-                        _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
-                        if (!methodDecl.IsAccessor)
+                        if (methodDecl.IsConstructor)
                         {
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# method signature collides: {projectedKey}");
+                            // Constructors can't be renamed — skip as before
+                            _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
+                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
+                            continue;
                         }
-                        continue;
+
+                        // Disambiguate non-constructor methods with numeric suffix.
+                        // Loop until a free suffix is found — a natural method name like "Process2"
+                        // could already occupy the suffixed slot.
+                        if (!projectedKeyCollisionCounts.TryGetValue(projectedKey, out var count))
+                            count = 0;
+                        string disambiguatedKey;
+                        do
+                        {
+                            collisionIndex = ++count;
+                            disambiguatedKey = ApplyCollisionSuffixToKey(projectedKey, collisionIndex);
+                        } while (!emittedProjectedSignatures.Add(disambiguatedKey));
+                        projectedKeyCollisionCounts[projectedKey] = collisionIndex;
+
+                        _logger.LogDebug($"Disambiguating method '{methodDecl.Name}' — collision #{collisionIndex + 1} for projected key: {projectedKey} → {disambiguatedKey}");
                     }
 
                     if (conductor.TryGetMethodHandler(methodDecl, out var handler))
                     {
                         // Pass property names and P/Invoke helper context to the method environment
                         var env = new MethodEnvironment(methodDecl, typeDatabase, siblingPropertyNames, context.PInvokeHelperContext, context.CompositionCollector);
+                        env.CollisionIndex = collisionIndex;
                         // C6/C7: Share projected signature set so DefaultParameterOverloadEmitter
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
@@ -471,6 +494,22 @@ namespace BindingsGeneration
             }
 
             return $"{methodName}({string.Join(",", paramTypes)})";
+        }
+
+        /// <summary>
+        /// Applies a collision disambiguation suffix to a projected C# method key.
+        /// The key format is "MethodName(type1,type2,...)" — the suffix is inserted
+        /// before the opening parenthesis (e.g., "Foo(int)" → "Foo2(int)").
+        /// </summary>
+        /// <param name="projectedKey">The base projected key without suffix.</param>
+        /// <param name="collisionIndex">The collision index (1-based: 1 → suffix "2", 2 → suffix "3", etc.).</param>
+        /// <returns>The disambiguated key, or the original key if collisionIndex is 0.</returns>
+        internal static string ApplyCollisionSuffixToKey(string projectedKey, int collisionIndex)
+        {
+            if (collisionIndex <= 0) return projectedKey;
+            var parenIndex = projectedKey.IndexOf('(');
+            if (parenIndex < 0) return $"{projectedKey}{collisionIndex + 1}";
+            return $"{projectedKey[..parenIndex]}{collisionIndex + 1}{projectedKey[parenIndex..]}";
         }
 
         /// <summary>

@@ -309,7 +309,16 @@ namespace BindingsGeneration
                 }
                 emittedMethods.Add(methodKey);
 
-                // Secondary dedup: different Swift types can project to the same C# type
+                // Secondary dedup: different Swift types can project to the same C# type.
+                // NOTE: Protocol method collision disambiguation is intentionally deferred.
+                // Unlike concrete types (IHandler/ModuleHandler), protocol methods define an
+                // interface contract — renaming a method to "Method2" requires corresponding
+                // name changes in: (1) ProtocolProxyEmitter.EmitMethodImplementation,
+                // (2) witness dispatch symbol emission, (3) extension default DIMs, and
+                // (4) protocol inheritance chains. The collision suffix must be threaded through
+                // the entire proxy/witness/extension pipeline to maintain CS0535 compliance.
+                // Until that plumbing is in place, duplicate projected signatures are skipped.
+                // Concrete type disambiguation was added in commit 81e22a1e.
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                 {

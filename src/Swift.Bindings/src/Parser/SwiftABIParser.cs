@@ -961,20 +961,22 @@ namespace BindingsGeneration
                 }
 
                 // Detect missing protocol requirements: count ABI JSON Function/Constructor
-                // children and compare against successfully parsed methods. A mismatch means
-                // some children failed parsing (e.g., `some` parameter causing
-                // GenericSignatureParser count mismatch). We count ALL Function/Constructor
-                // children (not just protocolReq=true) because extension defaults also need
-                // to parse successfully for the method count to match.
+                // children that are actual protocol requirements (protocolReq=true) and compare
+                // against successfully parsed methods that are requirements. Extension defaults
+                // (protocolReq=false or absent) don't need proxy stubs — Swift provides their
+                // default implementation automatically. Only flag MissingRequirements when a
+                // required method fails to parse, since the emitter can't generate stubs for
+                // requirements it doesn't know about.
                 if (decl is ProtocolDecl protocolDecl2)
                 {
-                    int expectedFuncChildren = node.Children
-                        .Count(c => c.Kind == "Function" || c.Kind == "Constructor");
-                    if (decl.Methods.Count < expectedFuncChildren)
+                    int expectedReqFuncChildren = node.Children
+                        .Count(c => (c.Kind == "Function" || c.Kind == "Constructor") && c.protocolReq == true);
+                    int parsedReqMethods = decl.Methods.Count(m => m.IsProtocolRequirement);
+                    if (parsedReqMethods < expectedReqFuncChildren)
                     {
                         protocolDecl2.HasMissingRequirements = true;
-                        _logger.LogDebug("Protocol {Name}: {Missing} method(s) failed ABI parsing ({Parsed}/{Expected})",
-                            decl.Name, expectedFuncChildren - decl.Methods.Count, decl.Methods.Count, expectedFuncChildren);
+                        _logger.LogDebug("Protocol {Name}: {Missing} required method(s) failed ABI parsing ({Parsed}/{Expected})",
+                            decl.Name, expectedReqFuncChildren - parsedReqMethods, parsedReqMethods, expectedReqFuncChildren);
                     }
                 }
 
@@ -1570,6 +1572,7 @@ namespace BindingsGeneration
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
                 IsExtensionMethod = node.isFromExtension == true,
+                IsProtocolRequirement = node.protocolReq == true,
             };
 
             // Suppress underscore-prefixed methods without explicit AccessControl.

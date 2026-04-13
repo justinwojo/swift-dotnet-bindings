@@ -9,6 +9,55 @@ namespace BindingsGeneration
     internal partial class WrapperEmitter
     {
         /// <summary>
+        /// Returns the helper class name prefix for referencing hoisted async callbacks.
+        /// When async callbacks are hoisted to the PInvokeHelper class (generic parent types),
+        /// field/method references must be prefixed with the helper class name.
+        /// </summary>
+        private string AsyncCallbackPrefix =>
+            _env.PInvokeHelperContext != null ? $"{_env.PInvokeHelperContext.HelperClassName}." : "";
+
+        /// <summary>
+        /// Visibility for async fields/P/Invokes hoisted to the helper class.
+        /// Members accessed from outside the helper class need <c>internal</c>;
+        /// inline members (emitted inside the same generic class) use <c>private</c>.
+        /// </summary>
+        private string AsyncFieldVisibility =>
+            _env.PInvokeHelperContext != null ? "internal" : "private";
+
+        /// <summary>
+        /// Flushes the async helper writer to PInvokeHelperContext.RawCodeBlocks.
+        /// Called at each exit point of EmitAsyncWrapper when callbacks were redirected.
+        /// </summary>
+        private void FlushAsyncHelperWriter()
+        {
+            if (_asyncHelperWriter != null && _env.PInvokeHelperContext != null)
+            {
+                _asyncHelperCsWriter!.Flush();
+                var content = _asyncHelperWriter.ToString();
+                if (!string.IsNullOrWhiteSpace(content))
+                    _env.PInvokeHelperContext.RawCodeBlocks.Add(content);
+                _asyncHelperWriter = null;
+                _asyncHelperCsWriter = null;
+            }
+        }
+
+        /// <summary>
+        /// Returns generic params string containing only method-own generics (excluding parent-type generics).
+        /// Used for async extension wrappers where parent-type generics come from the extension scope.
+        /// </summary>
+        private static string BuildMethodOwnGenericParams(MethodDecl methodDecl)
+        {
+            var parentParams = methodDecl.ParentDecl is TypeDecl td && td.IsGeneric
+                ? new HashSet<string>(td.GenericParameters.Select(p => p.TypeName))
+                : new HashSet<string>();
+            var ownParams = methodDecl.GenericParameters
+                .Where(p => !parentParams.Contains(p.TypeName))
+                .Select(p => p.SugaredTypeName)
+                .ToList();
+            return ownParams.Count > 0 ? $"<{string.Join(", ", ownParams)}>" : "";
+        }
+
+        /// <summary>
         /// Emits the Async task.
         /// </summary>
         /// <param name="csWriter">The IndentedTextWriter instance.</param>
@@ -270,6 +319,7 @@ namespace BindingsGeneration
 
             // Pre-cancel check: if token is already cancelled, clean up and return immediately
             var tcsTypeParam = isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>";
+            var cancelTaskPrefix = AsyncCallbackPrefix;
             var preCancelCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ", includeCancellationReg: false);
             csWriter.WriteLines($$"""
             if (cancellationToken.IsCancellationRequested)
@@ -288,7 +338,7 @@ namespace BindingsGeneration
                     static state =>
                     {
                         var (tcs, token, id) = ((TaskCompletionSource{{tcsTypeParam}}, global::System.Threading.CancellationToken, long))state!;
-                        SBW_CancelTask(id);
+                        {{cancelTaskPrefix}}SBW_CancelTask(id);
                         tcs.TrySetCanceled(token);
                     },
                     (_tcs, cancellationToken, taskId));
@@ -300,8 +350,11 @@ namespace BindingsGeneration
             // For tuple returns, flatten the tuple elements into separate callback parameters
             // because @convention(c) doesn't support Swift tuples
             var returnTypeArg = _env.MethodDecl.CSSignature.First();
-            var isTupleReturn = _env.TupleHandler.IsTuple(returnTypeArg.SwiftTypeSpec) &&
-                                _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnTypeArg.SwiftTypeSpec);
+            var tupleTypeSpecForCheck = _env.TupleHandler.IsTuple(returnTypeArg.SwiftTypeSpec)
+                ? (TupleTypeSpec)returnTypeArg.SwiftTypeSpec : null;
+            var isTupleReturn = tupleTypeSpecForCheck != null &&
+                                (_env.TupleHandler.IsSupportedTuple(tupleTypeSpecForCheck) ||
+                                 _env.TupleHandler.IsSupportedTuple(tupleTypeSpecForCheck, _genericContext));
 
             string callbackParams;
             string callbackResultArgs;
@@ -330,12 +383,23 @@ namespace BindingsGeneration
                 var callbackArgParts = new List<string>();
                 var heapAllocLines = new List<string>();
                 var heapCleanupLines = new List<string>();
+                // Build Swift generic param lookup for resolving τ_0_0 → T in tuple elements
+                var swiftGenericParamLookup = new Dictionary<string, string>();
+                foreach (var gp in _env.MethodDecl.GenericParameters)
+                    swiftGenericParamLookup[gp.TypeName] = gp.SugaredTypeName;
+
                 for (int i = 0; i < tupleTypeSpec.Elements.Count; i++)
                 {
                     var element = tupleTypeSpec.Elements[i];
                     bool needsHeapAlloc = false;
+                    bool isGenericTypeParam = TypeSpecHelpers.IsGenericTypeParameter(element);
 
-                    if (element is NamedTypeSpec elemNamed)
+                    if (isGenericTypeParam)
+                    {
+                        // Generic type params are unknown size — always heap-allocate via OpaquePointer
+                        needsHeapAlloc = true;
+                    }
+                    else if (element is NamedTypeSpec elemNamed)
                     {
                         // Skip class types — they're already raw pointers in @convention(c)
                         if (_env.TypeDatabase.TryGetTypeRecord(elemNamed, out var elemRecord) &&
@@ -362,9 +426,12 @@ namespace BindingsGeneration
 
                     if (needsHeapAlloc)
                     {
-                        // Non-primitive value type: heap-allocate and pass via pointer.
+                        // Non-primitive value type or generic type param: heap-allocate and pass via pointer.
                         // C# reads the struct from the pointer via MarshalFromSwift or direct cast.
-                        var swiftTypeName = element.ToString();
+                        // Resolve generic type params (τ_0_0) to Swift sugared names (T) for MemoryLayout.
+                        var rawName = element.ToString();
+                        var swiftTypeName = swiftGenericParamLookup.TryGetValue(rawName, out var sugared)
+                            ? sugared : rawName;
                         var ptrVar = $"_tupleBuf{i}";
                         elementTypes.Add("UnsafeMutableRawPointer");
                         callbackArgParts.Add(ptrVar);
@@ -746,23 +813,37 @@ namespace BindingsGeneration
                     return $"{p.Name}: {p.SwiftTypeSpec}";
                 });
 
+            // Compute parent type info early — needed by multiple decisions below.
+            var parentTypeName = (_env.ParentDecl as TypeDecl)?.SwiftTypeName;
+            var isAsyncInstanceMethod = parentTypeName != null && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
+            bool isGenericParentType = _env.ParentDecl is TypeDecl { IsGeneric: true };
+            bool useExtensionForGenericAsync = isAsyncInstanceMethod && isGenericParentType && !usesCdecl;
+
             // For async instance methods, add _self parameter so the wrapper operates on
             // the correct instance (not hardcoded .shared for singleton classes).
-            // @_cdecl uses UnsafeMutableRawPointer; @_silgen_name uses OpaquePointer
-            var needsSelfParam = _env.ParentDecl is TypeDecl && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
+            // @_cdecl uses UnsafeMutableRawPointer; @_silgen_name uses OpaquePointer.
+            // Extension methods (generic parent types) don't need _self — self is implicit in ABI.
+            var needsSelfParam = _env.ParentDecl is TypeDecl && isInstanceMethod
+                && _env.MethodDecl.MethodType != MethodType.Static
+                && !useExtensionForGenericAsync;
             var selfParam = needsSelfParam
                 ? (usesCdecl ? new[] { "_ _self: UnsafeMutableRawPointer" } : new[] { "_self: OpaquePointer" })
                 : Array.Empty<string>();
 
             string parameters = string.Join(", ", baseParams.Concat(methodParams).Concat(selfParam));
 
+            // For extension methods, generic params come from the extension scope — don't redeclare them.
+            // Only add generic params for method-own generics (not parent-type generics).
             var genericParams = _env.MethodDecl.IsGeneric switch
             {
-                true => $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => p.SugaredTypeName))}>",
-                false => ""
+                true when !useExtensionForGenericAsync =>
+                    $"<{string.Join(", ", _env.MethodDecl.GenericParameters.Select(p => p.SugaredTypeName))}>",
+                true when useExtensionForGenericAsync && WrapperValidation.HasMethodOwnGenericParameters(_env.MethodDecl) =>
+                    BuildMethodOwnGenericParams(_env.MethodDecl),
+                _ => ""
             };
 
-            var whereClause = _env.MethodDecl.IsGeneric
+            var whereClause = (!useExtensionForGenericAsync && _env.MethodDecl.IsGeneric)
                 ? WrapperEmitterHelpers.BuildSwiftWhereClause(_env.MethodDecl.GenericParameters)
                 : "";
 
@@ -857,8 +938,6 @@ namespace BindingsGeneration
                     return argName;
                 }));
 
-            var parentTypeName = (_env.ParentDecl as TypeDecl)?.SwiftTypeName;
-
             // For async instance methods on Swift classes, C# calls Arc.Retain on self before
             // invoking this wrapper, ensuring Swift ARC keeps self alive through the Task closure.
             // The matching Arc.Release is called in the C# callback after async completion.
@@ -866,13 +945,10 @@ namespace BindingsGeneration
                 ? "// selfInstance is safe - C# called Arc.Retain before invoking this method"
                 : "";
 
-            // For async instance methods, always pass self explicitly — even for singleton classes.
-            // The caller may have a non-shared instance (e.g., ImagePipeline(configuration:)).
-            var isAsyncInstanceMethod = parentTypeName != null && isInstanceMethod && _env.MethodDecl.MethodType != MethodType.Static;
-
             // Determine how to call the method:
             // - Static methods: ClassName.method()
-            // - Async instance methods: __self.method() (convert _self pointer)
+            // - Async instance methods on generic types (extension): self.method()
+            // - Async instance methods (free function): __self.method() (convert _self pointer)
             // - Regular instance methods: self.method()
             string selfConversion;
             string methodCallPrefix;
@@ -880,6 +956,13 @@ namespace BindingsGeneration
             {
                 selfConversion = "";
                 methodCallPrefix = parentTypeName != null ? $"{parentTypeName.ModuleQualifiedName}." : "";
+            }
+            else if (useExtensionForGenericAsync)
+            {
+                // Generic parent type: extension provides generic context via implicit self.
+                // @_silgen_name ABI passes self as the last implicit parameter.
+                selfConversion = "";
+                methodCallPrefix = "self.";
             }
             else if (isAsyncInstanceMethod)
             {
@@ -927,8 +1010,9 @@ namespace BindingsGeneration
 
             // Generate the Swift wrapper — 3 scope variants (free function, extension, top-level free function)
             // collapsed into a single parameterized template.
-            // @_cdecl can't be used in extensions, so force free function for @_cdecl
-            bool isExtension = !isAsyncInstanceMethod && parentTypeName != null && !usesCdecl;
+            // @_cdecl can't be used in extensions, so force free function for @_cdecl.
+            // Async instance methods on generic parent types use extension to inherit generic context.
+            bool isExtension = (useExtensionForGenericAsync || (!isAsyncInstanceMethod && parentTypeName != null)) && !usesCdecl;
             var staticModifier = isExtension && (_env.MethodDecl.MethodType == MethodType.Static || isAsyncConstructor) ? "static " : "";
             var catchBody = isExtension ? swiftCatchBodyExt : swiftCatchBody;
 
@@ -972,6 +1056,19 @@ namespace BindingsGeneration
             if (!_requiresSwiftAsync)
                 return;
 
+            // For generic parent types, [UnmanagedCallersOnly] callbacks must be hoisted to
+            // the non-generic PInvokeHelper class to avoid CS7042. Redirect callback output
+            // to a StringWriter that gets added to PInvokeHelperContext.RawCodeBlocks.
+            var callbackWriter = csWriter;
+            if (_env.PInvokeHelperContext != null)
+            {
+                var helperStringWriter = new System.IO.StringWriter();
+                callbackWriter = new CSharpWriter(helperStringWriter) { Indent = 0 };
+                // Store the helper writer so we can flush it at the end
+                _asyncHelperWriter = helperStringWriter;
+                _asyncHelperCsWriter = callbackWriter;
+            }
+
             // Emit SBW_CancelTask P/Invoke once per C# type (for CancellationToken support)
             var moduleDecl = _env.MethodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(_env.MethodDecl.ModuleDecl));
             var moduleLibPath = _env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
@@ -981,9 +1078,11 @@ namespace BindingsGeneration
             if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, _emissionContext))
             {
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
-                csWriter.WriteLines($"""
+                // SBW_CancelTask P/Invoke: hoist to helper for generic types, emit inline otherwise
+                var cancelWriter = _env.PInvokeHelperContext != null ? callbackWriter : csWriter;
+                cancelWriter.WriteLines($"""
                     [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
-                    private static partial void SBW_CancelTask(long taskId);
+                    {AsyncFieldVisibility} static partial void SBW_CancelTask(long taskId);
 
                     """);
             }
@@ -991,7 +1090,8 @@ namespace BindingsGeneration
             var returnType = _env.MethodDecl.CSSignature.First();
             var voidReturn = returnType.SwiftTypeSpec.IsEmptyTuple;
             var isTupleReturn = _env.TupleHandler.IsTuple(returnType.SwiftTypeSpec) &&
-                                _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec);
+                                (_env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec) ||
+                                 _env.TupleHandler.IsSupportedTuple((TupleTypeSpec)returnType.SwiftTypeSpec, _genericContext));
 
             var callbackFieldName = NameProvider.GetAsyncCallbackFieldName(_env.MethodDecl);
             var callbackMethodName = NameProvider.GetAsyncCallbackMethodName(_env.MethodDecl);
@@ -1001,7 +1101,8 @@ namespace BindingsGeneration
             // For tuple returns, we need to marshal each element individually
             if (isTupleReturn)
             {
-                EmitAsyncWrapperForTuple(csWriter, returnType, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                EmitAsyncWrapperForTuple(callbackWriter, returnType, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                FlushAsyncHelperWriter();
                 return;
             }
 
@@ -1009,7 +1110,8 @@ namespace BindingsGeneration
             bool isStringReturn = !voidReturn && returnType.SwiftTypeSpec.ToString() == "Swift.String";
             if (isStringReturn)
             {
-                EmitAsyncWrapperForString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                EmitAsyncWrapperForString(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                FlushAsyncHelperWriter();
                 return;
             }
 
@@ -1017,7 +1119,8 @@ namespace BindingsGeneration
             bool isArrayStringReturn = !voidReturn && IsArrayOfString(returnType.SwiftTypeSpec);
             if (isArrayStringReturn)
             {
-                EmitAsyncWrapperForArrayString(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                EmitAsyncWrapperForArrayString(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName);
+                FlushAsyncHelperWriter();
                 return;
             }
 
@@ -1026,8 +1129,9 @@ namespace BindingsGeneration
             // container type (e.g., SwiftArray<int>), not the public type (IReadOnlyList<int>).
             if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec, out var runtimeType, out var conversionExpr))
             {
-                EmitAsyncWrapperForCollection(csWriter, callbackFieldName, callbackMethodName,
+                EmitAsyncWrapperForCollection(callbackWriter, callbackFieldName, callbackMethodName,
                     errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr);
+                FlushAsyncHelperWriter();
                 return;
             }
 
@@ -1055,7 +1159,8 @@ namespace BindingsGeneration
                     bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
                     cbTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
                 }
-                EmitAsyncWrapperForComplexType(csWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType);
+                EmitAsyncWrapperForComplexType(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType);
+                FlushAsyncHelperWriter();
                 return;
             }
 
@@ -1099,7 +1204,7 @@ namespace BindingsGeneration
             }
 
             var text = $$"""
-                        private static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<{{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType}, ")}}IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}({{(voidReturn ? "" : $"{_pInvokeSignature.ReturnType} rawResult, ")}}IntPtr task)
                         {
@@ -1131,7 +1236,8 @@ namespace BindingsGeneration
 
                         {{BuildErrorCallbackBlock(errorCallbackFieldName, errorCallbackMethodName, voidReturn ? "" : $"<{_wrapperSignature.ReturnType}>")}}
                 """;
-            csWriter.WriteLine(text);
+            callbackWriter.WriteLine(text);
+            FlushAsyncHelperWriter();
         }
 
         /// <summary>
@@ -1185,7 +1291,7 @@ namespace BindingsGeneration
             var tupleConstruction = $"var result = ({string.Join(", ", resultElements)});";
 
             var text = $$"""
-                        private static unsafe delegate* unmanaged[Cdecl]<{{delegateTypeParams}}> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<{{delegateTypeParams}}> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}({{methodParamList}})
                         {
@@ -1227,7 +1333,7 @@ namespace BindingsGeneration
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             var text = $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr slicePtr, nint sliceLen, IntPtr task)
                         {
@@ -1281,7 +1387,7 @@ namespace BindingsGeneration
 
             // The wrapper return type is IReadOnlyList<string> (matches non-async Array<String> return type with WU2 element conversion)
             var text = $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr bufferPtr, nint bufferLen, IntPtr task)
                         {
@@ -1471,7 +1577,7 @@ namespace BindingsGeneration
                 : "";
 
             var text = $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
@@ -1667,7 +1773,7 @@ namespace BindingsGeneration
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
             var text = $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
+                        {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{callbackMethodName}}(IntPtr resultPtr, IntPtr task)
                         {
@@ -1810,7 +1916,7 @@ namespace BindingsGeneration
                 : "IntPtr errorMessagePtr, int isCancellation, IntPtr task";
 
             return $$"""
-                        {{freePInvokeDecl}}private static unsafe delegate* unmanaged[Cdecl]<{{delegateParams}}> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
+                        {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<{{delegateParams}}> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
                         [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         private static unsafe void {{errorCallbackMethodName}}({{methodParams}})
                         {

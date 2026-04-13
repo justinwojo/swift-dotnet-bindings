@@ -254,6 +254,15 @@ namespace BindingsGeneration
         public bool IsExtensionMethod { get; set; } = false;
 
         /// <summary>
+        /// Whether this method is a protocol requirement (protocolReq=true in ABI JSON).
+        /// Protocol requirements must be implemented by conforming types. Extension default
+        /// methods (protocolReq=false) provide default implementations and don't need stubs
+        /// in EveryProtocol conformances. Used by MissingRequirements detection to avoid
+        /// false positives when only extension defaults fail ABI parsing.
+        /// </summary>
+        public bool IsProtocolRequirement { get; set; } = false;
+
+        /// <summary>
         /// The wrapper strategy for this method's P/Invoke routing.
         /// Enforces mutual exclusivity of CdeclConstructor/CdeclProperty/CdeclMethod
         /// by the type system instead of guard ordering.

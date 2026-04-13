@@ -27,6 +27,20 @@ namespace BindingsGeneration
             { "CoreFoundation", "CoreGraphics" },
         };
 
+        // Cross-module type aliases for Swift typealiases that resolve to types in a different module.
+        // Key: the alias's module-qualified name (as it appears in ABI JSON).
+        // Value: the canonical module-qualified name of the target type, with generic type arguments
+        // preserved (e.g., "ManagedSettings.Token<ManagedSettings.Application>") so the generator
+        // can distinguish between different generic instantiations of the same base type.
+        // TryGetTypeRecord strips generic args before the TypeRecord lookup; TryResolveTypeAlias
+        // returns the full canonical name for code generation that needs the concrete specialization.
+        private static readonly Dictionary<string, string> _typeAliases = new(StringComparer.Ordinal)
+        {
+            { "FamilyControls.ApplicationToken", "ManagedSettings.Token<ManagedSettings.Application>" },
+            { "FamilyControls.ActivityCategoryToken", "ManagedSettings.Token<ManagedSettings.ActivityCategory>" },
+            { "FamilyControls.WebDomainToken", "ManagedSettings.Token<ManagedSettings.WebDomain>" },
+        };
+
         /// <summary>
         /// Gets the library name for async wrapper functions.
         /// This is where the generated Swift async wrappers are compiled to.
@@ -267,6 +281,19 @@ namespace BindingsGeneration
             if (_outOfModuleTypes.TryGetValue(swiftTypeName, out record))
                 return true;
 
+            // Cross-module type aliases: resolve the alias to its canonical type and retry.
+            // E.g., FamilyControls.ApplicationToken → ManagedSettings.Token<ManagedSettings.Application>
+            // Strip generic args for the TypeRecord lookup (the TypeRecord is for the base type).
+            if (_typeAliases.TryGetValue(swiftTypeName.ModuleQualifiedName, out var canonicalName))
+            {
+                var baseName = canonicalName.IndexOf('<') is var idx and >= 0
+                    ? canonicalName[..idx]
+                    : canonicalName;
+                var canonicalTypeName = SwiftTypeName.FromModuleQualifiedName(baseName);
+                if (TryGetTypeRecordInternal(canonicalTypeName, out record))
+                    return true;
+            }
+
             // Well-known stdlib protocols (Swift.Error → AnyError)
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
             {
@@ -275,6 +302,18 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Resolves a cross-module type alias to its full canonical name, preserving generic
+        /// type arguments. Returns null if the type is not an alias.
+        /// E.g., "FamilyControls.ApplicationToken" → "ManagedSettings.Token&lt;ManagedSettings.Application&gt;"
+        /// </summary>
+        public string? TryResolveTypeAlias(SwiftTypeName swiftTypeName)
+        {
+            return _typeAliases.TryGetValue(swiftTypeName.ModuleQualifiedName, out var canonicalName)
+                ? canonicalName
+                : null;
         }
 
         /// <inheritdoc/>
@@ -309,6 +348,17 @@ namespace BindingsGeneration
             var refVariant = GetRefAliasVariant(swiftTypeName);
             if (refVariant != null && IsTypeProcessedInternal(refVariant))
                 return true;
+
+            // Cross-module type aliases — strip generic args for base type lookup
+            if (_typeAliases.TryGetValue(swiftTypeName.ModuleQualifiedName, out var canonicalName))
+            {
+                var baseName = canonicalName.IndexOf('<') is var idx and >= 0
+                    ? canonicalName[..idx]
+                    : canonicalName;
+                var canonicalTypeName = SwiftTypeName.FromModuleQualifiedName(baseName);
+                if (IsTypeProcessedInternal(canonicalTypeName))
+                    return true;
+            }
 
             return false;
         }

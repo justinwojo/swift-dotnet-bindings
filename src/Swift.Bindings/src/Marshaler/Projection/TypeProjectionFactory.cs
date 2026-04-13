@@ -35,6 +35,10 @@ public record ProjectionContext
 
     /// <summary>Optional module name of the emitting context. When set, existential types from other modules are namespace-qualified.</summary>
     public string? CurrentModuleName { get; init; }
+
+    /// <summary>Optional specialization engine for resolving protocol conformers.
+    /// When set, PAT existentials with known conformers use ExistentialUnion instead of object fallback.</summary>
+    public ConcreteSpecializationEngine? SpecializationEngine { get; init; }
 }
 
 /// <summary>
@@ -424,7 +428,10 @@ public class TypeProjectionFactory
     private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)
     {
         var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector)
-        { CurrentModuleName = context.CurrentModuleName };
+        {
+            CurrentModuleName = context.CurrentModuleName,
+            SpecializationEngine = context.SpecializationEngine,
+        };
         var containerType = handler.GetCSharpExistentialType(protocolList);
         var publicType = handler.GetPublicExistentialType(protocolList);
         bool isBareAny = handler.IsBareAny(protocolList);
@@ -433,9 +440,12 @@ public class TypeProjectionFactory
         // - well-known protocols (e.g. Swift.Error → AnyError): no proxy
         // - "object" fallback: no proxy
         // - bare Any: no proxy (uses Box/Unbox)
+        // - ExistentialUnion: no proxy (uses try-cast)
         // - known protocols with interface: has proxy
         string? proxyClassName = null;
-        if (!handler.TryGetWellKnownProtocolType(protocolList, out _) && publicType != "object")
+        if (!handler.TryGetWellKnownProtocolType(protocolList, out _) &&
+            publicType != "object" &&
+            publicType != "Swift.Runtime.ExistentialUnion")
         {
             proxyClassName = handler.GetQualifiedProxyClassName(protocolList);
         }

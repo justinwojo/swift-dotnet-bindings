@@ -1054,6 +1054,13 @@ namespace BindingsGeneration
         /// <param name="applyIdiomaticConversion">When true, converts bare SwiftString to string. Set to false for recursive calls inside generics.</param>
         private string GetCSharpTypeForTupleElement(TypeSpec element, bool applyIdiomaticConversion = true)
         {
+            // Resolve generic type parameters (τ_0_0 → T) via GenericContext
+            if (TypeSpecHelpers.IsGenericTypeParameter(element) && element is NamedTypeSpec genericParam)
+            {
+                if (_genericContext.TryResolve(genericParam.Name, out var csTypeName))
+                    return csTypeName;
+            }
+
             // Handle bound generics — try factory projection first for idiomatic types
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {
@@ -1109,6 +1116,13 @@ namespace BindingsGeneration
         /// </summary>
         private string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
         {
+            // Handle generic type parameters (τ_0_0 → T) — received as IntPtr from heap-allocated buffer.
+            // Use SwiftMarshal.MarshalFromSwift<T> which resolves via type metadata at runtime.
+            if (TypeSpecHelpers.IsGenericTypeParameter(element))
+            {
+                return $"var {resultName} = SwiftMarshal.MarshalFromSwift<{csharpType}>({itemName});";
+            }
+
             // Handle bound generic types (Optional<T>, Array<T>, etc.)
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {

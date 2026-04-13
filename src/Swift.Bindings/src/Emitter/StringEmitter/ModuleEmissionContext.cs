@@ -542,6 +542,14 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Returns all recorded conformance decisions.</summary>
     public IReadOnlyDictionary<string, ProtocolConformanceDecision> ConformanceDecisions => _conformanceDecisions;
+
+    // ==================== Concrete Protocol Specialization ====================
+
+    /// <summary>
+    /// Engine for discovering protocol conformers and specializing methods with
+    /// protocol-constrained generic parameters. Set once per module.
+    /// </summary>
+    public ConcreteSpecializationEngine? SpecializationEngine { get; set; }
 }
 
 /// <summary>

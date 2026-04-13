@@ -333,9 +333,24 @@ namespace BindingsGeneration
                 emissionCtx?.PopTypeNesting();
                 base.HandleBaseDecl(csWriter, swiftWriter, classDecl.Methods, conductor, env.TypeDatabase, childContext, propertyNames);
 
+                // Emit concrete protocol specializations (e.g., func hash<D: DataProtocol>(data: D))
+                // Must be inside the class body — these emit instance/static methods.
+                var specEngine = context.GetEmissionContext().SpecializationEngine;
+                if (specEngine != null)
+                {
+                    ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+                        csWriter, swiftWriter, classDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+                }
+
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
+
+                // Emit constrained-extension specialization classes (e.g., extension X where T == Concrete)
+                ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+                    csWriter, swiftWriter, classDecl,
+                    env.TypeDatabase, context.GetEmissionContext(), _logger);
 
                 // Emit P/Invoke helper class(es) after the main class.
                 // If this is a nested generic inside a generic parent, defer emission

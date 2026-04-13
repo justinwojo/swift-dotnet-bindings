@@ -484,7 +484,7 @@ public class PInvokeHelperContext
         if (Declarations.Count == 0 && RawCodeBlocks.Count == 0)
             return;
 
-        csWriter.WriteLine($"internal static partial class {HelperClassName}");
+        csWriter.WriteLine($"internal static unsafe partial class {HelperClassName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 

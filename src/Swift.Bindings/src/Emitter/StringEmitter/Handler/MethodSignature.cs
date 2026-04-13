@@ -12,7 +12,9 @@ namespace BindingsGeneration
     /// <param name="Type">The marshalled type of the parameter.</param>
     /// <param name="Name">The parameter name.</param>
     /// <param name="modifier">Optional modifier (e.g., "out", "ref").</param>
-    public record Parameter(MarshalledType Type, string Name, string modifier = "", string? DefaultValue = null)
+    /// <param name="CallExpression">Optional override for the call-site expression (e.g., "HelperClass.fieldName").
+    /// When set, GetCallArgumentString uses this instead of Name for the call argument value.</param>
+    public record Parameter(MarshalledType Type, string Name, string modifier = "", string? DefaultValue = null, string? CallExpression = null)
     {
         public string CallString()
         {
@@ -194,8 +196,8 @@ namespace BindingsGeneration
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: MarshalledType.FrozenBuffer, modifier: "ref" } => $"ref {parameter.Name}Disposable.BufferRef",
                 { Type: MarshalledType.FrozenBuffer } => $"{parameter.Name}Disposable.Buffer",
-                { Type: MarshalledType.AsyncCallbackType } => $"{parameter.Name}",
-                { Type: MarshalledType.AsyncErrorCallbackType } => $"{parameter.Name}",
+                { Type: MarshalledType.AsyncCallbackType } => parameter.CallExpression ?? parameter.Name,
+                { Type: MarshalledType.AsyncErrorCallbackType } => parameter.CallExpression ?? parameter.Name,
                 { Type: MarshalledType.AsyncContextType } => "null",
                 { Type: MarshalledType.AsyncTaskType } => $"GCHandle.ToIntPtr({parameter.Name})",
                 { modifier: "out" } => $"out var {parameter.Name}",
@@ -496,7 +498,7 @@ namespace BindingsGeneration
                 var tupleTypeSpec = (TupleTypeSpec)argument.SwiftTypeSpec;
                 bool hasGenericElements = _env.TupleHandler.HasGenericTypeParameterElements(tupleTypeSpec);
                 if (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec) ||
-                    (_env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext) && !(hasGenericElements && _env.MethodDecl.IsAsync)))
+                    _env.TupleHandler.IsSupportedTuple(tupleTypeSpec, _genericContext))
                     SetReturnType(_env.TupleHandler.GetCSharpTupleType(tupleTypeSpec, typeSpec =>
                     {
                         // Try factory projection first for bound generics (Optional, Array, Dictionary)

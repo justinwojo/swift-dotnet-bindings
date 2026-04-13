@@ -90,6 +90,7 @@ public static class DefaultParameterOverloadEmitter
                 env.SiblingPropertyNames,
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
+            overloadEnv.CollisionIndex = env.CollisionIndex;
 
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
             // Compute the @_cdecl symbol from the original MangledName (before EmitSwiftWrapper changes it).
@@ -187,6 +188,9 @@ public static class DefaultParameterOverloadEmitter
             if (env.EmittedProjectedSignatures != null)
             {
                 var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase);
+                // Apply collision suffix so disambiguated methods use their suffixed name in the key
+                if (env.CollisionIndex > 0)
+                    projectedKey = BaseHandler.ApplyCollisionSuffixToKey(projectedKey, env.CollisionIndex);
                 if (!env.EmittedProjectedSignatures.Add(projectedKey))
                 {
                     logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — projected signature collides: {Key}", trim, methodDecl.Name, projectedKey);

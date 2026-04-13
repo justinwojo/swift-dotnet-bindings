@@ -34,6 +34,11 @@ namespace BindingsGeneration
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
+        // Async callback hoisting for generic types: when PInvokeHelperContext is present,
+        // [UnmanagedCallersOnly] callbacks are written to a helper StringWriter and flushed
+        // to PInvokeHelperContext.RawCodeBlocks. Null when not in a generic parent type.
+        private System.IO.StringWriter? _asyncHelperWriter;
+        private CSharpWriter? _asyncHelperCsWriter;
         // Tracks existential container heap allocation variable names for cleanup in finally block.
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         private readonly List<string> _existentialHeapNames = new();

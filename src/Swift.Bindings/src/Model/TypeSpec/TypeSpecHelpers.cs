@@ -76,4 +76,25 @@ public static class TypeSpecHelpers
 
         return false;
     }
+
+    /// <summary>
+    /// Checks if a TypeSpec tree contains any reference to the given type names.
+    /// Used to detect whether a method's return type references parent generic type parameters.
+    /// </summary>
+    /// <param name="typeSpec">The type specification to check.</param>
+    /// <param name="names">Set of type names to look for (e.g., parent generic param names like τ_0_0).</param>
+    /// <returns>True if any node in the TypeSpec tree matches a name in the set.</returns>
+    public static bool ContainsAnyTypeName(TypeSpec typeSpec, HashSet<string> names)
+    {
+        return typeSpec switch
+        {
+            NamedTypeSpec ns => names.Contains(ns.Name)
+                || ns.GenericParameters.Any(p => ContainsAnyTypeName(p, names))
+                || (ns.InnerType != null && ContainsAnyTypeName(ns.InnerType, names)),
+            TupleTypeSpec ts => ts.Elements.Any(e => ContainsAnyTypeName(e, names)),
+            ClosureTypeSpec cs => ContainsAnyTypeName(cs.Arguments, names)
+                || ContainsAnyTypeName(cs.ReturnType, names),
+            _ => false
+        };
+    }
 }

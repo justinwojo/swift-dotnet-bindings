@@ -401,6 +401,11 @@
       "objcPrefixes": ["LA"]
     },
     {
+      "module": "ManagedSettings",
+      "autoBridge": true,
+      "optionalFallback": true
+    },
+    {
       "module": "MapKit",
       "autoBridge": true,
       "optionalFallback": true,
@@ -494,8 +499,60 @@
     },
     {
       "module": "PassKit",
+      "autoBridge": true,
       "optionalFallback": true,
-      "objcPrefixes": ["PK"]
+      "objcPrefixes": ["PK"],
+      "valueTypes": [
+        "PKPaymentButtonType",
+        "PKPaymentButtonStyle",
+        "PKPaymentNetwork",
+        "PKPaymentAuthorizationStatus",
+        "PKPaymentMethodType",
+        "PKAddPassButtonStyle",
+        "PKMerchantCapability",
+        "PKShippingType",
+        "PKContactField",
+        "PKPaymentSummaryItemType",
+        "PKAddressField",
+        "PKShippingContactEditingMode",
+        "PKPassType",
+        "PKPassLibraryAddPassesStatus",
+        "PKAutomaticPassPresentationSuppressionResult",
+        "PKApplePayLaterAvailability",
+        "PKPaymentPassActivationState",
+        "PKAddPaymentPassStyle",
+        "PKAddShareablePassConfigurationPrimaryAction",
+        "PKAddIdentityDocumentType",
+        "PKShareSecureElementPassResult",
+        "PKBarcodeEventConfigurationDataType",
+        "PKIssuerProvisioningExtensionAuthorizationResult",
+        "PKVehicleConnectionErrorCode",
+        "PKVehicleConnectionSessionConnectionState",
+        "PKPayLaterDisplayStyle",
+        "PKPayLaterAction",
+        "PKRadioTechnology",
+        "PKEncryptionScheme",
+        "PKPaymentErrorKey",
+        "PKDisbursementErrorKey",
+        "PKPassLibraryNotificationName",
+        "PKPassLibraryNotificationKey",
+        "PKStoredValuePassBalance.BalanceType",
+        "PKIdentityButton.Label",
+        "PKIdentityButton.Style",
+        "PKSecureElementPass.PassActivationState",
+        "PKPassKitErrorCode",
+        "PKPaymentErrorCode",
+        "PKDisbursementErrorCode",
+        "PKAddSecureElementPassErrorCode",
+        "PKShareSecureElementPassErrorCode",
+        "PKIdentityError",
+        "PKAddPaymentPassError",
+        "PKPaymentRequest.MerchantCategoryCode",
+        "PKPayLater",
+        "PKPassLibrary.Capability",
+        "PKPassLibrary.AuthorizationStatus",
+        "PKSuppressionRequestToken"
+      ]
     },
     {
       "module": "Photos",
@@ -780,8 +837,28 @@
       "unsupported": true
     },
     {
+      "module": "simd",
+      "autoBridge": true,
+      "valueTypes": [
+        "simd_float4x4",
+        "simd_float3x3",
+        "simd_float2",
+        "simd_float3",
+        "simd_float4"
+      ]
+    },
+    {
       "module": "_Concurrency",
       "unsupported": true
+    },
+    {
+      "module": "_LocationEssentials",
+      "autoBridge": true,
+      "namespaceRemap": "CoreLocation",
+      "typeRemaps": {
+        "CLLocation": "CoreLocation.CLLocation",
+        "CLLocationCoordinate2D": "CoreLocation.CLLocationCoordinate2D"
+      }
     }
   ]
 }
