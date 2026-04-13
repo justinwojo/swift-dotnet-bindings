@@ -299,7 +299,7 @@ public class PInvokeHelperEmitterTests
         context.EmitHelperClass(csWriter);
 
         var result = output.ToString();
-        Assert.Contains("internal static partial class MyType_PInvoke", result);
+        Assert.Contains("internal static unsafe partial class MyType_PInvoke", result);
     }
 
     [Fact]

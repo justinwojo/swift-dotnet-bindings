@@ -474,11 +474,12 @@ public class BasicGenericTests : TestBase
             "ConstrainedExtensionWitness compiled cleanly across both specializations and Value round-trips.");
     }
 
-    public void TestConstrainedExtensionConflict_MarkerLabelIsNotEmitted()
+    public void TestConstrainedExtensionConflict_MarkerLabelIsNotEmittedAsProperty()
     {
-        // The two constrained-extension `markerLabel` properties cannot be emitted
-        // because C# generics cannot dispatch among per-monomorphization symbols.
-        // Verify they are absent from both closed-generic types via reflection.
+        // The constrained-extension `markerLabel` is emitted as extension methods,
+        // NOT as a property on the generic class. Verify via reflection that the
+        // property is absent from both closed-generic types (the extension method
+        // is a static method on a separate class, not a member of the type itself).
         var alphaType = typeof(ConstrainedExtensionWitness<DedupMarkerAlpha>);
         var betaType = typeof(ConstrainedExtensionWitness<DedupMarkerBeta>);
 
@@ -494,13 +495,35 @@ public class BasicGenericTests : TestBase
             System.Reflection.BindingFlags.Static);
 
         AssertTrue(alphaMarker is null,
-            "MarkerLabel must NOT be emitted on ConstrainedExtensionWitness<DedupMarkerAlpha> " +
-            "(constrained-extension specializations cannot be safely dispatched).");
+            "MarkerLabel must NOT be emitted as a property on ConstrainedExtensionWitness<DedupMarkerAlpha>.");
         AssertTrue(betaMarker is null,
-            "MarkerLabel must NOT be emitted on ConstrainedExtensionWitness<DedupMarkerBeta> " +
-            "(constrained-extension specializations cannot be safely dispatched).");
+            "MarkerLabel must NOT be emitted as a property on ConstrainedExtensionWitness<DedupMarkerBeta>.");
 
-        TestLogger.Info("ConstrainedExtensionWitness.MarkerLabel correctly absent from both specializations.");
+        TestLogger.Info("ConstrainedExtensionWitness.MarkerLabel correctly absent as property on both specializations.");
+    }
+
+    public void TestConstrainedExtensionSpecialization_AlphaExtensionMethod()
+    {
+        // Verify the constrained-extension property is accessible via the extension method
+        // on the closed generic type ConstrainedExtensionWitness<DedupMarkerAlpha>.
+        var alpha = new ConstrainedExtensionWitness<DedupMarkerAlpha>(value: 42);
+
+        // The extension method GetMarkerLabel() should return "alpha"
+        var label = alpha.GetMarkerLabel();
+        AssertEqual("alpha", label, "Alpha specialization markerLabel via extension method");
+
+        TestLogger.Info($"ConstrainedExtensionWitness<DedupMarkerAlpha>.GetMarkerLabel() = {label}");
+    }
+
+    public void TestConstrainedExtensionSpecialization_BetaExtensionMethod()
+    {
+        // Verify the beta specialization returns "beta"
+        var beta = new ConstrainedExtensionWitness<DedupMarkerBeta>(value: 99);
+
+        var label = beta.GetMarkerLabel();
+        AssertEqual("beta", label, "Beta specialization markerLabel via extension method");
+
+        TestLogger.Info($"ConstrainedExtensionWitness<DedupMarkerBeta>.GetMarkerLabel() = {label}");
     }
 
     #endregion

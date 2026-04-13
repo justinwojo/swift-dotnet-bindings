@@ -1,0 +1,351 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using System.Diagnostics.CodeAnalysis;
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Tests for <see cref="ConcreteSpecializationEngine"/> — protocol conformer discovery
+/// from hints and ABI, and specializable method detection.
+/// </summary>
+public class ConcreteSpecializationEngineTests
+{
+    private static ITypeDatabase CreateEmptyTypeDatabase() => new EmptyTypeDatabase();
+
+    [Fact]
+    public void LoadedHints_ContainsDataProtocol()
+    {
+        var hints = ConcreteSpecializationEngine.LoadedHints;
+        Assert.True(hints.ContainsKey("Swift.DataProtocol"), "Should have DataProtocol hints");
+        Assert.True(hints["Swift.DataProtocol"].Count >= 2, "DataProtocol should have at least 2 conformers");
+    }
+
+    [Fact]
+    public void LoadedHints_ContainsContiguousBytes()
+    {
+        var hints = ConcreteSpecializationEngine.LoadedHints;
+        Assert.True(hints.ContainsKey("Foundation.ContiguousBytes"), "Should have ContiguousBytes hints");
+    }
+
+    [Fact]
+    public void GetConformers_HintProtocol_ReturnsConformers()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.True(conformers.Count >= 2, "DataProtocol should have at least 2 conformers from hints");
+        Assert.Contains(conformers, c => c.CSharpType == "Data");
+        Assert.Contains(conformers, c => c.CSharpType == "byte[]");
+    }
+
+    [Fact]
+    public void GetConformers_UnknownProtocol_ReturnsEmpty()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Unknown.Protocol");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Empty(conformers);
+    }
+
+    [Fact]
+    public void IndexModuleConformances_AddsConformers()
+    {
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.MyType");
+        db.Register(conformerTypeName, "TestLib", "MyType");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.MyType", "TestLib.MyProtocol");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("TestLib.MyProtocol");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Single(conformers);
+        Assert.Equal("TestLib.MyType", conformers[0].SwiftQualifiedName);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_NonGenericMethod_ReturnsEmpty()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var typeDecl = CreateStructWithMethod("Processor", "doWork", isGeneric: false);
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_MethodWithConformers_ReturnsMethods()
+    {
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        // Index module conformances
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        // Create type with method-level generic constrained to Processable
+        var typeDecl = CreateStructWithProtocolConstrainedMethod(
+            "Processor", "process", "TestLib.Processable");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Equal("process", result[0].Method.Name);
+        Assert.Single(result[0].SpecializableParams);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_MethodWithoutConformers_ReturnsEmpty()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        // Don't index any conformances → no conformers for the protocol
+        var typeDecl = CreateStructWithProtocolConstrainedMethod(
+            "Processor", "process", "TestLib.UnknownProtocol");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetConformers_AttributeKindProtocol_ReturnsThreeConformers()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Equal(3, conformers.Count);
+        Assert.Contains(conformers, c => c.CSharpType == "ColorAttribute");
+        Assert.Contains(conformers, c => c.CSharpType == "SizeAttribute");
+        Assert.Contains(conformers, c => c.CSharpType == "FlagAttribute");
+    }
+
+    [Fact]
+    public void GetConformers_RoomPlanCapturedRoomAttribute_ReturnsFourConformers()
+    {
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("RoomPlan.CapturedRoomAttribute");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Equal(4, conformers.Count);
+        Assert.Contains(conformers, c => c.CSharpType == "RoomPlan.ChairType");
+        Assert.Contains(conformers, c => c.CSharpType == "RoomPlan.SofaType");
+        Assert.Contains(conformers, c => c.CSharpType == "RoomPlan.TableType");
+        Assert.Contains(conformers, c => c.CSharpType == "RoomPlan.StorageType");
+    }
+
+    [Fact]
+    public void ConcreteConformerNaming_ByteArray_HasSwiftLiteral()
+    {
+        var hints = ConcreteSpecializationEngine.LoadedHints;
+        var dataProtocol = hints["Swift.DataProtocol"];
+        var byteArrayConformer = dataProtocol.FirstOrDefault(c => c.CSharpType == "byte[]");
+
+        Assert.NotNull(byteArrayConformer);
+        Assert.Equal("[UInt8]", byteArrayConformer!.SwiftLiteral);
+    }
+
+    // ==================== Test Doubles ====================
+
+    private class EmptyTypeDatabase : ITypeDatabase
+    {
+        public string? AsyncLibraryName => null;
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => false;
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+        {
+            record = null;
+            return false;
+        }
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    /// <summary>
+    /// Type database that resolves specific types — needed because ConcreteSpecializationEngine
+    /// only indexes conformers whose C# names can be resolved via the type database.
+    /// </summary>
+    private class ResolvingTypeDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _records = new();
+
+        public string? AsyncLibraryName => null;
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => _records.ContainsKey(swiftTypeName.ToString());
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
+            => _records.TryGetValue(swiftTypeName.ToString(), out record);
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+
+        public void Register(SwiftTypeName swiftTypeName, string csNamespace, string csName)
+        {
+            _records[swiftTypeName.ToString()] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, csName),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            };
+        }
+    }
+
+    // ==================== Helpers ====================
+
+    private static ModuleDecl CreateModuleWithConformer(string moduleName, string conformerType, string protocolType)
+    {
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolType);
+
+        var structDecl = new StructDecl
+        {
+            Name = conformerTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = conformerTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(conformerTypeName, protocolTypeName, "")
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
+    }
+
+    private static StructDecl CreateStructWithMethod(string typeName, string methodName, bool isGeneric)
+    {
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = isGeneric
+                ? new List<GenericArgumentDecl> { new("τ_1_0", "T", new(), new()) }
+                : new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()), IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    private static StructDecl CreateStructWithProtocolConstrainedMethod(
+        string typeName, string methodName, string protocolName)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_1_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var paramTypeSpec = new NamedTypeSpec("τ_1_0");
+
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_1_0", "T", new List<GenericParameterConformance> { conformance }, new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (first element)
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+                // Parameter
+                new() { Name = "item", PrivateName = "item", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
+        return structDecl;
+    }
+}

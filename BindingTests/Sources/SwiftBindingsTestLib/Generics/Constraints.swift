@@ -52,6 +52,70 @@ public func describeConstrained<T>(_ item: T) -> String where T: Describable, T:
     return "[\(item.id)] \(item.describe())"
 }
 
+// MARK: - Concrete Protocol Specialization
+
+/// A protocol with a Self requirement — triggers GenericProtocolConstraint skip.
+/// The concrete specialization engine provides overloads for known conformers.
+public protocol Processable {
+    func process() -> Self
+    var label: String { get }
+}
+
+/// First conformer for Processable.
+@frozen
+public struct TextItem: Processable {
+    public let text: String
+
+    public init(text: String) {
+        self.text = text
+    }
+
+    public func process() -> TextItem {
+        return TextItem(text: text.uppercased())
+    }
+
+    public var label: String { return "text:\(text)" }
+}
+
+/// Second conformer for Processable.
+@frozen
+public struct NumberItem: Processable {
+    public let value: Int32
+
+    public init(value: Int32) {
+        self.value = value
+    }
+
+    public func process() -> NumberItem {
+        return NumberItem(value: value * 2)
+    }
+
+    public var label: String { return "number:\(value)" }
+}
+
+/// Non-generic struct with method-level generic constrained to Processable.
+/// The specialization engine emits one concrete overload per known conformer.
+@frozen
+public struct ItemProcessor {
+    public let prefix: String
+
+    public init(prefix: String) {
+        self.prefix = prefix
+    }
+
+    /// Method with protocol-constrained generic parameter.
+    /// Specialized to: processItem(TextItem) and processItem(NumberItem).
+    public func processItem<T: Processable>(_ item: T) -> String {
+        let result = item.process()
+        return "\(prefix): \(result.label)"
+    }
+
+    /// Static method with protocol-constrained generic parameter.
+    public static func describe<T: Processable>(_ item: T) -> String {
+        return item.label
+    }
+}
+
 // MARK: - M2: Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
 
 /// Generic class where the constructor requires both type metadata and a protocol witness table.

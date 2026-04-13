@@ -1345,6 +1345,93 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region Existential Union Tests
+
+    [Fact]
+    public void GetPublicExistentialType_PATProtocolWithKnownConformers_ReturnsExistentialUnion()
+    {
+        // Protocol with HasAssociatedTypes — normally returns "object".
+        // With SpecializationEngine providing conformers, should return ExistentialUnion.
+        var db = new PATProtocolMockDatabase("SwiftBindingsTestLib.AttributeKind");
+        var engine = new ConcreteSpecializationEngine(new EmptyTypeDatabase());
+
+        var handler = new ExistentialHandler(db) { SpecializationEngine = engine };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("Swift.Runtime.ExistentialUnion", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_PATProtocolWithoutConformers_ReturnsObject()
+    {
+        // PAT protocol with no known conformers — should fall back to "object"
+        var db = new PATProtocolMockDatabase("TestLib.UnknownProtocol");
+        var engine = new ConcreteSpecializationEngine(new EmptyTypeDatabase());
+
+        var handler = new ExistentialHandler(db) { SpecializationEngine = engine };
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.UnknownProtocol") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    [Fact]
+    public void GetPublicExistentialType_PATProtocolWithoutEngine_ReturnsObject()
+    {
+        // PAT protocol without specialization engine — should fall back to "object"
+        var db = new PATProtocolMockDatabase("SwiftBindingsTestLib.AttributeKind");
+
+        var handler = new ExistentialHandler(db); // no SpecializationEngine
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("SwiftBindingsTestLib.AttributeKind") });
+
+        var result = handler.GetPublicExistentialType(protocolList);
+
+        Assert.Equal("object", result);
+    }
+
+    /// <summary>
+    /// Mock database that registers a single protocol with HasAssociatedTypes flag.
+    /// </summary>
+    private class PATProtocolMockDatabase : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types = new();
+        public string AsyncLibraryName => null!;
+
+        public PATProtocolMockDatabase(string protocolName)
+        {
+            _types[protocolName] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestLib", protocolName.Split('.').Last()),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    /// <summary>Minimal ITypeDatabase that always returns false.</summary>
+    private class EmptyTypeDatabase : ITypeDatabase
+    {
+        public string AsyncLibraryName => null!;
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) => false;
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record) { record = null!; return false; }
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    #endregion
+
     #region MockTypeDatabase
 
     private class MockTypeDatabase : ITypeDatabase

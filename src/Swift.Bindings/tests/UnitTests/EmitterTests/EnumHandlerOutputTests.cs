@@ -731,7 +731,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
         Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
-        Assert.Contains("internal static partial class ValueProviderStorage_PInvoke", csOutput);
+        Assert.Contains("internal static unsafe partial class ValueProviderStorage_PInvoke", csOutput);
     }
 
     [Fact]

@@ -612,5 +612,140 @@ public class TypeDatabaseTests
             var records = module.GetAllTypeRecords().ToList();
             Assert.Empty(records);
         }
+
+        [Theory]
+        [InlineData("Foundation.Locale.Language", TypeRecordKind.Struct, false, true)]
+        [InlineData("Foundation.Locale.Region", TypeRecordKind.Struct, false, true)]
+        public async Task FoundationDatabase_LocaleNestedTypes_ResolvesCorrectly(
+            string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedRequiresMemory)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "FoundationDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                $"Type {typeName} should be found in Foundation database");
+            Assert.Equal(expectedKind, record!.Kind);
+            Assert.Equal(expectedFrozen, record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.Equal(expectedRequiresMemory, record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        }
+
+        [Theory]
+        [InlineData("HealthKit.HKWorkoutActivityType", TypeRecordKind.Enum, true, "UInt")]
+        [InlineData("HealthKit.HKWorkoutSessionLocationType", TypeRecordKind.Enum, true, "Int")]
+        public async Task HealthKitDatabase_EnumTypes_ResolvesCorrectly(
+            string typeName, TypeRecordKind expectedKind, bool expectedSimpleEnum, string expectedRawValue)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "HealthKitDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                $"Type {typeName} should be found in HealthKit database");
+            Assert.Equal(expectedKind, record!.Kind);
+            Assert.Equal(expectedSimpleEnum, record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+            Assert.Equal(expectedRawValue, record.RawValueTypeName);
+        }
+
+        [Theory]
+        [InlineData("simd.simd_float4x4", TypeRecordKind.Struct, true, true, 64)]
+        [InlineData("simd.simd_float3", TypeRecordKind.Struct, true, true, 16)]
+        public async Task SimdDatabase_StructTypes_ResolvesCorrectly(
+            string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedHasFloatFields, int expectedInlineSize)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SimdDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                $"Type {typeName} should be found in simd database");
+            Assert.Equal(expectedKind, record!.Kind);
+            Assert.Equal(expectedFrozen, record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.Equal(expectedHasFloatFields, record.Flags.HasFlag(TypeRecordFlags.HasFloatFields));
+            Assert.Equal(expectedInlineSize, record.InlineSize);
+        }
+
+        [Theory]
+        [InlineData("ManagedSettings.Token", TypeRecordKind.Struct, false, true)]
+        [InlineData("ManagedSettings.Application", TypeRecordKind.Struct, true, false)]
+        [InlineData("ManagedSettings.ActivityCategory", TypeRecordKind.Struct, true, false)]
+        [InlineData("ManagedSettings.WebDomain", TypeRecordKind.Struct, true, false)]
+        public async Task ManagedSettingsDatabase_TokenAndMarkerTypes_ResolvesCorrectly(
+            string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedRequiresMemory)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "ManagedSettingsDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                $"Type {typeName} should be found in ManagedSettings database");
+            Assert.Equal(expectedKind, record!.Kind);
+            Assert.Equal(expectedFrozen, record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.Equal(expectedRequiresMemory, record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        }
+
+        [Theory]
+        [InlineData("FamilyControls.ApplicationToken", "ManagedSettings.Token<ManagedSettings.Application>")]
+        [InlineData("FamilyControls.ActivityCategoryToken", "ManagedSettings.Token<ManagedSettings.ActivityCategory>")]
+        [InlineData("FamilyControls.WebDomainToken", "ManagedSettings.Token<ManagedSettings.WebDomain>")]
+        public async Task CrossModuleTypeAlias_ResolvesToCanonicalType(string aliasName, string expectedCanonicalName)
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "ManagedSettingsDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var aliasTypeName = SwiftTypeName.FromModuleQualifiedName(aliasName);
+            Assert.True(typeDatabase.TryGetTypeRecord(aliasTypeName, out var record),
+                $"Type alias {aliasName} should resolve via cross-module alias");
+            Assert.Equal("Token", record!.CSharpTypeName.Name);
+
+            // Verify alias resolution preserves generic type arguments
+            var resolvedName = typeDatabase.TryResolveTypeAlias(aliasTypeName);
+            Assert.NotNull(resolvedName);
+            Assert.Equal(expectedCanonicalName, resolvedName);
+        }
+
+        [Fact]
+        public async Task CrossModuleTypeAlias_IsTypeProcessed_ReturnsTrue()
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "ManagedSettingsDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var aliasTypeName = SwiftTypeName.FromModuleQualifiedName("FamilyControls.ApplicationToken");
+            Assert.True(typeDatabase.IsTypeProcessed(aliasTypeName),
+                "Type alias should be recognized as processed via cross-module alias");
+        }
+
+        [Fact]
+        public void CrossModuleTypeAlias_UnknownAlias_ReturnsFalse()
+        {
+            var typeDatabase = new TypeDatabase();
+            var unknownAlias = SwiftTypeName.FromModuleQualifiedName("FamilyControls.NonExistentToken");
+            Assert.False(typeDatabase.TryGetTypeRecord(unknownAlias, out _),
+                "Unknown type alias should not resolve");
+        }
+
+        /// <summary>
+        /// Points to the runtime XML databases directory via relative path from the test output.
+        /// </summary>
+        private static string TestDbDirectory
+        {
+            get
+            {
+                // Walk up from test output to repo root, then into runtime
+                var dir = AppContext.BaseDirectory;
+                while (dir != null && !Directory.Exists(Path.Combine(dir, ".nuke")))
+                    dir = Path.GetDirectoryName(dir);
+                if (dir == null)
+                    throw new InvalidOperationException(
+                        $"Cannot find repo root (.nuke directory) walking up from {AppContext.BaseDirectory}");
+                return Path.Combine(dir, "src", "Swift.Runtime", "src", "Swift");
+            }
+        }
     }
 }

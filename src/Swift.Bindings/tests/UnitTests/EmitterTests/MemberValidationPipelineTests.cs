@@ -759,15 +759,87 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidateMethodEmission_AsyncInGenericType_ReturnsSkip()
+    public void ValidateMethodEmission_PureAsyncInGenericType_Emits()
     {
-        // Phase 3: Async method in generic type
+        // Phase 3: Pure async method (no closure params) in generic type now passes —
+        // callbacks are hoisted to the non-generic helper class.
         var typeDatabase = CreateTypeDatabase();
         var method = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
         method.IsAsync = true;
 
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncWithClosureInGenericType_ReturnsSkip()
+    {
+        // Phase 3: Async method WITH closure params in generic type still skips —
+        // only pure async (no thunk closures) is hoisted.
+        var typeDatabase = CreateTypeDatabase();
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodWithArgs("fetchWithCallback", TupleTypeSpec.Empty, closureType);
+        method.IsAsync = true;
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("GenericBox", new[] { "T0" });
+        var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
+        var result = pipeline.ValidateMethodEmission(method, validationCtx);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_AsyncInGenericType_ReturnReferencesParentGeneric_ReturnsSkip()
+    {
+        // Phase 3: Async method whose return type references parent generic type params
+        // must be skipped — callbacks can't use generic params in non-generic helper class.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentDecl = new ClassDecl
+        {
+            Name = "StreamOf",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.StreamOf"),
+            MangledName = "$s10TestModule8StreamOfCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "Element", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        // Return type is Optional<τ_0_0> — references parent generic param
+        var returnType = new NamedTypeSpec("Swift.Optional");
+        returnType.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+
+        var method = CreateMethod("next", returnType);
+        method.IsAsync = true;
+        method.ParentDecl = parentDecl;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "Element", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var pinvokeCtx = new PInvokeHelperContext("StreamOf_PInvoke", new[] { "TElement" });
         var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
         var result = pipeline.ValidateMethodEmission(method, validationCtx);
 

@@ -1,0 +1,51 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+using RuntimeTestsApp.Infrastructure;
+using SwiftUI;
+
+namespace RuntimeTestsApp.Types;
+
+/// <summary>
+/// Tests for the runtime's SwiftUI.Text.Create(string) bridge.
+/// Exercises the SBW_SwiftUI_Text_Create native helper directly.
+/// </summary>
+public class SwiftUITextTests : TestBase
+{
+    public SwiftUITextTests(TestResults results) : base(results) { }
+
+    public void TestTextCreate_ReturnsNonNull()
+    {
+        using var text = Text.Create("Hello, SwiftUI!");
+        AssertNotNull(text, "Text.Create should return a non-null instance");
+        AssertNotNull(text.Payload, "Text.Payload should be initialized");
+    }
+
+    public void TestTextCreate_EmptyString()
+    {
+        using var text = Text.Create("");
+        AssertNotNull(text, "Text.Create with empty string should succeed");
+    }
+
+    public void TestTextCreate_UnicodeContent()
+    {
+        using var text = Text.Create("Hello \ud83c\udf0d 世界");
+        AssertNotNull(text, "Text.Create with Unicode content should succeed");
+    }
+
+    public void TestTextCreate_Dispose()
+    {
+        var text = Text.Create("Disposable");
+        text.Dispose();
+        // After dispose, accessing Payload should throw ObjectDisposedException
+        try
+        {
+            _ = text.Payload.DangerousGetHandle();
+            throw new AssertionException("Expected ObjectDisposedException after Dispose");
+        }
+        catch (ObjectDisposedException)
+        {
+            TestLogger.Info("Text correctly throws ObjectDisposedException after Dispose");
+        }
+    }
+}

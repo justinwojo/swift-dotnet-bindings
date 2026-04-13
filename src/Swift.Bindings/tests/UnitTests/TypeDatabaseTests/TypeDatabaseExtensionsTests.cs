@@ -387,6 +387,10 @@ public class TypeDatabaseExtensionsTests
     [InlineData("CoreImage.CIImage", "CoreImage", "CIImage")]
     [InlineData("AVFoundation.AVPlayer", "AVFoundation", "AVPlayer")]
     [InlineData("WebKit.WKWebView", "WebKit", "WKWebView")]
+    [InlineData("PassKit.PKPayment", "PassKit", "PKPayment")]
+    [InlineData("PassKit.PKShippingMethod", "PassKit", "PKShippingMethod")]
+    [InlineData("PassKit.PKPaymentRequestShippingMethodUpdate", "PassKit", "PKPaymentRequestShippingMethodUpdate")]
+    [InlineData("PassKit.PKPaymentRequestCouponCodeUpdate", "PassKit", "PKPaymentRequestCouponCodeUpdate")]
     public void GetTypeRecordOrAnyType_AppleFrameworkType_ReturnsObjCBridgedRecord(string swiftType, string expectedNamespace, string expectedName)
     {
         var typeDatabase = new TypeDatabase();
@@ -927,11 +931,25 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("QuartzCore.CALayer")]
     [InlineData("AVFAudio.AVAudioSession")]
+    [InlineData("PassKit.PKPayment")]
+    [InlineData("PassKit.PKShippingMethod")]
     public void IsObjCModuleType_NamespaceOverrideModules_ReturnsTrue(string swiftType)
     {
         var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
 
         Assert.True(result);
+    }
+
+    // --- PassKit value types must NOT be treated as ObjC classes ---
+
+    [Theory]
+    [InlineData("PassKit.PKPaymentButtonType")]
+    [InlineData("PassKit.PKPaymentNetwork")]
+    public void IsObjCModuleType_PassKitValueType_ReturnsFalse(string swiftType)
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec(swiftType));
+
+        Assert.False(result, $"{swiftType} is a value type, not an ObjC class");
     }
 
     // --- Modules NOT in auto-bridge set (removed for safety) ---

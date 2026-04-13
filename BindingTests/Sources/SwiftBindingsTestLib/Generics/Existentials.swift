@@ -78,3 +78,86 @@ public class AnyHolder {
         return stored
     }
 }
+
+// MARK: - Existential Union (PAT protocol with known conformers)
+
+/// Protocol with associated type — cannot become a simple C# interface.
+/// The generator should emit ExistentialUnion with try-cast to known conformers.
+public protocol AttributeKind {
+    associatedtype Value
+    var label: String { get }
+    var value: Value { get }
+}
+
+/// Conformer 1: color attribute with String value.
+@frozen public struct ColorAttribute: AttributeKind {
+    public typealias Value = String
+    public let label: String
+    public let value: String
+
+    public init(label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Conformer 2: size attribute with Int32 value.
+@frozen public struct SizeAttribute: AttributeKind {
+    public typealias Value = Int32
+    public let label: String
+    public let value: Int32
+
+    public init(label: String, value: Int32) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Conformer 3: flag attribute with Bool value.
+@frozen public struct FlagAttribute: AttributeKind {
+    public typealias Value = Bool
+    public let label: String
+    public let value: Bool
+
+    public init(label: String, value: Bool) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Container that holds an existential of the PAT protocol.
+/// The `attribute` property returns `any AttributeKind` — the generator should
+/// emit this as ExistentialUnion since the protocol has associated types.
+public struct AttributeHolder {
+    private let stored: any AttributeKind
+
+    public init(color: String) {
+        self.stored = ColorAttribute(label: "color", value: color)
+    }
+
+    public init(size: Int32) {
+        self.stored = SizeAttribute(label: "size", value: size)
+    }
+
+    public init(flag: Bool) {
+        self.stored = FlagAttribute(label: "flag", value: flag)
+    }
+
+    public var attribute: any AttributeKind {
+        return stored
+    }
+
+    public var attributeLabel: String {
+        return stored.label
+    }
+}
+
+/// Free function returning existential of PAT protocol.
+public func makeColorAttribute(name: String, color: String) -> any AttributeKind {
+    return ColorAttribute(label: name, value: color)
+}
+
+/// Free function returning existential of PAT protocol.
+public func makeSizeAttribute(name: String, size: Int32) -> any AttributeKind {
+    return SizeAttribute(label: name, value: size)
+}

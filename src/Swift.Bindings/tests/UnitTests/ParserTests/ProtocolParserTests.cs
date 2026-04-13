@@ -299,7 +299,7 @@ public class ProtocolParserTests
         };
     }
 
-    private static MethodDecl CreateMethodDecl(string name)
+    private static MethodDecl CreateMethodDecl(string name, bool isProtocolRequirement = false)
     {
         return new MethodDecl
         {
@@ -325,8 +325,55 @@ public class ProtocolParserTests
             ModuleDecl = null,
             Throws = false,
             IsAsync = false,
-            Visibility = Visibility.Public
+            Visibility = Visibility.Public,
+            IsProtocolRequirement = isProtocolRequirement
         };
+    }
+
+    #endregion
+
+    #region MissingRequirements / IsProtocolRequirement Tests
+
+    [Fact]
+    public void MethodDecl_IsProtocolRequirement_DefaultFalse()
+    {
+        var method = CreateMethodDecl("doWork");
+        Assert.False(method.IsProtocolRequirement);
+    }
+
+    [Fact]
+    public void MethodDecl_IsProtocolRequirement_CanBeSet()
+    {
+        var method = CreateMethodDecl("doWork", isProtocolRequirement: true);
+        Assert.True(method.IsProtocolRequirement);
+    }
+
+    [Fact]
+    public void Protocol_ExtensionDefaultsNotCountedAsMissing()
+    {
+        // TipKit.Tip pattern: protocol has properties as requirements (protocolReq=true)
+        // and extension methods (protocolReq=false) that fail ABI parsing.
+        // Only protocolReq=true Function/Constructor children should count as missing.
+        var protocol = CreateProtocolDecl("Tip");
+        // Simulate: 2 extension default methods failed to parse (not in Methods list)
+        // but they are NOT requirements. No protocolReq=true Function/Constructor children.
+        // HasMissingRequirements should be false.
+        Assert.False(protocol.HasMissingRequirements);
+        Assert.Equal(0, protocol.Methods.Count(m => m.IsProtocolRequirement));
+    }
+
+    [Fact]
+    public void Protocol_AllRequiredMethodsParsed_NoMissingRequirements()
+    {
+        // Protocol with required methods that all parsed successfully.
+        var protocol = CreateProtocolDecl("ValidProtocol");
+        protocol.Methods.Add(CreateMethodDecl("doWork", isProtocolRequirement: true));
+        protocol.Methods.Add(CreateMethodDecl("configure", isProtocolRequirement: true));
+        // Extension default that may or may not have parsed — doesn't affect MissingRequirements
+        protocol.Methods.Add(CreateMethodDecl("defaultBehavior", isProtocolRequirement: false));
+
+        Assert.False(protocol.HasMissingRequirements);
+        Assert.Equal(2, protocol.Methods.Count(m => m.IsProtocolRequirement));
     }
 
     #endregion

@@ -1056,9 +1056,10 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void MethodHandler_AsyncMethodInGenericType_SkipsEmission()
+    public void MethodHandler_AsyncMethodInGenericType_EmitsWithHoistedCallbacks()
     {
-        // This gate is now in MemberValidationPipeline (Phase 3 — async in generic type).
+        // Pure async methods (no closure params) in generic types now emit —
+        // callbacks are hoisted to the non-generic helper class by EmitAsyncWrapper.
         var typeDatabase = CreateTypeDatabase();
         typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -1078,8 +1079,7 @@ public class MethodHandlerOutputTests
         var validationCtx = new ValidationContext(typeDatabase, pinvokeCtx, new ModuleEmissionContext(), null, null, null, null);
         var result = pipeline.ValidateMethodEmission(method, validationCtx);
 
-        Assert.False(result.ShouldEmit);
-        Assert.Equal(SkipReason.GenericTypeCallback, result.Reason);
+        Assert.True(result.ShouldEmit);
     }
 
     [Fact]

@@ -1141,6 +1141,38 @@ public class BoundGenericsHandlerTests
         Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
     }
 
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_MeasurementWithUnitTemperature_ReturnsFalse()
+    {
+        // Measurement<UnitTemperature> — dedicated bypass. The C# Measurement<T> type
+        // uses VWT-backed storage and has no ISwiftObject constraint on T.
+        var measurement = new NamedTypeSpec("Foundation.Measurement");
+        measurement.GenericParameters.Add(new NamedTypeSpec("Foundation.UnitTemperature"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(measurement));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_MeasurementWithUnitLength_ReturnsFalse()
+    {
+        // Measurement<UnitLength> — same bypass as UnitTemperature.
+        var measurement = new NamedTypeSpec("Foundation.Measurement");
+        measurement.GenericParameters.Add(new NamedTypeSpec("Foundation.UnitLength"));
+
+        Assert.False(_handler.HasNonSwiftObjectGenericArg(measurement));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_NonMeasurementGenericWithObjCArg_StillBlocked()
+    {
+        // TestModule.Wrapper<UnitTemperature> — NOT Measurement, ObjC-bridged arg still blocked.
+        // Verifies the Measurement bypass is specific and doesn't relax constraints broadly.
+        var generic = new NamedTypeSpec("TestModule.Wrapper");
+        generic.GenericParameters.Add(new NamedTypeSpec("Foundation.UnitTemperature"));
+
+        Assert.True(_handler.HasNonSwiftObjectGenericArg(generic));
+    }
+
     #endregion
 
     #region Well-Known Stdlib Conformances

@@ -24,6 +24,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("MapKit", true)]
     [InlineData("CoreAnimation", false)]  // NOT in auto-bridge (it's a .NET namespace, not a Swift module)
     [InlineData("Metal", false)]          // NOT in auto-bridge
+    [InlineData("PassKit", true)]
     [InlineData("GameController", false)] // OptionalFallback only — auto-bridge too risky without full ValueTypes coverage
     [InlineData("Network", false)]        // OptionalFallback only — too many nested value types
     [InlineData("SwiftUI", false)]        // Unsupported, not auto-bridge
@@ -66,7 +67,7 @@ public class AppleFrameworkRegistryTests
             "WebKit", "SceneKit", "SpriteKit", "ARKit", "RealityKit",
             "AVFoundation", "Photos", "PhotosUI", "Contacts", "ContactsUI",
             "EventKit", "EventKitUI", "HealthKit", "HomeKit", "CloudKit",
-            "StoreKit", "PDFKit", "SafariServices",
+            "StoreKit", "PDFKit", "SafariServices", "PassKit",
             "AuthenticationServices", "CoreBluetooth", "CoreSpotlight",
             "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
             "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
@@ -132,6 +133,9 @@ public class AppleFrameworkRegistryTests
     [InlineData("Photos.PHAuthorizationStatus", true)]
     [InlineData("Metal.MTLPixelFormat", true)]
     [InlineData("Network.NWEndpoint.Port", true)]
+    [InlineData("PassKit.PKPaymentButtonType", true)]
+    [InlineData("PassKit.PKPaymentNetwork", true)]
+    [InlineData("PassKit.PKPayment", false)]   // Class (NSObject subclass)
     [InlineData("UIKit.UIImage", false)]       // Class, not value type
     [InlineData("Foundation.NSObject", false)]  // Class
     [InlineData("Unknown.Type", false)]
@@ -464,7 +468,7 @@ public class AppleFrameworkRegistryTests
     [Fact]
     public void JsonLoaded_AllAutoBridgeModules_ArePresent()
     {
-        // All 35 auto-bridge modules from the original hardcoded set
+        // All auto-bridge modules from apple-frameworks.json
         var expectedModules = new[]
         {
             "Foundation", "UIKit", "AppKit", "CoreImage", "CoreData",
@@ -476,7 +480,7 @@ public class AppleFrameworkRegistryTests
             "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
             "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
             "Intents", "IntentsUI", "QuartzCore", "AVFAudio",
-            "CoreLocation", "MapKit",
+            "CoreLocation", "MapKit", "PassKit",
         };
 
         foreach (var module in expectedModules)
@@ -677,6 +681,11 @@ public class AppleFrameworkRegistryTests
             "Metal.MTLStorageMode", "Metal.MTLResourceOptions",
             // Network
             "Network.NWEndpoint.Port",
+            // PassKit
+            "PassKit.PKPaymentButtonType", "PassKit.PKPaymentButtonStyle",
+            "PassKit.PKPaymentNetwork", "PassKit.PKPaymentAuthorizationStatus",
+            "PassKit.PKPaymentMethodType", "PassKit.PKAddPassButtonStyle",
+            "PassKit.PKMerchantCapability", "PassKit.PKShippingType",
         };
 
         foreach (var vt in expectedValueTypes)
@@ -909,7 +918,7 @@ public class AppleFrameworkRegistryTests
         var notAutoBridge = new[]
         {
             "CoreAnimation", "CoreMedia", "CoreMotion", "Metal", "MetalKit",
-            "PassKit", "GameKit", "LocalAuthentication", "CoreNFC", "CarPlay",
+            "GameKit", "LocalAuthentication", "CoreNFC", "CarPlay",
             "ClassKit", "CoreTelephony", "FileProvider", "MessageUI", "Social",
             "WatchConnectivity", "MediaPlayer", "GameController", "Network",
         };

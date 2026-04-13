@@ -107,3 +107,35 @@ public func makeDependencyService(name: String) -> DependencyService {
 public func describeDependency(_ dep: some DependencyProtocol) -> String {
     return dep.describe()
 }
+
+// MARK: - Cross-Module Type Alias Support
+
+/// Concrete token type A — analogous to a specific Token instantiation.
+/// Used to test cross-module type alias resolution.
+@frozen
+public struct DependencyTokenA {
+    public let identifier: Int32
+
+    public init(identifier: Int32) {
+        self.identifier = identifier
+    }
+
+    public func describe() -> String {
+        return "Token(\(identifier))"
+    }
+}
+
+/// Concrete token type B — analogous to a different Token instantiation.
+/// Used to test cross-module type alias resolution.
+@frozen
+public struct DependencyTokenB {
+    public let identifier: Int32
+
+    public init(identifier: Int32) {
+        self.identifier = identifier
+    }
+
+    public func describe() -> String {
+        return "Token(\(identifier))"
+    }
+}
