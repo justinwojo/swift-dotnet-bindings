@@ -110,6 +110,15 @@ internal static class WitnessTableDispatcher
 public static class SwiftMarshal
 {
     /// <summary>
+    /// Returns the native allocation size for a Swift type via its type metadata.
+    /// Used by generated code for metadata-driven indirect result buffer allocation.
+    /// </summary>
+    /// <typeparam name="T">The ISwiftObject type whose size to query.</typeparam>
+    /// <returns>The size in bytes of the Swift type's value representation.</returns>
+    public static int GetSwiftTypeSize<T>() where T : ISwiftObject
+        => (int)T.GetTypeMetadata().Size;
+
+    /// <summary>
     /// Pre-registers a NewFromPayload factory for a type so NativeAOT can create instances
     /// without reflection. Called by generated [ModuleInitializer] code at assembly load time.
     /// </summary>

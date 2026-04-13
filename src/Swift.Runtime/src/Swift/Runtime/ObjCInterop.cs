@@ -34,17 +34,35 @@ internal static class ObjCInterop
     {
         ArgumentException.ThrowIfNullOrEmpty(className);
 
-        var classPtr = ObjCGetClass(className);
-        if (classPtr == IntPtr.Zero)
-        {
-            throw new SwiftRuntimeException($"objc_getClass failed to find class '{className}'. " +
-                "The class may not be available on this platform.");
-        }
+        var classPtr = GetObjCClassHandle(className);
         var metadataPtr = SwiftGetObjCClassMetadata(classPtr);
         if (metadataPtr == IntPtr.Zero)
         {
             throw new SwiftRuntimeException($"swift_getObjCClassMetadata returned null for class '{className}'.");
         }
         return TypeMetadata.FromHandle(metadataPtr);
+    }
+
+    /// <summary>
+    /// Returns the raw ObjC class pointer for a class by name.
+    /// For ObjC classes, the class pointer IS the Swift type metadata — this is the
+    /// correct value to pass as a generic argument to Swift metadata accessors
+    /// (e.g., Measurement&lt;UnitTemperature&gt; metadata accessor takes UnitTemperature's
+    /// class pointer as the generic arg metadata).
+    /// </summary>
+    /// <param name="className">The ObjC class name (e.g., "NSUnitTemperature").</param>
+    /// <returns>The ObjC class pointer (also valid as Swift TypeMetadata for classes).</returns>
+    /// <exception cref="SwiftRuntimeException">Thrown if the class cannot be found.</exception>
+    internal static IntPtr GetObjCClassHandle(string className)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(className);
+
+        var classPtr = ObjCGetClass(className);
+        if (classPtr == IntPtr.Zero)
+        {
+            throw new SwiftRuntimeException($"objc_getClass failed to find class '{className}'. " +
+                "The class may not be available on this platform.");
+        }
+        return classPtr;
     }
 }

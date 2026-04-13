@@ -125,6 +125,24 @@ public func sbw_anyErrorTypeMetadata() -> UnsafeMutableRawPointer {
     return unsafeBitCast((any Error).self, to: UnsafeMutableRawPointer.self)
 }
 
+/// Extracts a human-readable description from a Swift `any Error` existential container.
+///
+/// Takes a pointer to the 5-word existential container (3 payload + metadata + witness table)
+/// that C# `AnyError` wraps, loads it as `any Error`, and returns a heap-allocated C string
+/// via `String(describing:)`. The caller (C#) is responsible for freeing the returned buffer
+/// via `NativeMemory.Free`.
+@_cdecl("SBW_AnyError_GetDescription")
+public func sbw_anyErrorGetDescription(_ containerPtr: UnsafeRawPointer) -> UnsafeMutablePointer<CChar>? {
+    let error = containerPtr.load(as: (any Error).self)
+    let desc = String(describing: error)
+    return desc.withCString { cStr in
+        let len = strlen(cStr) + 1
+        let buf = UnsafeMutablePointer<CChar>.allocate(capacity: len)
+        buf.initialize(from: cStr, count: len)
+        return buf
+    }
+}
+
 // MARK: - SwiftString Wrapper Functions
 //
 // SwiftString.cs uses CallConvSwift P/Invokes for ToString() and Length,
@@ -340,3 +358,95 @@ public func sbw_dateGetMetadata() -> UnsafeMutableRawPointer {
 public func sbw_decimalGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(Decimal.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
+
+// MARK: - Foundation.Measurement Generic Metadata
+//
+// Measurement<UnitType> is a generic struct whose metadata accessor
+// $s10Foundation11MeasurementVMa uses CallConvSwift, which triggers the Mono
+// JIT !ji->async assertion (upstream Issue 1). This @_cdecl wrapper calls the
+// accessor from Swift (no P/Invoke, no Mono issue) and exposes it via C ABI.
+
+@_silgen_name("$s10Foundation11MeasurementVMa")
+func _swift_getMeasurementMetadata(_ request: Int, _ unitMetadata: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer
+
+/// Returns the type metadata pointer for Foundation.Measurement<UnitType>.
+/// The caller passes the unit type's metadata (e.g. NSUnitTemperature's ObjC class pointer).
+@_cdecl("SBW_Measurement_GetMetadata")
+public func sbw_measurementGetMetadata(_ unitMetadata: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+    let result = _swift_getMeasurementMetadata(0, unitMetadata)
+    precondition(result != UnsafeMutableRawPointer(bitPattern: 0), "Measurement metadata accessor returned null for unit metadata \(unitMetadata)")
+    return result
+}
+
+// MARK: - ManagedSettings.Token<Kind> Generic Metadata
+//
+// Token<Kind> is a generic struct in ManagedSettings whose metadata accessor uses
+// CallConvSwift. ManagedSettings is not available on all platforms (requires iOS 15+/
+// macOS 12+ with Family Controls), so we use dlsym to dynamically resolve the
+// accessor rather than a compile-time @_silgen_name reference.
+
+/// Returns type metadata for ManagedSettings.Token<Kind>.
+/// The caller passes the marker type's metadata (Application, ActivityCategory, or WebDomain).
+/// Returns nil if ManagedSettings is not loaded (e.g. tvOS, Catalyst without Family Controls).
+@_cdecl("SBW_Token_GetMetadata")
+public func sbw_tokenGetMetadata(_ markerMetadata: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
+    typealias GenericMetadataAccessor = @convention(c) (Int, UnsafeMutableRawPointer) -> UnsafeMutableRawPointer
+    guard let handle = dlopen(nil, RTLD_LAZY),
+          let sym = dlsym(handle, "$s15ManagedSettings5TokenVMa") else {
+        return nil
+    }
+    let accessor = unsafeBitCast(sym, to: GenericMetadataAccessor.self)
+    return accessor(0, markerMetadata)
+}
+
+/// Returns type metadata for a ManagedSettings marker type by index.
+/// 0 = Application, 1 = ActivityCategory, 2 = WebDomain.
+/// Uses dlsym since ManagedSettings may not be loaded on all platforms.
+@_cdecl("SBW_ManagedSettings_MarkerMetadata")
+public func sbw_managedSettingsMarkerMetadata(_ markerIndex: Int) -> UnsafeMutableRawPointer? {
+    let mangledNames = [
+        "$s15ManagedSettings11ApplicationVMa",
+        "$s15ManagedSettings16ActivityCategoryVMa",
+        "$s15ManagedSettings9WebDomainVMa",
+    ]
+    guard markerIndex >= 0, markerIndex < mangledNames.count else { return nil }
+    typealias MetadataAccessor = @convention(c) (Int) -> UnsafeMutableRawPointer
+    guard let handle = dlopen(nil, RTLD_LAZY),
+          let sym = dlsym(handle, mangledNames[markerIndex]) else {
+        return nil
+    }
+    let accessor = unsafeBitCast(sym, to: MetadataAccessor.self)
+    return accessor(0)
+}
+
+// MARK: - SwiftUI.Text Construction Bridge
+
+// SwiftUI.Text is not available in the Mac Catalyst SDK interface (macabi swiftinterface
+// omits the type). Guard with targetEnvironment to avoid compilation failures on Catalyst.
+#if canImport(SwiftUI) && !targetEnvironment(macCatalyst)
+import SwiftUI
+
+/// Creates a SwiftUI.Text from a UTF-8 string and writes it into a pre-allocated buffer.
+/// The caller allocates the output buffer using Text's type metadata size.
+/// Text is a non-frozen struct — the output buffer must be destroyed via VWT Destroy.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Text_Create")
+public func sbw_swiftUITextCreate(
+    _ utf8Ptr: UnsafePointer<UInt8>,
+    _ utf8Len: Int,
+    _ outBufferPtr: UnsafeMutableRawPointer
+) {
+    let data = UnsafeBufferPointer(start: utf8Ptr, count: utf8Len)
+    let str = String(decoding: data, as: UTF8.self)
+    let text = SwiftUI.Text(str)
+    outBufferPtr.assumingMemoryBound(to: SwiftUI.Text.self).initialize(to: text)
+}
+
+/// Destroys a SwiftUI.Text value in a buffer without freeing the buffer itself.
+/// Used when the C# side needs explicit cleanup before SafeHandle disposal.
+@available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+@_cdecl("SBW_SwiftUI_Text_Destroy")
+public func sbw_swiftUITextDestroy(_ bufferPtr: UnsafeMutableRawPointer) {
+    bufferPtr.assumingMemoryBound(to: SwiftUI.Text.self).deinitialize(count: 1)
+}
+#endif

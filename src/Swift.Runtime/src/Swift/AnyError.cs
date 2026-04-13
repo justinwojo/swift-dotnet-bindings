@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using Swift.Runtime;
+using Swift.Runtime.InteropServices;
 
 namespace Swift;
 
@@ -77,10 +78,32 @@ public struct AnyError : IExistentialContainer, ISwiftExistentialConvertible<Exi
     /// <inheritdoc/>
     public void CopyTo<T>(ref T container) where T : struct, IExistentialContainer
         => _container.CopyTo(ref container);
+
+    /// <summary>
+    /// Gets a human-readable description of the Swift error by calling back into the Swift runtime.
+    /// Uses <c>String(describing:)</c> on the error value, which returns the case name for
+    /// Swift enum errors (e.g. "divisionByZero") and the full object description for NSError
+    /// subclasses. Note: this is not equivalent to <c>NSError.localizedDescription</c> —
+    /// it uses Swift's generic string conversion, which may include domain and userInfo details.
+    /// </summary>
+    public unsafe string LocalizedDescription
+    {
+        get
+        {
+            fixed (ExistentialContainer1* ptr = &_container)
+            {
+                var descPtr = PInvokesForAnyError._GetDescription(ptr);
+                return SwiftMarshal.ReadErrorDescription(descPtr);
+            }
+        }
+    }
 }
 
 internal static class PInvokesForAnyError
 {
     [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_AnyError_TypeMetadata")]
     public static extern TypeMetadata _TypeMetadataAccessor();
+
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_AnyError_GetDescription")]
+    public static extern unsafe IntPtr _GetDescription(ExistentialContainer1* container);
 }

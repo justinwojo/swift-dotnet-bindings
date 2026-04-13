@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="HealthKit" modulePath="/System/Library/Frameworks/HealthKit.framework/HealthKit">
+    <entities>
+        <entity managedNameSpace="HealthKit" managedTypeName="HKWorkoutActivityType">
+            <typedeclaration kind="enum" name="HKWorkoutActivityType" module="HealthKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+        </entity>
+        <entity managedNameSpace="HealthKit" managedTypeName="HKWorkoutSessionLocationType">
+            <typedeclaration kind="enum" name="HKWorkoutSessionLocationType" module="HealthKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
+    </entities>
+</swifttypedatabase>

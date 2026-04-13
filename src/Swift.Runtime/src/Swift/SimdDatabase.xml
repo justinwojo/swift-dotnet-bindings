@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="simd" modulePath="/usr/lib/swift">
+    <entities>
+        <!-- simd_float4x4 — 4×4 matrix of Float (64 bytes: 4 columns × 4 floats × 4 bytes) -->
+        <entity managedNameSpace="simd" managedTypeName="simd_float4x4">
+            <typedeclaration kind="struct" name="simd_float4x4" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="64" />
+        </entity>
+        <!-- simd_float3 — 3-element vector of Float (16 bytes with 4-byte alignment padding) -->
+        <entity managedNameSpace="simd" managedTypeName="simd_float3">
+            <typedeclaration kind="struct" name="simd_float3" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="16" />
+        </entity>
+    </entities>
+</swifttypedatabase>

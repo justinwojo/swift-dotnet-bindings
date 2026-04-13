@@ -250,6 +250,16 @@
             <typedeclaration kind="class" name="Locale" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- Locale.Language — Swift-only nested struct (not ObjC-bridged) -->
+        <entity managedNameSpace="Foundation" managedTypeName="LocaleLanguage">
+            <typedeclaration kind="struct" name="Locale.Language" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <!-- Locale.Region — Swift-only nested struct (not ObjC-bridged) -->
+        <entity managedNameSpace="Foundation" managedTypeName="LocaleRegion">
+            <typedeclaration kind="struct" name="Locale.Region" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" />
+        </entity>
         <!-- ComparisonResult — ObjC enum (NSComparisonResult) -->
         <entity managedNameSpace="Foundation" managedTypeName="NSComparisonResult">
             <typedeclaration kind="enum" name="ComparisonResult" module="Foundation"
@@ -259,6 +269,50 @@
              because we map to a primitive, not a real .NET enum type. -->
         <entity managedNameSpace="" managedTypeName="nint">
             <typedeclaration kind="struct" name="URLError.Code" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+        <!-- Measurement<UnitType> — non-frozen generic struct. Uses VWT-backed storage.
+             The generic arg is an ObjC-bridged unit type (NSUnit subclass). -->
+        <entity managedNameSpace="Swift" managedTypeName="Measurement">
+            <typedeclaration kind="struct" name="Measurement" module="Foundation"
+                             mangledName="$s10Foundation11MeasurementV" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <!-- Unit types — ObjC-bridged classes used as Measurement<T> generic args.
+             These map to NSUnit subclasses in the Apple platform bindings. -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnit">
+            <typedeclaration kind="class" name="Unit" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitTemperature">
+            <typedeclaration kind="class" name="UnitTemperature" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitLength">
+            <typedeclaration kind="class" name="UnitLength" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitMass">
+            <typedeclaration kind="class" name="UnitMass" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitSpeed">
+            <typedeclaration kind="class" name="UnitSpeed" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitDuration">
+            <typedeclaration kind="class" name="UnitDuration" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitPressure">
+            <typedeclaration kind="class" name="UnitPressure" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitAngle">
+            <typedeclaration kind="class" name="UnitAngle" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSUnitInformationStorage">
+            <typedeclaration kind="class" name="UnitInformationStorage" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
     </entities>
 </swifttypedatabase>
