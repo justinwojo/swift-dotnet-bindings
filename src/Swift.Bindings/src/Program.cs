@@ -1253,7 +1253,8 @@ namespace BindingsGeneration
                     // Resolve opposite or required slice — mirrors Swift dep error logic.
                     // Derive oppositeTarget from actual resolved slice (not requested target)
                     // because SelectSlice can fall back to the other platform variant.
-                    if (wrapperArchitectures == "all")
+                    var requiresSeparatePlatformSlices = platformInfo?.HasSimulatorVariant ?? true;
+                    if (requiresSeparatePlatformSlices && wrapperArchitectures == "all")
                     {
                         var oppositeTarget = objcResolution.IsSimulatorSlice
                             ? XCFrameworkPlatformTarget.Device
@@ -1276,7 +1277,7 @@ namespace BindingsGeneration
                             return null;
                         }
                     }
-                    else if (wrapperArchitectures == "device" && simPath != null && devicePath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "device" && simPath != null && devicePath == null)
                     {
                         // Primary resolved simulator but we need device
                         var deviceResolution = XCFrameworkResolver.ResolveObjCFramework(
@@ -1291,7 +1292,7 @@ namespace BindingsGeneration
                             return null;
                         }
                     }
-                    else if (wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
                     {
                         // Primary resolved device but we need simulator
                         var simResolution = XCFrameworkResolver.ResolveObjCFramework(
@@ -1364,7 +1365,8 @@ namespace BindingsGeneration
                 seenModules[moduleName] = depPath;
 
                 // Resolve the opposite slice if wrapper-architectures requires both
-                if (wrapperArchitectures == "all")
+                var needsSeparatePlatformSlices = platformInfo?.HasSimulatorVariant ?? true;
+                if (needsSeparatePlatformSlices && wrapperArchitectures == "all")
                 {
                     // Need both slices — resolve whichever the primary didn't give us
                     var oppositeTarget = primaryPlatformTarget == XCFrameworkPlatformTarget.Simulator
@@ -1389,7 +1391,7 @@ namespace BindingsGeneration
                         return null;
                     }
                 }
-                else if (wrapperArchitectures == "device" && simSearchPath != null && deviceSearchPath == null)
+                else if (needsSeparatePlatformSlices && wrapperArchitectures == "device" && simSearchPath != null && deviceSearchPath == null)
                 {
                     // Primary resolved simulator but we need device for compilation
                     try
@@ -1407,7 +1409,7 @@ namespace BindingsGeneration
                         return null;
                     }
                 }
-                else if (wrapperArchitectures == "simulator" && deviceSearchPath != null && simSearchPath == null)
+                else if (needsSeparatePlatformSlices && wrapperArchitectures == "simulator" && deviceSearchPath != null && simSearchPath == null)
                 {
                     // Primary resolved device but we need simulator for compilation
                     try

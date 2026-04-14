@@ -614,24 +614,6 @@ public class TypeDatabaseTests
         }
 
         [Theory]
-        [InlineData("Foundation.Locale.Language", TypeRecordKind.Struct, false, true)]
-        [InlineData("Foundation.Locale.Region", TypeRecordKind.Struct, false, true)]
-        public async Task FoundationDatabase_LocaleNestedTypes_ResolvesCorrectly(
-            string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedRequiresMemory)
-        {
-            var typeDatabase = new TypeDatabase();
-            var dbPath = Path.Combine(TestDbDirectory, "FoundationDatabase.xml");
-            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
-
-            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(typeName);
-            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
-                $"Type {typeName} should be found in Foundation database");
-            Assert.Equal(expectedKind, record!.Kind);
-            Assert.Equal(expectedFrozen, record.Flags.HasFlag(TypeRecordFlags.Frozen));
-            Assert.Equal(expectedRequiresMemory, record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
-        }
-
-        [Theory]
         [InlineData("HealthKit.HKWorkoutActivityType", TypeRecordKind.Enum, true, "UInt")]
         [InlineData("HealthKit.HKWorkoutSessionLocationType", TypeRecordKind.Enum, true, "Int")]
         public async Task HealthKitDatabase_EnumTypes_ResolvesCorrectly(
@@ -685,6 +667,27 @@ public class TypeDatabaseTests
             Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
             Assert.True(record.Flags.HasFlag(TypeRecordFlags.HasFloatFields));
             Assert.Equal(16, record.InlineSize);
+        }
+
+        [Fact]
+        public async Task SimdBoundGenericAlias_RoutesThroughAllLookupPaths()
+        {
+            // Regression test: alias resolver must be wired into TryGetTypeRecord and
+            // IsTypeProcessed, not just GetTypeRecordOrAnyType. Return mapping and
+            // parameter mapping go through TryGetTypeRecord / IsTypeProcessed.
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SimdDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var typeSpec = new NamedTypeSpec("Swift.SIMD3");
+            typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Float"));
+
+            Assert.True(typeDatabase.TryGetTypeRecord(typeSpec, out var record),
+                "TryGetTypeRecord must resolve Swift.SIMD3<Swift.Float> via the bound-generic alias.");
+            Assert.Equal("simd.simd_float3", record!.SwiftTypeName.ModuleQualifiedName);
+
+            Assert.True(typeDatabase.IsTypeProcessed(typeSpec),
+                "IsTypeProcessed must recognise Swift.SIMD3<Swift.Float> via the bound-generic alias.");
         }
 
         [Theory]

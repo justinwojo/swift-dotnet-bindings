@@ -379,7 +379,16 @@ namespace BindingsGeneration
             "PhotosUI", "Photos", "PassKit", "MessageUI",
             "UserNotifications", "NetworkExtension", "CoreBluetooth",
             "CoreNFC", "CoreMotion", "CoreTelephony", "CarPlay",
-            "Intents", "IntentsUI", "LinkPresentation", "MediaPlayer"
+            "Intents", "IntentsUI", "LinkPresentation", "MediaPlayer",
+            // Newer-SDK frameworks whose types leak into wrapper signatures for
+            // libraries we bind (FamilyControls→ManagedSettings, etc.). Keep the
+            // list curated so Swift stdlib identifiers like τ_0_0 and ambient
+            // Apple modules (Network, Dispatch) that only appear in rejected
+            // signatures don't end up as spurious `import` lines.
+            "ManagedSettings", "DeviceActivity", "FamilyControls",
+            "Translation", "ProximityReader", "LiveCommunicationKit",
+            "WeatherKit", "TipKit", "WorkoutKit", "ActivityKit",
+            "BackgroundTasks", "CallKit"
         };
 
         /// <summary>
@@ -411,6 +420,13 @@ namespace BindingsGeneration
             {
                 ScanProtocolsForFrameworkImports(moduleDecl.Protocols, neededImports);
             }
+
+            // Drop implicit / already-imported / self modules discovered during the scan.
+            // Swift stdlib is implicit; Foundation is imported unconditionally above;
+            // the module being bound is imported on the first line.
+            neededImports.Remove("Swift");
+            neededImports.Remove("Foundation");
+            neededImports.Remove(moduleDecl.Name);
 
             foreach (var import in neededImports.OrderBy(s => s))
             {
@@ -571,23 +587,40 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a type name requires a framework import.
+        /// Checks if a type name requires a framework import. Adds the module portion of a
+        /// qualified name to <paramref name="neededImports"/> so the generated wrapper
+        /// imports every module it references (not just the curated <c>AppleFrameworks</c>
+        /// set). Filtering of implicit modules (Swift, Foundation, self) is done by the
+        /// caller after the full scan.
         /// </summary>
         private void CheckTypeNameForFrameworkImport(string? typeName, HashSet<string> neededImports)
         {
             if (string.IsNullOrEmpty(typeName))
                 return;
 
-            // Extract the module/framework name from the type name
             var dotIndex = typeName.IndexOf('.');
-            if (dotIndex > 0)
+            if (dotIndex <= 0)
+                return;
+
+            var moduleName = typeName.Substring(0, dotIndex);
+
+            // Underscore-prefixed Apple SPI modules (e.g. _LocationEssentials) are not public
+            // and cannot be imported directly. Remap to the public counterpart when known;
+            // drop silently when unknown (better to skip than to emit a broken import).
+            if (moduleName.StartsWith("_", StringComparison.Ordinal))
             {
-                var moduleName = typeName.Substring(0, dotIndex);
-                if (AppleFrameworks.Contains(moduleName))
-                {
-                    neededImports.Add(moduleName);
-                }
+                if (!AppleFrameworkRegistry.TryMapSpiModuleToPublic(moduleName, out var publicModule))
+                    return;
+                moduleName = publicModule;
             }
+
+            // Only add known Apple frameworks. An unconditional add broke the validation
+            // corpus in two ways: (1) Swift generic placeholders like `τ_0_0` leaked in as
+            // bogus modules, (2) ambient modules like `Network` got auto-imported and
+            // collided with same-named types in the bound module (e.g. Starscream.Framer
+            // vs Network.Framer).
+            if (AppleFrameworks.Contains(moduleName))
+                neededImports.Add(moduleName);
         }
 
         /// <summary>
