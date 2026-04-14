@@ -681,9 +681,12 @@ namespace BindingsGeneration
                         continue;
 
                     // Array<any P.Type> with known hint conformers — handled by
-                    // MetatypeArrayBridgeAdapter. Skip existential accumulation so
-                    // ExistentialBypass doesn't fire first.
-                    if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _))
+                    // MetatypeArrayBridgeAdapter (free functions only in the MVP). Narrow
+                    // the bypass to bridge-eligible methods so ineligible ones (constructors,
+                    // instance methods) fall through to the existential-skip path instead of
+                    // emitting a broken wrapper.
+                    if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _) &&
+                        MetatypeArrayBridgeEmitter.IsEligible(methodEnv.MethodDecl))
                         continue;
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))

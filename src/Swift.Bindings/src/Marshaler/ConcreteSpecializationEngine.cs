@@ -356,13 +356,22 @@ public class ConcreteSpecializationEngine
         return true;
     }
 
-    private static bool IsCSharpPrimitiveType(string typeName) => typeName switch
+    private static bool IsCSharpPrimitiveType(string typeName)
     {
-        "int" or "uint" or "long" or "ulong" or "short" or "ushort" or
-        "byte" or "sbyte" or "float" or "double" or "bool" or "char" or
-        "nint" or "nuint" or "decimal" or "string" => true,
-        _ => false
-    };
+        // Array conformers (e.g., byte[]) are rejected here: the specialization emitter
+        // calls `.Payload.DangerousGetHandle()` on generic-param arguments, which doesn't
+        // exist on C# arrays. Until array marshalling is wired through the bridge, treat
+        // arrays as unspecializable so the hint entry is effectively a no-op.
+        if (typeName.EndsWith("[]", StringComparison.Ordinal)) return true;
+
+        return typeName switch
+        {
+            "int" or "uint" or "long" or "ulong" or "short" or "ushort" or
+            "byte" or "sbyte" or "float" or "double" or "bool" or "char" or
+            "nint" or "nuint" or "decimal" or "string" => true,
+            _ => false
+        };
+    }
 
     private static Dictionary<string, List<ConcreteConformer>> LoadHints()
     {

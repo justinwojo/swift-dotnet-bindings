@@ -528,8 +528,11 @@ public static class MemberEmissionValidator
             }
 
             // Array<any P.Type> with known hint conformers is handled by MetatypeArrayBridgeEmitter.
-            // Skip the existential check for this arg so the bridge can fire downstream.
-            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _))
+            // Only exempt when the method shape is actually bridge-eligible (free functions in the
+            // MVP). Instance methods/constructors that slip through the exemption would fall into
+            // an incompatible fallback and produce broken wrappers — let the existential skip apply.
+            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _) &&
+                MetatypeArrayBridgeEmitter.IsEligible(method))
                 continue;
 
             // B6: Catch existentials in non-container bound generics.

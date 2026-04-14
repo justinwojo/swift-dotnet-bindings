@@ -333,6 +333,20 @@ public static class WrapperValidation
                     return true;
             }
         }
+        else if (typeSpec is ProtocolListTypeSpec protoList)
+        {
+            // Top-level protocol-list existentials (e.g., `any P<T>` parsed as ProtocolList)
+            // can carry parameterized protocols. Inspect each protocol key.
+            foreach (var proto in protoList.Protocols.Keys)
+            {
+                if (ContainsParameterizedProtocol(proto, typeDatabase))
+                    return true;
+                // A protocol key itself being a parameterized-protocol base type
+                // (e.g., EventStream<UIEvent>) is the pattern we reject.
+                if (proto is NamedTypeSpec protoNamed && protoNamed.GenericParameters.Count > 0)
+                    return true;
+            }
+        }
         else if (typeSpec is TupleTypeSpec tuple)
         {
             foreach (var element in tuple.Elements)

@@ -125,22 +125,14 @@ public static class MetatypeArrayBridgeEmitter
     /// </summary>
     internal static MethodDecl NormalizeMethodDecl(MethodDecl original)
     {
-        var normalized = new MethodDecl
+        // Record `with` clones every field, preserving metadata like IsSpiProtected,
+        // IsMainActorIsolated/IsNonisolated, availability annotations, etc. Manual
+        // field-by-field copying drops those silently and makes wrapper emission
+        // diverge from the original method's visibility/availability intent.
+        var normalized = original with
         {
-            Name = original.Name,
-            MangledName = original.MangledName,
-            MethodType = original.MethodType,
-            IsConstructor = original.IsConstructor,
-            IsFailable = original.IsFailable,
             CSSignature = new List<ArgumentDecl>(),
             GenericParameters = new List<GenericArgumentDecl>(original.GenericParameters),
-            ParentDecl = original.ParentDecl,
-            ModuleDecl = original.ModuleDecl,
-            Throws = original.Throws,
-            IsAsync = original.IsAsync,
-            Visibility = original.Visibility,
-            IsAccessor = original.IsAccessor,
-            IsMutating = original.IsMutating,
             UsesWrapperLibrary = true,
         };
 

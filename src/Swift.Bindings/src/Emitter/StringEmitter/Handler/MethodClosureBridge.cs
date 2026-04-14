@@ -1169,7 +1169,9 @@ public static class MethodClosureBridge
     private static string RenderSwiftClosureArgType(TypeSpec typeSpec)
     {
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-        if (IsAnyErrorExistential(typeSpec))
+        // ProtocolListTypeSpec already renders with an "any " prefix; only NamedTypeSpec
+        // existentials need it added here. Guard prevents "any any Error".
+        if (IsAnyErrorExistential(typeSpec) && !rendered.StartsWith("any ", StringComparison.Ordinal))
             return $"any {rendered}";
         return rendered;
     }

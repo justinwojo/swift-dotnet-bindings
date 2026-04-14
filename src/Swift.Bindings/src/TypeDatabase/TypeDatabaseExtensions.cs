@@ -72,6 +72,10 @@ public static class TypeDatabaseExtensions
         if (IsUnsupportedAppleModule(typeSpec))
             return true;
 
+        // Bound-generic SIMD aliases resolve via the alias map (e.g., Swift.SIMD3<Swift.Float>).
+        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out _))
+            return true;
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
@@ -269,6 +273,15 @@ public static class TypeDatabaseExtensions
                 }
             }
             record = AnyType;
+            return true;
+        }
+
+        // Bound-generic SIMD aliases: Swift.SIMD3<Swift.Float> → simd.simd_float3, etc.
+        // Must resolve here too (not only GetTypeRecordOrAnyType) — return/parameter mapping
+        // paths call TryGetTypeRecord directly and would otherwise miss the alias.
+        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
+        {
+            record = aliasRecord;
             return true;
         }
 
