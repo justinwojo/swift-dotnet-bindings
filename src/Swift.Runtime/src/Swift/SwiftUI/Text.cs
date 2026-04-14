@@ -21,9 +21,25 @@ public sealed class Text : ISwiftObject, IDisposable
     /// <summary>
     /// Gets the internal handle for marshalling to Swift.
     /// </summary>
-    public SwiftSafeHandle<Text> Payload => _payload;
+    public SwiftSafeHandle<Text> Payload
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _payload;
+        }
+    }
 
-    IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
+    IntPtr ISwiftObject.SwiftHandle
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _payload.DangerousGetHandle();
+        }
+    }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     #region ISwiftObject Implementation
 

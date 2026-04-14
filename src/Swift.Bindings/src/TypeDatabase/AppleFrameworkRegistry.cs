@@ -224,6 +224,39 @@ internal static class AppleFrameworkRegistry
     }
 
     /// <summary>
+    /// Rewrites a leading underscore-prefixed (SPI) Swift module prefix to its public
+    /// counterpart using <c>namespaceRemap</c> from apple-frameworks.json.
+    /// Example: <c>_LocationEssentials.CLLocation</c> → <c>CoreLocation.CLLocation</c>.
+    /// Non-SPI module prefixes are left alone (unlike <see cref="MapModulesInString"/>,
+    /// which rewrites every registered remap).
+    /// </summary>
+    public static string RewriteSpiModulePrefix(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var dot = text.IndexOf('.');
+        if (dot <= 0) return text;
+        var module = text.Substring(0, dot);
+        if (!module.StartsWith("_", StringComparison.Ordinal)) return text;
+        if (!_moduleNamespaceRemaps.TryGetValue(module, out var mapped)) return text;
+        return mapped + text.Substring(dot);
+    }
+
+    /// <summary>
+    /// Returns true if the given module name is an SPI (underscore-prefixed) Swift module
+    /// that has a public counterpart registered in apple-frameworks.json.
+    /// </summary>
+    public static bool TryMapSpiModuleToPublic(string swiftModule, out string publicModule)
+    {
+        publicModule = swiftModule;
+        if (string.IsNullOrEmpty(swiftModule) || !swiftModule.StartsWith("_", StringComparison.Ordinal))
+            return false;
+        if (!_moduleNamespaceRemaps.TryGetValue(swiftModule, out var mapped))
+            return false;
+        publicModule = mapped;
+        return true;
+    }
+
+    /// <summary>
     /// Full type name remapping for string-only callers.
     /// Checks explicit type remappings.
     /// </summary>

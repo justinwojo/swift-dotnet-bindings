@@ -377,6 +377,7 @@ partial class Build
     }
 
     Target RegenerateAppleSnapshot => _ => _
+        .After(SmokeTest, RuntimeTestsCatalyst)
         .Description("Regenerate an in-tree Apple framework snapshot under BindingTests/obj/<Framework>Snapshot/. Requires --framework <name>.")
         .Executes(() =>
         {
@@ -400,6 +401,7 @@ partial class Build
     /// <c>--enable-storekit-smoke</c> runs.
     /// </summary>
     Target RegenerateStoreKitSnapshot => _ => _
+        .After(RegenerateAppleSnapshot, RuntimeTestsCatalyst)
         .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
         .Executes(() => RegenerateStoreKit2Snapshot(force: true));
 
@@ -1137,7 +1139,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsCatalyst => _ => _
-        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict)
+        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict, SmokeTest)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -1223,7 +1225,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsTvOSSimulator => _ => _
-        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict)
+        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict, RegenerateStoreKitSnapshot)
         .Executes(() =>
         {
             Log.Information("=========================================");
