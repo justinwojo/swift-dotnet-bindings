@@ -81,3 +81,37 @@ public class TypeFactory<T: DefaultInitializable> {
         return storedType.init()
     }
 }
+
+// MARK: - Existential Metatype Arrays
+
+/// Protocol with known conformers registered in specialization-hints.json.
+/// Used to test `[any SearchableItem.Type]` parameter marshalling.
+public protocol SearchableItem {
+    static var itemKind: String { get }
+}
+
+public struct SongItem: SearchableItem {
+    public static var itemKind: String { return "song" }
+    public init() {}
+}
+
+public struct AlbumItem: SearchableItem {
+    public static var itemKind: String { return "album" }
+    public init() {}
+}
+
+public struct ArtistItem: SearchableItem {
+    public static var itemKind: String { return "artist" }
+    public init() {}
+}
+
+/// Takes `[any SearchableItem.Type]` and returns the joined itemKind of each type.
+/// Tests existential-metatype array parameter marshalling (Fix 5).
+public func joinSearchableKinds(_ types: [any SearchableItem.Type]) -> String {
+    return types.map { $0.itemKind }.joined(separator: ",")
+}
+
+/// Returns the count of existential metatypes passed in.
+public func countSearchableTypes(_ types: [any SearchableItem.Type]) -> Int {
+    return types.count
+}

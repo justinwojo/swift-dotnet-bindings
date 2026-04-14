@@ -67,3 +67,25 @@ public class DatabaseReader {
         return try block(source)
     }
 }
+
+// MARK: - Optional MCB closure (Nuke / GRDB / Kingfisher pattern)
+
+/// Non-generic class exposing an Optional closure whose argument is `any Error` —
+/// MCB-eligible because of the existential. Models the Kingfisher / Nuke / GRDB
+/// completion-handler pattern where the closure may be nil. MCB must:
+///   * NOT force-unwrap the funcPtr (passing nil must round-trip as nil),
+///   * generate a nullable C# delegate parameter,
+///   * skip the GCHandle.Alloc when the delegate is null.
+public final class OptionalErrorCallbackFixture {
+    public init() {}
+
+    /// Optional `(any Error) -> Void` closure. Returns the count of times the
+    /// wrapper invoked it: 1 when a non-nil callback was passed, 0 when nil.
+    public func reportIfPresent(callback: ((any Error) -> Void)?) -> Int32 {
+        if let callback = callback {
+            callback(MathError.divisionByZero)
+            return 1
+        }
+        return 0
+    }
+}

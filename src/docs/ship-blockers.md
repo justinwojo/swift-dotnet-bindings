@@ -582,7 +582,7 @@ All three fixes operate in the specialization/existential area of the generator.
 
 ---
 
-### Session 3 — Closures + Async + Actors
+### Session 3 — Closures + Async + Actors ✅ PARTIAL (commit f593a924 — Fix 13 done; Fix 11/12/6 deferred to Session 4)
 
 **Fixes:** 11, 12, 6, 13
 **Items resolved:** ~111
@@ -677,7 +677,7 @@ This is the heaviest session — Fix 11 has multiple sub-patterns and Fix 13 is 
 
 ---
 
-### Session 4 (if needed) — Overflow + ActivityKit
+### Session 4 — Overflow ✅ PARTIAL (commit a35505b9 — Fix 11B done; Fix 5, 11A, 11C, 12, 6 deferred)
 
 **Condition:** Only needed if Session 3 is too large, or if Fix 10 is worth pursuing.
 
@@ -685,6 +685,86 @@ This is the heaviest session — Fix 11 has multiple sub-patterns and Fix 13 is 
 **Libraries:** ActivityKit → Ship (if Fix 10 is done), otherwise remains Preview
 
 Fix 10 requires a user-supplied specialization mechanism: the app provides a Swift file instantiating `Activity<MyAttributes>` and the generator binds the concrete type. This is significant architectural work and may be better deferred post-ship, with ActivityKit documented as Preview.
+
+---
+
+### Session 5 — Closure Existentials + Multi-Closure ✅ DONE
+
+**Fixes:** 11A, 11C (shipped)
+**Items:** ~25 closure items across Mappedin, Kingfisher, Lottie
+**Libraries unblocked:** Mappedin (complete), Kingfisher (partial closures), Lottie (partial closures)
+
+**What shipped:**
+- **Fix 11A — Closure existential parameters.** `IsCdeclCompatibleType` accepts both `ProtocolListTypeSpec` and `NamedTypeSpec{IsAny=true}` as existential-param forms. The Swift adapter heap-allocates an `ExistentialContainer` per call via `UnsafeMutableRawPointer.allocate` + `initializeMemory`, defers dealloc, and passes the pointer across the cdecl boundary; the C# callback dereferences `*(ExistentialContainer{N}*)arg` and wraps via `new {Proxy}(…)` (or the well-known wrap class). `any Error` stays on the MCB path.
+- **Fix 11C — Multi-closure methods.** Once 11A made per-closure `IsCdeclCompatibleType` return true for existential params, the `.All(...)` gate in `NeedsClosureCdeclWrapper` accepts mixed existential/primitive closure methods end-to-end. No code change needed beyond 11A.
+- **Collateral fix:** `ClosureHandler.IsFrozenStruct` now guards against generic-parameter TypeSpecs (`τ_0_0`, `T`, …) — widened gate surface exposed a latent crash in Swinject. Covered by a regression test.
+
+**Tests (all green):** Unit — `ClosureCdeclEmitterTests.cs` "Existential Closure Param Tests" region (9 tests) + `ClosureHandlerTests.IsFrozenStruct_WithGenericTypeParameter_DoesNotThrow`. BindingTests Swift — `Closures/Escaping.swift` `callWithExistentialCallback` / `callExistentialCallbackTwice` / `callWithMixedCallbacks`. Runtime — `ClosureTests.cs` "Existential Closure Parameters (Fix 11A / Fix 11C)" region. Validation — 95/95 (Swinject: skip → ok, +5483 lines back).
+
+---
+
+### Session 6 — Existential Metatype Arrays (Fix 5)
+
+**Fixes:** 5
+**Items:** ~15 across MusicKit, StoreKit2
+**Libraries unblocked:** MusicKit (search APIs), StoreKit2 (VerificationResult constrained extensions)
+
+**Scope:** `[any Protocol.Type]` parameter support. Currently blocked at `MemberEmissionValidator.cs:530-537` via `UnsupportedExistential` — `TryGetFirstExistentialTypeArgument` finds `any Protocol.Type` inside the array and has no supported container path. No existing infrastructure.
+
+New work:
+1. Detector: `IsArrayOfExistentialMetatypes(TypeSpec)` — check if type is `Swift.Array<X>` where `X` is `any P.Type`
+2. Lift the block in `MemberEmissionValidator.CanEmitMethod` for this specific pattern
+3. Swift wrapper: accept `(UnsafeRawPointer, Int)` pair (pointer + count), reconstruct `[any Protocol.Type]` via loop + `unsafeBitCast(ptr, to: Any.Type.self)`
+4. C# side: P/Invoke takes `IntPtr` + `int` count, build from generated type metadata pointers
+5. For each known conformer, emit metatype accessor helper (`{ConformerType}.self` in Swift, metadata pointer in C#)
+
+**Tests:** Unit — new `MetatypeArrayEmitterTests.cs` or extend `MetatypeHelperEmitterTests.cs`. BindingTests Swift — add to `Generics/Metatypes.swift` function taking `[any SomeProtocol.Type]`. Runtime — metatype array passing test.
+
+---
+
+### Session 7 — Async Audit + GenericTypeCallback Verification ✅ DIAGNOSIS + MCB OPTIONAL-CLOSURE FIX
+
+**Fixes surveyed:** 12, 6
+**Items inspected:** 17 `GenericTypeCallback` + 1 `ActorIsolatedAsyncStream`
+**Libraries unblocked:** none (all remaining items require new infrastructure, not edge fixes)
+
+**Fix 12 — Async audit outcome.** The `async_method` skip reason is no longer emitted as a `SkipReason` enum value. The current `.validation-baseline.json` contains **zero** `async_method` entries — the 10 items from the original audit were absorbed by Fix 13 (nonisolated actor members, Session 3) and Sessions 4-5 infrastructure. Only one async residual remains: `ActorIsolatedAsyncStream: 1` (BlinkIDUX `BlinkIDEventStream.stream`, an actor-isolated AsyncStream property — requires async dispatch through actor executor, new infrastructure).
+
+**Fix 6 — GenericTypeCallback diagnosis.** 17 items across Alamofire (8), GRDB (4), Kingfisher (3), RxSwift (1), YouTubePlayerKit (1). TipKit is not in the validation corpus — `Tips.Event<T>.sendDonation()` cannot be diagnosed here without adding TipKit to `build/validation-libraries.json` (out of scope for a verification session). The 17 items fall into three architectural patterns:
+
+| Pattern | Count | Pipeline Site | Root cause |
+|---|---|---|---|
+| A — Async property with parent-generic return type | 4 | `PropertyHandler.cs:1149` (short-circuit) | Would still fail `MemberValidationPipeline.cs:138` even if routed — all four Alamofire `DataTask<Value>`/`DownloadTask<Value>` async properties return `Value` or `Result<Value, AFError>`. |
+| B — Async method with parent-generic return type | 3 | `MemberValidationPipeline.cs:138` | Non-generic helper class can't carry the parent `T`. Applies to `Kingfisher.Delegate<Input,Output>.callAsync → Output?`, `Alamofire.StreamOf<Element>.Iterator.next → Element?`, `GRDB.AsyncValueObservation<Element>.Iterator.next → Element?`. |
+| C — Non-async method where neither MCB nor NCB is eligible | 10 | `MemberValidationPipeline.cs:149` | Individual diagnoses below. |
+
+**Pattern C per-method diagnoses** (MCB = `MethodClosureBridge`, NCB = `NestedClosureBridge`):
+
+- `Kingfisher.KingfisherWrapper.setImage` / `setBackgroundImage` — two Optional closures (`progressBlock?`, `completionHandler?`); MCB and NCB only collect closures via `GetClosureTypeSpec(arg)` which does not see through `Swift.Optional<Closure>`, so `closureArgs.Count == 0` → rejected. Also `@MainActor`-isolated extension with `Base: KingfisherImageSettable` constraint.
+- `RxSwift.Infallible._do` — seven throwing Optional closures (`((Element) throws -> Void)?`). Throwing closures aren't supported by MCB/NCB, and the closure args reference the parent generic `Element`.
+- `Alamofire.AuthenticationInterceptor.adapt` — closure arg is `Result<URLRequest, any Error>`. `IsClosureArgSupported` rejects `URLRequest` as an ObjC-bridged generic type argument (MCB line 1173).
+- `Alamofire.AuthenticationInterceptor.retry` — non-closure parameter `dueTo error: any Swift.Error` is an existential; `ClassifyParam` returns `Unsupported` (existentials aren't `NamedTypeSpec` with a type record).
+- `Alamofire.AlamofireExtension.validate` — throwing closure typealias (`Validation` resolves to `throws -> ValidationResult`), and overloads use method-level generic `<S>` inside a generic parent struct.
+- `GRDB.ValueObservation.handleEvents` — seven Optional closures; one arg is `Reducer.Value` (associated type / `DependentMember`), which does not resolve in MCB.
+- `GRDB.QueryInterfaceRequest.filterWhenConnected` / `havingWhenConnected` — throwing closure returning `any SQLExpressible` existential. Both throwing-closure and existential-return unsupported by MCB.
+- `YouTubePlayerKit.JavaScriptEvaluationResponseConverter.decode` — method-level generic `<D>` inside a generic parent struct, with `@autoclosure @escaping @Sendable () -> JSONDecoder`. Method-level generics in generic parents + autoclosure both unsupported by MCB.
+
+**Pattern D — ActorIsolatedAsyncStream (1 item):** `BlinkIDUX.BlinkIDEventStream.stream` is a plain (non-async) getter on a Swift `actor` returning `AsyncStream<[UIEvent]>`. Session 3's Fix 13 unblocked explicit `nonisolated` members only. Actor-isolated stream properties need async-dispatch-through-executor wrapping (new infrastructure).
+
+**MCB Optional-closure recognition — landed.** One of the post-ship infrastructure items above turned out to be a self-contained generator change rather than a new subsystem, so it shipped in this session. `MethodClosureBridge` now recognizes `Swift.Optional<Closure>` parameters: the C# wrapper emits a nullable delegate (`Action<T>? callback`), guards the `GCHandle.Alloc` behind a null-check, and skips publishing a function pointer when the caller passes `null`. The Swift `@_cdecl` adapter uses `funcPtr.map { __fp in ... }` so a `nil` funcPtr round-trips as `nil` (no force-unwrap). Confirmed in generated output for Nuke and GRDB wrappers; the new `OptionalErrorCallbackFixture` BindingTests fixture covers both non-null and null round-trips on simulator.
+
+**Outcome on the 17 `GenericTypeCallback` items — unchanged count.** The MCB fix did not flip any of the 17 items because each one has a secondary blocker beyond Optional-closure-recognition:
+
+- **Kingfisher `setImage`/`setBackgroundImage`** — actual blocker is the non-closure `with: Source?` parameter. `ClassifyParam` returns `Unsupported` for `Swift.Optional<Source>` because Optional non-closure marshalling is not yet wired through the relevant code path. This is a separate scope ("Optional non-closure param support") from Optional closures.
+- **GRDB `ValueObservation.handleEvents`** — also blocked by a `Reducer.Value` `DependentMember` (associated type) in one of the closure args; the Optional fix alone doesn't resolve that.
+- **RxSwift `Infallible._do`** — Optional AND throwing closures; throwing-closure bridge is the gating piece.
+- The remaining items (Alamofire, YouTubePlayerKit) have orthogonal blockers (ObjC-bridged generic args, existential params, method-level generics in generic parents).
+
+**NCB mirror deferred.** None of the target libraries (Nuke / GRDB / Kingfisher / RxSwift) exercise nested (multi-arity, non-flat) Optional closures, so the parallel `NestedClosureBridge` change was skipped. It can be added later if a real library motivates it.
+
+**Remaining items** (throwing-closure bridges under generic parents, method-level generics under generic parents, actor-executor async dispatch, Optional non-closure param marshalling for Kingfisher) stay as post-ship roadmap work. Session 7's value is the diagnosis above plus the MCB Optional fix that supports future Optional-closure callers.
+
+**Tests:** Unit — 4 new Optional-closure cases in `MethodClosureBridgeTests.cs` (nullable delegate type, `.map` adapter emission, no force-unwrap, `GCHandle.Alloc` only when non-null). BindingTests — `OptionalErrorCallbackFixture` in `GenericClosureBridge.swift` with Swift `((any Error) -> Void)?` param; two runtime tests (non-null invocation round-trip + null round-trip). Gates: `nuke test` (551 passed), `nuke validate` (all libraries `compile: ok`), `nuke binding-tests` (build succeeded). One pre-existing SwiftUI Text disposal test failure is unrelated to this session — see pre-existing failure note.
 
 ---
 
@@ -696,8 +776,9 @@ Fix 10 requires a user-supplied specialization mechanism: the app provides a Swi
 | 2 | 4, 5, 9 | ~116 | CryptoKit, StoreKit2, MusicKit, RoomPlan | 1 full cycle |
 | 3 | 11, 12, 6, 13 | ~111 | Lottie, Kingfisher, Nuke, TipKit, BlinkID, BlinkIDUX, Mappedin | 1 full cycle |
 | 4? | 10 + overflow | ~10 | ActivityKit (if pursued) | 1 full cycle |
+| 7 | 12, 6 (diagnosis) + MCB Optional closures | Optional MCB (infra) | — | test + validate + binding-tests |
 
-**Total: 3 sessions** to ship 13 of 15 blocked libraries. 4 if ActivityKit is pursued or Session 3 needs splitting. Each session runs gates exactly once at the end, with one mid-session `nuke test` for sanity. Fix 10 (ActivityKit) and TipKit's 9 result-builder DSL items are the only items that remain unresolved — both are documented as known limitations.
+**Session 7 outcome:** Diagnosis + one shipped fix. `async_method` skip reason is fully resolved (0 items). MCB now recognizes Optional closure parameters (nullable delegate + `funcPtr.map` adapter + guarded `GCHandle.Alloc`); the new pattern appears in generated Nuke/GRDB wrappers and is exercised by a BindingTests fixture. The 17 `GenericTypeCallback` count is unchanged because each remaining item has a secondary blocker orthogonal to Optional-closure recognition (Kingfisher's actual blocker is Optional non-closure params, not Optional closures; GRDB mixes in an associated-type; RxSwift adds throwing closures). Throwing-closure bridges under generic parents, method-level generics under generic parents, actor-executor async dispatch, and Optional non-closure param marshalling remain post-ship roadmap work.
 
 ---
 

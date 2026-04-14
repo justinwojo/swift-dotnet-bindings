@@ -527,6 +527,11 @@ public static class MemberEmissionValidator
                 return SkipReason.UnsatisfiedGenericConstraint;
             }
 
+            // Array<any P.Type> with known hint conformers is handled by MetatypeArrayBridgeEmitter.
+            // Skip the existential check for this arg so the bridge can fire downstream.
+            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _))
+                continue;
+
             // B6: Catch existentials in non-container bound generics.
             // Allow through containers with supported direct existential elements:
             // Array<any P>, Dictionary<K, any P>, Optional<any P>, and Optional-wrapped containers.

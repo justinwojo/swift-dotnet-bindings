@@ -1302,6 +1302,23 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void IsFrozenStruct_WithGenericTypeParameter_DoesNotThrow()
+    {
+        // Regression: bare generic parameter TypeSpecs like `τ_0_0` or `T` have no module and
+        // can't be module-qualified. Without the guard, `SwiftTypeName.FromModuleQualifiedName`
+        // throws ArgumentException("Invalid module-qualified name: τ_0_0") and tanks generation
+        // for Swinject-style libraries whose closures carry generic-parameter args.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        foreach (var name in new[] { "τ_0_0", "τ_0_1", "T", "U", "Element" })
+        {
+            var typeSpec = new NamedTypeSpec(name);
+            Assert.False(handler.IsFrozenStruct(typeSpec), $"IsFrozenStruct({name}) should be false");
+        }
+    }
+
+    [Fact]
     public void CanInvokeFromCSharp_WithFrozenStructParameter_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();

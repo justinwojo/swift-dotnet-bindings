@@ -37,6 +37,14 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.SearchableItem",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.SongItem", "csharpType": "SongItem" },
+        { "swiftType": "SwiftBindingsTestLib.AlbumItem", "csharpType": "AlbumItem" },
+        { "swiftType": "SwiftBindingsTestLib.ArtistItem", "csharpType": "ArtistItem" }
+      ]
+    },
+    {
       "protocol": "RoomPlan.CapturedRoomAttribute",
       "conformers": [
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },

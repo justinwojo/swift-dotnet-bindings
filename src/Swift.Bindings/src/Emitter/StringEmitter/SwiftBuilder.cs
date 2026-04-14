@@ -107,12 +107,18 @@ public static class SwiftBuilder
                 return "UnsafeMutableRawPointer?";
             }
 
-            // Optional<Bool/SimpleEnum> uses nil-for-none pointer ABI: UnsafeMutableRawPointer?
+            // Optional<Bool/SimpleEnum/FrozenStruct (non-primitive)> uses nil-for-none pointer ABI: UnsafeMutableRawPointer?
             // Swift unwraps the optional, passes inner value pointer (nil for .none).
+            // Primitives (Int32, Double, etc.) are frozen structs in stdlib but use the
+            // heap-allocated full-Optional path instead — exclude them here.
             if (closureHandler != null && named.ContainsGenericParameters &&
                 named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
                 named.GenericParameters[0] is NamedTypeSpec optInner &&
-                (optInner.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner)))
+                (optInner.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner) ||
+                 (closureHandler.IsFrozenStruct(optInner) &&
+                  !MarshallingHelpers.IsSwiftPrimitive(optInner.Name) &&
+                  !optInner.Name.Contains("Pointer") && optInner.Name != "Swift.OpaquePointer" &&
+                  !closureHandler.IsClassType(optInner) && !closureHandler.IsObjCBridgedClass(optInner))))
             {
                 return "UnsafeMutableRawPointer?";
             }

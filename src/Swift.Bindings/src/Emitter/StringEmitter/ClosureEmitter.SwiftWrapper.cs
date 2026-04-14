@@ -147,12 +147,18 @@ public static partial class ClosureEmitter
         var closureParams = new List<string>();
         var heapAllocArgs = new List<(int index, string swiftType)>();
         var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
+        var existentialArgs = new List<(int index, string swiftType)>(); // `any Protocol`: heap-allocated ExistentialContainer pointer
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             // Use module-qualified names to avoid ambiguity when the wrapper imports multiple modules
             // (e.g., SwiftUI.Color vs SwiftBindingsTestLib.Color)
             var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg);
+            // Single-protocol existentials arrive as NamedTypeSpec { IsAny = true } from the parser;
+            // RenderModuleQualifiedSwiftTypeSpec drops the `any` keyword, which Swift 6 requires.
+            // ProtocolListTypeSpec already renders with the `any` prefix.
+            if (arg is NamedTypeSpec { IsAny: true })
+                swiftType = $"any {swiftType}";
             closureParams.Add($"p{argIndex}: {swiftType}");
 
             // D1: Complex enums and custom frozen structs use heap allocation — track for cdecl arg substitution.
@@ -175,16 +181,29 @@ public static partial class ClosureEmitter
                          optNamed.GenericParameters[0] is NamedTypeSpec optInner &&
                          IsSwiftNumericPrimitive(optInner.Name))
                     heapAllocArgs.Add((argIndex, swiftType));
-                // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
+                // Optional<Bool/SimpleEnum/FrozenStruct>: nil-for-none pointer ABI
                 // Swift unwraps the optional, passes inner value pointer (nil for .none).
-                // Avoids extra-inhabitant encoding which MarshalOptionalFromSwift can't handle for enums.
+                // Avoids extra-inhabitant encoding which MarshalOptionalFromSwift can't handle
+                // for enums/frozen structs; C# reads inner value directly from the pointer.
                 else if (arg is NamedTypeSpec optNamed2 && optNamed2.Name == "Swift.Optional" &&
                          optNamed2.ContainsGenericParameters && optNamed2.GenericParameters.Count == 1 &&
                          optNamed2.GenericParameters[0] is NamedTypeSpec optInner2 &&
-                         (optInner2.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner2)))
+                         (optInner2.Name == "Swift.Bool" || closureHandler.IsSimpleEnum(optInner2) ||
+                          (closureHandler.IsFrozenStruct(optInner2) &&
+                           !IsSwiftPrimitive(optInner2.Name) && optInner2.Name != "Swift.Bool" &&
+                           !optInner2.Name.Contains("Pointer") && optInner2.Name != "Swift.OpaquePointer" &&
+                           !closureHandler.IsClassType(optInner2) && !closureHandler.IsObjCBridgedClass(optInner2))))
                 {
                     var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(optInner2);
                     nilForNoneArgs.Add((argIndex, innerType));
+                }
+                // `any Protocol` existential: heap-allocate the container and pass a pointer.
+                // IsCdeclCompatibleType already excluded `any Error` (MCB) and unsupported shapes.
+                // Both forms reach here: ProtocolListTypeSpec (multi-proto) and
+                // NamedTypeSpec { IsAny = true } (single-proto).
+                else if (arg is ProtocolListTypeSpec || arg is NamedTypeSpec { IsAny: true })
+                {
+                    existentialArgs.Add((argIndex, swiftType));
                 }
             }
 
@@ -205,6 +224,7 @@ public static partial class ClosureEmitter
         {
             var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
             var nilForNoneArg = nilForNoneArgs.FirstOrDefault(h => h.index == argIndex);
+            var existentialArg = existentialArgs.FirstOrDefault(h => h.index == argIndex);
             if (heapArg != default)
             {
                 // Complex enum/frozen struct/Optional<Primitive>: use heap pointer
@@ -213,6 +233,11 @@ public static partial class ClosureEmitter
             else if (nilForNoneArg != default)
             {
                 // Optional<Bool/SimpleEnum>: nil-for-none nullable pointer
+                cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (existentialArg != default)
+            {
+                // `any Protocol`: heap-allocated ExistentialContainer pointer
                 cdeclArgs.Add($"__heap_{argIndex}");
             }
             else
@@ -263,6 +288,16 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}        __heap_{idx}!.initializeMemory(as: {innerType}.self, repeating: __unwrapped_{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    }}");
             heapAllocLines.Add($"{indent}    defer {{ if let ptr = __heap_{idx} {{ ptr.assumingMemoryBound(to: {innerType}.self).deinitialize(count: 1); ptr.deallocate() }} }}");
+        }
+        // Existential allocation: store `any Protocol` value in heap buffer, pass pointer.
+        // Parens around swiftType because `any Foo.self` parses as `any (Foo.self)`.
+        // C# dereferences the pointer into an ExistentialContainer{N} value inside the callback;
+        // the defer reclaims the buffer after the cdecl call returns.
+        foreach (var (idx, swiftType) in existentialArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: ({swiftType}).self, repeating: p{idx}, count: 1)");
+            heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: ({swiftType}).self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
 
         if (isIndirectReturn)
@@ -519,10 +554,8 @@ public static partial class ClosureEmitter
     /// Checks if a type is Cdecl-compatible for Swift wrapper closure adaptation.
     /// Supported types: primitives, Bool, Void, pointer types, classes, simple enums,
     /// ObjC-bridged types, Optional&lt;Class/ObjC&gt; (nil-pointer ABI), and
-    /// Optional&lt;NumericPrimitive&gt; (heap-allocated pointer ABI with tag-byte layout).
-    /// NOT supported in Optional: Bool (extra inhabitant encoding, value &gt; 1 for None),
-    /// SimpleEnum (extra inhabitant encoding). These require runtime MarshalOptionalFromSwift
-    /// updates before the gate can be widened.
+    /// Optional&lt;NumericPrimitive/Bool/SimpleEnum/FrozenStruct&gt; (nil-for-none or heap-allocated
+    /// pointer ABI depending on inner type).
     /// Complex types (String, non-frozen structs, complex enums) require full marshalling
     /// which is not yet implemented in the Cdecl wrapper path.
     /// </summary>
@@ -531,15 +564,19 @@ public static partial class ClosureEmitter
         if (typeSpec.IsEmptyTuple)
             return true;
 
-        // any Swift.Error is intentionally NOT accepted here. The normal @_cdecl
-        // ClosureEmitter path cannot produce a valid adapter for `any Error` — its
-        // generated body tries to pass the existential directly to an
-        // UnsafeMutableRawPointer parameter, which is not convertible. MCB
-        // (MethodClosureBridge) is the exclusive path for these closures; it
-        // pointer-wraps the 5-word ExistentialContainer1 and activates via its own
-        // IsEligible check. Keeping this gate strict prevents the normal path from
-        // emitting broken wrappers in libraries like GRDB that have
-        // `(any Error) -> Void` callbacks.
+        // `any Error` stays on MCB (pointer-wraps the 5-word container via its own
+        // IsEligible path). Non-Error existentials use the heap-allocated pointer
+        // bridge below — Swift adapter allocates an ExistentialContainer{N},
+        // passes UnsafeMutableRawPointer, C# dereferences and wraps with the proxy.
+        // Both existential forms arrive here: ProtocolListTypeSpec (multi-proto) and
+        // NamedTypeSpec { IsAny = true } (single-proto, the common parser output).
+        if (typeSpec is ProtocolListTypeSpec || typeSpec is NamedTypeSpec { IsAny: true })
+        {
+            if (closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out _))
+                return false;
+            return closureHandler.NeedsProxyWrapping(typeSpec, out _)
+                || closureHandler.IsExistentialParam(typeSpec);
+        }
 
         if (typeSpec is NamedTypeSpec named)
         {
@@ -583,7 +620,7 @@ public static partial class ClosureEmitter
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
                     return true;
-                // Optional<NumericPrimitive/Bool/SimpleEnum> — heap-allocated pointer ABI
+                // Optional<NumericPrimitive/Bool/SimpleEnum/FrozenStruct> — heap-allocated pointer ABI
                 if (inner is NamedTypeSpec innerNamed)
                 {
                     if (IsSwiftNumericPrimitive(innerNamed.Name))
@@ -591,6 +628,14 @@ public static partial class ClosureEmitter
                     if (innerNamed.Name == "Swift.Bool")
                         return true;
                     if (closureHandler.IsSimpleEnum(innerNamed))
+                        return true;
+                    // Optional<FrozenStruct> — nil-for-none pointer ABI.
+                    // Swift unwraps the Optional, allocates inner value (or passes nil),
+                    // C# reads via MarshalBorrowedFromSwift<T> on non-null.
+                    if (closureHandler.IsFrozenStruct(innerNamed) &&
+                        !IsSwiftPrimitive(innerNamed.Name) && innerNamed.Name != "Swift.Bool" &&
+                        !innerNamed.Name.Contains("Pointer") && innerNamed.Name != "Swift.OpaquePointer" &&
+                        !closureHandler.IsClassType(innerNamed) && !closureHandler.IsObjCBridgedClass(innerNamed))
                         return true;
                 }
                 return false;
@@ -612,6 +657,12 @@ public static partial class ClosureEmitter
             if (!IsCdeclCompatibleType(arg, closureHandler))
                 return false;
         }
+
+        // Existential returns are not yet supported by the cdecl bridge (Fix 11A covers
+        // parameters only). Block them here so IsCdeclCompatibleType can stay symmetric.
+        if (closureTypeSpec.ReturnType is ProtocolListTypeSpec ||
+            closureTypeSpec.ReturnType is NamedTypeSpec { IsAny: true })
+            return false;
 
         // Check return type — skip for closures using indirect return marshalling (non-throwing),
         // because the @convention(c) return type is Void (result written to buffer via first param).

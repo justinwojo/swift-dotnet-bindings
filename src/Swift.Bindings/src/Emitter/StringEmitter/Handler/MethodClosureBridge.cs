@@ -30,7 +30,8 @@ public static class MethodClosureBridge
         bool ReturnIsVoid,
         string CallbackBaseName,
         string ParamName,
-        int Index);
+        int Index,
+        bool IsOptional);
 
     /// <summary>
     /// Checks if a method is eligible for the MethodClosureBridge pattern.
@@ -158,8 +159,12 @@ public static class MethodClosureBridge
                 // When multiple closures, use indexed naming; single closure preserves backward compat
                 var cbName = $"MCB_{mangledHash}";
                 if (closureIndex > 0) cbName += $"_{closureIndex}";
+                // Optional<Closure>: delegate is nullable on C# side; Swift adapter must
+                // pass nil to the target method when funcPtr is nil. Per constraints.md,
+                // Optional closures are always escaping (GCHandle still leaked on non-nil path).
+                var isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
 
-                closures.Add(new ClosureInfo(cts, arg, cArgs, retIsVoid, cbName, paramName, closureIndex));
+                closures.Add(new ClosureInfo(cts, arg, cArgs, retIsVoid, cbName, paramName, closureIndex, isOptional));
                 closureArgSet.Add(arg);
                 closureIndex++;
             }
@@ -331,9 +336,13 @@ public static class MethodClosureBridge
                 swiftWriter.WriteLine($"    let {paramName}Val = {paramName}.assumingMemoryBound(to: {swiftType}.self).pointee");
         }
 
-        // Reconstruct cdecl functions from pointers — one per closure
+        // Reconstruct cdecl functions from pointers — one per non-Optional closure.
+        // Optional closures defer cdecl reconstruction to inside their `.map` adapter so
+        // we never force-unwrap a nil funcPtr when the caller passed null.
         foreach (var ci in closures)
         {
+            if (ci.IsOptional) continue;
+
             var closureCsName = NameProvider.StripVerbatimPrefix(ci.ParamName);
             var cdeclParamTypes = new List<string>();
             for (int i = 0; i < ci.ClosureArgs.Count; i++)
@@ -429,13 +438,18 @@ public static class MethodClosureBridge
 
             if (pointerWrapArgs.Count > 0 || heapAllocArgs.Count > 0)
                 anyClosureNeedsComplexPath = true;
+            // Optional closures need a let-bound adapter (Optional type annotation required
+            // for Swift type inference + .map-based nil handling), so always take the
+            // complex-path emission.
+            if (ci.IsOptional)
+                anyClosureNeedsComplexPath = true;
             perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs, heapAllocArgs);
         }
 
         if (anyClosureNeedsComplexPath)
         {
             // Complex path: at least one closure has value-type args needing withUnsafePointer or heap allocation
-            EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, closures,
+            EmitSwiftMultiClosureWithPointerWrapping(swiftWriter, method, env, closures,
                 passableNonClosureParams, perClosureAnalysis, returnPrefix, returnSuffix, callTarget);
         }
         else
@@ -498,6 +512,7 @@ public static class MethodClosureBridge
     private static void EmitSwiftMultiClosureWithPointerWrapping(
         SwiftWriter swiftWriter,
         MethodDecl method,
+        MethodEnvironment env,
         List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
         Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)> perClosureAnalysis,
@@ -528,16 +543,45 @@ public static class MethodClosureBridge
             var swiftParamTypes = ci.ClosureArgs.Select(RenderSwiftClosureArgType).ToList();
             var swiftRetType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "Swift.Bool";
             var closureType = $"({string.Join(", ", swiftParamTypes)}) -> {swiftRetType}";
+            // Optional closures: wrap the adapter body in `.map` so nil funcPtr stays nil
+            // (no force-unwrap, no synthetic empty closure) and reconstruct cdecl inside the
+            // map closure using the locally bound pointer.
+            var adapterType = ci.IsOptional ? $"({closureType})?" : closureType;
 
             var closureParamStr = string.Join(", ", analysis.paramDecls);
-            var adapterOpen = analysis.paramDecls.Count > 0
-                ? $"{{ {closureParamStr} in"
-                : "{";
-            swiftWriter.WriteLine($"{indent}let {adapterName}: {closureType} = {adapterOpen}");
+            if (ci.IsOptional)
+            {
+                // `let __adapter0: ((ArgType) -> RetType)? = handlerFuncPtr.map { __fp in
+                //     let cdecl = unsafeBitCast(__fp, to: (@convention(c) ...).self)
+                //     return { __p0_0, ... in ... cdecl(...) ... }
+                // }`
+                var cdeclParamTypes = new List<string>();
+                for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                    cdeclParamTypes.Add(GetSwiftCdeclParamType(ci.ClosureArgs[i], env));
+                cdeclParamTypes.Add("UnsafeMutableRawPointer?");
+                var cdeclReturnType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "UInt8";
+                var cdeclRebindType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
+                swiftWriter.WriteLine($"{indent}let {adapterName}: {adapterType} = {closureCsName}FuncPtr.map {{ __fp in");
+                swiftWriter.WriteLine($"{indent}{indent}let {cdeclVarName} = unsafeBitCast(__fp, to: {cdeclRebindType})");
+                var returnPrefixInner = analysis.paramDecls.Count > 0
+                    ? $"return {{ {closureParamStr} in"
+                    : "return {";
+                swiftWriter.WriteLine($"{indent}{indent}{returnPrefixInner}");
+            }
+            else
+            {
+                var adapterOpen = analysis.paramDecls.Count > 0
+                    ? $"{{ {closureParamStr} in"
+                    : "{";
+                swiftWriter.WriteLine($"{indent}let {adapterName}: {adapterType} = {adapterOpen}");
+            }
 
+            // Optional adapters have two extra open braces (`.map { __fp in` and `return {...}`),
+            // so their body sits one extra indent level deeper and closes with an extra `}`.
+            var bodyBaseIndent = ci.IsOptional ? indent + indent + indent : indent + indent;
             if (analysis.pointerWrapArgs.Count > 0 || analysis.heapAllocArgs.Count > 0)
             {
-                var currentIndent = indent + indent;
+                var currentIndent = bodyBaseIndent;
 
                 // D1: Emit heap allocation for complex enum args (flat, before withUnsafePointer nesting).
                 // No defer — C# takes ownership of the heap memory via SwiftSafeHandle
@@ -606,10 +650,19 @@ public static class MethodClosureBridge
                 var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
                 if (!ci.Spec.ReturnType.IsEmptyTuple)
                     cdeclExpr += " != 0";
-                swiftWriter.WriteLine($"{indent}{indent}{cdeclExpr}");
+                swiftWriter.WriteLine($"{bodyBaseIndent}{cdeclExpr}");
             }
 
-            swiftWriter.WriteLine($"{indent}}}");
+            // Close the adapter closure. Optional adapters also close the `.map { __fp in }` wrapper.
+            if (ci.IsOptional)
+            {
+                swiftWriter.WriteLine($"{indent}{indent}}}"); // close `return { ... }`
+                swiftWriter.WriteLine($"{indent}}}");          // close `.map { __fp in ... }`
+            }
+            else
+            {
+                swiftWriter.WriteLine($"{indent}}}");
+            }
         }
 
         // Build method call with all args in parameter order
@@ -866,6 +919,8 @@ public static class MethodClosureBridge
                 var allTypeArgs = new List<string>(closureArgCSharpTypes) { "bool" };
                 delegateType = $"Func<{string.Join(", ", allTypeArgs)}>";
             }
+            // Optional closure parameter → nullable delegate so callers can pass null.
+            if (ci.IsOptional) delegateType += "?";
             closureDelegateTypes.Add(delegateType);
         }
 
@@ -898,8 +953,14 @@ public static class MethodClosureBridge
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
+        // When in a generic type, callback pointer and P/Invoke live in the helper class
+        var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
+
         // Build inner callback delegates — one per closure
         // Each maps cdecl-typed args to user-typed args.
+        // For Optional closures, guard the GCHandle alloc + funcPtr wiring on the delegate
+        // being non-null so callers can pass null; GCHandle is still leaked on the non-null
+        // path because Optional closures are always escaping (constraints.md).
         for (int c = 0; c < closures.Count; c++)
         {
             var ci = closures[c];
@@ -913,6 +974,16 @@ public static class MethodClosureBridge
                 var cbType = GetCallbackParamType(ci.ClosureArgs[i], env);
                 innerTypeArgs.Add(cbType);
                 innerParamDecls.Add($"{cbType} __p{i}");
+            }
+
+            if (ci.IsOptional)
+            {
+                // IntPtr.Zero pair communicates "no closure" to the Swift adapter.
+                csWriter.WriteLine($"IntPtr __funcPtr{innerSuffix} = IntPtr.Zero;");
+                csWriter.WriteLine($"IntPtr __ctxPtr{innerSuffix} = IntPtr.Zero;");
+                csWriter.WriteLine($"if ({ci.ParamName} != null)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
             }
 
             if (!ci.ReturnIsVoid)
@@ -954,10 +1025,15 @@ public static class MethodClosureBridge
 
             // Allocate GCHandle — intentionally leaked for @escaping closure lifetime
             csWriter.WriteLine($"var __gcHandle{innerSuffix} = GCHandle.Alloc(__inner{innerSuffix});");
-        }
 
-        // When in a generic type, callback pointer and P/Invoke live in the helper class
-        var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
+            if (ci.IsOptional)
+            {
+                csWriter.WriteLine($"__funcPtr{innerSuffix} = {helperPrefix}s_{ci.CallbackBaseName};");
+                csWriter.WriteLine($"__ctxPtr{innerSuffix} = GCHandle.ToIntPtr(__gcHandle{innerSuffix});");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+        }
 
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
@@ -984,8 +1060,16 @@ public static class MethodClosureBridge
         {
             var ci = closures[c];
             var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
-            callArgs.Add($"{helperPrefix}s_{ci.CallbackBaseName}");
-            callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
+            if (ci.IsOptional)
+            {
+                callArgs.Add($"__funcPtr{innerSuffix}");
+                callArgs.Add($"__ctxPtr{innerSuffix}");
+            }
+            else
+            {
+                callArgs.Add($"{helperPrefix}s_{ci.CallbackBaseName}");
+                callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
+            }
         }
 
         // Self parameter — instance methods only.

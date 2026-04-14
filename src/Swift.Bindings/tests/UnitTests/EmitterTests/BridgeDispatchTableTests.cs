@@ -20,9 +20,9 @@ public class BridgeDispatchTableTests
     // ─── Table Structure ──────────────────────────────────────────────
 
     [Fact]
-    public void BridgeEmitters_HasExactly8Entries()
+    public void BridgeEmitters_HasExactly9Entries()
     {
-        Assert.Equal(8, MethodHandler.BridgeEmitters.Count);
+        Assert.Equal(9, MethodHandler.BridgeEmitters.Count);
     }
 
     [Fact]
@@ -63,6 +63,7 @@ public class BridgeDispatchTableTests
         var types = MethodHandler.BridgeEmitters.Select(b => b.GetType()).ToList();
 
         Assert.Contains(typeof(ExistentialBypassBridgeAdapter), types);
+        Assert.Contains(typeof(MetatypeArrayBridgeAdapter), types);
         Assert.Contains(typeof(ArraySliceBridgeAdapter), types);
         Assert.Contains(typeof(GenericClosureBridgeAdapter), types);
         Assert.Contains(typeof(ProtocolExtensionClosureBridgeAdapter), types);

@@ -36,7 +36,7 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var paramType = GetCallbackParameterType(arg, closureHandler);
+            var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
             parameters.Add($"{paramType} arg{argIndex}");
             argTypes.Add(arg);
             argIndex++;
@@ -48,7 +48,7 @@ public static partial class ClosureEmitter
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)
         {
-            var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler);
+            var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler, useCdecl);
             invokeArgs.Add(argExpr);
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
@@ -245,7 +245,7 @@ public static partial class ClosureEmitter
         var types = new List<string> { "void*" }; // indirect result buffer
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler));
+            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl: true));
         }
         types.Add("void"); // indirect return callbacks always return void
         return $"delegate* unmanaged[Cdecl]<{string.Join(", ", types)}>";

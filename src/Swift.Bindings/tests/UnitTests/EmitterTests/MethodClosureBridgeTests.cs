@@ -281,6 +281,70 @@ public class MethodClosureBridgeTests
         Assert.Contains("new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)", cs);
     }
 
+    // ─── Optional closure support ─────────────────────────────────────
+
+    [Fact]
+    public void IsEligible_OptionalClosureWithBoundGenericArg_ReturnsTrue()
+    {
+        var (method, typeDatabase) = CreateMethodWithOptionalBoundGenericClosure();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_OptionalClosureWithBoundGenericArg_EmitsNullableDelegate()
+    {
+        var (method, typeDatabase) = CreateMethodWithOptionalBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        // Public-facing delegate parameter must be nullable so callers can pass null.
+        Assert.Contains("Action<TestModule.DataResponse<TestModule.MyData>>? handler", cs);
+    }
+
+    [Fact]
+    public void TryEmit_OptionalClosureWithBoundGenericArg_EmitsMapAdapter()
+    {
+        var (method, typeDatabase) = CreateMethodWithOptionalBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        // Must NOT force-unwrap the funcPtr (force-unwrap of nil would trap on a null caller).
+        Assert.DoesNotContain("handlerFuncPtr!", swift);
+        // Must build the adapter via `.map { __fp in ... }` so nil passes through.
+        Assert.Contains("handlerFuncPtr.map", swift);
+    }
+
+    [Fact]
+    public void TryEmit_OptionalClosureWithBoundGenericArg_GuardsGCHandleOnNull()
+    {
+        var (method, typeDatabase) = CreateMethodWithOptionalBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // C# must guard the GCHandle.Alloc + funcPtr/ctxPtr population behind a null check.
+        Assert.Contains("if (handler != null)", cs);
+        Assert.Contains("GCHandle.Alloc", cs);
+    }
+
     // ─── TryEmit: C# Callback ─────────────────────────────────────────
 
     [Fact]
@@ -1320,6 +1384,50 @@ public class MethodClosureBridgeTests
         var method = CreateMethodDecl("onResponse", parentDecl, moduleDecl,
             TupleTypeSpec.Empty, closureType, "handler");
 
+        return (method, typeDatabase);
+    }
+
+    /// <summary>
+    /// Creates a method with an Optional closure (DataResponse&lt;MyData&gt;) -&gt; Void.
+    /// Tests Optional closures: force-unwrap must be avoided, public delegate must be nullable,
+    /// and GCHandle.Alloc must be guarded behind a null check.
+    /// </summary>
+    private static (MethodDecl method, TypeDatabase typeDatabase) CreateMethodWithOptionalBoundGenericClosure()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var boundGenericArg = new NamedTypeSpec("TestModule.DataResponse",
+            new NamedTypeSpec("TestModule.MyData"));
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)boundGenericArg }),
+            TupleTypeSpec.Empty);
+        // Optional closures are always escaping in Swift.
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var optionalClosure = new NamedTypeSpec("Swift.Optional", closureType);
+
+        var method = new MethodDecl
+        {
+            Name = "onResponse",
+            MangledName = "$s10TestModule7MyClassC10onResponseyyACyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+                CreateArgument("handler", optionalClosure, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parentDecl.Methods.Add(method);
         return (method, typeDatabase);
     }
 

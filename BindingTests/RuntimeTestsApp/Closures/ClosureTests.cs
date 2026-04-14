@@ -287,6 +287,24 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithOptionalDouble(some) = {result}");
     }
 
+    public void TestClosureWithOptionalFrozenStructSome()
+    {
+        // Fix 11B: Swift calls callback(FrozenPoint(3,4)), C# receives FrozenPoint? with value.
+        var result = TestLibFunctions.CallWithOptionalFrozenStruct(
+            p => p.HasValue ? p.Value.X + p.Value.Y : -1.0);
+        AssertEqual(7.0, result, "CallWithOptionalFrozenStruct(FrozenPoint(3,4)) → 7.0");
+        TestLogger.Info($"CallWithOptionalFrozenStruct(some) = {result}");
+    }
+
+    public void TestClosureWithOptionalFrozenStructNone()
+    {
+        // Fix 11B: Swift calls callback(nil), C# receives FrozenPoint? = null.
+        var result = TestLibFunctions.CallWithNilFrozenStruct(
+            p => p.HasValue ? p.Value.X : -99.0);
+        AssertEqual(-99.0, result, "CallWithNilFrozenStruct(nil) → -99.0");
+        TestLogger.Info($"CallWithNilFrozenStruct(none) = {result}");
+    }
+
     #endregion
 
     #region P1: Optional Closure Property Setter (Session 2 regression — ClosureHolder)
@@ -424,6 +442,54 @@ public class ClosureTests : TestBase
         holder.OnConfigChanged = null;
         holder.NotifyConfigChanged();
         TestLogger.Info("SetterOnlyCallbackHolder set-to-null + trigger passed (no crash)");
+    }
+
+    #endregion
+
+    #region Existential Closure Parameters (Fix 11A / Fix 11C)
+    // (any ProcessingMode) -> Void closure params route through the Cdecl wrapper path.
+    // The Swift adapter heap-allocates an ExistentialContainer for the existential arg and
+    // the C# callback dereferences the void* back into a ProcessingModeProxy wrapper.
+    // Unblocks ~25 closure items across Mappedin, Kingfisher, and Lottie.
+
+    public void TestExistentialClosureParam_InvokesWithSimpleMode()
+    {
+        var capturedModeName = string.Empty;
+        var result = TestLibFunctions.CallWithExistentialCallback(mode =>
+        {
+            capturedModeName = mode.ModeName.ToString();
+            return mode.Validate(5);
+        });
+        AssertTrue(result, "callback returned true for SimpleMode.validate(5)");
+        AssertEqual("simple", capturedModeName, "closure received SimpleMode via proxy");
+        TestLogger.Info($"CallWithExistentialCallback modeName={capturedModeName}, result={result}");
+    }
+
+    public void TestExistentialClosureParam_InvokedTwice()
+    {
+        var names = new List<string>();
+        var result = TestLibFunctions.CallExistentialCallbackTwice(mode =>
+        {
+            names.Add(mode.ModeName.ToString());
+            return mode.Validate(1);
+        });
+        AssertTrue(result, "both invocations returned true");
+        AssertEqual(2, names.Count, "closure invoked twice");
+        AssertEqual("simple", names[0], "first invocation got SimpleMode");
+        AssertEqual("strict", names[1], "second invocation got StrictMode");
+        TestLogger.Info($"CallExistentialCallbackTwice names=[{string.Join(",", names)}]");
+    }
+
+    public void TestMixedClosures_ExistentialAndPrimitive()
+    {
+        // Fix 11C: multi-closure method where one param is existential, the other is primitive.
+        // Both must be individually Cdecl-compatible for the method to take the Cdecl path.
+        var result = TestLibFunctions.CallWithMixedCallbacks(
+            onMode: mode => mode.Validate(10),
+            onValue: v => v + 1);
+        // SimpleMode.validate(10) = true -> 1, onValue(41) = 42, sum = 43.
+        AssertEqual(43, result, "mixed closures returned expected sum");
+        TestLogger.Info($"CallWithMixedCallbacks = {result}");
     }
 
     #endregion

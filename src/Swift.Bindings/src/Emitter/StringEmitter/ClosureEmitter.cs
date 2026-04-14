@@ -54,7 +54,7 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var paramType = GetCallbackParameterType(arg, closureHandler);
+            var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
             parameters.Add($"{paramType} arg{argIndex}");
             argTypes.Add(arg);
             argIndex++;
@@ -74,7 +74,7 @@ public static partial class ClosureEmitter
         var invokeArgs = new List<string>();
         for (int i = 0; i < argIndex; i++)
         {
-            var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler);
+            var argExpr = GetInvokeArgExpression(argTypes[i], i, closureHandler, useCdecl);
             invokeArgs.Add(argExpr);
         }
         var invokeArgsString = string.Join(", ", invokeArgs);
@@ -572,9 +572,17 @@ public static partial class ClosureEmitter
     /// Gets the C# type for a closure callback parameter.
     /// Delegates to ClosureHandler.TranslateTypeSpecToPInvokeType for consistency
     /// between the callback signature and function pointer type declaration.
+    /// For cdecl callbacks, existential params become void* because the Swift adapter
+    /// passes a pointer to a heap-allocated ExistentialContainer{N}; the native
+    /// @convention(c) ABI cannot receive Swift existential containers by value.
     /// </summary>
-    private static string GetCallbackParameterType(TypeSpec typeSpec, ClosureHandler closureHandler)
+    private static string GetCallbackParameterType(TypeSpec typeSpec, ClosureHandler closureHandler, bool useCdecl = false)
     {
+        // Cdecl existential: Swift adapter passes a UnsafeMutableRawPointer (void*) to a
+        // heap-allocated ExistentialContainer{N}. Both forms reach here: ProtocolListTypeSpec
+        // (multi-proto) and NamedTypeSpec { IsAny = true } (single-proto parser output).
+        if (useCdecl && (typeSpec is ProtocolListTypeSpec || typeSpec is NamedTypeSpec { IsAny: true }))
+            return "void*";
         return closureHandler.TranslateTypeSpecToPInvokeType(typeSpec);
     }
 
@@ -601,8 +609,26 @@ public static partial class ClosureEmitter
     /// <param name="argIndex">The argument index.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <returns>The expression string to use when invoking the delegate.</returns>
-    private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler)
+    private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler, bool useCdecl = false)
     {
+        // Cdecl existential: Swift adapter handed us a void* pointer to a heap-allocated
+        // ExistentialContainer{N}. Dereference and wrap with the appropriate proxy/runtime type.
+        // Both forms reach here: ProtocolListTypeSpec (multi-proto) and
+        // NamedTypeSpec { IsAny = true } (single-proto parser output).
+        if (useCdecl && (typeSpec is ProtocolListTypeSpec || typeSpec is NamedTypeSpec { IsAny: true }))
+        {
+            var containerType = closureHandler.GetPInvokeExistentialType(typeSpec);
+            var containerAccess = $"*(global::{containerType}*)arg{argIndex}";
+            if (closureHandler.NeedsWellKnownProtocolWrapping(typeSpec, out var cdeclWrapType))
+                return $"new {cdeclWrapType}({containerAccess})";
+            if (closureHandler.NeedsProxyWrapping(typeSpec, out var cdeclProxyName))
+            {
+                var qp = closureHandler.GetQualifiedProxyClassName(typeSpec) ?? cdeclProxyName;
+                return $"new {qp}({containerAccess})";
+            }
+            return $"(object)({containerAccess})";
+        }
+
         // Bool requires byte->bool conversion
         if (MarshallingHelpers.IsBoolType(typeSpec))
             return $"arg{argIndex} != 0";
@@ -684,6 +710,17 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? ({innerType}?)({innerType})(*({csUnderlying}*)arg{argIndex}) : null";
             }
 
+            // Optional<FrozenStruct>: nil-for-none pointer ABI. Swift unwraps and
+            // allocates the inner struct via initializeMemory (deallocated after callback).
+            // C# reads the borrowed struct value via MarshalBorrowedFromSwift — Swift
+            // still owns the heap memory, so no Dispose is issued here.
+            if (IsOptionalFrozenStructParam(namedType, closureHandler))
+            {
+                var inner = namedType.GenericParameters[0];
+                var innerType = closureHandler.TranslateTypeSpecToCSharp(inner);
+                return $"arg{argIndex} != null ? ({innerType}?)SwiftMarshal.MarshalBorrowedFromSwift<{innerType}>(new IntPtr(arg{argIndex})) : null";
+            }
+
             // Optional<NumericPrimitive>: full Optional on heap → SwiftMarshal.MarshalOptionalFromSwift<T>
             if (IsOptionalValueParam(namedType, closureHandler))
             {
@@ -742,6 +779,31 @@ public static partial class ClosureEmitter
                namedType.GenericParameters[0] is NamedTypeSpec inner &&
                (MarshallingHelpers.IsBoolType(inner) ||
                 closureHandler.IsSimpleEnum(inner));
+    }
+
+    /// <summary>
+    /// Checks if a type is Optional&lt;FrozenStruct&gt; with nil-for-none pointer ABI.
+    /// Swift unwraps the optional, passes pointer to the inner struct value (null for .none).
+    /// C# reads the inner struct via MarshalBorrowedFromSwift.
+    /// Excludes reference types (classes, ObjC-bridged) which use Optional-reference ABI.
+    /// </summary>
+    private static bool IsOptionalFrozenStructParam(NamedTypeSpec namedType, ClosureHandler closureHandler)
+    {
+        if (!namedType.ContainsGenericParameters ||
+            namedType.Name != "Swift.Optional" ||
+            namedType.GenericParameters.Count != 1 ||
+            namedType.GenericParameters[0] is not NamedTypeSpec inner)
+            return false;
+        if (closureHandler.IsClassType(inner) || closureHandler.IsObjCBridgedClass(inner))
+            return false;
+        // Primitives (Int32, Double, etc.) are frozen structs in stdlib but use the
+        // heap-allocated full-Optional path, not nil-for-none pointer ABI.
+        // Bool is excluded too — it has its own nil-for-none branch upstream.
+        if (MarshallingHelpers.IsSwiftPrimitive(inner.Name) || inner.Name == "Swift.Bool")
+            return false;
+        if (inner.Name.Contains("Pointer") || inner.Name == "Swift.OpaquePointer")
+            return false;
+        return closureHandler.IsFrozenStruct(inner);
     }
 
     /// <summary>
@@ -849,7 +911,7 @@ public static partial class ClosureEmitter
 
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler));
+            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
         }
 
         types.Add(isIndirectReturn ? "void" : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
@@ -868,7 +930,7 @@ public static partial class ClosureEmitter
         var types = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler));
+            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
         }
 
         types.Add("SwiftError*");

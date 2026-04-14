@@ -1,11 +1,11 @@
 {
-  "git_sha": "f2e6cf2e",
+  "git_sha": "34612778",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49828,
+        "lines": 49818,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 82771,
+        "lines": 82778,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -68,7 +68,7 @@
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51072,
+        "lines": 50826,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23464,
+        "lines": 23471,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23464,
+        "lines": 23471,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23464,
+        "lines": 23471,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

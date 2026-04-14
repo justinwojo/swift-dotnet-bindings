@@ -1334,6 +1334,11 @@ public class ClosureHandler
         if (namedType.ContainsGenericParameters)
             return false;
 
+        // Generic type parameters (τ_0_0, T, U, ...) are not module-qualified and can't be
+        // resolved through the type database. Treat them as non-frozen.
+        if (IsGenericTypeParameter(namedType.Name) || !namedType.HasModule())
+            return false;
+
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
         if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
             return false;

@@ -1265,6 +1265,44 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void IsClosureCdeclCompatible_OptionalFrozenStructParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (Optional<LottieColor>) -> Void — Optional<FrozenStruct> uses nil-for-none
+        // pointer ABI: Swift unwraps the optional, passes inner value pointer (nil for .none).
+        // Unblocks Mappedin callbacks like (MPICoordinate?) -> Void.
+        var optionalStruct = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("TestModule.LottieColor"));
+        var closureType = new ClosureTypeSpec(optionalStruct, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void NeedsClosureCdeclWrapper_OptionalFrozenStructParam_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MapView", moduleDecl);
+
+        // Method: func getCoordinate(callback: @escaping (LottieColor?) -> Void)
+        var optionalStruct = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("TestModule.LottieColor"));
+        var closureType = new ClosureTypeSpec(optionalStruct, TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("getCoordinate", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+    }
+
+    [Fact]
     public void IsClosureCdeclCompatible_OptionalStringReturn_ReturnsTrueViaIndirectReturn()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -1296,6 +1334,303 @@ public class ClosureCdeclEmitterTests
 
         Assert.True(closureHandler.RequiresIndirectReturnMarshalling(closureType));
         Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    #endregion
+
+    #region Existential Closure Param Tests (Fix 11A / Fix 11C)
+
+    [Fact]
+    public void IsClosureCdeclCompatible_SingleProtocolExistentialParam_ReturnsTrue()
+    {
+        // Fix 11A: (any ImageProcessing) -> Void — single-protocol existential.
+        // Parser emits NamedTypeSpec { IsAny = true } for single-proto existentials.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_MultiProtocolExistentialParam_ReturnsTrue()
+    {
+        // Fix 11A: (any Foo & Bar) -> Void — protocol composition existential.
+        var typeDatabase = CreateTypeDatabaseWithTwoProtocols(
+            "TestModule.ImageProcessing", "TestModule.DataCaching");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.ImageProcessing"),
+            new NamedTypeSpec("TestModule.DataCaching")
+        });
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { protocolList }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_AnyErrorParam_SingleProtocolForm_ReturnsFalse()
+    {
+        // `any Error` stays on the MethodClosureBridge (MCB) path regardless of which
+        // TypeSpec form the parser produces. This test covers the NamedTypeSpec{IsAny=true}
+        // form; the ProtocolListTypeSpec form is covered by an earlier test.
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var anyError = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { anyError }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_ExistentialReturn_ReturnsFalse()
+    {
+        // Fix 11A covers existential PARAMS only; existential returns are out of scope.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var existentialReturn = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            existentialReturn);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void Emit_SingleProtocolExistentialClosureParam_UsesCdecl()
+    {
+        // Fix 11A end-to-end: method with (any ImageProcessing) -> Void closure param
+        // should route through the Cdecl wrapper path (not MCB, not CallConvSwift).
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onItem", closureType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        // Cdecl path: CallConvCdecl + IntPtr context, not CallConvSwift
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", csOutput);
+        Assert.Contains("IntPtr contextPtr", csOutput);
+        // Swift adapter allocates a heap buffer for the existential (see Swift output)
+        Assert.Contains("UnsafeMutableRawPointer.allocate", swiftOutput);
+        Assert.Contains("any TestModule.ImageProcessing", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_ExistentialClosureParam_CallbackReceivesVoidPointer()
+    {
+        // The C# [UnmanagedCallersOnly] callback must receive the existential as void*
+        // (pointer to heap-allocated ExistentialContainer{N}), not the container by value.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onItem", closureType, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        // Callback param list should use void* for the existential
+        Assert.Contains("void* arg0", csOutput);
+        // The callback body should dereference the void* into the ExistentialContainer
+        Assert.Contains("ExistentialContainer", csOutput);
+    }
+
+    [Fact]
+    public void Emit_ExistentialClosureParam_SwiftWrapperUsesAnyKeyword()
+    {
+        // Swift 6 requires the `any` keyword for existentials. The adapter closure parameter
+        // list and MemoryLayout<T>.size must both render with `any`.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("process", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onItem", closureType, moduleDecl));
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("any TestModule.ImageProcessing", swiftOutput);
+        Assert.Contains("MemoryLayout<any TestModule.ImageProcessing>", swiftOutput);
+        // initializeMemory uses parens around the existential type: `(any Foo).self`
+        Assert.Contains("(any TestModule.ImageProcessing).self", swiftOutput);
+    }
+
+    [Fact]
+    public void NeedsClosureCdeclWrapper_MultiClosureAllExistentialCompatible_ReturnsTrue()
+    {
+        // Fix 11C: multi-closure methods pass the .All(...) check when every per-closure
+        // arg is Cdecl-compatible. Two closures with known-protocol existential params
+        // both individually pass IsCdeclCompatibleType, so the method as a whole routes Cdecl.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureA = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureA.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var closureB = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureB.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("handleBoth", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onItem", closureA, moduleDecl));
+        method.CSSignature.Add(CreateArgument("onProgress", closureB, moduleDecl));
+
+        Assert.True(ClosureEmitter.NeedsClosureCdeclWrapper(method, closureHandler));
+    }
+
+    [Fact]
+    public void Emit_MultiClosureExistentialAndPrimitive_BothUseCdecl()
+    {
+        // Fix 11C end-to-end: method with one existential-param closure and one primitive
+        // closure should emit a single cdecl wrapper that wires both callbacks.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var existentialParam = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        var closureA = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { existentialParam }),
+            TupleTypeSpec.Empty);
+        closureA.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var closureB = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureB.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("handleBoth", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("onItem", closureA, moduleDecl));
+        method.CSSignature.Add(CreateArgument("onProgress", closureB, moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.True(method.HasClosureCdeclWrapper);
+        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", csOutput);
+        // Both callbacks present and cdecl
+        Assert.Contains("IntPtr onItemFuncPtr", csOutput);
+        Assert.Contains("IntPtr onProgressFuncPtr", csOutput);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithProtocol(string protocolModuleQualifiedName)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var parts = protocolModuleQualifiedName.Split('.');
+        var moduleName = parts[0];
+        var shortName = parts[1];
+
+        if (typeDatabase.IsModuleLoaded(moduleName))
+        {
+            // Register into the existing module via a companion "protocol registration" module
+            // using a distinct module name. To keep things simple, register the protocol under
+            // a unique module name so AddModuleDatabase doesn't throw.
+            var protoModuleName = $"{moduleName}Protocols";
+            var newModule = new ModuleTypeDatabase(protoModuleName, $"/tmp/{protoModuleName}.dylib");
+            newModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(protocolModuleQualifiedName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{shortName}"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolModuleQualifiedName),
+                    MetadataAccessor = "$sMa",
+                    Flags = TypeRecordFlags.None,
+                    Kind = TypeRecordKind.Protocol
+                });
+            typeDatabase.AddModuleDatabase(newModule);
+            return typeDatabase;
+        }
+
+        var module = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(protocolModuleQualifiedName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{shortName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(protocolModuleQualifiedName),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithTwoProtocols(string p1, string p2)
+    {
+        var db = CreateTypeDatabaseWithProtocol(p1);
+        // The first protocol registered in CreateTypeDatabaseWithProtocol either created a new
+        // module or a "<Module>Protocols" companion. For the second protocol, reuse the same
+        // companion-module approach to avoid AddModuleDatabase collisions.
+        var parts = p2.Split('.');
+        var moduleName = parts[0];
+        var shortName = parts[1];
+
+        // Register the second protocol under a distinct unique module name.
+        var proto2ModuleName = $"{moduleName}Protocols2";
+        var module2 = new ModuleTypeDatabase(proto2ModuleName, $"/tmp/{proto2ModuleName}.dylib");
+        module2.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(p2),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, $"I{shortName}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(p2),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        db.AddModuleDatabase(module2);
+        return db;
     }
 
     #endregion

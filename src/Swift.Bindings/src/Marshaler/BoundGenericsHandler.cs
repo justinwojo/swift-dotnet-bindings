@@ -161,6 +161,44 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Returns true when the type is a <c>Swift.Array&lt;any P.Type&gt;</c> — an array of
+    /// existential protocol metatypes. The element type must be both existential
+    /// (<c>IsAny=true</c>) and a metatype (trailing <c>.Type</c>). The protocol itself is
+    /// returned via <paramref name="protocolName"/> as a module-qualified string (e.g.,
+    /// <c>"MusicKit.MusicCatalogSearchable"</c>).
+    ///
+    /// This pattern is handled by <c>MetatypeArrayBridgeEmitter</c>: the Swift side
+    /// accepts a C array of metatype pointers + count and reconstructs <c>[any P.Type]</c>
+    /// via <c>unsafeBitCast</c>. The validator allows this pattern through so the bridge
+    /// can fire.
+    /// </summary>
+    public static bool IsArrayOfExistentialMetatypes(TypeSpec typeSpec, out string? protocolName)
+    {
+        protocolName = null;
+        if (typeSpec is not NamedTypeSpec outer || !MarshallingHelpers.IsSwiftArray(outer))
+            return false;
+        if (outer.GenericParameters.Count != 1)
+            return false;
+        var element = outer.GenericParameters[0];
+        if (element is not NamedTypeSpec namedElement || !namedElement.IsAny)
+            return false;
+        if (!WrapperValidation.IsMetatypeType(namedElement))
+            return false;
+
+        // The TypeSpecTokenizer treats '.' as a valid name character, so dotted qualified
+        // metatype names arrive flat in Name (e.g., "SwiftBindingsTestLib.SearchableItem.Type").
+        // Strip the trailing ".Type" to get the protocol's qualified name.
+        var qualified = namedElement.Name;
+        if (!qualified.EndsWith(".Type", StringComparison.Ordinal))
+            return false;
+        qualified = qualified.Substring(0, qualified.Length - ".Type".Length);
+        if (!ConcreteSpecializationEngine.HasKnownHintConformers(qualified))
+            return false;
+        protocolName = qualified;
+        return true;
+    }
+
+    /// <summary>
     /// Returns true when the type is a supported container with existential elements that can
     /// be marshalled. Handles direct containers (Array, Dictionary) and Optional-wrapped containers
     /// (Optional&lt;Array&lt;any P&gt;&gt;, Optional&lt;Dictionary&lt;K, any P&gt;&gt;). Also handles

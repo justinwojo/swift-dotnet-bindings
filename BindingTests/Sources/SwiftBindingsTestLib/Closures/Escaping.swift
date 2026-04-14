@@ -168,6 +168,18 @@ public func callWithOptionalDouble(_ callback: @escaping (Double?) -> Double) ->
     return callback(3.14)
 }
 
+/// Calls a closure with an Optional<FrozenPoint> parameter (value present).
+/// Exercises Fix 11B: nil-for-none pointer ABI for Optional<FrozenStruct>.
+public func callWithOptionalFrozenStruct(_ callback: @escaping (FrozenPoint?) -> Double) -> Double {
+    return callback(FrozenPoint(x: 3.0, y: 4.0))
+}
+
+/// Calls a closure with an Optional<FrozenPoint> parameter (nil).
+/// Exercises Fix 11B: nil-for-none pointer ABI returning nil to C#.
+public func callWithNilFrozenStruct(_ callback: @escaping (FrozenPoint?) -> Double) -> Double {
+    return callback(nil)
+}
+
 // MARK: - Closure with Existential Array Parameter (Swinject Container pattern)
 // Regression test: SwiftArray<ExistentialContainer1> type init must not throw
 // TypeInitializationException when NativeAotInitialize() fails for existential types.
@@ -210,3 +222,34 @@ public class SetterOnlyCallbackHolder {
 // MARK: - Throwing Closures (REMOVED)
 // Throwing closures cause emission errors (SwiftString→void* return mismatch in thunks).
 // Known generator limitation. ClosureError enum also removed to avoid orphan type.
+
+// MARK: - Existential Closure Parameters (Fix 11A / Fix 11C)
+// Exercises `(any Protocol) -> Void` closure parameters through the Cdecl wrapper path.
+// The Swift adapter heap-allocates an ExistentialContainer for the existential arg and
+// passes an UnsafeMutableRawPointer to the C# callback, which dereferences it back into
+// a protocol proxy instance.
+
+/// Calls an escaping closure that receives `any ProcessingMode` and invokes validate().
+/// Single-protocol existential closure param (Fix 11A).
+public func callWithExistentialCallback(_ callback: @escaping (any ProcessingMode) -> Bool) -> Bool {
+    return callback(SimpleMode())
+}
+
+/// Calls an escaping closure that receives `any ProcessingMode` and invokes it multiple times.
+/// Verifies the adapter properly reallocates the existential buffer per invocation.
+public func callExistentialCallbackTwice(_ callback: @escaping (any ProcessingMode) -> Bool) -> Bool {
+    let a = callback(SimpleMode())
+    let b = callback(StrictMode())
+    return a && b
+}
+
+/// Multi-closure method mixing an existential closure with a primitive closure (Fix 11C).
+/// Both closures must be independently Cdecl-compatible for the `.All()` gate to accept.
+public func callWithMixedCallbacks(
+    onMode: @escaping (any ProcessingMode) -> Bool,
+    onValue: @escaping (Int32) -> Int32) -> Int32 {
+    let modeResult = onMode(SimpleMode()) ? Int32(1) : Int32(0)
+    let valueResult = onValue(41)
+    return modeResult + valueResult
+}
+

@@ -598,6 +598,7 @@ namespace BindingsGeneration
         private static readonly IMethodBridgeEmitter[] _bridgeEmitters =
         [
             new ExistentialBypassBridgeAdapter(),          // Must be first: existential-blocked methods
+            new MetatypeArrayBridgeAdapter(),              // [any P.Type] → UnsafeRawPointer + Int
             new ArraySliceBridgeAdapter(),                 // ArraySlice normalization
             new GenericClosureBridgeAdapter(),             // Generic closures
             new ProtocolExtensionClosureBridgeAdapter(),   // Invariant #2: before MethodClosureBridge
@@ -677,6 +678,12 @@ namespace BindingsGeneration
                 foreach (var argument in methodEnv.MethodDecl.CSSignature)
                 {
                     if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
+                        continue;
+
+                    // Array<any P.Type> with known hint conformers — handled by
+                    // MetatypeArrayBridgeAdapter. Skip existential accumulation so
+                    // ExistentialBypass doesn't fire first.
+                    if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _))
                         continue;
 
                     if (methodEnv.BoundGenericsHandler.TryGetFirstUnsupportedExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))

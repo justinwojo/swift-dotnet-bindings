@@ -151,6 +151,24 @@ public class ConcreteSpecializationEngine
     }
 
     /// <summary>
+    /// Checks whether the specialization hints registry has conformers for the given
+    /// module-qualified protocol name (e.g., "MusicKit.MusicCatalogSearchable"). Hint-only —
+    /// does not consider ABI-discovered conformers, since those require an engine instance.
+    /// Used by validator paths that need a stateless conformer check.
+    /// </summary>
+    public static bool HasKnownHintConformers(string protocolQualifiedName) =>
+        _sharedHints.Value.TryGetValue(protocolQualifiedName, out var list) && list.Count > 0;
+
+    /// <summary>
+    /// Returns hint-registered conformers for a protocol, or an empty list if none exist.
+    /// Stateless accessor — does not consider ABI-discovered conformers.
+    /// </summary>
+    public static IReadOnlyList<ConcreteConformer> GetHintConformers(string protocolQualifiedName) =>
+        _sharedHints.Value.TryGetValue(protocolQualifiedName, out var list)
+            ? list
+            : Array.Empty<ConcreteConformer>();
+
+    /// <summary>
     /// Returns known concrete conformers for a protocol, combining hints and ABI sources.
     /// </summary>
     public List<ConcreteConformer> GetConformers(SwiftTypeName protocolName)

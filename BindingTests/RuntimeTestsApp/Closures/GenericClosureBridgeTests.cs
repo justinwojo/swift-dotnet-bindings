@@ -42,4 +42,35 @@ public class GenericClosureBridgeTests : TestBase
         AssertTrue(result, "RunWithFilter returns true for success result");
         TestLogger.Info("GenericProcessor.RunWithFilter MCB generic parent test passed");
     }
+
+    // ─── Optional MCB closure (Nuke/GRDB/Kingfisher pattern) ───────────
+
+    /// <summary>
+    /// MCB bridges an `Optional<(any Error) -> Void>` with a non-nil callback:
+    /// Swift invokes it with a MathError, C# reconstructs AnyError.
+    /// Wrapper uses `funcPtr.map { __fp in ... }` to round-trip non-nil through.
+    /// </summary>
+    public void TestOptionalErrorCallback_NonNull()
+    {
+        using var fixture = new OptionalErrorCallbackFixture();
+        string? captured = null;
+        int invoked = fixture.ReportIfPresent(err => captured = err.LocalizedDescription);
+        AssertEqual(1, invoked, "ReportIfPresent returned invocation count");
+        AssertNotNull(captured, "Optional callback was invoked");
+        AssertTrue(captured!.Contains("divisionByZero"),
+            $"Expected 'divisionByZero' in captured description, got: \"{captured}\"");
+        TestLogger.Info("Optional MCB closure non-null round-trip passed");
+    }
+
+    /// <summary>
+    /// MCB Optional closure with null: must round-trip as nil, skip GCHandle.Alloc,
+    /// return 0 from Swift, no crash. This is the Nuke/GRDB/Kingfisher shape.
+    /// </summary>
+    public void TestOptionalErrorCallback_Null()
+    {
+        using var fixture = new OptionalErrorCallbackFixture();
+        int invoked = fixture.ReportIfPresent(null);
+        AssertEqual(0, invoked, "ReportIfPresent returned 0 for nil callback");
+        TestLogger.Info("Optional MCB closure null round-trip passed");
+    }
 }

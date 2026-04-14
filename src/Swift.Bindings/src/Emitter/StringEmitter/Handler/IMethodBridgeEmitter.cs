@@ -84,6 +84,26 @@ namespace BindingsGeneration
     }
 
     /// <summary>
+    /// Bridge adapter for <c>[any Protocol.Type]</c> metatype-array parameters.
+    /// Fires before ArraySliceBridgeAdapter so the metatype-array rewrite runs first
+    /// on methods that would otherwise look like plain arrays.
+    /// </summary>
+    internal sealed class MetatypeArrayBridgeAdapter : IMethodBridgeEmitter
+    {
+        public BridgeEmitResult? TryEmit(BridgeEmitterContext context)
+        {
+            if (MetatypeArrayBridgeEmitter.TryEmit(
+                context.CsWriter, context.SwiftWriter, context.MethodEnv,
+                context.Logger, context.EmissionContext))
+            {
+                return new BridgeEmitResult("MetatypeArrayBridge",
+                    "Existential-metatype-array parameter bridged via @_cdecl pointer+count wrapper.");
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Bridge adapter for ArraySlice normalization.
     /// </summary>
     internal sealed class ArraySliceBridgeAdapter : IMethodBridgeEmitter
