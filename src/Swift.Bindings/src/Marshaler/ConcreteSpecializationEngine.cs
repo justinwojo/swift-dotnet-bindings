@@ -37,7 +37,8 @@ public class ConcreteSpecializationEngine
         string CSharpType,
         SwiftTypeName? SwiftType = null,
         string? SwiftLiteral = null,
-        IReadOnlyDictionary<string, string>? AssociatedTypes = null);
+        IReadOnlyDictionary<string, string>? AssociatedTypes = null,
+        IReadOnlyList<AvailabilityAnnotation>? AvailabilityAnnotations = null);
 
     /// <summary>
     /// A method that can be specialized, along with its specialization info.
@@ -141,13 +142,30 @@ public class ConcreteSpecializationEngine
                 _abiConformers[protocolKey].Add(new ConcreteConformer(
                     conformance.ConformingType.ToString(),
                     csName,
-                    conformance.ConformingType));
+                    conformance.ConformingType,
+                    AvailabilityAnnotations: CollectAvailability(typeDecl)));
             }
         }
 
         // Recurse into nested types
         foreach (var nested in typeDecl.Types)
             IndexTypeConformances(nested);
+    }
+
+    private static IReadOnlyList<AvailabilityAnnotation>? CollectAvailability(TypeDecl typeDecl)
+    {
+        List<AvailabilityAnnotation>? merged = null;
+        BaseDecl? current = typeDecl;
+        while (current is TypeDecl td)
+        {
+            if (td.AvailabilityAnnotations is { Count: > 0 } parentAnnotations)
+            {
+                merged ??= new List<AvailabilityAnnotation>();
+                merged.AddRange(parentAnnotations);
+            }
+            current = td.ParentDecl;
+        }
+        return merged;
     }
 
     /// <summary>

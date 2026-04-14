@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-09
 **Grounded in**: StoreKit 2 (the first Apple framework brought up end-to-end through this pipeline)
-**Sibling**: `../0.8.0.md` (release tracking doc)
+**Sibling**: `../0.8.0-ship-plan.md` (release tracking doc)
 
 ---
 
@@ -26,7 +26,7 @@ What does **not** work, in case it tempts a future session:
 
 ## Strategy questions, answered
 
-These are the twelve questions in `0.8.0.md` § "Strategy questions to answer in Phase 1". Each answer is grounded in something StoreKit 2 actually exercised, with a pointer to the evidence.
+These are the twelve questions in `0.8.0-ship-plan.md` § "Strategy questions to answer in Phase 1". Each answer is grounded in something StoreKit 2 actually exercised, with a pointer to the evidence.
 
 ### 1. Wrapper package convention
 
@@ -36,7 +36,7 @@ These are the twelve questions in `0.8.0.md` § "Strategy questions to answer in
 
 **Naming**: `<Module>SwiftBindings.xcframework` (matches the third-party convention; e.g. `NukeSwiftBindings.xcframework`). The NuGet package id is `<Module>.Swift.iOS` (e.g. `StoreKit.Swift.iOS`).
 
-**Evidence**: Session 1 (`108f4f12`) landed Apple-framework target mode; Sessions 2 + 4 (`eafe252d`, `ab3f25a8`) landed wrapper compilation in direct mode and the in-tree `Swift.Runtime` ProjectReference fallback; Session 7 (this session) landed the publishable pack flow. `0.8.0.md` § "Recommended next session" → § "Tracking" has the full chain.
+**Evidence**: Session 1 (`108f4f12`) landed Apple-framework target mode; Sessions 2 + 4 (`eafe252d`, `ab3f25a8`) landed wrapper compilation in direct mode and the in-tree `Swift.Runtime` ProjectReference fallback; Session 7 (this session) landed the publishable pack flow. `0.8.0-ship-plan.md` § "Recommended next session" → § "Tracking" has the full chain.
 
 ### 2. Generator changes
 
@@ -57,7 +57,7 @@ These are the twelve questions in `0.8.0.md` § "Strategy questions to answer in
 - `SwiftFrameworkResolver` dyld-style path passthrough (`IsDyldStylePath`, Session 5)
 - Generator-emitted csproj uses `PlatformInfo.PackTfm` (derived as `Tfm + PlatformInfo.PlatformVersion`, e.g. `net10.0-ios26.2`) for BOTH the `<TargetFramework>` element and the `buildTransitive/<tfm>/` pack path so they cannot drift on multi-workload machines. `PlatformVersion` is sourced from the `--platform-version <X.Y>` CLI flag with a `DefaultPlatformVersion` fallback for in-tree local-dev callers (Session 7 introduced `LibTfm`; the Codex-review pass collapsed it to a single derived field; Session 1 of the 0.8.0 publishing release added the CLI flag and lifted the explicit TFM into `<TargetFramework>` after it surfaced that .NET 10 library projects default to the OLDEST installed TPV, not the newest).
 
-**Evidence**: `0.8.0.md` § Session 1 outcome (target mode + opaque param fix), § Session 2 outcome (availability propagation + four C# emit bugs subsequently fixed), § Session 4 outcome (mutating async + ProjectReference fallback), § Session 5 outcome (resolver dyld passthrough), § Session 7 outcome (pack-time `PackTfm`).
+**Evidence**: `0.8.0-ship-plan.md` § Session 1 outcome (target mode + opaque param fix), § Session 2 outcome (availability propagation + four C# emit bugs subsequently fixed), § Session 4 outcome (mutating async + ProjectReference fallback), § Session 5 outcome (resolver dyld passthrough), § Session 7 outcome (pack-time `PackTfm`).
 
 **Open**: `IsModuleLoaded` vs `IsModuleProcessed` predicate split. `TypeDatabase.IsModuleLoaded` and `IsModuleProcessed` are aliases today (both `_modules.ContainsKey`). The narrow target-mode fix sidesteps the distinction; the long-term refactor is to split them so a module can be `Loaded` (we have a dependency database) without being `Processed` (we have generated real bindings as a target). Filed in `roadmap.md`. Not load-bearing for framework #2.
 
@@ -73,7 +73,7 @@ These are the twelve questions in `0.8.0.md` § "Strategy questions to answer in
 
 **Simulator vs device vs Mac Catalyst vs macOS**: dyld handles all four uniformly given the right load commands in the wrapper dylib. The wrapper dylib is built per-platform/per-slice with `xcrun swiftc -target arm64-apple-ios<min>-simulator` (or `-macabi`, `-macos`, etc.) and the system framework's install name is baked into its load commands at link time, so the runtime just resolves what's already there. No per-platform resolver branching has been needed so far. Framework #2 should re-verify on whatever platform variant matters most for it; if it works on simulator and device for StoreKit it probably works for everything else, but "probably" is not the same as "verified."
 
-**Evidence**: `0.8.0.md` § Session 5 outcome ("What the resolver bug actually was" + "Fix"). 15 new resolver unit tests in `SwiftFrameworkResolverTests.cs`.
+**Evidence**: `0.8.0-ship-plan.md` § Session 5 outcome ("What the resolver bug actually was" + "Fix"). 15 new resolver unit tests in `SwiftFrameworkResolverTests.cs`.
 
 ### 4. NuGet package layout
 
@@ -94,9 +94,9 @@ runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/ios-arm64-simulator/
 
 The fix (Session 1 of the 0.8.0 Apple-framework publishing release) is an explicit `--platform-version <X.Y>` CLI flag on the generator, threaded through `PlatformInfoFactory.Create` into `PlatformInfo.PlatformVersion`. Both `<TargetFramework>` and the `buildTransitive/` pack path source from the same `PlatformInfo.PackTfm` (= `Tfm + PlatformVersion`), so they cannot drift. The default value (no flag passed) keeps the in-tree fallback so existing local-dev callers don't break, but **publishing for nuget.org requires passing the explicit flag** (e.g. `--platform-version 26.2` for an iOS 26.2 SDK cut). The SDK pack target's dynamic `$(TargetPlatformVersion)` resolution (`Sdk.targets`) is intentionally NOT mirrored here — it's the right shape for SDK-consumer projects (apps) but the wrong shape for generator-emitted library projects (which would need `UseFloatingTargetPlatformVersion=true` contortions to reach a usable result, and would still produce an unauditable static nupkg). See `roadmap.md` ("explicit TPV in generator-emitted csproj") for the full reasoning trail.
 
-**iOS-only initially**: the Session 7 nupkg is iOS only because Sessions 1–7 only validated iOS. macOS / Mac Catalyst / tvOS slices exist in `PlatformInfoFactory` and the emitter produces them, but they have not been exercised against StoreKit 2 end-to-end. Phase 2 (`0.8.0.md` § "Multi-Platform Validation") covers that work; the framework #2 checklist below has it as a checkpoint.
+**iOS-only initially**: the Session 7 nupkg is iOS only because Sessions 1–7 only validated iOS. macOS / Mac Catalyst / tvOS slices exist in `PlatformInfoFactory` and the emitter produces them, but they have not been exercised against StoreKit 2 end-to-end. Phase 2 (`0.8.0-ship-plan.md` § "Multi-Platform Validation") covers that work; the framework #2 checklist below has it as a checkpoint.
 
-**Evidence**: `unzip -l /tmp/storekit2-session7-fresh/nupkg/StoreKit.Swift.iOS.0.8.0-preview.1.nupkg` produces exactly the layout above. Session 7 outcome block in `0.8.0.md` has the verification.
+**Evidence**: `unzip -l /tmp/storekit2-session7-fresh/nupkg/StoreKit.Swift.iOS.0.8.0-preview.1.nupkg` produces exactly the layout above. Session 7 outcome block in `0.8.0-ship-plan.md` has the verification.
 
 ### 5. Naming convention
 
@@ -134,11 +134,11 @@ The package suffix is `.Swift.<Platform>` rather than `.SwiftBindings.<Platform>
 1. **Orphan `[LibraryImport]` for `Transaction.updates` / `Storefront.updates` / `Product.SubscriptionInfo.Status.updates`**. The generator emits the `[LibraryImport]` declaration for the metadata accessor but drops the private wrapper getter AND the public C# property. Hypothesis (background subagent diagnosis pending focused repro): `CSharpWrapperCoGater.FindAndMarkCallers` removes the `_Get()` wrapper because it transitively calls a stripped helper P/Invoke, but doesn't co-remove the now-dead primary `[LibraryImport]` declaration. Generalizes to **any static property getter whose `_Get()` wrapper transitively references a stripped helper**, not just `*.updates`. Permanent fix is small; until then, the workaround is to use a sibling AsyncSequence (like `Transaction.unfinished`) that exercises the same code path.
 2. **Foreign value-type metadata gap** (covered under question 6). Reachable on `VerificationResult<Transaction>` field access; smoke test sidesteps it.
 
-**Evidence**: `0.8.0.md` § Session 6 outcome and `roadmap.md` lines 101–102.
+**Evidence**: `0.8.0-ship-plan.md` § Session 6 outcome and `roadmap.md` lines 101–102.
 
 ### 9. Macro-based frameworks
 
-**Not exercised by StoreKit 2.** StoreKit 2 has no `@Model` / `@Observable` macros. The strategy here is unchanged from `0.8.0.md`: defer SwiftData / Observation until after the simpler Apple frameworks ship. The `.swiftinterface` ought to contain the expanded form, but verifying that is framework #N work (where N is "first macro-heavy framework we attempt"), not framework #2.
+**Not exercised by StoreKit 2.** StoreKit 2 has no `@Model` / `@Observable` macros. The strategy here is unchanged from `0.8.0-ship-plan.md`: defer SwiftData / Observation until after the simpler Apple frameworks ship. The `.swiftinterface` ought to contain the expanded form, but verifying that is framework #N work (where N is "first macro-heavy framework we attempt"), not framework #2.
 
 ### 10. Testing strategy
 
@@ -146,7 +146,7 @@ The package suffix is `.Swift.<Platform>` rather than `.SwiftBindings.<Platform>
 
 - **Unit tests** for any generator changes the framework requires. StoreKit 2 added unit tests for parameter-position opaque lowering, mutating-async wrapping, dyld-path resolver passthrough, `EnableDefaultCompileItems=false`, `PackTfm`-based pack paths (and the derivation formula `PackTfm = Tfm + DefaultPlatformVersion`), and a few more. New generator changes should ship with new unit tests; that's not optional.
 - **BindingTests fixtures** for any new patterns the framework exercises that the existing fixtures don't already cover. StoreKit 2 added `AsyncMutatingCounter` to lock in mutating-async behavior. Pattern: add the smallest possible Swift fixture in `BindingTests/Sources/SwiftBindingsTestLib/` that reproduces the new pattern, then a runtime test in `BindingTests/RuntimeTestsApp/` that exercises it.
-- **Smoke tests** (`BindingTests/RuntimeTestsApp/SmokeTests/<Framework>SmokeTests.cs`) gated on (1) a per-framework compile symbol (`STOREKIT_SMOKE`, `WEATHERKIT_SMOKE`, ...), (2) an **explicit MSBuild opt-in property** (`$(EnableStoreKitSmoke)=true`, `$(EnableWeatherKitSmoke)=true`, ...), and (3) `Exists()` checks on the in-tree snapshot at `BindingTests/obj/<Framework>2Snapshot/` (gitignored) + simulator RID. The csproj consumes the snapshot via `<ProjectReference>` + a conditional `<Import>` of the generator-emitted `<Framework>.Swift.iOS.ProjectReference.targets`; the test class is wrapped in `#if`. **Never** consume the snapshot via a raw `<Reference HintPath>` pointing at an out-of-repo path — that was the original StoreKit 2 shape, and it reintroduced the stale-AOT `load_aot_module` crash mode (documented in the Session 5 outcome of `0.8.0.md`) because MSBuild could not see that a rebuilt `Swift.Runtime.dll` had invalidated the snapshot. With ProjectReference, MSBuild's incremental build graph stays coherent across Swift.Runtime rebuilds: ref-assembly-based change detection cascades rebuilds through the snapshot when public API changes, and leaves the snapshot alone when only implementation changes (which is safe because type references resolve by metadata reference at load time, not by embedded token). Requiring an explicit `$(Enable<X>Smoke)=true` forces a human acknowledgement ("yes, regenerate for this run"); the csproj emits a loud `<Error>` when the opt-in is set but prerequisites are missing. This is the **zero-regression, non-hermetic-safe** wiring pattern; framework #2 should copy it shape-for-shape.
+- **Smoke tests** (`BindingTests/RuntimeTestsApp/SmokeTests/<Framework>SmokeTests.cs`) gated on (1) a per-framework compile symbol (`STOREKIT_SMOKE`, `WEATHERKIT_SMOKE`, ...), (2) an **explicit MSBuild opt-in property** (`$(EnableStoreKitSmoke)=true`, `$(EnableWeatherKitSmoke)=true`, ...), and (3) `Exists()` checks on the in-tree snapshot at `BindingTests/obj/<Framework>2Snapshot/` (gitignored) + simulator RID. The csproj consumes the snapshot via `<ProjectReference>` + a conditional `<Import>` of the generator-emitted `<Framework>.Swift.iOS.ProjectReference.targets`; the test class is wrapped in `#if`. **Never** consume the snapshot via a raw `<Reference HintPath>` pointing at an out-of-repo path — that was the original StoreKit 2 shape, and it reintroduced the stale-AOT `load_aot_module` crash mode (documented in the Session 5 outcome of `0.8.0-ship-plan.md`) because MSBuild could not see that a rebuilt `Swift.Runtime.dll` had invalidated the snapshot. With ProjectReference, MSBuild's incremental build graph stays coherent across Swift.Runtime rebuilds: ref-assembly-based change detection cascades rebuilds through the snapshot when public API changes, and leaves the snapshot alone when only implementation changes (which is safe because type references resolve by metadata reference at load time, not by embedded token). Requiring an explicit `$(Enable<X>Smoke)=true` forces a human acknowledgement ("yes, regenerate for this run"); the csproj emits a loud `<Error>` when the opt-in is set but prerequisites are missing. This is the **zero-regression, non-hermetic-safe** wiring pattern; framework #2 should copy it shape-for-shape.
 - **Snapshot regeneration lives in nuke as a first-class target**: `nuke regenerate-<framework>-snapshot` (and as an automatic conditional prerequisite of `nuke runtime-tests-simulator --enable-<framework>-smoke`). The target shells out to `xcrun swift-api-digester -dump-sdk` against the active Xcode SDK to produce the ABI JSON, then runs the generator in direct mode to produce `<Framework>.Swift.iOS.csproj` + wrapper xcframework + `.ProjectReference.targets` under `BindingTests/obj/<Framework>2Snapshot/`. Incremental: skips the regen when output files are all newer than the Xcode SDK inputs (swiftinterface + TBD mtimes). `BindingTests/obj/` is gitignored by the top-level `[Oo]bj/` rule so nothing gets committed. Xcode is already a hard prerequisite of any iOS-targeted build, so "needs swift-api-digester" is zero additional cost. See `Build.RuntimeTests.cs:RegenerateStoreKit2Snapshot()` for the StoreKit implementation — framework #2 should model its helper on this shape.
 - **Validation libraries** (`build/validation-libraries.json`) — Apple frameworks are NOT added here. The validation pool is for compile-gating third-party Swift libraries against the generator; Apple frameworks have their own (much smaller, much more focused) smoke-test wiring.
 - **Sandbox / credential setup**: per-framework. StoreKit 2 uses Xcode StoreKit configuration files; WeatherKit will need real Apple Developer service credentials and is therefore harder to put under CI; TipKit needs runtime UI. Each framework decides its own test approach inside `<Framework>SmokeTests.cs` and documents prerequisites in the test's XML doc.
@@ -165,7 +165,7 @@ The fresh consumer is NOT a real product app — it's a smoke-level "the publish
 
 ### 12. Multi-platform
 
-**Decided**: iOS first. macOS / Mac Catalyst / tvOS support is in `PlatformInfoFactory` and the emitter, but Sessions 1–7 only exercised iOS. Multi-platform validation is Phase 2 (`0.8.0.md` § "Phase 2 — Multi-Platform Validation"). The framework #2 checklist below treats macOS/Mac Catalyst as a stretch checkpoint — if framework #2 ships iOS-only and macOS lands later, that's fine.
+**Decided**: iOS first. macOS / Mac Catalyst / tvOS support is in `PlatformInfoFactory` and the emitter, but Sessions 1–7 only exercised iOS. Multi-platform validation is Phase 2 (`0.8.0-ship-plan.md` § "Phase 2 — Multi-Platform Validation"). The framework #2 checklist below treats macOS/Mac Catalyst as a stretch checkpoint — if framework #2 ships iOS-only and macOS lands later, that's fine.
 
 **The pattern when framework #2 wants macOS support**: `--platform macos --platform-target device` instead of `--platform ios --platform-target simulator` in the direct-mode invocation. The emitter produces a `<Module>.Swift.macOS.csproj` with the `osx-arm64` RID baked in. NuGet packs ship one xcframework slice per platform under `runtimes/<rid>/native/`. There is no per-platform binding code divergence — same generated `.cs`, same generated `.Wrapper.swift`, just compiled against a different SDK.
 
@@ -250,7 +250,7 @@ This is the working checklist for adding the next Apple framework (WeatherKit / 
 
 - [ ] Wiki entry for the framework: minimum iOS version, entitlements required, sample code snippet, known limitations.
 - [ ] If new generator changes landed: update `roadmap.md` to reflect any closed follow-ups, and file any new ones with the same level of detail as the existing entries (concrete reproducer, root cause, proposed fix).
-- [ ] **Do NOT update this strategy doc** unless framework #2 surfaces a new pattern that generalizes (e.g. "all frameworks with X need Y"). One-off observations go in `<Framework>2-exploration.md` for that framework, modeled after `0.8.0.md`. This strategy doc should stay the durable cross-framework reference; framework-specific session-by-session notes should not pollute it.
+- [ ] **Do NOT update this strategy doc** unless framework #2 surfaces a new pattern that generalizes (e.g. "all frameworks with X need Y"). One-off observations go in `<Framework>2-exploration.md` for that framework, modeled after `0.8.0-ship-plan.md`. This strategy doc should stay the durable cross-framework reference; framework-specific session-by-session notes should not pollute it.
 
 ---
 
@@ -271,8 +271,8 @@ These are the questions Sessions 1–7 raised but did not answer. They are NOT l
 
 ## Cross-references
 
-- `../0.8.0.md` § Phase 1 — the original strategy questions this doc answers
-- `../0.8.0.md` — the full Session 1–7 trail this doc is grounded in
+- `../0.8.0-ship-plan.md` § Phase 1 — the original strategy questions this doc answers
+- `../0.8.0-ship-plan.md` — the full Session 1–7 trail this doc is grounded in
 - `../roadmap.md` lines 101–102 — the two open StoreKit follow-ups (foreign value-type metadata gap; orphan PInvoke for `*.updates`)
 - `BindingTests/RuntimeTestsApp/SmokeTests/StoreKitSmokeTests.cs` — the reference shape for per-framework smoke tests
 - `src/Swift.Bindings/src/Configuration/PlatformInfo.cs` — `PackTfm` (derived from `DefaultPlatformVersion`) field doc explaining the NU1012 trap

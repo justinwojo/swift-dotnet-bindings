@@ -102,6 +102,26 @@ public static class ConcreteProtocolSpecializationEmitter
             return false;
         }
 
+        // Skip conformers whose C# managed type is not an ISwiftObject-backed class with
+        // a SafeHandle Payload. Covers:
+        //   • NativeTypeName remaps (Foundation.Data → NSData)
+        //   • objcBridged records (Foundation.NSLocale, UIKit.UIImage, …) whose managed
+        //     counterpart is an NSObject binding without .Payload
+        //   • objcRooted Swift classes inheriting NSObject (same reason)
+        // The generic-param marshalling emits `{name}.Payload.DangerousGetHandle()`, which
+        // fails to compile for any of the above.
+        if (conformer.SwiftType != null &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var conformerRecord) &&
+            (conformerRecord.NativeTypeName != null
+                || MarshallingHelpers.IsObjCBridged(conformerRecord)
+                || MarshallingHelpers.IsObjCRooted(conformerRecord)))
+        {
+            logger.LogDebug(
+                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — ObjC/native-bridged conformer lacks Payload accessor.",
+                method.Name, conformer.SwiftQualifiedName);
+            return false;
+        }
+
         // Build symbol name
         var safeConformerName = SanitizeTypeName(conformer.SwiftQualifiedName);
         var methodName = isConstructor ? "init" : method.Name;
@@ -252,16 +272,30 @@ public static class ConcreteProtocolSpecializationEmitter
             return false;
         }
 
+        // Merge availability (method + parent + conformer) once — both Swift and C#
+        // sides need the same floor so generated code and callers agree.
+        var mergedAvailability = WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentTypeDecl);
+        if (conformer.AvailabilityAnnotations is { Count: > 0 } conformerAvailability)
+        {
+            var combined = mergedAvailability is null
+                ? new List<AvailabilityAnnotation>()
+                : new List<AvailabilityAnnotation>(mergedAvailability);
+            combined.AddRange(conformerAvailability);
+            mergedAvailability = combined;
+        }
+
         // --- Emit Swift @_cdecl wrapper ---
         EmitSwiftWrapper(
             swiftWriter, method, parentTypeDecl, specParam, conformer,
-            cdeclSymbol, moduleName, isClass, isConstructor, typeDatabase, emissionContext);
+            cdeclSymbol, moduleName, isClass, isConstructor, typeDatabase, emissionContext,
+            mergedAvailability);
 
         // --- Emit C# method ---
         EmitCSharpMethod(
             csWriter, method, parentTypeDecl, specParam, conformer,
             cdeclSymbol, wrapperLibPath, isConstructor, isStatic, isClass,
-            isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase);
+            isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
+            mergedAvailability);
 
         logger.LogInformation(
             "Emitted concrete specialization: {Type}.{Method}<{Conformer}>",
@@ -283,7 +317,8 @@ public static class ConcreteProtocolSpecializationEmitter
         bool isClass,
         bool isConstructor,
         ITypeDatabase typeDatabase,
-        ModuleEmissionContext emissionContext)
+        ModuleEmissionContext emissionContext,
+        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
     {
         var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
         var concreteSwiftType = conformer.SwiftLiteral ?? conformer.SwiftQualifiedName;
@@ -436,12 +471,11 @@ public static class ConcreteProtocolSpecializationEmitter
         // Emit
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl, method.IsMainActorIsolated, method.IsNonisolated);
-        var availability = WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentTypeDecl);
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($"// Concrete specialization: {parentSwiftName}.{method.Name}<{concreteSwiftType}>");
 
-        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, cdeclSymbol, needsMainActor, availability);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, cdeclSymbol, needsMainActor, mergedAvailability);
         swiftWriter.WriteLine($"public func {cdeclSymbol}(");
         swiftWriter.WriteLine($"    {string.Join(",\n    ", swiftParams)}");
         swiftWriter.WriteLine($"){swiftReturnType} {{");
@@ -501,7 +535,8 @@ public static class ConcreteProtocolSpecializationEmitter
         bool isVoidReturn,
         bool isStringReturn,
         bool returnsGenericParam,
-        ITypeDatabase typeDatabase)
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
     {
         var methodName = NameProvider.ToPascalCase(method.Name);
         if (isConstructor)
@@ -585,12 +620,26 @@ public static class ConcreteProtocolSpecializationEmitter
                         callArgs.Add(csName);
                         break;
                     case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
-                    case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
+                    {
+                        // ObjC-bridged/rooted types (UIKit.UIImage, Foundation.NSLocale, …)
+                        // are .NET iOS bindings around NSObject and don't implement
+                        // ISwiftObject. Pass the native NSObject handle instead.
                         var csType = ResolvePublicCSharpType(arg.SwiftTypeSpec, typeDatabase);
                         publicParams.Add($"{csType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
-                        callArgs.Add($"{csName}.SwiftHandle");
+                        callArgs.Add($"{csName}.Handle");
                         break;
+                    }
+                    case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
+                    {
+                        var csType = ResolvePublicCSharpType(arg.SwiftTypeSpec, typeDatabase);
+                        publicParams.Add($"{csType} {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}");
+                        // SwiftHandle is an explicit interface impl on generated ISwiftObject
+                        // types, so access via an ISwiftObject cast.
+                        callArgs.Add($"((global::Swift.Runtime.ISwiftObject){csName}).SwiftHandle");
+                        break;
+                    }
                     default:
                         return; // Unsupported param type
                 }
@@ -637,10 +686,20 @@ public static class ConcreteProtocolSpecializationEmitter
             pinvokeReturn = "IntPtr";
         }
         else
-            pinvokeReturn = "IntPtr";
+        {
+            // bool returns need a dedicated P/Invoke signature so PInvokeEmitHelper
+            // emits `[return: MarshalAs(UnmanagedType.U1)]` and the public method's
+            // `return` statement doesn't have to coerce an IntPtr to bool.
+            var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
+            pinvokeReturn = MarshallingHelpers.IsBoolType(returnTypeSpec) ? "bool" : "IntPtr";
+        }
 
         // --- Emit P/Invoke ---
         csWriter.WriteLine();
+        // P/Invoke needs the same OS guard as the public caller so CA1416 matches up when
+        // the wrapper is stripped into a platform-specific assembly.
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
         {
             LibraryPath = wrapperLibPath,
@@ -656,6 +715,8 @@ public static class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine();
         var staticStr = isStatic ? "static " : "";
         csWriter.WriteLine($"/// <summary>Concrete specialization for {conformer.CSharpType}.</summary>");
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         csWriter.WriteLine($"public {staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
