@@ -55,8 +55,8 @@ namespace BindingsGeneration
 
             var wrapperNativeRef = options.HasWrapperXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework')">
+                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework.zip"
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework.zip')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -64,8 +64,8 @@ namespace BindingsGeneration
 
             var bridgeNativeRef = options.HasBridgeXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework')">
+                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework.zip"
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework.zip')">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
@@ -115,8 +115,8 @@ namespace BindingsGeneration
                       <_SwiftBinding_{sanitized}_Injected>true</_SwiftBinding_{sanitized}_Injected>
                     </PropertyGroup>
                     <ItemGroup>
-                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework"
-                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework')">
+                      <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework.zip"
+                                       Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework.zip')">
                         <Kind>Framework</Kind>
                       </NativeReference>
                 {wrapperNativeRef}{bridgeNativeRef}{resourceBundleItems}    </ItemGroup>

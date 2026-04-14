@@ -1639,20 +1639,30 @@ TARGETSEOF"
          this target per-TFM via TargetsForTfmSpecificContentInPackage (set in Sdk.props)
          and collects TfmSpecificPackageFile items. Using None+Pack=true only works in
          single-TFM projects because _GetPackageFiles runs in the outer build context. -->
+    <MakeDir Directories="$(_SwiftBindingIntermediateDir)" />
+    <Exec Command="rm -f &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName).xcframework.zip&quot; &amp;&amp; /usr/bin/zip -qry &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName).xcframework.zip&quot; &quot;$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))&quot;"
+          WorkingDirectory="$([System.IO.Path]::GetDirectoryName('%(SwiftFramework.Identity)'))"
+          Condition="'@(SwiftFramework)' != ''" />
+    <Exec Command="rm -f &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework.zip&quot; &amp;&amp; /usr/bin/zip -qry &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework.zip&quot; &quot;$(_SwiftBindingWrapperModuleName).xcframework&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)"
+          Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True' AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')" />
+    <Exec Command="rm -f &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework.zip&quot; &amp;&amp; /usr/bin/zip -qry &quot;$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework.zip&quot; &quot;$(_SwiftBindingBridgeModuleName).xcframework&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)/$(_SwiftBindingIntermediateDir)"
+          Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True' AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')" />
     <ItemGroup>
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
       <!-- Source xcframework (xcframework mode only — Apple-framework mode has no source xcframework) -->
-      <TfmSpecificPackageFile Include="%(SwiftFramework.Identity)/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/"
-            Condition="'@(SwiftFramework)' != ''" />
-      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
-            Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
-      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework/"
-            Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True'" />
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName).xcframework.zip"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/"
+            Condition="'@(SwiftFramework)' != '' AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName).xcframework.zip')" />
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework.zip"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/"
+            Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True' AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework.zip')" />
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework.zip"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/"
+            Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True' AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework.zip')" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"

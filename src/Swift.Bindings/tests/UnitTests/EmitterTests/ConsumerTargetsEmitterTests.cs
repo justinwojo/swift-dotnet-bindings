@@ -345,7 +345,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework')\"", content);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Nuke.xcframework.zip')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -357,7 +357,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "Nuke", "Nuke.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework')\"", content);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/NukeSwiftBindings.xcframework.zip')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -369,8 +369,8 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "TestLib", "TestLib.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("../../runtimes/ios-arm64/native/TestLib.xcframework", content);
-                Assert.Contains("../../runtimes/ios-arm64/native/TestLibSwiftBindings.xcframework", content);
+                Assert.Contains("../../runtimes/ios-arm64/native/TestLib.xcframework.zip", content);
+                Assert.Contains("../../runtimes/ios-arm64/native/TestLibSwiftBindings.xcframework.zip", content);
             }
             finally { Directory.Delete(dir, true); }
         }
