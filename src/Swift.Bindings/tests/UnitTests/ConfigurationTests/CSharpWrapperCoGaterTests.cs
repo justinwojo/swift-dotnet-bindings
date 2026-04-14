@@ -1179,6 +1179,32 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ProcessProxyReferences_PropertyShapedInterfaceMemberWithoutAccessors_EmitsGetterThrow()
+        {
+            // Regression test for FirebaseAILogic PartsRepresentableProxy: when a generated proxy
+            // interface property body references a suppressed proxy but has no observable get/set
+            // accessor tokens, the co-gater must still emit property syntax instead of a bare throw.
+            var input =
+                "public interface IPartsRepresentable {\n" +
+                "    IReadOnlyList<IPart> PartsValue { get; }\n" +
+                "}\n" +
+                "public partial class PartsRepresentableProxy : IPartsRepresentable {\n" +
+                "    public IReadOnlyList<IPart> PartsValue\n" +
+                "    {\n" +
+                "        var result = PartsValue_Get();\n" +
+                "        return result.AsProjected(e => (IPart)new PartProxy(e));\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "PartProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            Assert.Contains("public IReadOnlyList<IPart> PartsValue", result.Content);
+            Assert.Contains("get { throw new NotSupportedException", result.Content);
+            Assert.DoesNotContain("PartProxy", result.Content);
+            Assert.DoesNotContain("return result.AsProjected", result.Content);
+        }
+
+        [Fact]
         public void ProcessProxyReferences_PrivateNonHelperMethod_StillStripped()
         {
             // Private methods that are NOT property helpers should still be fully stripped
