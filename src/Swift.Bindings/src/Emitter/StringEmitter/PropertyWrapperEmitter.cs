@@ -30,7 +30,8 @@ public static class PropertyWrapperEmitter
             isModuleInternal: propertyDecl.IsModuleInternal,
             isSpiProtected: propertyDecl.IsSpiProtected,
             isActorIsolated: propertyDecl.IsActorIsolated,
-            isMainActorIsolated: propertyDecl.IsMainActorIsolated))
+            isMainActorIsolated: propertyDecl.IsMainActorIsolated,
+            isNonisolated: propertyDecl.IsNonisolated))
             return false;
 
         // 2. Generic parent type — allow non-final class instance properties with concrete types
@@ -172,7 +173,7 @@ public static class PropertyWrapperEmitter
             return "async_property";
         if (propertyDecl.Accessors.OfType<GetAccessorDecl>().Any(a => a.Method.Throws))
             return "throwing_property_getter";
-        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated))
+        if (WrapperValidation.IsActorIsolatedMember(accessorEnv.ParentDecl, propertyDecl.IsActorIsolated, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated))
             return "actor_type_property";
         // Noncopyable struct parents are now allowed (borrowing pointer semantics)
         // Nested types are now allowed — see guard 8 comment in ShouldEmitWrapper()

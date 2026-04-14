@@ -28,12 +28,16 @@ public class ConcreteSpecializationEngine
     /// A concrete type that conforms to a protocol, usable for specialization.
     /// SwiftTypeName may be null for generic conformers (e.g., Array&lt;UInt8&gt;) that
     /// can't be represented as SwiftTypeName. Use SwiftQualifiedName for the full name.
+    /// AssociatedTypes maps associated-type names (e.g., "Element") to their
+    /// concrete Swift qualified type (e.g., "Swift.String"). Used to match conformers
+    /// against same-type constraints like <c>T.Element == Swift.String</c>.
     /// </summary>
     public record ConcreteConformer(
         string SwiftQualifiedName,
         string CSharpType,
         SwiftTypeName? SwiftType = null,
-        string? SwiftLiteral = null);
+        string? SwiftLiteral = null,
+        IReadOnlyDictionary<string, string>? AssociatedTypes = null);
 
     /// <summary>
     /// A method that can be specialized, along with its specialization info.
@@ -77,6 +81,9 @@ public class ConcreteSpecializationEngine
 
         [JsonProperty("swiftLiteral")]
         public string? SwiftLiteral { get; set; }
+
+        [JsonProperty("associatedTypes")]
+        public Dictionary<string, string>? AssociatedTypes { get; set; }
     }
 
     // --- Shared hint data (loaded once) ---
@@ -199,12 +206,13 @@ public class ConcreteSpecializationEngine
 
             foreach (var param in ownParams)
             {
-                // Skip params with same-type constraints (e.g., T.Element == UInt)
-                // because we can't verify conformers satisfy the associated type requirement.
-                // Same-type constraints have dotted paths (e.g., τ_0_0.Element == UInt) and are
-                // stored in AssosiatedTypeConformances, not GenericConformances.
-                if (param.AssosiatedTypeConformances.Any(c => c.Kind == ConformanceKind.ConcreteType))
-                    continue;
+                // Collect same-type constraints on the param's associated types
+                // (e.g., τ_0_0.Element == Swift.String). Conformers must satisfy these
+                // via their declared AssociatedTypes map, or we can't specialize safely.
+                var associatedConstraints = param.AssosiatedTypeConformances
+                    .Where(c => c.Kind == ConformanceKind.ConcreteType && c.Path.Length >= 2)
+                    .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
+                    .ToList();
 
                 // Find the first protocol constraint with known conformers.
                 // Checks both "unsupported" protocols (PAT/Self) and any protocol
@@ -219,6 +227,7 @@ public class ConcreteSpecializationEngine
                 // Filter conformers to those whose types are resolvable
                 var usableConformers = conformers
                     .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
+                    .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
                     .ToList();
 
                 if (usableConformers.Count == 0) continue;
@@ -307,6 +316,28 @@ public class ConcreteSpecializationEngine
         return null;
     }
 
+    /// <summary>
+    /// Returns true if the conformer's declared AssociatedTypes match the given
+    /// same-type constraints. A conformer with no declared AssociatedTypes is
+    /// accepted only when the constraint list is empty (we can't verify otherwise).
+    /// </summary>
+    private static bool ConformerSatisfiesAssociatedTypes(
+        ConcreteConformer conformer,
+        List<(string Name, string Target)> constraints)
+    {
+        if (constraints.Count == 0) return true;
+        if (conformer.AssociatedTypes is null) return false;
+
+        foreach (var (name, target) in constraints)
+        {
+            if (!conformer.AssociatedTypes.TryGetValue(name, out var conformerTarget))
+                return false;
+            if (!string.Equals(conformerTarget, target, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
     private static bool IsCSharpPrimitiveType(string typeName) => typeName switch
     {
         "int" or "uint" or "long" or "ulong" or "short" or "ushort" or
@@ -342,11 +373,16 @@ public class ConcreteSpecializationEngine
                 try { typeName = SwiftTypeName.FromModuleQualifiedName(c.SwiftType); }
                 catch (ArgumentException) { /* Generic types like Swift.Array<Swift.UInt8> */ }
 
+                IReadOnlyDictionary<string, string>? associatedTypes = c.AssociatedTypes is { Count: > 0 }
+                    ? new Dictionary<string, string>(c.AssociatedTypes, StringComparer.Ordinal)
+                    : null;
+
                 conformers.Add(new ConcreteConformer(
                     c.SwiftType,
                     c.CSharpType,
                     typeName,
-                    c.SwiftLiteral));
+                    c.SwiftLiteral,
+                    associatedTypes));
             }
             result[protocol.Protocol] = conformers;
         }

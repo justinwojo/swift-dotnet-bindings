@@ -23,6 +23,12 @@
       ]
     },
     {
+      "protocol": "Swift.Collection",
+      "conformers": [
+        { "swiftType": "Swift.Array<Swift.String>", "csharpType": "Swift.SwiftArray<Swift.SwiftString>", "swiftLiteral": "[String]", "associatedTypes": { "Element": "Swift.String" } }
+      ]
+    },
+    {
       "protocol": "SwiftBindingsTestLib.AttributeKind",
       "conformers": [
         { "swiftType": "SwiftBindingsTestLib.ColorAttribute", "csharpType": "ColorAttribute" },

@@ -102,6 +102,85 @@ public class MethodClosureBridgeTests
         Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    // ─── IsEligible: any Swift.Error existential ──────────────────────
+
+    [Fact]
+    public void IsAnyErrorExistential_SwiftError_ReturnsTrue()
+    {
+        var errorList = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        Assert.True(MethodClosureBridge.IsAnyErrorExistential(errorList));
+    }
+
+    [Fact]
+    public void IsAnyErrorExistential_SwiftErrorNamedWithIsAny_ReturnsTrue()
+    {
+        // The TypeSpecParser path for bare `any Swift.Error` — e.g., ABI JSON
+        // TypeNominal child with printedName "any Swift.Error" — produces a
+        // NamedTypeSpec with IsAny=true, NOT a ProtocolListTypeSpec. Both shapes
+        // must be recognized so MCB activates for real Stripe/Alamofire APIs.
+        var errorNamed = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        Assert.True(MethodClosureBridge.IsAnyErrorExistential(errorNamed));
+    }
+
+    [Fact]
+    public void IsAnyErrorExistential_SwiftErrorNamedWithoutIsAny_ReturnsFalse()
+    {
+        // Bare NamedTypeSpec("Swift.Error") without IsAny is the Error metatype,
+        // not the existential value — reject it so we don't confuse the two.
+        var errorNamed = new NamedTypeSpec("Swift.Error");
+        Assert.False(MethodClosureBridge.IsAnyErrorExistential(errorNamed));
+    }
+
+    [Fact]
+    public void IsAnyErrorExistential_OtherProtocol_ReturnsFalse()
+    {
+        // Non-Error single protocol should NOT match — the gate is narrow on purpose
+        var hashableList = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Hashable") });
+        Assert.False(MethodClosureBridge.IsAnyErrorExistential(hashableList));
+    }
+
+    [Fact]
+    public void IsAnyErrorExistential_NamedType_ReturnsFalse()
+    {
+        // Primitive / concrete types are not existentials
+        Assert.False(MethodClosureBridge.IsAnyErrorExistential(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void IsAnyErrorExistential_MultiProtocolComposition_ReturnsFalse()
+    {
+        // `any Error & Sendable` — composition, not the plain AnyError case
+        var compList = new ProtocolListTypeSpec(new List<NamedTypeSpec>
+        {
+            new NamedTypeSpec("Swift.Error"),
+            new NamedTypeSpec("Swift.Sendable")
+        });
+        Assert.False(MethodClosureBridge.IsAnyErrorExistential(compList));
+    }
+
+    [Fact]
+    public void IsEligible_ClosureWithAnyErrorArg_ReturnsTrue()
+    {
+        // `(any Error) -> Void` — MCB must activate so the error existential can be bridged
+        // through ExistentialContainer1 to C# Swift.AnyError. Covers Stripe/Alamofire-style
+        // `Result<T, any Error>` completion handlers.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var errorExistential = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)errorExistential }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
     // ─── TryEmit: Swift Wrapper ───────────────────────────────────────
 
     [Fact]
@@ -154,6 +233,52 @@ public class MethodClosureBridgeTests
         // Bound generic value types need withUnsafePointer wrapping
         Assert.Contains("withUnsafePointer(to:", swift);
         Assert.Contains("UnsafeMutableRawPointer(mutating:", swift);
+    }
+
+    [Fact]
+    public void TryEmit_AnyErrorClosureArg_EmitsExistentialContainerMarshal()
+    {
+        // `(any Error) -> Void` — MCB bridges the 5-word existential container:
+        //   Swift: withUnsafePointer(to: err) { UnsafeMutableRawPointer(mutating: $0) }
+        //   C#:    new Swift.AnyError(*(ExistentialContainer1*)ptr)
+        // Public delegate must expose Swift.AnyError to consumers so they can call
+        // .LocalizedDescription without touching raw containers.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var errorExistential = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)errorExistential }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onError", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var env = new MethodEnvironment(method, typeDatabase);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var swift = swiftOutput.ToString();
+        var cs = csOutput.ToString();
+
+        // Swift adapter must bridge the existential via withUnsafePointer (same shape as bound generic path).
+        Assert.Contains("withUnsafePointer(to:", swift);
+        Assert.Contains("UnsafeMutableRawPointer(mutating:", swift);
+        // Swift adapter closure param is typed as `any Swift.Error` (or `any Error`).
+        Assert.Contains("any", swift);
+        Assert.Contains("Error", swift);
+
+        // Public API delegate must expose Swift.AnyError to the consumer.
+        Assert.Contains("Action<Swift.AnyError>", cs);
+        // C# callback marshal must dereference the ExistentialContainer1* into a new AnyError.
+        Assert.Contains("new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)", cs);
     }
 
     // ─── TryEmit: C# Callback ─────────────────────────────────────────

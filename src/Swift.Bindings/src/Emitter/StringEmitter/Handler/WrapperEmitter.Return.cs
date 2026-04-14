@@ -362,6 +362,9 @@ namespace BindingsGeneration
                     if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
                     var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                     if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
+                    // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
+                    if (publicType == "Swift.Runtime.ExistentialUnion")
+                    { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkIR))
                     { csWriter.WriteLine($"return new {wkIR}(existentialResult);"); return; }
                     var proxyIR = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
@@ -557,6 +560,9 @@ namespace BindingsGeneration
                 if (protocolList.Protocols.Count == 0) { csWriter.WriteLine("return existentialResult;"); return; }
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                 if (publicType == "object") { csWriter.WriteLine("return existentialResult;"); return; }
+                // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
+                if (publicType == "Swift.Runtime.ExistentialUnion")
+                { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
                 { csWriter.WriteLine($"return new {wk}(existentialResult);"); return; }
                 var proxy = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
@@ -583,6 +589,13 @@ namespace BindingsGeneration
                 if (publicType == "object")
                 {
                     csWriter.WriteLine("return result;");
+                    return;
+                }
+
+                // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
+                if (publicType == "Swift.Runtime.ExistentialUnion")
+                {
+                    csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(result);");
                     return;
                 }
 

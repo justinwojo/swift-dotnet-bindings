@@ -36,3 +36,38 @@ public func sbw_test_createValidationErrorContainer(_ bufferPtr: UnsafeMutableRa
     let error: any Error = ValidationError.tooLong(maxLength: 100)
     bufferPtr.initializeMemory(as: (any Error).self, repeating: error, count: 1)
 }
+
+// MARK: - Closure Callback with `any Error`
+//
+// Exercises the MCB pipeline for `any Swift.Error` closure parameters
+// (Fix 3 from ship-blockers.md). The generator emits an SBW_MCB_ @_cdecl
+// wrapper that wraps the existential container with withUnsafePointer and
+// hands an ExistentialContainer1 pointer to the C# callback, which
+// reconstructs a Swift.AnyError.
+
+public final class AnyErrorCallbackFixture {
+    public init() {}
+
+    /// Invokes `callback` synchronously with `MathError.divisionByZero`.
+    public func reportMathError(callback: (any Error) -> Void) {
+        callback(MathError.divisionByZero)
+    }
+
+    /// Invokes `callback` synchronously with `ValidationError.tooLong(maxLength: 50)`.
+    /// Exercises an enum case with an associated value.
+    public func reportValidationError(callback: (any Error) -> Void) {
+        callback(ValidationError.tooLong(maxLength: 50))
+    }
+
+    /// Invokes `callback` synchronously with an NSError carrying a
+    /// localized description. Verifies the existential round-trip works
+    /// for ObjC-bridged errors as well as pure Swift enums.
+    public func reportNSError(callback: (any Error) -> Void) {
+        let error: any Error = NSError(
+            domain: "CallbackDomain",
+            code: 7,
+            userInfo: [NSLocalizedDescriptionKey: "Callback error description"]
+        )
+        callback(error)
+    }
+}

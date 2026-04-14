@@ -44,7 +44,8 @@ public static class MethodWrapperEmitter
             isSpiProtected: env.MethodDecl.IsSpiProtected,
             isAsync: env.MethodDecl.IsAsync,
             isActorIsolated: env.MethodDecl.IsActorIsolated,
-            isMainActorIsolated: env.MethodDecl.IsMainActorIsolated))
+            isMainActorIsolated: env.MethodDecl.IsMainActorIsolated,
+            isNonisolated: env.MethodDecl.IsNonisolated))
             return false;
 
         // 5. Must be on a type or module (free function)
@@ -151,6 +152,16 @@ public static class MethodWrapperEmitter
         // @_cdecl wrapper returns Unmanaged.passRetained(result).toOpaque() (class pointer).
         // Structs/enums with DynamicSelf blocked — Unmanaged requires class type.
         if (returnSpec.IsDynamicSelf && env.ParentDecl is not ClassDecl)
+            return true;
+
+        // 15e. Optional<Self> returns: allowed for class parents (same reason as 15d).
+        // The IsOptionalSupportedForCdecl gate lets Optional<Self> through the unsupported-generic
+        // container check, but we must reject it on struct/enum parents because Unmanaged.passRetained
+        // requires a class type.
+        if (returnSpec is NamedTypeSpec optSelfReturn && optSelfReturn.Name == "Swift.Optional"
+            && optSelfReturn.GenericParameters.Count == 1
+            && optSelfReturn.GenericParameters[0].IsDynamicSelf
+            && env.ParentDecl is not ClassDecl)
             return true;
 
         return false;

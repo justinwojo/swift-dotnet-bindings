@@ -88,9 +88,9 @@ public static class NativeThunkEmitter
         if (methodDecl.IsModuleInternal || methodDecl.IsSpiProtected)
             return false;
 
-        // Actor isolation — needs async dispatch
+        // Actor isolation — needs async dispatch (nonisolated members opt out)
         if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl,
-            methodDecl.IsActorIsolated, methodDecl.IsMainActorIsolated))
+            methodDecl.IsActorIsolated, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated))
             return false;
 
         // Struct constructors: The thunk handles x8 indirect return correctly (Session 4 research

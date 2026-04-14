@@ -110,7 +110,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // as a function parameter and cannot dispatch through the actor's serial executor.
             // @MainActor is NOT blocked: under -strict-concurrency=minimal, nonisolated wrappers
             // can access @MainActor members. The consumer manages thread affinity.
-            if (!propertyDecl.IsStatic && propertyDecl.ParentDecl is ClassDecl { IsActor: true })
+            // `nonisolated` actor members are explicit opt-outs and safe to reach from any context —
+            // except when the property type contains a parameterized-protocol usage (requires iOS 16+).
+            if (!propertyDecl.IsStatic && propertyDecl.ParentDecl is ClassDecl { IsActor: true } &&
+                (!propertyDecl.IsNonisolated ||
+                 WrapperValidation.ContainsParameterizedProtocol(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase)))
             {
                 SkipProperty(SkipReason.ActorIsolatedAsyncStream,
                     "Custom actor AsyncStream property cannot be wrapped — requires async dispatch through actor executor.");

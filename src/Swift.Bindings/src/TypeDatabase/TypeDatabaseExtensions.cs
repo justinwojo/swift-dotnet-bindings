@@ -157,6 +157,11 @@ public static class TypeDatabaseExtensions
         if (!typeSpec.ContainsGenericParameters && IsKnownGenericType(typeSpec.Name))
             return AnyType;
 
+        // Bound-generic SIMD aliases: Swift.SIMD3<Swift.Float> → simd.simd_float3, etc.
+        // Swift stdlib SIMD generics map to C simd module typedefs with different ABI layouts.
+        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
+            return aliasRecord;
+
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrAnyType(typeName);
@@ -781,5 +786,32 @@ public static class TypeDatabaseExtensions
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Maps bound-generic Swift stdlib SIMD types to their C simd module aliases.
+    /// E.g., Swift.SIMD3&lt;Swift.Float&gt; → simd.simd_float3 (which has a TypeRecord in SimdDatabase.xml).
+    /// </summary>
+    private static readonly Dictionary<(string BaseName, string ElementType), string> BoundGenericSimdAliases = new()
+    {
+        { ("Swift.SIMD3", "Swift.Float"), "simd.simd_float3" },
+    };
+
+    private static bool TryResolveBoundGenericAlias(
+        ITypeDatabase typeDatabase, NamedTypeSpec typeSpec,
+        [NotNullWhen(true)] out TypeRecord? record)
+    {
+        record = null;
+        if (typeSpec.GenericParameters.Count != 1)
+            return false;
+
+        if (typeSpec.GenericParameters[0] is not NamedTypeSpec elementSpec)
+            return false;
+
+        if (!BoundGenericSimdAliases.TryGetValue((typeSpec.Name, elementSpec.Name), out var aliasName))
+            return false;
+
+        var aliasTypeName = SwiftTypeName.FromModuleQualifiedName(aliasName);
+        return typeDatabase.TryGetTypeRecord(aliasTypeName, out record);
     }
 }

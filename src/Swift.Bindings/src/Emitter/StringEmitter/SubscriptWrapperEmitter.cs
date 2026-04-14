@@ -27,7 +27,8 @@ public static class SubscriptWrapperEmitter
         // Note: Subscript passes actor info from the accessor, not the subscript itself
         if (!WrapperValidation.CanEmitMember(env, MemberKind.Subscript,
             isActorIsolated: accessor.Method.IsActorIsolated,
-            isMainActorIsolated: accessor.Method.IsMainActorIsolated))
+            isMainActorIsolated: accessor.Method.IsMainActorIsolated,
+            isNonisolated: accessor.Method.IsNonisolated))
             return false;
 
         // 2. Generic parent type — allow non-final class instance subscripts with concrete signatures
@@ -140,7 +141,7 @@ public static class SubscriptWrapperEmitter
         if (accessor.Method.IsAsync)
             return "async_accessor";
         // Noncopyable struct parents are now allowed (borrowing pointer semantics)
-        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated))
+        if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated, accessor.Method.IsNonisolated))
             return "actor_type_subscript";
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return "opaque_return_type";

@@ -1,5 +1,5 @@
 {
-  "git_sha": "0ff6f409",
+  "git_sha": "f2e6cf2e",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12909,
+        "lines": 12907,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -40,14 +40,14 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 82755,
+        "lines": 82771,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4649,
+        "lines": 4653,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -61,7 +61,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32206,
+        "lines": 32199,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -215,7 +215,7 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66879,
+        "lines": 66719,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -264,14 +264,14 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5491,
+        "lines": 5483,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14708,
+        "lines": 14718,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10100,
+        "lines": 10156,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6516,
+        "lines": 6515,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -320,7 +320,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16984,
+        "lines": 16981,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,14 +334,14 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8627,
+        "lines": 8621,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3970,
+        "lines": 3969,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -390,7 +390,7 @@
       "AnimatedCollectionViewLayout": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3223,
+        "lines": 3222,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,7 +649,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 32,
-        "lines": 27264,
+        "lines": 27262,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -663,7 +663,7 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 32734,
+        "lines": 32731,
         "dep_compile": "none",
         "swift_compile": "ok"
       }

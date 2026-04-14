@@ -1150,6 +1150,25 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void IsClosureCdeclCompatible_AnyErrorParam_ReturnsFalse()
+    {
+        // Closure: (any Swift.Error) -> Void is intentionally NOT cdecl-compatible
+        // on the Layer 2 gate. MCB (MethodClosureBridge) is the exclusive path for
+        // these closures — it pointer-wraps the 5-word ExistentialContainer1 and
+        // activates via its own IsEligible check. Letting the normal ClosureEmitter
+        // path accept `any Error` causes it to emit broken adapters that try to pass
+        // the existential directly into an UnsafeMutableRawPointer parameter (seen
+        // in GRDB.DatabaseRegionObservation.start(onError:)).
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var errorExistential = new ProtocolListTypeSpec(new List<NamedTypeSpec> { new NamedTypeSpec("Swift.Error") });
+        var closureType = new ClosureTypeSpec(errorExistential, TupleTypeSpec.Empty);
+
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
     public void SwiftWrapper_SimpleEnumParam_UsesIntegerType()
     {
         var typeDatabase = CreateTypeDatabase();

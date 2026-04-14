@@ -54,6 +54,14 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (CdeclParamMapper.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
 
+        // Optional<Self>: nullable class pointer. Used for ObjC-bridged protocol methods like
+        // STPAPIResponseDecodable.decodedObject(fromAPIResponse:) -> Self?. At the @_cdecl
+        // boundary, Self resolves to the concrete class, so the return is a nullable object pointer.
+        if (typeSpec is NamedTypeSpec optSelfSpec && optSelfSpec.Name == "Swift.Optional"
+            && optSelfSpec.GenericParameters.Count == 1
+            && optSelfSpec.GenericParameters[0].IsDynamicSelf)
+            return (new CdeclReturnMapping("UnsafeMutableRawPointer?", CdeclReturnKind.OptionalClassPointer), false);
+
         // Containers with ObjC-bridgeable elements: return as ObjC collection pointer.
         // Swift's _ObjectiveCBridgeable bridges the entire container (e.g., [URL] → NSArray).
         if (CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, typeDatabase))

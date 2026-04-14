@@ -11,7 +11,6 @@ namespace RuntimeTestsApp.Generics;
 /// Tests for existential union projection — PAT protocols with known conformers
 /// are returned as ExistentialUnion with try-cast to each concrete conformer.
 /// </summary>
-[Skip("Generator does not yet emit ExistentialUnion projection for PAT existentials — ExistentialHandler classifies PAT existentials correctly (see ExistentialHandlerTests) but the emitter does not produce ExistentialUnion wrapper code in binding output")]
 public class ExistentialUnionTests : TestBase
 {
     public ExistentialUnionTests(TestResults results) : base(results) { }

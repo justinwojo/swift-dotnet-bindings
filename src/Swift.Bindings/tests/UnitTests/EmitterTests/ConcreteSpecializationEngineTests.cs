@@ -163,6 +163,78 @@ public class ConcreteSpecializationEngineTests
         Assert.Equal("[UInt8]", byteArrayConformer!.SwiftLiteral);
     }
 
+    [Fact]
+    public void LoadedHints_ContainsSwiftCollection()
+    {
+        var hints = ConcreteSpecializationEngine.LoadedHints;
+        Assert.True(hints.ContainsKey("Swift.Collection"), "Should have Swift.Collection hints");
+
+        var stringArrayConformer = hints["Swift.Collection"]
+            .FirstOrDefault(c => c.SwiftLiteral == "[String]");
+        Assert.NotNull(stringArrayConformer);
+        Assert.Equal("Swift.SwiftArray<Swift.SwiftString>", stringArrayConformer!.CSharpType);
+        Assert.NotNull(stringArrayConformer.AssociatedTypes);
+        Assert.Equal("Swift.String", stringArrayConformer.AssociatedTypes!["Element"]);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_SomeCollectionString_SpecializesToStringArray()
+    {
+        // `func joinItems(_ items: some Collection<String>) -> String` parses as
+        // `<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.String>`.
+        // The engine should match the [String] hint (which declares Element == Swift.String)
+        // against the associated-type constraint and specialize — NOT blanket-skip.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var typeDecl = CreateClassWithSomeCollectionStringMethod("Host");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Single(result[0].SpecializableParams);
+        var specializable = result[0].SpecializableParams[0];
+        Assert.Equal("Swift.Collection", specializable.ConstraintProtocol.ToString());
+        Assert.Single(specializable.Conformers);
+        Assert.Equal("Swift.SwiftArray<Swift.SwiftString>", specializable.Conformers[0].CSharpType);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_AssociatedTypeMismatch_NoSpecialization()
+    {
+        // If the method constrains Element == Swift.Int but the only hint conformer
+        // declares Element == Swift.String, we must NOT specialize.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var typeDecl = CreateClassWithSomeCollectionElementMethod("Host", "Swift.Int");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_Constructor_ReturnsMethod()
+    {
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        // Create a type whose constructor has a method-level generic constrained to Processable.
+        var typeDecl = CreateStructWithProtocolConstrainedConstructor(
+            "Box", "TestLib.Processable");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.True(result[0].Method.IsConstructor, "Generic constructor should be specializable");
+        Assert.Single(result[0].SpecializableParams);
+    }
+
     // ==================== Test Doubles ====================
 
     private class EmptyTypeDatabase : ITypeDatabase
@@ -347,5 +419,125 @@ public class ConcreteSpecializationEngineTests
 
         method.ParentDecl = structDecl;
         return structDecl;
+    }
+
+    private static StructDecl CreateStructWithProtocolConstrainedConstructor(
+        string typeName, string protocolName)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var paramTypeSpec = new NamedTypeSpec("τ_0_0");
+
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (first element) — constructor returns Self (Box here)
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec($"TestLib.{typeName}"), IsGeneric = false },
+                // Parameter of generic type
+                new() { Name = "source", PrivateName = "source", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { ctor },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        ctor.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    private static ClassDecl CreateClassWithSomeCollectionStringMethod(string typeName)
+        => CreateClassWithSomeCollectionElementMethod(typeName, "Swift.String");
+
+    private static ClassDecl CreateClassWithSomeCollectionElementMethod(string typeName, string elementType)
+    {
+        var collectionName = SwiftTypeName.FromModuleQualifiedName("Swift.Collection");
+        var elementTypeName = SwiftTypeName.FromModuleQualifiedName(elementType);
+
+        // Mirror the ABI parser output for `some Collection<String>`:
+        //   GenericConformances:   Path=["τ_0_0"], target=Swift.Collection, Kind=Protocol
+        //   AssosiatedTypeConformances: Path=["τ_0_0", "Element"], target=<elementType>, Kind=ConcreteType
+        var protocolConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, collectionName, ConformanceKind.Protocol);
+        var elementConformance = new GenericParameterConformance(
+            new[] { "τ_0_0", "Element" }, elementTypeName, ConformanceKind.ConcreteType);
+
+        var paramTypeSpec = new NamedTypeSpec("τ_0_0");
+
+        var method = new MethodDecl
+        {
+            Name = "joinItems",
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}joinItems",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T",
+                    new List<GenericParameterConformance> { protocolConformance },
+                    new List<GenericParameterConformance> { elementConformance })
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false },
+                new() { Name = "items", PrivateName = "items", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = paramTypeSpec, IsGeneric = true }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            AvailabilityAnnotations = null,
+            IsFinal = false,
+        };
+
+        method.ParentDecl = classDecl;
+        return classDecl;
     }
 }

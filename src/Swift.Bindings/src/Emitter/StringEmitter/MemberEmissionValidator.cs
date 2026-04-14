@@ -147,7 +147,11 @@ public static class MemberEmissionValidator
             // as a function parameter and cannot dispatch through the actor's serial executor.
             // @MainActor is NOT blocked: under -strict-concurrency=minimal, nonisolated wrappers
             // can access @MainActor members. The consumer manages thread affinity.
-            if (!property.IsStatic && property.ParentDecl is ClassDecl { IsActor: true })
+            // `nonisolated` actor members are explicit opt-outs and safe to reach from any context —
+            // except when the property type contains a parameterized-protocol usage (iOS 16+ runtime).
+            if (!property.IsStatic && property.ParentDecl is ClassDecl { IsActor: true } &&
+                (!property.IsNonisolated ||
+                 WrapperValidation.ContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase)))
             {
                 skipDetails = "Custom actor AsyncStream property cannot be wrapped — requires async dispatch through actor executor.";
                 return SkipReason.ActorIsolatedAsyncStream;

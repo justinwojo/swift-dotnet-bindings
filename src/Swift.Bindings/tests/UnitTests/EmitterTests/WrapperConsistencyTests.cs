@@ -362,6 +362,97 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void IsActorIsolatedMember_ActorTypeWithNonisolatedMember_ReturnsFalse()
+    {
+        // nonisolated members on an actor type opt out of actor isolation and are
+        // safe to dispatch synchronously through a @_cdecl wrapper.
+        var moduleDecl = CreateModuleDecl();
+        var actorDecl = CreateClassDecl("MyActor", moduleDecl);
+        actorDecl.IsActor = true;
+
+        Assert.False(WrapperValidation.IsActorIsolatedMember(
+            actorDecl,
+            memberIsActorIsolated: false,
+            memberIsMainActorIsolated: false,
+            memberIsNonisolated: true));
+    }
+
+    [Fact]
+    public void IsActorIsolatedMember_PerMemberCustomActorWithNonisolated_ReturnsFalse()
+    {
+        // nonisolated overrides any per-member isolation flag.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        Assert.False(WrapperValidation.IsActorIsolatedMember(
+            classDecl,
+            memberIsActorIsolated: true,
+            memberIsMainActorIsolated: false,
+            memberIsNonisolated: true));
+    }
+
+    [Fact]
+    public void ContainsParameterizedProtocol_ProtocolBaseWithGenericArg_ReturnsTrue()
+    {
+        // Parameterized-protocol pattern: `EventStream<UIEvent>` where EventStream is a protocol
+        // with a primary associated type. Requires iOS 16+ runtime; must be blocked.
+        var (_, typeDb) = CreateTestEnvironment("BlinkIDUX");
+        var testModule = new ModuleTypeDatabase("BlinkIDUX", "/tmp/BlinkIDUX.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.EventStream"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BlinkIDUX", "EventStream"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("BlinkIDUX.EventStream"),
+                MetadataAccessor = "$sMp",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var typeSpec = new NamedTypeSpec("BlinkIDUX.EventStream");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.True(WrapperValidation.ContainsParameterizedProtocol(typeSpec, typeDb));
+    }
+
+    [Fact]
+    public void ContainsParameterizedProtocol_NonProtocolGeneric_ReturnsFalse()
+    {
+        // `Array<Int>` — concrete generic, no protocol anywhere. Must NOT be flagged.
+        var (_, typeDb) = CreateTestEnvironment("TestModule");
+
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.False(WrapperValidation.ContainsParameterizedProtocol(typeSpec, typeDb));
+    }
+
+    [Fact]
+    public void ContainsParameterizedProtocol_ProtocolAsGenericArg_ReturnsTrue()
+    {
+        // `Array<MyProtocol>` — protocol appears as the generic argument (legacy case).
+        var (_, typeDb) = CreateTestEnvironment("TestModule");
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.MyProtocol"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "MyProtocol"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MyProtocol"),
+                MetadataAccessor = "$sMp",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+            });
+        typeDb.AddModuleDatabase(testModule);
+
+        var typeSpec = new NamedTypeSpec("Swift.Array");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyProtocol"));
+
+        Assert.True(WrapperValidation.ContainsParameterizedProtocol(typeSpec, typeDb));
+    }
+
+    [Fact]
     public void IsMetatypeType_BareType_ReturnsTrue()
     {
         Assert.True(WrapperValidation.IsMetatypeType(new NamedTypeSpec("Type")));

@@ -152,7 +152,8 @@ public static class WrapperValidation
         bool isSpiProtected = false,
         bool isAsync = false,
         bool isActorIsolated = false,
-        bool isMainActorIsolated = false)
+        bool isMainActorIsolated = false,
+        bool isNonisolated = false)
     {
         // 1. xcframework mode required (all handlers)
         if (!IsXCFrameworkMode(env.TypeDatabase))
@@ -186,7 +187,12 @@ public static class WrapperValidation
         // 6. Actor isolation (Method, Property, Subscript)
         if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Subscript)
         {
-            if (IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated))
+            // Nonisolated actor members only bypass the actor gate when their signature doesn't
+            // require parameterized-protocol runtime support (iOS 16+ feature). When it does,
+            // fall back to the default gate (i.e., treat the member as actor-isolated).
+            var effectiveNonisolated = isNonisolated &&
+                !SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase);
+            if (IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated, effectiveNonisolated))
                 return false;
         }
 
@@ -230,15 +236,26 @@ public static class WrapperValidation
     /// <summary>
     /// Checks whether a member should be blocked from @_cdecl wrapper emission due to actor isolation.
     /// Blocks:
-    /// (a) Custom actor types (ClassDecl { IsActor: true }) — all members require async dispatch
+    /// (a) Custom actor types (ClassDecl { IsActor: true }) — isolated members require async dispatch
     /// (b) Per-member custom actor isolation (e.g., @ProcessingActor) on non-actor classes
     ///
-    /// Does NOT block @MainActor members — those are exposed as synchronous C# APIs following
-    /// the Xamarin.iOS precedent. The consumer manages thread affinity.
+    /// Does NOT block:
+    /// - @MainActor members — exposed as synchronous C# APIs following the Xamarin.iOS precedent.
+    /// - `nonisolated` members on actor types — these opt out of the actor's isolation and are
+    ///   safe to call from any context (Swift 6 guarantees via the compiler).
     /// </summary>
-    public static bool IsActorIsolatedMember(BaseDecl? parentDecl, bool memberIsActorIsolated, bool memberIsMainActorIsolated)
+    public static bool IsActorIsolatedMember(
+        BaseDecl? parentDecl,
+        bool memberIsActorIsolated,
+        bool memberIsMainActorIsolated,
+        bool memberIsNonisolated = false)
     {
-        // (a) Parent is a custom actor class — all members require async dispatch
+        // Nonisolated members explicitly opt out of the parent's actor isolation —
+        // they run in the caller's context and can be reached synchronously via @_cdecl.
+        if (memberIsNonisolated)
+            return false;
+
+        // (a) Parent is a custom actor class — isolated members require async dispatch
         if (parentDecl is ClassDecl { IsActor: true })
             return true;
 
@@ -260,6 +277,100 @@ public static class WrapperValidation
     {
         // Without the MainActor distinction, treat all per-member isolation as custom actor
         return IsActorIsolatedMember(parentDecl, memberIsActorIsolated, memberIsMainActorIsolated: false);
+    }
+
+    /// <summary>
+    /// Returns true if the TypeSpec contains a bound generic whose argument is a Swift protocol
+    /// (i.e., a parameterized-protocol usage like <c>EventStream&lt;any UIEvent&gt;</c>).
+    ///
+    /// Runtime metadata for parameterized protocol types requires iOS 16 / macOS 13 or newer.
+    /// The @_cdecl wrapper can't safely spell such a type at an earlier deployment target, so
+    /// the Fix 13 nonisolated-actor bypass must reject any signature containing this pattern.
+    /// </summary>
+    public static bool ContainsParameterizedProtocol(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec == null) return false;
+
+        if (typeSpec is NamedTypeSpec named)
+        {
+            // The base type itself being a protocol with generic parameters is the parameterized
+            // protocol pattern (e.g., `EventStream<UIEvent>` where EventStream is a protocol with
+            // a primary associated type). Also covers `any EventStream<UIEvent>`.
+            if (named.GenericParameters.Count > 0 &&
+                !TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+            {
+                try
+                {
+                    var baseSwiftName = SwiftTypeName.FromTypeSpec(named);
+                    if (typeDatabase.TryGetTypeRecord(baseSwiftName, out var baseRecord) &&
+                        baseRecord.Kind == TypeRecordKind.Protocol)
+                    {
+                        return true;
+                    }
+                }
+                catch { }
+            }
+
+            foreach (var genericArg in named.GenericParameters)
+            {
+                if (genericArg is NamedTypeSpec gArg &&
+                    !TypeSpecHelpers.IsGenericTypeParameter(gArg.Name))
+                {
+                    try
+                    {
+                        var gSwiftName = SwiftTypeName.FromTypeSpec(gArg);
+                        if (typeDatabase.TryGetTypeRecord(gSwiftName, out var gRecord) &&
+                            gRecord.Kind == TypeRecordKind.Protocol)
+                        {
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
+                if (genericArg is ProtocolListTypeSpec)
+                    return true;
+                if (ContainsParameterizedProtocol(genericArg, typeDatabase))
+                    return true;
+            }
+        }
+        else if (typeSpec is TupleTypeSpec tuple)
+        {
+            foreach (var element in tuple.Elements)
+                if (ContainsParameterizedProtocol(element, typeDatabase))
+                    return true;
+        }
+        else if (typeSpec is ClosureTypeSpec closure)
+        {
+            if (ContainsParameterizedProtocol(closure.ReturnType, typeDatabase))
+                return true;
+            if (closure.Arguments is NamedTypeSpec argNamed)
+            {
+                if (ContainsParameterizedProtocol(argNamed, typeDatabase))
+                    return true;
+            }
+            else if (closure.Arguments is TupleTypeSpec argTuple)
+            {
+                foreach (var element in argTuple.Elements)
+                    if (ContainsParameterizedProtocol(element, typeDatabase))
+                        return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if any parameter or return type in the method signature contains a
+    /// parameterized-protocol generic usage (see <see cref="ContainsParameterizedProtocol"/>).
+    /// </summary>
+    public static bool SignatureContainsParameterizedProtocol(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        foreach (var arg in methodDecl.CSSignature)
+        {
+            if (ContainsParameterizedProtocol(arg.SwiftTypeSpec, typeDatabase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -396,6 +507,8 @@ public static class WrapperValidation
     /// Returns true for Optional types that can be handled by @_cdecl wrappers:
     /// - Optional&lt;reference&gt;: nullable pointer ABI (UnsafeMutableRawPointer?)
     /// - Optional&lt;value-type&gt;: IndirectResult via resultPtr
+    /// - Optional&lt;Any&gt;: nullable pointer ABI (UnsafeMutableRawPointer?) with AnyObject reconstruction
+    /// - Optional&lt;Self&gt;: nullable class pointer ABI (ObjC-bridged protocol methods)
     /// Returns false for Optional&lt;protocol existential&gt; which needs proxy conversion
     /// that the @_cdecl IndirectResult path doesn't handle.
     /// </summary>
@@ -405,7 +518,23 @@ public static class WrapperValidation
             return false;
         // Optional<protocol existential> needs special proxy conversion
         if (CdeclParamMapper.IsProtocolExistentialType(typeSpec, typeDatabase))
+        {
+            if (typeSpec is NamedTypeSpec optSpec && optSpec.GenericParameters.Count == 1)
+            {
+                // Exception: Optional<Any> (empty protocol list) — passed as nullable pointer.
+                // Used for NSObject.isEqual(_ object: Any?) and similar ObjC-inherited methods.
+                // CdeclParamMapper handles reconstruction via Unmanaged<AnyObject>.
+                if (optSpec.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 })
+                    return true;
+                // Exception: Optional<Self> — Self resolves to the concrete class type at call site.
+                // Used for ObjC-bridged protocol methods like decodedObject(fromAPIResponse:) -> Self?.
+                // The DynamicSelf fast path in TryGetTypeRecord returns AnyType{Kind=Protocol},
+                // which incorrectly flags Optional<Self> as Optional<existential>. Allow it here.
+                if (optSpec.GenericParameters[0].IsDynamicSelf)
+                    return true;
+            }
             return false;
+        }
         return true;
     }
 
@@ -614,8 +743,11 @@ public static class WrapperValidation
         // Guard 6a: Raw generic type params in signature (e.g., from parent generics leaking)
         if (HasRawGenericTypeParams(env.MethodDecl))
             return false;
-        // Guard 6b: Not actor parent
-        if (parentTypeDecl is ClassDecl { IsActor: true })
+        // Guard 6b: Not actor parent (nonisolated members opt out, unless the signature
+        // contains a parameterized-protocol type that requires iOS 16+ runtime support).
+        if (parentTypeDecl is ClassDecl { IsActor: true } &&
+            (!env.MethodDecl.IsNonisolated ||
+             SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
             return false;
         // Guard 10: No variadic parameters — Swift variadic (T...) appears as Array<T> in ABI JSON.
         // Wrapper would pass [T] where T... is expected, causing "cannot pass array" compile error.
@@ -858,12 +990,19 @@ public static class WrapperValidation
         if (HasRawGenericTypeParams(env.MethodDecl))
             return "raw_generic_type_params";
 
-        // 6b. Custom actor types (requires async dispatch)
-        if (parentTypeDecl is ClassDecl { IsActor: true })
+        // 6b. Custom actor types (requires async dispatch) — nonisolated members opt out,
+        // but only if their signature is safe to spell at the library's deployment target.
+        // Parameterized-protocol usage (e.g., EventStream<any UIEvent>) requires iOS 16+ runtime
+        // support, so those wrappers fall back to async dispatch.
+        if (parentTypeDecl is ClassDecl { IsActor: true } &&
+            (!env.MethodDecl.IsNonisolated ||
+             SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
             return "actor_type";
 
         // 6c. Per-member custom actor isolation (not @MainActor)
-        if (env.MethodDecl.IsActorIsolated && !env.MethodDecl.IsMainActorIsolated)
+        if (env.MethodDecl.IsActorIsolated && !env.MethodDecl.IsMainActorIsolated &&
+            (!env.MethodDecl.IsNonisolated ||
+             SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
             return "custom_actor_isolated";
 
         // 7. Not async

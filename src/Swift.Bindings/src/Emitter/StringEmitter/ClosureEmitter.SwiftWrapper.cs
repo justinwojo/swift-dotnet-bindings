@@ -531,6 +531,16 @@ public static partial class ClosureEmitter
         if (typeSpec.IsEmptyTuple)
             return true;
 
+        // any Swift.Error is intentionally NOT accepted here. The normal @_cdecl
+        // ClosureEmitter path cannot produce a valid adapter for `any Error` — its
+        // generated body tries to pass the existential directly to an
+        // UnsafeMutableRawPointer parameter, which is not convertible. MCB
+        // (MethodClosureBridge) is the exclusive path for these closures; it
+        // pointer-wraps the 5-word ExistentialContainer1 and activates via its own
+        // IsEligible check. Keeping this gate strict prevents the normal path from
+        // emitting broken wrappers in libraries like GRDB that have
+        // `(any Error) -> Void` callbacks.
+
         if (typeSpec is NamedTypeSpec named)
         {
             if (named.Name == "Swift.Bool")

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using Swift.Runtime;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.ErrorHandling;
 
@@ -78,5 +79,57 @@ public class AnyErrorDescriptionTests : TestBase
         TestLogger.Info($"AnyError.LocalizedDescription (ValidationError) = \"{desc}\"");
         AssertTrue(desc.Contains("tooLong"),
             $"Expected 'tooLong' in description, got: \"{desc}\"");
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Closure callback path (Fix 3): exercise the MCB wrapper that bridges
+    // `(any Error) -> Void` closures — the Swift side hands an existential
+    // container pointer to the @_cdecl callback, which constructs a Swift.AnyError
+    // the C# lambda can read. This is the pattern Stripe completion handlers
+    // (Result<T, any Error>) rely on.
+    // ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// MCB closure bridge: Swift invokes the callback with a MathError.divisionByZero,
+    /// C# reconstructs an AnyError and reads its description.
+    /// </summary>
+    public void TestAnyErrorClosure_MathError()
+    {
+        using var fixture = new AnyErrorCallbackFixture();
+        string? captured = null;
+        fixture.ReportMathError(err => captured = err.LocalizedDescription);
+        TestLogger.Info($"Callback received MathError description = \"{captured}\"");
+        AssertNotNull(captured, "Callback was not invoked");
+        AssertTrue(captured!.Contains("divisionByZero"),
+            $"Expected 'divisionByZero' in callback description, got: \"{captured}\"");
+    }
+
+    /// <summary>
+    /// MCB closure bridge: associated-value enum round-trips through the callback.
+    /// </summary>
+    public void TestAnyErrorClosure_ValidationError()
+    {
+        using var fixture = new AnyErrorCallbackFixture();
+        string? captured = null;
+        fixture.ReportValidationError(err => captured = err.LocalizedDescription);
+        TestLogger.Info($"Callback received ValidationError description = \"{captured}\"");
+        AssertNotNull(captured, "Callback was not invoked");
+        AssertTrue(captured!.Contains("tooLong"),
+            $"Expected 'tooLong' in callback description, got: \"{captured}\"");
+    }
+
+    /// <summary>
+    /// MCB closure bridge: NSError (ObjC-bridged) round-trips with its
+    /// localized description intact.
+    /// </summary>
+    public void TestAnyErrorClosure_NSError()
+    {
+        using var fixture = new AnyErrorCallbackFixture();
+        string? captured = null;
+        fixture.ReportNSError(err => captured = err.LocalizedDescription);
+        TestLogger.Info($"Callback received NSError description = \"{captured}\"");
+        AssertNotNull(captured, "Callback was not invoked");
+        AssertTrue(captured!.Contains("Callback error description") || captured!.Contains("CallbackDomain"),
+            $"Expected NSError description content, got: \"{captured}\"");
     }
 }

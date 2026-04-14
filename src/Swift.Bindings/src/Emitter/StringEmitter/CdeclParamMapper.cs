@@ -76,6 +76,21 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
+        // Optional<Any> (Any?): nullable object reference pointer.
+        // The "Any" existential is an empty protocol list. At the @_cdecl boundary,
+        // non-nil values are passed as opaque pointers to AnyObject, nil is null pointer.
+        // Used for NSObject.isEqual(_ object: Any?) and similar ObjC-inherited methods.
+        // Must come before IsProtocolExistentialType which would route to UnsafeRawPointer
+        // (non-nullable) with invalid "Optional<(any Any)>" reconstruction.
+        if (swiftTypeSpec is NamedTypeSpec optAnySpec && optAnySpec.Name == "Swift.Optional"
+            && optAnySpec.GenericParameters.Count == 1
+            && optAnySpec.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 })
+        {
+            return ($"_ {label}: UnsafeMutableRawPointer?",
+                    $"let {label}Val: AnyObject? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }}",
+                    $"{argLabel}{label}Val");
+        }
+
         // Protocol existentials are not C-representable in @_cdecl functions.
         // Marshal as UnsafeRawPointer and reconstruct inside the wrapper body.
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))

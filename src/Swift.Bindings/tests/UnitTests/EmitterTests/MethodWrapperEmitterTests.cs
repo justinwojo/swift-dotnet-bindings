@@ -2489,6 +2489,137 @@ public class MethodWrapperEmitterTests
         Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Fact]
+    public void ShouldEmitWrapper_OptionalAnyParam_ReturnsTrue()
+    {
+        // Optional<Any> (Any?) — empty protocol list. Used for NSObject.isEqual(_ object: Any?).
+        // CdeclParamMapper handles as nullable pointer (UnsafeMutableRawPointer?).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var emptyProtocolList = new ProtocolListTypeSpec();  // Any = empty protocol list
+        var optionalAny = new NamedTypeSpec("Swift.Optional");
+        optionalAny.GenericParameters.Add(emptyProtocolList);
+        var method = CreateMethodWithParam("isEqual", optionalAny, "_", parentDecl, moduleDecl);
+        method.CSSignature[0] = new ArgumentDecl
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"),
+            Name = "",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalAnyReturn_ReturnsTrue()
+    {
+        // Optional<Any> (Any?) return type — allowed via nullable pointer ABI
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var emptyProtocolList = new ProtocolListTypeSpec();
+        var optionalAny = new NamedTypeSpec("Swift.Optional");
+        optionalAny.GenericParameters.Add(emptyProtocolList);
+        var method = CreateMethodWithReturn("getAny", optionalAny, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void CdeclParamMapper_OptionalAny_MapsToNullablePointer()
+    {
+        // Verify CdeclParamMapper.Map produces UnsafeMutableRawPointer? for Any?
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var emptyProtocolList = new ProtocolListTypeSpec();
+        var optionalAny = new NamedTypeSpec("Swift.Optional");
+        optionalAny.GenericParameters.Add(emptyProtocolList);
+
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = optionalAny,
+            Name = "other",
+            PrivateName = "other",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("isEqual", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "other", env);
+
+        Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
+        Assert.Contains("Unmanaged<AnyObject>", reconstruction!);
+        Assert.Contains("other: otherVal", callArg);
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalSelfReturn_ClassParent_ReturnsTrue()
+    {
+        // Optional<Self> return on class parents — Self resolves to concrete class,
+        // return emitted as nullable class pointer (UnsafeMutableRawPointer?).
+        // Used for STPAPIResponseDecodable.decodedObject(fromAPIResponse:) -> Self?.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var selfSpec = new NamedTypeSpec("Self");
+        var optionalSelf = new NamedTypeSpec("Swift.Optional");
+        optionalSelf.GenericParameters.Add(selfSpec);
+        var method = CreateMethodWithReturn("decodedObject", optionalSelf, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalSelfReturn_StructParent_ReturnsFalse()
+    {
+        // Optional<Self> on struct parents blocked — Unmanaged.passRetained requires class type.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyStruct");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MyStruct", moduleDecl);
+        var selfSpec = new NamedTypeSpec("Self");
+        var optionalSelf = new NamedTypeSpec("Swift.Optional");
+        optionalSelf.GenericParameters.Add(selfSpec);
+        var method = CreateMethodWithReturn("tryCreate", optionalSelf, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void CdeclReturnMapping_OptionalSelf_MapsToOptionalClassPointer()
+    {
+        // Verify CdeclReturnMapping.Classify produces OptionalClassPointer for Self?.
+        var (_, typeDb) = CreateTestEnvironment("MyType");
+
+        var selfSpec = new NamedTypeSpec("Self");
+        var optionalSelf = new NamedTypeSpec("Swift.Optional");
+        optionalSelf.GenericParameters.Add(selfSpec);
+
+        var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(optionalSelf, typeDb);
+
+        Assert.Equal(CdeclReturnKind.OptionalClassPointer, mapping.Kind);
+        Assert.Equal("UnsafeMutableRawPointer?", mapping.CdeclReturnType);
+        Assert.False(needsResultPtr);
+    }
+
     #endregion
 
     #region Session 9A: Collection Container Guard Tests

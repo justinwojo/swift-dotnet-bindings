@@ -43,4 +43,32 @@ public class ConcreteSpecializationTests : TestBase
         var result = ItemProcessor.Describe(item);
         AssertEqual("number:7", result, "Describe<NumberItem>");
     }
+
+    // MARK: - Generic Constructor Specialization (Fix 4)
+
+    public void TestProcessedItem_FromTextItem()
+    {
+        var source = new TextItem(text: "hello");
+        var processed = ProcessedItem.FromSwiftBindingsTestLib_TextItem(source);
+        AssertEqual("text:hello", processed.Title.ToString(), "ProcessedItem.FromTextItem");
+    }
+
+    public void TestProcessedItem_FromNumberItem()
+    {
+        var source = new NumberItem(value: 99);
+        var processed = ProcessedItem.FromSwiftBindingsTestLib_NumberItem(source);
+        AssertEqual("number:99", processed.Title.ToString(), "ProcessedItem.FromNumberItem");
+    }
+
+    // MARK: - some Collection<String> Specialization (Fix 4)
+
+    public void TestCollectionHost_JoinItems_ArrayOfStrings()
+    {
+        using var host = new CollectionHost(separator: ", ");
+        using var items = new Swift.SwiftArray<Swift.SwiftString>();
+        items.Append(new Swift.SwiftString("hello"));
+        items.Append(new Swift.SwiftString("world"));
+        var joined = host.JoinItems(items);
+        AssertEqual("hello, world", joined, "CollectionHost.JoinItems<[String]>");
+    }
 }

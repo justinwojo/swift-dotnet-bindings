@@ -668,6 +668,25 @@ public class TypeDatabaseTests
             Assert.Equal(expectedInlineSize, record.InlineSize);
         }
 
+        [Fact]
+        public async Task SimdDatabase_BoundGenericSIMD3Float_ResolvesToSimdFloat3()
+        {
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SimdDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            // SIMD3<Float> appears in ABI JSON as a bound generic, but maps to the
+            // C simd_float3 typedef. Verify the bound-generic alias resolves correctly.
+            var typeSpec = new NamedTypeSpec("Swift.SIMD3");
+            typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.Float"));
+            var record = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+
+            Assert.Equal(TypeRecordKind.Struct, record.Kind);
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.HasFloatFields));
+            Assert.Equal(16, record.InlineSize);
+        }
+
         [Theory]
         [InlineData("ManagedSettings.Token", TypeRecordKind.Struct, false, true)]
         [InlineData("ManagedSettings.Application", TypeRecordKind.Struct, true, false)]

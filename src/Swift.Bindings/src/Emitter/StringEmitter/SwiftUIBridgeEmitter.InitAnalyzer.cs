@@ -435,9 +435,10 @@ public static partial class SwiftUIBridgeEmitter
             var abiMapping = MapEnumRawValueType(record.RawValueTypeName);
             if (abiMapping != null)
             {
-                // Strip module prefix for Swift emission (module is already imported)
-                var dotIndex = namedSpec.Name.IndexOf('.');
-                var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+                // Strip module prefix for Swift emission (module is already imported).
+                // Use swiftTypeName (parsed on line 422) to preserve nested type dots
+                // (e.g., "PaymentSheet.PaymentButton" not just "PaymentButton").
+                var swiftSimpleName = swiftTypeName.ModuleQualifiedName.Substring(swiftTypeName.Module.Length + 1);
                 // Use fully-qualified C# name for cross-module type safety
                 var csharpName = record.CSharpTypeName.FullyQualifiedName;
 
@@ -456,8 +457,7 @@ public static partial class SwiftUIBridgeEmitter
             // is a class with SafeHandle (requiresMemoryManagement).
             if (MarshallingHelpers.RequiresMemoryManagement(record))
             {
-                var dotIndex = namedSpec.Name.IndexOf('.');
-                var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+                var swiftSimpleName = swiftTypeName.ModuleQualifiedName.Substring(swiftTypeName.Module.Length + 1);
                 var csharpName = record.CSharpTypeName.FullyQualifiedName;
 
                 return new BridgeParameter(
@@ -476,8 +476,7 @@ public static partial class SwiftUIBridgeEmitter
             // Class parameters cross the ABI as UnsafeMutableRawPointer.
             // C# passes IntPtr via SafeHandle.DangerousGetHandle() (Swift classes)
             // or .Handle (ObjC-bridgeable classes like AVCaptureDevice).
-            var dotIndex = namedSpec.Name.IndexOf('.');
-            var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+            var swiftSimpleName = swiftTypeName.ModuleQualifiedName.Substring(swiftTypeName.Module.Length + 1);
             // Use fully-qualified C# name for cross-module type safety
             var csharpName = record.CSharpTypeName.FullyQualifiedName;
             var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record);
@@ -504,8 +503,7 @@ public static partial class SwiftUIBridgeEmitter
             if (projection == StructProjectionKind.FrozenBlittable)
                 return null;
 
-            var dotIndex = namedSpec.Name.IndexOf('.');
-            var swiftSimpleName = dotIndex >= 0 ? namedSpec.Name.Substring(dotIndex + 1) : namedSpec.Name;
+            var swiftSimpleName = swiftTypeName.ModuleQualifiedName.Substring(swiftTypeName.Module.Length + 1);
             // ObjC-bridgeable structs (e.g., URL → NSUrl): use the native type name
             var isObjCBridgeable = MarshallingHelpers.IsObjCBridgeable(record);
             var csharpName = record.NativeTypeName?.FullyQualifiedName ?? record.CSharpTypeName.FullyQualifiedName;

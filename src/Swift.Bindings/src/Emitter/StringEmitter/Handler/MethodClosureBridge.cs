@@ -44,10 +44,12 @@ public static class MethodClosureBridge
         if (method.IsAccessor) return false;
         if (method.Throws) return false;
 
-        // Collect ALL closure parameters — require at least one with bound generic or complex enum args
+        // Collect ALL closure parameters — require at least one with bound generic, complex enum,
+        // or any Swift.Error existential arg to activate MCB
         var closureArgs = new List<(ClosureTypeSpec spec, ArgumentDecl arg)>();
         bool hasBoundGenericInClosure = false;
         bool hasComplexEnumInClosure = false;
+        bool hasErrorExistentialInClosure = false;
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
@@ -57,7 +59,7 @@ public static class MethodClosureBridge
                 // Check if closure has async — not supported
                 if (cts.IsAsync) return false;
 
-                // Check closure args for bound generic types and complex enums
+                // Check closure args for bound generic types, complex enums, and any Error existentials
                 foreach (var closureArgType in cts.EachArgument())
                 {
                     if (IsBoundGenericClosureArg(closureArgType))
@@ -65,6 +67,9 @@ public static class MethodClosureBridge
 
                     if (closureHandler.IsComplexEnum(closureArgType))
                         hasComplexEnumInClosure = true;
+
+                    if (IsAnyErrorExistential(closureArgType))
+                        hasErrorExistentialInClosure = true;
 
                     if (!IsClosureArgSupported(closureArgType, typeDatabase))
                         return false;
@@ -83,9 +88,11 @@ public static class MethodClosureBridge
 
         if (closureArgs.Count == 0) return false;
 
-        // Key gate: ONLY activate when at least one closure arg is a bound generic type
-        // or a complex enum (D1: complex enums need heap allocation in Swift wrapper)
-        if (!hasBoundGenericInClosure && !hasComplexEnumInClosure) return false;
+        // Key gate: ONLY activate when at least one closure arg is a bound generic type,
+        // a complex enum (D1: heap allocation), or an any Swift.Error existential (pointer ABI via
+        // ExistentialContainer1). Otherwise the normal @_cdecl path handles it.
+        if (!hasBoundGenericInClosure && !hasComplexEnumInClosure && !hasErrorExistentialInClosure)
+            return false;
 
         // Generic parent types: instance methods use @_silgen_name extension (inherits
         // generic context) + CallConvSwift/SwiftSelf on C# side. Static methods on generic
@@ -515,8 +522,10 @@ public static class MethodClosureBridge
             var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
             var adapterName = $"__adapter{ci.Index}";
 
-            // Build the closure adapter type signature
-            var swiftParamTypes = ci.ClosureArgs.Select(a => ExistentialBypassEmitter.RenderSwiftTypeSpec(a)).ToList();
+            // Build the closure adapter type signature. Existentials (`any Error`) must
+            // render with the `any` keyword so Swift 6 accepts the closure signature —
+            // RenderSwiftTypeSpec alone just emits "Error", which is rejected.
+            var swiftParamTypes = ci.ClosureArgs.Select(RenderSwiftClosureArgType).ToList();
             var swiftRetType = ci.Spec.ReturnType.IsEmptyTuple ? "Void" : "Swift.Bool";
             var closureType = $"({string.Join(", ", swiftParamTypes)}) -> {swiftRetType}";
 
@@ -1030,6 +1039,14 @@ public static class MethodClosureBridge
             // Primitives come as their native C# type — direct passthrough
             csWriter.WriteLine($"var __a{index} = __p{index};");
         }
+        else if (IsAnyErrorExistential(argType))
+        {
+            // any Swift.Error — IntPtr points to a 5-word ExistentialContainer1 on the Swift stack
+            // (borrowed via withUnsafePointer). Copy the container out and wrap as AnyError so the
+            // managed value outlives the callback frame. Payload references are retained via Swift's
+            // normal existential-copy semantics by the caller — we read bytes, we do not take ownership.
+            csWriter.WriteLine($"var __a{index} = new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+        }
         else
         {
             // Bound generics / classes come as IntPtr — marshal via MarshalBorrowedFromSwift.
@@ -1059,12 +1076,64 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
+    /// Renders a closure argument type for the Swift adapter signature. Wraps the
+    /// result in <c>any</c> when the type is an existential (currently only
+    /// <c>any Swift.Error</c>) so Swift 6 accepts the closure signature — the
+    /// shared <see cref="ExistentialBypassEmitter.RenderSwiftTypeSpec"/> does not
+    /// emit the <c>any</c> keyword because most callers render concrete types.
+    /// </summary>
+    private static string RenderSwiftClosureArgType(TypeSpec typeSpec)
+    {
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+        if (IsAnyErrorExistential(typeSpec))
+            return $"any {rendered}";
+        return rendered;
+    }
+
+    /// <summary>
+    /// Checks whether a TypeSpec is the <c>any Swift.Error</c> existential — the only
+    /// existential currently supported as an MCB closure argument. The C# runtime type
+    /// is <see cref="Swift.AnyError"/>, and Swift passes its 5-word existential container
+    /// through <c>withUnsafePointer</c> → <c>UnsafeMutableRawPointer</c> (pointer ABI,
+    /// same shape as bound generic args).
+    /// <para>
+    /// The parser produces two different shapes for the same type depending on source:
+    /// <list type="bullet">
+    /// <item><c>NamedTypeSpec("Swift.Error") { IsAny = true }</c> — from bare
+    /// <c>any Error</c> / <c>any Swift.Error</c> in printedName strings, which is
+    /// the common ABI JSON path via <see cref="TypeSpecParser"/>.</item>
+    /// <item><c>ProtocolListTypeSpec</c> with a single <c>Swift.Error</c> protocol —
+    /// from ABI JSON ProtocolComposition nodes. Rare in practice for single-protocol
+    /// existentials but allowed for forward compatibility.</item>
+    /// </list>
+    /// Both shapes must be accepted so closure parameters like
+    /// <c>(any Error) -&gt; Void</c> route through MCB.
+    /// </para>
+    /// </summary>
+    internal static bool IsAnyErrorExistential(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec named && named.IsAny && named.Name == "Swift.Error")
+            return true;
+
+        if (typeSpec is ProtocolListTypeSpec protoList && protoList.Protocols.Count == 1)
+        {
+            var proto = protoList.Protocols.Keys.First();
+            return proto.Name == "Swift.Error";
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a closure argument type is supported by this emitter.
-    /// Supports: primitives, classes, ObjC-bridged types, and bound generics whose base
-    /// type resolves in TypeDatabase.
+    /// Supports: primitives, classes, ObjC-bridged types, bound generics whose base
+    /// type resolves in TypeDatabase, and <c>any Swift.Error</c> existential.
     /// </summary>
     private static bool IsClosureArgSupported(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
+        // any Swift.Error — bridged through ExistentialContainer1 pointer, wrapped as AnyError in C#.
+        if (IsAnyErrorExistential(typeSpec)) return true;
+
         if (typeSpec is not NamedTypeSpec named) return false;
 
         // Primitives
@@ -1216,6 +1285,10 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetCSharpTypeForClosureArg(TypeSpec argType, MethodEnvironment env)
     {
+        // any Swift.Error existential → Swift.AnyError runtime struct
+        if (IsAnyErrorExistential(argType))
+            return "Swift.AnyError";
+
         if (argType is NamedTypeSpec namedArg)
         {
             // Primitives

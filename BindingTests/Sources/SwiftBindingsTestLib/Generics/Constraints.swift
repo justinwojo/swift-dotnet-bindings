@@ -116,6 +116,45 @@ public struct ItemProcessor {
     }
 }
 
+// MARK: - Generic Constructor Specialization (Fix 4)
+
+/// Frozen struct with a generic constructor constrained to Processable.
+/// The concrete specialization engine should emit one static factory method per conformer:
+///   ProcessedItem.FromTextItem(TextItem), ProcessedItem.FromNumberItem(NumberItem).
+@frozen
+public struct ProcessedItem {
+    public let title: String
+
+    /// Generic constructor — specialized to From{Conformer} static factories in C#.
+    public init<T: Processable>(from source: T) {
+        self.title = source.label
+    }
+
+    /// Non-generic init so the struct is usable directly.
+    public init(title: String) {
+        self.title = title
+    }
+}
+
+// MARK: - some Collection<T> Specialization (Fix 4)
+
+/// Host with a method taking `some Collection<String>` — opaque parameter with
+/// a parameterized protocol. The specialization engine emits one concrete overload
+/// for the `[String]` conformer.
+public class CollectionHost {
+    private let separator: String
+
+    public init(separator: String) {
+        self.separator = separator
+    }
+
+    /// Accepts any collection whose Element is String. Should specialize to
+    /// Array<String> (see Swift.Collection hint in specialization-hints.json).
+    public func joinItems(_ items: some Collection<String>) -> String {
+        return items.joined(separator: separator)
+    }
+}
+
 // MARK: - M2: Generic Constructor with PWT (DifferenceKit DifferentiableBox pattern)
 
 /// Generic class where the constructor requires both type metadata and a protocol witness table.
