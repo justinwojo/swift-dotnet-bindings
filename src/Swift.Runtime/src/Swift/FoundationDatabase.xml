@@ -250,16 +250,6 @@
             <typedeclaration kind="class" name="Locale" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <!-- Locale.Language — Swift-only nested struct (not ObjC-bridged) -->
-        <entity managedNameSpace="Foundation" managedTypeName="LocaleLanguage">
-            <typedeclaration kind="struct" name="Locale.Language" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" />
-        </entity>
-        <!-- Locale.Region — Swift-only nested struct (not ObjC-bridged) -->
-        <entity managedNameSpace="Foundation" managedTypeName="LocaleRegion">
-            <typedeclaration kind="struct" name="Locale.Region" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" />
-        </entity>
         <!-- ComparisonResult — ObjC enum (NSComparisonResult) -->
         <entity managedNameSpace="Foundation" managedTypeName="NSComparisonResult">
             <typedeclaration kind="enum" name="ComparisonResult" module="Foundation"

@@ -98,6 +98,52 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// Emits [SupportedOSPlatform] attributes from a raw annotation list, deduping
+    /// against a parent's floor. Used by specialization emitters that merge availability
+    /// from multiple sources (method + parent + conformer) without a backing decl.
+    /// </summary>
+    public static void EmitSupportedOSPlatformsFromAnnotations(
+        CSharpWriter csWriter,
+        IReadOnlyList<AvailabilityAnnotation>? annotations,
+        IReadOnlyList<AvailabilityAnnotation>? parentAnnotations = null)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return;
+
+        var parentPlatforms = new HashSet<string>(StringComparer.Ordinal);
+        if (parentAnnotations != null)
+        {
+            foreach (var pa in parentAnnotations)
+            {
+                if (pa.Platform != null && pa.IntroducedVersion != null && PlatformMapping.ContainsKey(pa.Platform))
+                    parentPlatforms.Add($"{PlatformMapping[pa.Platform]}{NormalizeVersion(pa.IntroducedVersion)}");
+            }
+        }
+
+        // Keep only the strictest introduced-version per .NET platform (max version wins).
+        var strictest = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var ann in annotations)
+        {
+            if (ann.Platform == "visionOS") continue;
+            if (ann.Platform == null || ann.IntroducedVersion == null) continue;
+            if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform)) continue;
+
+            if (!strictest.TryGetValue(dotnetPlatform, out var existing) ||
+                IsStrictlyNewer(ann.IntroducedVersion, existing))
+            {
+                strictest[dotnetPlatform] = ann.IntroducedVersion;
+            }
+        }
+
+        foreach (var (dotnetPlatform, version) in strictest)
+        {
+            var platformVersion = $"{dotnetPlatform}{NormalizeVersion(version)}";
+            if (parentPlatforms.Contains(platformVersion)) continue;
+            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{platformVersion}\")]");
+        }
+    }
+
+    /// <summary>
     /// Emits accessor-level <c>[SupportedOSPlatform]</c> attributes for a property's
     /// setter, covering only the platforms where the setter's introduced version is
     /// strictly greater than the property's. Used by <c>PropertyHandler.EmitSetter</c>

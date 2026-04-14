@@ -1934,6 +1934,10 @@ public class EveryProtocolEmitter
             case NamedTypeSpec namedType:
                 if (TypeSpecHelpers.IsProtocolLevelGenericParam(namedType.Name))
                     return true;
+                // Self.AssociatedType references (e.g., Self.Action, Self.Element) — can't
+                // be expressed from EveryProtocol because it has no matching associated type.
+                if (namedType.Name.StartsWith("Self.", StringComparison.Ordinal))
+                    return true;
                 foreach (var genericParam in namedType.GenericParameters)
                 {
                     if (ContainsSelfTypeParam(genericParam))
@@ -2065,6 +2069,13 @@ public class EveryProtocolEmitter
                     if (suffix == ".Type")
                         return "EveryProtocol.Type";
                     return "Any";
+                }
+                // Self.X — Self metatype or associated type reference. EveryProtocol has no
+                // matching associated types, so associated-type references map to Any while
+                // Self.Type maps to EveryProtocol.Type.
+                if (namedType.Name.StartsWith("Self.", StringComparison.Ordinal))
+                {
+                    return namedType.Name == "Self.Type" ? "EveryProtocol.Type" : "Any";
                 }
                 // Non-generic types: recurse into generic params
                 if (!TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))

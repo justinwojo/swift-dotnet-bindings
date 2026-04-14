@@ -1144,6 +1144,11 @@ public static class ExistentialBypassEmitter
         {
             case NamedTypeSpec namedTypeSpec:
                 var name = moduleQualified ? namedTypeSpec.Name : namedTypeSpec.NameWithoutModule;
+                // Rewrite SPI (underscore-prefixed) module prefixes to their public counterpart
+                // so the generated Swift doesn't reference types through a non-public module
+                // (e.g. "_LocationEssentials.CLLocation" → "CoreLocation.CLLocation").
+                if (moduleQualified)
+                    name = AppleFrameworkRegistry.RewriteSpiModulePrefix(name);
 
                 if (namedTypeSpec.GenericParameters.Count > 0)
                 {
