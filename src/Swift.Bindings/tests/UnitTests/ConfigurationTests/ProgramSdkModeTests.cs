@@ -1056,6 +1056,36 @@ namespace BindingsGeneration.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void ResolveFrameworkDependencies_ObjCDep_AllArchs_MacCatalystSingleSlice_Resolves()
+        {
+            // Mac Catalyst xcframeworks use a single "maccatalyst" variant rather than
+            // distinct simulator/device variants, so --wrapper-architectures all should
+            // not require a separate simulator slice.
+            using var fixture = CreateObjCCatalystFixture("CatalystDep");
+            var primaryResolution = CreateMinimalResolution("Primary");
+            var platformInfo = PlatformInfoFactory.Create(ApplePlatform.MacCatalyst);
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "dynamically linked shared library");
+
+            var result = BindingsGenerator.ResolveFrameworkDependencies(
+                new[] { fixture.RootPath },
+                primaryResolution,
+                "/path/to/Primary.xcframework",
+                "all",
+                XCFrameworkPlatformTarget.Device,
+                NullLogger.Instance,
+                commandRunner: runner,
+                platformInfo: platformInfo);
+
+            Assert.NotNull(result);
+            Assert.Single(result);
+            Assert.True(result[0].IsObjCOnly);
+            Assert.Equal("CatalystDep", result[0].ModuleName);
+            Assert.Null(result[0].SimulatorFrameworkSearchPath);
+            Assert.NotNull(result[0].DeviceFrameworkSearchPath);
+        }
+
         private static XCFrameworkResolution CreateMinimalResolution(string module) => new()
         {
             AbiJsonPath = "/abi.json",
@@ -1126,6 +1156,19 @@ namespace BindingsGeneration.Tests
             return fixture;
         }
 
+        private static XCFrameworkFixture CreateObjCCatalystFixture(string name)
+        {
+            var fixture = new XCFrameworkFixture($"{name}.xcframework");
+            fixture.WriteInfoPlist(MakeCatalystPlist(name));
+            var catalystSliceDir = fixture.CreateSlice("ios-arm64_x86_64-maccatalyst",
+                $"{name}.framework", $"{name}.framework/{name}");
+            var modulesDir = Path.Combine(catalystSliceDir, $"{name}.framework", "Modules");
+            Directory.CreateDirectory(modulesDir);
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                $"framework module {name} {{\n  umbrella header \"{name}.h\"\n}}\n");
+            return fixture;
+        }
+
         private static string MakeSimplePlist(string name)
         {
             return $$"""
@@ -1170,6 +1213,28 @@ namespace BindingsGeneration.Tests
                             <key>LibraryPath</key><string>{{name}}.framework</string>
                             <key>SupportedArchitectures</key><array><string>arm64</string></array>
                             <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+        }
+
+        private static string MakeCatalystPlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>{{name}}.framework/{{name}}</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64_x86_64-maccatalyst</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string><string>x86_64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>maccatalyst</string>
                         </dict>
                     </array>
                 </dict>
