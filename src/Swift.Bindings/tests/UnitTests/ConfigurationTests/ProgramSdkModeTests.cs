@@ -907,6 +907,30 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void GetDependencyModuleNamesForSwiftImports_IncludesObjCOnlyDependencies()
+        {
+            var dependencies = new List<FrameworkDependencyInfo>
+            {
+                new()
+                {
+                    XCFrameworkPath = "/path/to/SwiftDep.xcframework",
+                    ModuleName = "SwiftDep",
+                    IsObjCOnly = false,
+                },
+                new()
+                {
+                    XCFrameworkPath = "/path/to/FirebaseCore.xcframework",
+                    ModuleName = "FirebaseCore",
+                    IsObjCOnly = true,
+                },
+            };
+
+            var result = BindingsGeneratorCommand.GetDependencyModuleNamesForSwiftImports(dependencies);
+
+            Assert.Equal(new[] { "SwiftDep", "FirebaseCore" }, result);
+        }
+
+        [Fact]
         public void ResolveFrameworkDependencies_MixedSwiftAndObjCDeps_ResolvesBoth()
         {
             // Create a Swift dependency (has swiftmodule)
