@@ -213,6 +213,74 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void IndexModuleConformances_PropagatesAvailabilityToConformers()
+    {
+        // Regression test: specialized methods for a conformer like CryptoKit.SHA3_256Digest
+        // (iOS 26+) must carry the conformer's @available floor onto the emitted wrapper,
+        // otherwise the @_cdecl wrapper fails to compile against an iOS 13 floor.
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.FuturisticDigest");
+        db.Register(conformerTypeName, "TestLib", "FuturisticDigest");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var availability = new List<AvailabilityAnnotation>
+        {
+            new(Platform: "iOS", IntroducedVersion: "26.0",
+                DeprecatedVersion: null, ObsoletedVersion: null,
+                IsUnconditionallyDeprecated: false, IsUnconditionallyUnavailable: false,
+                Message: null, Renamed: null)
+        };
+        var moduleDecl = CreateModuleWithConformer(
+            "TestLib", "TestLib.FuturisticDigest", "TestLib.Digest",
+            availability);
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("TestLib.Digest");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Single(conformers);
+        Assert.NotNull(conformers[0].AvailabilityAnnotations);
+        Assert.Contains(conformers[0].AvailabilityAnnotations!,
+            a => a.Platform == "iOS" && a.IntroducedVersion == "26.0");
+    }
+
+    [Fact]
+    public void IndexModuleConformances_MergesParentTypeAvailability()
+    {
+        // Nested conformer types inherit availability from their parent type chain.
+        // Verify that when a nested struct conforms to a protocol, its ancestors'
+        // @available annotations are merged onto the ConcreteConformer.
+        var db = new ResolvingTypeDatabase();
+        var parentTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.Outer");
+        var nestedTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.Outer.Inner");
+        db.Register(parentTypeName, "TestLib", "Outer");
+        db.Register(nestedTypeName, "TestLib", "Outer.Inner");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var parentAvailability = new List<AvailabilityAnnotation>
+        {
+            new(Platform: "iOS", IntroducedVersion: "17.0",
+                DeprecatedVersion: null, ObsoletedVersion: null,
+                IsUnconditionallyDeprecated: false, IsUnconditionallyUnavailable: false,
+                Message: null, Renamed: null)
+        };
+        var moduleDecl = CreateModuleWithNestedConformer(
+            "TestLib", "TestLib.Outer", "TestLib.Outer.Inner",
+            "TestLib.Digest", parentAvailability);
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("TestLib.Digest");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Single(conformers);
+        Assert.NotNull(conformers[0].AvailabilityAnnotations);
+        Assert.Contains(conformers[0].AvailabilityAnnotations!,
+            a => a.Platform == "iOS" && a.IntroducedVersion == "17.0");
+    }
+
+    [Fact]
     public void FindSpecializableMethods_Constructor_ReturnsMethod()
     {
         var db = new ResolvingTypeDatabase();
@@ -280,7 +348,9 @@ public class ConcreteSpecializationEngineTests
 
     // ==================== Helpers ====================
 
-    private static ModuleDecl CreateModuleWithConformer(string moduleName, string conformerType, string protocolType)
+    private static ModuleDecl CreateModuleWithConformer(
+        string moduleName, string conformerType, string protocolType,
+        List<AvailabilityAnnotation>? availability = null)
     {
         var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
         var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolType);
@@ -303,7 +373,7 @@ public class ConcreteSpecializationEngineTests
                 new(conformerTypeName, protocolTypeName, "")
             },
             MetadataAccessor = "",
-            AvailabilityAnnotations = null
+            AvailabilityAnnotations = availability
         };
 
         return new ModuleDecl
@@ -314,6 +384,69 @@ public class ConcreteSpecializationEngineTests
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl> { structDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
+    }
+
+    private static ModuleDecl CreateModuleWithNestedConformer(
+        string moduleName, string parentType, string nestedType, string protocolType,
+        List<AvailabilityAnnotation>? parentAvailability)
+    {
+        var parentTypeName = SwiftTypeName.FromModuleQualifiedName(parentType);
+        var nestedTypeName = SwiftTypeName.FromModuleQualifiedName(nestedType);
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolType);
+
+        var nestedStruct = new StructDecl
+        {
+            Name = nestedTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = nestedTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(nestedTypeName, protocolTypeName, "")
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        var parentStruct = new StructDecl
+        {
+            Name = parentTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = parentTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { nestedStruct },
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = parentAvailability
+        };
+
+        nestedStruct.ParentDecl = parentStruct;
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { parentStruct },
             Dependencies = new List<string>(),
             Protocols = new List<ProtocolDecl>(),
             AvailabilityAnnotations = null

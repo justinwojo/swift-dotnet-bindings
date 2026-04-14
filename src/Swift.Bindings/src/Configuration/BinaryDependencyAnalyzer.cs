@@ -253,8 +253,9 @@ namespace BindingsGeneration
                     // IMPORTANT: Derive opposite target from actual resolved slice (depResolution.IsSimulatorSlice),
                     // not the requested platformTarget, because XCFrameworkResolver.Resolve can fall back
                     // to a different slice. Also verify returned slices match expectations.
+                    var requiresSeparatePlatformSlices = platformInfo?.HasSimulatorVariant ?? true;
                     bool sliceMissing = false;
-                    if (wrapperArchitectures == "all")
+                    if (requiresSeparatePlatformSlices && wrapperArchitectures == "all")
                     {
                         var oppositeTarget = depResolution.IsSimulatorSlice
                             ? XCFrameworkPlatformTarget.Device
@@ -292,7 +293,7 @@ namespace BindingsGeneration
                             sliceMissing = true;
                         }
                     }
-                    else if (wrapperArchitectures == "device" && simSearchPath != null && deviceSearchPath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "device" && simSearchPath != null && deviceSearchPath == null)
                     {
                         // Primary resolved simulator but we need device
                         try
@@ -323,7 +324,7 @@ namespace BindingsGeneration
                             sliceMissing = true;
                         }
                     }
-                    else if (wrapperArchitectures == "simulator" && deviceSearchPath != null && simSearchPath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "simulator" && deviceSearchPath != null && simSearchPath == null)
                     {
                         // Primary resolved device but we need simulator
                         try
@@ -406,8 +407,9 @@ namespace BindingsGeneration
                         devicePath = objcResolution.FrameworkSearchPath;
 
                     // Resolve required slices for ObjC deps — same logic as Swift deps
+                    var requiresSeparatePlatformSlices = platformInfo?.HasSimulatorVariant ?? true;
                     bool objcSliceMissing = false;
-                    if (wrapperArchitectures == "all")
+                    if (requiresSeparatePlatformSlices && wrapperArchitectures == "all")
                     {
                         var oppositeTarget = objcResolution.IsSimulatorSlice
                             ? XCFrameworkPlatformTarget.Device
@@ -432,7 +434,7 @@ namespace BindingsGeneration
                             objcSliceMissing = true;
                         }
                     }
-                    else if (wrapperArchitectures == "device" && simPath != null && devicePath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "device" && simPath != null && devicePath == null)
                     {
                         var deviceObjc = XCFrameworkResolver.ResolveObjCFramework(
                             siblingPath, XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
@@ -447,7 +449,7 @@ namespace BindingsGeneration
                             objcSliceMissing = true;
                         }
                     }
-                    else if (wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
+                    else if (requiresSeparatePlatformSlices && wrapperArchitectures == "simulator" && devicePath != null && simPath == null)
                     {
                         var simObjc = XCFrameworkResolver.ResolveObjCFramework(
                             siblingPath, XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo);
