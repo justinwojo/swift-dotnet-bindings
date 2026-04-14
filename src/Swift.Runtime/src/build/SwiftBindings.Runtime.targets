@@ -47,10 +47,9 @@
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true'
                          AND $(TargetFramework.Contains('maccatalyst'))
                          AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
-    <Content Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
-    </Content>
+    <NativeReference Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib">
+      <Kind>Dynamic</Kind>
+    </NativeReference>
   </ItemGroup>
 
   <!-- tvOS device: TFM contains 'tvos', RID starts with 'tvos-' -->
