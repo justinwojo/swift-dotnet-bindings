@@ -807,6 +807,55 @@ namespace BindingsGeneration
                    name.EndsWith("_Set", StringComparison.Ordinal);
         }
 
+        private static bool IsPropertyDeclaration(
+            string trimmed,
+            List<string> lines,
+            int braceOpenLine,
+            int blockEnd,
+            out bool hasSetter)
+        {
+            var hasAccessor = false;
+            hasSetter = false;
+
+            for (int j = braceOpenLine + 1; j < blockEnd; j++)
+            {
+                var bodyTrimmed = lines[j].TrimStart();
+                if (IsGetterAccessorLine(bodyTrimmed))
+                    hasAccessor = true;
+                if (IsSetterAccessorLine(bodyTrimmed))
+                {
+                    hasAccessor = true;
+                    hasSetter = true;
+                }
+            }
+
+            return hasAccessor || IsPropertyShapedDeclaration(trimmed);
+        }
+
+        private static bool IsGetterAccessorLine(string trimmed)
+        {
+            return trimmed.StartsWith("get ", StringComparison.Ordinal) ||
+                   trimmed.StartsWith("get =>", StringComparison.Ordinal) ||
+                   trimmed.StartsWith("get{", StringComparison.Ordinal) ||
+                   trimmed == "get" || trimmed == "get;";
+        }
+
+        private static bool IsSetterAccessorLine(string trimmed)
+        {
+            return trimmed.StartsWith("set ", StringComparison.Ordinal) ||
+                   trimmed.StartsWith("set =>", StringComparison.Ordinal) ||
+                   trimmed.StartsWith("set{", StringComparison.Ordinal) ||
+                   trimmed == "set" || trimmed == "set;";
+        }
+
+        private static bool IsPropertyShapedDeclaration(string trimmed)
+        {
+            if (trimmed.Contains('('))
+                return false;
+
+            return ExtractMemberName(trimmed) != null;
+        }
+
         private static bool IsKeyword(string name)
         {
             return name is "public" or "private" or "internal" or "protected" or
@@ -1462,26 +1511,7 @@ namespace BindingsGeneration
 
                     // Detect property declarations: interface properties need get/set accessors
                     // to emit valid C# (bare throw inside a property body is a compile error).
-                    bool isIfacePropertyDecl = false;
-                    bool ifaceHasSetter = false;
-                    for (int j = braceOpenLine + 1; j < blockEnd; j++)
-                    {
-                        var bodyTrimmed = lines[j].TrimStart();
-                        if (bodyTrimmed.StartsWith("get ", StringComparison.Ordinal) ||
-                            bodyTrimmed.StartsWith("get =>", StringComparison.Ordinal) ||
-                            bodyTrimmed.StartsWith("get{", StringComparison.Ordinal) ||
-                            bodyTrimmed == "get" || bodyTrimmed == "get;")
-                        {
-                            isIfacePropertyDecl = true;
-                        }
-                        if (bodyTrimmed.StartsWith("set ", StringComparison.Ordinal) ||
-                            bodyTrimmed.StartsWith("set =>", StringComparison.Ordinal) ||
-                            bodyTrimmed.StartsWith("set{", StringComparison.Ordinal) ||
-                            bodyTrimmed == "set" || bodyTrimmed == "set;")
-                        {
-                            ifaceHasSetter = true;
-                        }
-                    }
+                    bool isIfacePropertyDecl = IsPropertyDeclaration(trimmed, lines, braceOpenLine, blockEnd, out var ifaceHasSetter);
 
                     replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
                         isVoidReturn: false, isProperty: isIfacePropertyDecl, propertySetter: ifaceHasSetter);
@@ -1500,30 +1530,13 @@ namespace BindingsGeneration
                     bool isPublicMember = trimmed.StartsWith("public ", StringComparison.Ordinal);
                     bool isPropertyHelper = memberName != null && IsPropertyHelperName(memberName);
 
-                    // Detect property declarations: body contains get/set accessor keywords.
-                    bool isPropertyDecl = false;
+                    // Detect property declarations: body contains get/set accessors, or the
+                    // declaration itself is property-shaped. The latter covers co-gating of
+                    // generated proxy interface properties whose invalid proxy body is replaced
+                    // before any accessor token can be observed.
                     bool hasSetter = false;
-                    if (isPublicMember)
-                    {
-                        for (int j = braceOpenLine + 1; j < blockEnd; j++)
-                        {
-                            var bodyTrimmed = lines[j].TrimStart();
-                            if (bodyTrimmed.StartsWith("get ", StringComparison.Ordinal) ||
-                                bodyTrimmed.StartsWith("get =>", StringComparison.Ordinal) ||
-                                bodyTrimmed.StartsWith("get{", StringComparison.Ordinal) ||
-                                bodyTrimmed == "get" || bodyTrimmed == "get;")
-                            {
-                                isPropertyDecl = true;
-                            }
-                            if (bodyTrimmed.StartsWith("set ", StringComparison.Ordinal) ||
-                                bodyTrimmed.StartsWith("set =>", StringComparison.Ordinal) ||
-                                bodyTrimmed.StartsWith("set{", StringComparison.Ordinal) ||
-                                bodyTrimmed == "set" || bodyTrimmed == "set;")
-                            {
-                                hasSetter = true;
-                            }
-                        }
-                    }
+                    bool isPropertyDecl = isPublicMember &&
+                        IsPropertyDeclaration(trimmed, lines, braceOpenLine, blockEnd, out hasSetter);
 
                     if (isPropertyDecl)
                     {
