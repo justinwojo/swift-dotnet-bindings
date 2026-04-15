@@ -60,7 +60,7 @@
              Condition="$(TargetFramework.Contains('ios')) AND $(RuntimeIdentifier.Contains('simulator'))"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>libSwiftBindingsRuntime.dylib</Link>
+      <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
     </Content>
   </ItemGroup>
   <!-- Mac Catalyst: maccatalyst TFM -->
