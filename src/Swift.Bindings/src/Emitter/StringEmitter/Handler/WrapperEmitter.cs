@@ -9,7 +9,7 @@ namespace BindingsGeneration
     /// <summary>
     /// Provides methods for emitting wrappers.
     /// </summary>
-    internal partial class WrapperEmitter
+    internal partial class WrapperEmitter : IAsyncTupleHelpers
     {
         private static readonly TypeProjectionFactory s_projectionFactory = new();
 
@@ -34,9 +34,9 @@ namespace BindingsGeneration
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
-        // Async callback hoisting for generic types: when PInvokeHelperContext is present,
-        // [UnmanagedCallersOnly] callbacks are written to a helper StringWriter and flushed
-        // to PInvokeHelperContext.RawCodeBlocks. Null when not in a generic parent type.
+        private readonly AsyncHarnessEmitter _asyncHarness;
+        // Legacy fields retained for dead-code in WrapperEmitter.Async.cs until the extraction
+        // cleanup pass removes the duplicated helpers. The live path goes through _asyncHarness.
         private System.IO.StringWriter? _asyncHelperWriter;
         private CSharpWriter? _asyncHelperCsWriter;
         // Tracks existential container heap allocation variable names for cleanup in finally block.
@@ -47,6 +47,13 @@ namespace BindingsGeneration
         /// True when the method has @_cdecl existential parameters that require heap allocation.
         /// Used by constructor and method paths to determine if try/finally cleanup is needed.
         /// </summary>
+        string IAsyncTupleHelpers.GetPInvokeTypeForTupleElement(TypeSpec element)
+            => GetPInvokeTypeForTupleElement(element);
+        string IAsyncTupleHelpers.GetCSharpTypeForTupleElement(TypeSpec element, bool applyIdiomaticConversion)
+            => GetCSharpTypeForTupleElement(element, applyIdiomaticConversion);
+        string? IAsyncTupleHelpers.GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
+            => GetTupleElementMarshalCode(element, itemName, resultName, csharpType);
+
         private bool HasExistentialHeapAllocations =>
             _env.MethodDecl.UsesCdeclWrapper &&
             _env.MethodDecl.CSSignature.Skip(1).Any(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec));
@@ -122,6 +129,17 @@ namespace BindingsGeneration
                         || (_env.MethodDecl.UsesNativeThunk && _requiresSwiftSelf);
                 }
             }
+
+            _asyncHarness = new AsyncHarnessEmitter(
+                _env,
+                _wrapperSignature,
+                _pInvokeSignature,
+                useTypedErrorCallback,
+                typedThrowsSwiftErrorType,
+                typedThrowsCSharpErrorType,
+                typedErrorTransfersOwnershipAsync,
+                _emissionContext,
+                this);
 
             // Build the sync method plan
             var builder = new MethodMarshalPlanBuilder(
@@ -347,7 +365,7 @@ namespace BindingsGeneration
         /// <param name="writer">The IndentedTextWriter instance.</param>
         internal void EmitMethod(CSharpWriter csWriter, SwiftWriter swiftWriter)
         {
-            EmitAsyncWrapper(csWriter);
+            _asyncHarness.EmitAsyncWrapper(csWriter);
             EmitErrorHelperPInvokes(csWriter);
             EmitClosureCallbacks(csWriter);
             EmitClosureReturnInvokeThunkHelper(csWriter);

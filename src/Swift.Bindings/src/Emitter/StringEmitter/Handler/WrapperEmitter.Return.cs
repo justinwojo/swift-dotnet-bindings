@@ -937,7 +937,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the P/Invoke type for a tuple element.
         /// </summary>
-        private string GetPInvokeTypeForTupleElement(TypeSpec element)
+        internal string GetPInvokeTypeForTupleElement(TypeSpec element)
         {
             // Handle Optional<T> types - check for ObjC bridged inner types
             if (element is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
@@ -1065,7 +1065,7 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="element">The TypeSpec for the tuple element.</param>
         /// <param name="applyIdiomaticConversion">When true, converts bare SwiftString to string. Set to false for recursive calls inside generics.</param>
-        private string GetCSharpTypeForTupleElement(TypeSpec element, bool applyIdiomaticConversion = true)
+        internal string GetCSharpTypeForTupleElement(TypeSpec element, bool applyIdiomaticConversion = true)
         {
             // Resolve generic type parameters (τ_0_0 → T) via GenericContext
             if (TypeSpecHelpers.IsGenericTypeParameter(element) && element is NamedTypeSpec genericParam)
@@ -1127,7 +1127,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Generates marshalling code for a single tuple element.
         /// </summary>
-        private string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
+        internal string? GetTupleElementMarshalCode(TypeSpec element, string itemName, string resultName, string csharpType)
         {
             // Handle generic type parameters (τ_0_0 → T) — received as IntPtr from heap-allocated buffer.
             // Use SwiftMarshal.MarshalFromSwift<T> which resolves via type metadata at runtime.

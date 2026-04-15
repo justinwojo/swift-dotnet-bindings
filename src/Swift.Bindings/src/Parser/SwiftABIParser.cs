@@ -499,14 +499,44 @@ namespace BindingsGeneration
         /// Checks if a member is marked as internal in the supplementary swiftinterface data.
         /// This catches @inlinable internal members with AccessControl in declAttributes,
         /// which are indistinguishable from @inlinable public in ABI JSON alone.
+        ///
+        /// Overload disambiguation: swiftinterface keys use only "TypeName.printedName" (no
+        /// parameter types), so a type with both internal and public overloads sharing a
+        /// printed name lands the same key in both sets. Example: StoreKit's
+        /// `Product.PurchaseOption.custom(key:value:)` has one `@usableFromInline internal`
+        /// `BackingValue` overload plus four public overloads; the key appears in both sets.
+        ///
+        /// Disambiguate via the ABI node's own <c>Inlinable</c> DeclAttribute. When the key
+        /// appears in both internal and public swiftinterface sets, any node reaching here
+        /// without <c>Inlinable</c> cannot be <c>@inlinable internal</c> or
+        /// <c>@usableFromInline internal</c> (those are caught earlier by <see cref="IsNodeModuleInternal"/>
+        /// Layers 1 and 2 via <c>UsableFromInline</c> or <c>Inlinable</c> without <c>AccessControl</c>).
+        /// Such a node must be one of the plain-<c>public</c> overloads and is safely marked public.
+        /// A node reaching here WITH <c>Inlinable</c> could be either <c>@inlinable internal</c> or
+        /// <c>@inlinable public</c> — stay conservative and keep it internal.
         /// </summary>
-        private bool IsInternalFromSwiftInterface(string parentTypeName, string printedName)
+        private bool IsInternalFromSwiftInterface(string parentTypeName, string printedName, Node? node)
         {
             if (_internalMemberKeys == null || _internalMemberKeys.Count == 0)
                 return false;
 
             var key = $"{parentTypeName}.{printedName}";
-            return _internalMemberKeys.Contains(key);
+            if (!_internalMemberKeys.Contains(key))
+                return false;
+
+            // Both internal and public swiftinterface sets contain this key. If the ABI node
+            // itself lacks the Inlinable attribute, it cannot be @inlinable internal or
+            // @usableFromInline internal (those are caught in IsNodeModuleInternal Layers 1/2),
+            // so it must be a plain-public overload — defer to public.
+            if (_publicMemberNames != null && _publicMemberNames.Contains(key) && node != null)
+            {
+                bool nodeHasInlinable = node.DeclAttributes != null &&
+                    Array.IndexOf(node.DeclAttributes, "Inlinable") != -1;
+                if (!nodeHasInlinable)
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -1568,7 +1598,7 @@ namespace BindingsGeneration
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsImplicit = node.@implicit == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
-                    IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName),
+                    IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName, node),
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
                 IsExtensionMethod = node.isFromExtension == true,
@@ -2061,7 +2091,7 @@ namespace BindingsGeneration
             // swiftinterface key format — see IsInternalFromSwiftInterface doc comment).
             if (!decl.IsModuleInternal && parentDecl is TypeDecl propParentForInternal)
             {
-                decl.IsModuleInternal = IsInternalFromSwiftInterface(propParentForInternal.Name, sanitizedName);
+                decl.IsModuleInternal = IsInternalFromSwiftInterface(propParentForInternal.Name, sanitizedName, node);
             }
             // Negative-space detection: property not in public swiftinterface is internal.
             if (!decl.IsModuleInternal)
