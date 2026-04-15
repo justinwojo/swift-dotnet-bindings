@@ -1061,6 +1061,81 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitConformance_SelfAssocTypeProperty_EmitsStubInsteadOfVtableDispatch()
+    {
+        // Regression: TipKit.Tip has associatedtype Action, and a protocol requirement
+        // `var actions: Swift.Array<Self.Action> { get }`. The Self.Action reference
+        // can't be dispatched through EveryProtocol's vtable (EveryProtocol has no
+        // matching associated type), so it must route to the fatalError() stub path
+        // rather than emit a vtable-dispatched implementation that fails to compile.
+        var protocol = CreateSimpleProtocol("TipLike");
+        protocol.AssociatedTypes.Add(new AssociatedTypeDecl
+        {
+            Name = "Action"
+        });
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "actions",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array")
+            {
+                GenericParameters = { new NamedTypeSpec("Self.Action") }
+            },
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("actions_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitConformance(protocol);
+
+        // The extension is still emitted with the PAT typealias.
+        Assert.Contains("extension EveryProtocol: TestModule.TipLike", output);
+        Assert.Contains("public typealias Action = Any", output);
+        // Self.Action routes through the stub path — Swift.Array<Any> is the rendered
+        // stub signature. No vtable dispatch (func_actions_get) is emitted because the
+        // Self-typed gate triggers on the Self.Action associated-type reference.
+        Assert.Contains("Swift.Array<Any>", output);
+        Assert.DoesNotContain("func_actions_get!", output);
+    }
+
+    [Fact]
+    public void EmitVtableStruct_SkipsSelfAssocTypeProperty()
+    {
+        // Self.Action references must not generate vtable fields — the C# side has
+        // no way to produce a value for the associated type, and the Swift side can't
+        // cast a raw pointer to Self.Action in EveryProtocol's context.
+        var protocol = CreateSimpleProtocol("TipLike");
+        protocol.AssociatedTypes.Add(new AssociatedTypeDecl
+        {
+            Name = "Action"
+        });
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "actions",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array")
+            {
+                GenericParameters = { new NamedTypeSpec("Self.Action") }
+            },
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("actions_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.DoesNotContain("func_actions_get", output);
+    }
+
+    [Fact]
     public void EmitConformance_SelfTypedOptionalReturn_EmitsStubWithOptionalEveryProtocol()
     {
         // Protocol with a method returning Optional<Self>: func find() -> Self?

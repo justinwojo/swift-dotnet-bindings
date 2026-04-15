@@ -637,6 +637,33 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void InvokeSwiftCompiler_MacCatalyst_AddsIOSSupportFrameworkPath()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var sdkPath = Path.Combine(Path.GetTempPath(), $"maccatalyst_sdk_{Guid.NewGuid():N}");
+            var iOSSupportFrameworksPath = Path.Combine(
+                sdkPath, "System", "iOSSupport", "System", "Library", "Frameworks");
+            Directory.CreateDirectory(iOSSupportFrameworksPath);
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-macabi", sdkPath, "/fw/search",
+                    runner, NullLogger.Instance);
+
+                var (_, args) = runner.Invocations[0];
+                Assert.Contains($"-F \"{iOSSupportFrameworksPath}\"", args);
+            }
+            finally
+            {
+                Directory.Delete(sdkPath, recursive: true);
+            }
+        }
+
+        [Fact]
         public void InvokeSwiftCompiler_LongStderr_TruncatesAt2000Chars()
         {
             var runner = new MockCommandRunner();

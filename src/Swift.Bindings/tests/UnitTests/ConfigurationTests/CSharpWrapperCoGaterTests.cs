@@ -1179,6 +1179,32 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ProcessProxyReferences_PropertyShapedInterfaceMemberWithoutAccessors_EmitsGetterThrow()
+        {
+            // Regression test for FirebaseAILogic PartsRepresentableProxy: when a generated proxy
+            // interface property body references a suppressed proxy but has no observable get/set
+            // accessor tokens, the co-gater must still emit property syntax instead of a bare throw.
+            var input =
+                "public interface IPartsRepresentable {\n" +
+                "    IReadOnlyList<IPart> PartsValue { get; }\n" +
+                "}\n" +
+                "public partial class PartsRepresentableProxy : IPartsRepresentable {\n" +
+                "    public IReadOnlyList<IPart> PartsValue\n" +
+                "    {\n" +
+                "        var result = PartsValue_Get();\n" +
+                "        return result.AsProjected(e => (IPart)new PartProxy(e));\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "PartProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            Assert.Contains("public IReadOnlyList<IPart> PartsValue", result.Content);
+            Assert.Contains("get { throw new NotSupportedException", result.Content);
+            Assert.DoesNotContain("PartProxy", result.Content);
+            Assert.DoesNotContain("return result.AsProjected", result.Content);
+        }
+
+        [Fact]
         public void ProcessProxyReferences_PrivateNonHelperMethod_StillStripped()
         {
             // Private methods that are NOT property helpers should still be fully stripped
@@ -1194,6 +1220,59 @@ namespace BindingsGeneration.Tests
             // Private non-helper method fully stripped
             Assert.DoesNotContain("CreateInternalFoo", result.Content);
             Assert.DoesNotContain("FooProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_PublicMethodWithProxyBody_GetsMethodReplacementNotProperty()
+        {
+            // Negative fence on IsPropertyShapedDeclaration: a public method referencing a
+            // suppressed proxy must be replaced with method-body throw, not property accessor
+            // syntax. Guards against drift in the IsPropertyShapedDeclaration '(' exclusion.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public IFoo GetThing(int x)\n" +
+                "    {\n" +
+                "        return new FooProxy(x);\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            Assert.Contains("public IFoo GetThing(int x)", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            // Must NOT be rewritten as property accessor syntax.
+            Assert.DoesNotContain("get { throw", result.Content);
+            Assert.DoesNotContain("set { throw", result.Content);
+            Assert.DoesNotContain("FooProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessProxyReferences_PublicEventWithProxyBody_IsFullyStripped()
+        {
+            // Events need add/remove accessors; neither get/set property syntax nor a bare
+            // throw inside braces is valid C#. The co-gater must fully strip an event that
+            // references a suppressed proxy. The generator does not currently emit events
+            // from Swift surface, so stripping is the safe default — this test pins that
+            // contract so any future change produces observable behavior to adjudicate.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public event System.EventHandler MyEvent\n" +
+                "    {\n" +
+                "        add { var x = new FooProxy(value); }\n" +
+                "        remove { }\n" +
+                "    }\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            // The event declaration and its body are fully stripped.
+            Assert.DoesNotContain("MyEvent", result.Content);
+            Assert.DoesNotContain("FooProxy", result.Content);
+            Assert.DoesNotContain("add {", result.Content);
+            Assert.DoesNotContain("remove {", result.Content);
+            // And no invalid replacement shapes are produced.
+            Assert.DoesNotContain("get { throw", result.Content);
+            Assert.DoesNotContain("set { throw", result.Content);
         }
     }
 

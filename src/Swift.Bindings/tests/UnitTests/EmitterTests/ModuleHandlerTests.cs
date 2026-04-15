@@ -255,6 +255,82 @@ public class ModuleHandlerTests
         Assert.True(swiftOutput.IndexOf("import CoreImage") < swiftOutput.IndexOf("import UIKit"));
     }
 
+    [Fact]
+    public void EmitSwiftImports_ImportsSiblingModuleReferencedByType()
+    {
+        // Regression: FamilyControls protocols reference ManagedSettings.Token without
+        // ManagedSettings appearing in the module's declared dependencies list.
+        // The scanner must still emit `import ManagedSettings`.
+        var (_, swiftOutput) = EmitModuleWithDependencies(
+            "FamilyControls",
+            new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "TokenHolder",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("FamilyControls.TokenHolder"),
+                    MangledName = "$s14FamilyControls11TokenHolderP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("token", "ManagedSettings.Token", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+            });
+
+        Assert.Contains("import ManagedSettings", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_RemapsSpiModuleToPublicCounterpart()
+    {
+        // Regression: types from SPI (`_`-prefixed) Swift modules registered with a
+        // namespaceRemap must import the public counterpart, not the SPI name.
+        var (_, swiftOutput) = EmitModuleWithDependencies(
+            "TestModule",
+            new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "LocationSource",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LocationSource"),
+                    MangledName = "$s10TestModule14LocationSourceP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("current", "_LocationEssentials.CLLocation", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+            });
+
+        Assert.Contains("import CoreLocation", swiftOutput);
+        Assert.DoesNotContain("import _LocationEssentials", swiftOutput);
+    }
+
     #endregion
 
     #region Dependency Module Import Tests

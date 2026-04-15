@@ -331,7 +331,7 @@ This plan should be reopened when any of the following happen:
 ## What this doc does not cover
 
 - **How to bind an Apple framework.** See `Future/apple-framework-binding-strategy.md` for the generator pipeline, wrapper compilation, resolver behavior, and NuGet layout.
-- **Individual package status / release history.** See `0.8.0.md` and future release docs.
+- **Individual package status / release history.** See [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md) and future release docs.
 - **Open generator bugs blocking specific frameworks.** See `roadmap.md`.
 
 ---

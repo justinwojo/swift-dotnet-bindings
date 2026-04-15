@@ -167,6 +167,9 @@ namespace BindingsGeneration
             var deviceSlice = deviceResolution != null
                 ? pi.DeviceSlice with { Architecture = deviceResolution.SelectedArchitecture }
                 : pi.DeviceSlice;
+            var primaryAdditionalSearchPaths = !pi.HasSimulatorVariant && deviceAdditionalSearchPaths != null
+                ? deviceAdditionalSearchPaths
+                : simAdditionalSearchPaths;
 
             // 1. Collect and post-process Swift files (once — source is architecture-agnostic)
             var swiftFiles = CollectSwiftFiles(outputDirectory);
@@ -324,8 +327,8 @@ namespace BindingsGeneration
 
                 // XCTest dependency: add platform framework search path + collision resolution.
                 // Pre-compile the source framework's interface with XCTest collision patched out.
-                var simEffectiveSearchPaths = simAdditionalSearchPaths != null
-                    ? new List<string>(simAdditionalSearchPaths) : new List<string>();
+                var simEffectiveSearchPaths = primaryAdditionalSearchPaths != null
+                    ? new List<string>(primaryAdditionalSearchPaths) : new List<string>();
                 if (DetectXCTestDependency(swiftInterfacePath))
                 {
                     var simPlatformPath = ResolvePlatformPath(simSlice.SdkName, commandRunner);
@@ -901,6 +904,9 @@ namespace BindingsGeneration
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
             var deviceSlice = pi.DeviceSlice;
+            var primaryAdditionalSearchPaths = !pi.HasSimulatorVariant && deviceAdditionalSearchPaths != null
+                ? deviceAdditionalSearchPaths
+                : simAdditionalSearchPaths;
 
             var bridgeFiles = CollectBridgeSwiftFiles(outputDirectory);
             if (bridgeFiles.Count == 0)
@@ -935,7 +941,7 @@ namespace BindingsGeneration
                 bridgeFiles, simBinaryPath, bridgeModuleName,
                 simTargetTriple, simSdkPath,
                 simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                simAdditionalSearchPaths, originalModuleName: moduleName);
+                primaryAdditionalSearchPaths, originalModuleName: moduleName);
             sliceCount++;
 
             logger.LogInformation("Compiled simulator slice for {Module}.", bridgeModuleName);
@@ -1322,10 +1328,20 @@ namespace BindingsGeneration
                 }
             }
 
-            var additionalFFlags = "";
-            if (additionalFrameworkSearchPaths != null)
+            var effectiveAdditionalFrameworkSearchPaths = additionalFrameworkSearchPaths != null
+                ? new List<string>(additionalFrameworkSearchPaths)
+                : new List<string>();
+            var catalystIOSSupportPath = TryGetMacCatalystIOSSupportFrameworkPath(targetTriple, sdkPath);
+            if (catalystIOSSupportPath != null &&
+                !effectiveAdditionalFrameworkSearchPaths.Contains(catalystIOSSupportPath, StringComparer.Ordinal))
             {
-                foreach (var path in additionalFrameworkSearchPaths)
+                effectiveAdditionalFrameworkSearchPaths.Add(catalystIOSSupportPath);
+            }
+
+            var additionalFFlags = "";
+            if (effectiveAdditionalFrameworkSearchPaths.Count > 0)
+            {
+                foreach (var path in effectiveAdditionalFrameworkSearchPaths)
                 {
                     additionalFFlags += $" -F \"{path}\"";
                 }
@@ -1374,6 +1390,16 @@ namespace BindingsGeneration
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
             }
+        }
+
+        internal static string? TryGetMacCatalystIOSSupportFrameworkPath(string targetTriple, string sdkPath)
+        {
+            if (!targetTriple.Contains("-macabi", StringComparison.Ordinal))
+                return null;
+
+            var iOSSupportFrameworksPath = Path.Combine(
+                sdkPath, "System", "iOSSupport", "System", "Library", "Frameworks");
+            return Directory.Exists(iOSSupportFrameworksPath) ? iOSSupportFrameworksPath : null;
         }
 
         /// <summary>

@@ -371,6 +371,65 @@ public class AvailabilityAttributeEmitterTests
     }
 
     [Fact]
+    public void EmitFromAnnotations_EmitsStrictestPerPlatform()
+    {
+        // When a specialization merges availability from method + parent + conformer,
+        // the same platform can appear multiple times with different versions. The
+        // emitter must keep the strictest (highest) version per platform to avoid
+        // under-guarding a call site that needs the tighter floor.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "26.0", null, null, false, false, null, null),
+        };
+
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, annotations);
+        csWriter.Flush();
+
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"ios26.0\")", output);
+        Assert.DoesNotContain("SupportedOSPlatform(\"ios13.0\")", output);
+    }
+
+    [Fact]
+    public void EmitFromAnnotations_SkipsPlatformsCoveredByParent()
+    {
+        // Parent class carries iOS 13 — specialization doesn't need to repeat it.
+        // But if the specialization adds iOS 26 (conformer floor), that MUST emit.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "26.0", null, null, false, false, null, null),
+        };
+        var parentAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+        };
+
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, annotations, parentAnnotations);
+        csWriter.Flush();
+
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"ios26.0\")", output);
+        Assert.DoesNotContain("SupportedOSPlatform(\"ios13.0\")", output);
+    }
+
+    [Fact]
+    public void EmitFromAnnotations_EmptyOrNull_NoOutput()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, null);
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, Array.Empty<AvailabilityAnnotation>());
+        csWriter.Flush();
+        Assert.Equal("", stringWriter.ToString());
+    }
+
+    [Fact]
     public void EmitCdeclAnnotation_DeprecationOnly_NoSwiftAvailable()
     {
         var sw = new StringWriter();

@@ -467,10 +467,7 @@ public static class BindingsGeneratorCommand
         // Auto-extract symbol graph for doc comments (xcframework mode only)
         symbolGraph = BindingsGenerator.ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger, platformInfo: platformInfo);
 
-        var depModuleNames = resolvedDependencies?
-            .Where(d => !d.IsObjCOnly)
-            .Select(d => d.ModuleName)
-            .ToList();
+        var depModuleNames = GetDependencyModuleNamesForSwiftImports(resolvedDependencies);
         var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase);
         if (!success)
         {
@@ -978,6 +975,16 @@ public static class BindingsGeneratorCommand
     internal static bool RequiresExplicitPlatformVersion(string? swiftRuntimeVersion) =>
         !string.IsNullOrWhiteSpace(swiftRuntimeVersion) &&
         swiftRuntimeVersion != BindingProjectEmitter.DefaultSwiftRuntimeVersion;
+
+    internal static List<string>? GetDependencyModuleNamesForSwiftImports(
+        IReadOnlyList<FrameworkDependencyInfo>? resolvedDependencies)
+    {
+        // ObjC-only modules can still appear in Swift signatures, so generated Swift
+        // wrappers must import them even when they do not provide ABI JSON.
+        return resolvedDependencies?
+            .Select(d => d.ModuleName)
+            .ToList();
+    }
 
     private static void PrintHelp()
     {

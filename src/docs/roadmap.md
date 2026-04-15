@@ -7,13 +7,13 @@
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
 
-**Active release work is in `0.8.0.md`.** This doc covers longer-term themes, blocked items, and post-1.0 ideas.
+**Active release work is in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).** This doc covers longer-term themes, blocked items, and post-1.0 ideas.
 
 ---
 
 ## 1.0 Goal
 
-**Bridge .NET MAUI to Apple's Swift-first platform APIs, plus select third-party Swift SDKs that fill real gaps.** Measured by what shipping packages exist and where they run, not by skip percentages. See `0.8.0.md` for the full thesis.
+**Bridge .NET MAUI to Apple's Swift-first platform APIs, plus select third-party Swift SDKs that fill real gaps.** Measured by what shipping packages exist and where they run, not by skip percentages. See [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md) for the full thesis.
 
 ---
 
@@ -77,7 +77,7 @@ Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-dra
 
 macOS validation audit completed. Generator, SDK, runtime, and build infrastructure all properly support iOS, macOS, Mac Catalyst, and tvOS. Multi-TFM NuGet packaging validated end-to-end with StoreKit2 (4 TFMs in one nupkg).
 
-Remaining items tracked in `0.8.0.md`.
+Remaining items tracked in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).
 
 ---
 
