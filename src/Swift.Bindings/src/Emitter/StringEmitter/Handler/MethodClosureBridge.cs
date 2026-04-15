@@ -267,6 +267,8 @@ public static class MethodClosureBridge
         // Track non-primitive params that need pointer-to-value loading inside the body.
         // isClass distinguishes Swift classes (Unmanaged unwrap) from non-frozen structs (.pointee load).
         var pointerLoadParams = new List<(string paramName, string swiftType, bool isClass)>();
+        // Utf8Slice params reconstructed from (ptr, len) into a Swift.String before the body call.
+        var utf8SliceParams = new List<string>();
 
         // Non-closure passable params first.
         // For @_cdecl, non-primitive types (PayloadHandle) must be passed as UnsafeRawPointer
@@ -282,6 +284,12 @@ public static class MethodClosureBridge
                 bool isClass = arg.SwiftTypeSpec is NamedTypeSpec named &&
                     IsClassTypeForSwift(named, env.TypeDatabase);
                 pointerLoadParams.Add((paramName, swiftType, isClass));
+            }
+            else if (category == ParamAbiCategory.Utf8Slice)
+            {
+                swiftParams.Add($"    _ {paramName}Utf8Ptr: UnsafePointer<UInt8>");
+                swiftParams.Add($"    _ {paramName}Utf8Len: Int");
+                utf8SliceParams.Add(paramName);
             }
             else
             {
@@ -346,6 +354,13 @@ public static class MethodClosureBridge
                 swiftWriter.WriteLine($"    let {paramName}Val = Unmanaged<{swiftType}>.fromOpaque({paramName}).takeUnretainedValue()");
             else
                 swiftWriter.WriteLine($"    let {paramName}Val = {paramName}.assumingMemoryBound(to: {swiftType}.self).pointee");
+        }
+
+        // Reconstruct Swift.String from (UTF-8 byte pointer, length) pair passed by C# via `fixed`.
+        foreach (var paramName in utf8SliceParams)
+        {
+            swiftWriter.WriteLine(
+                $"    let {paramName}Val = String(bytes: UnsafeBufferPointer(start: {paramName}Utf8Ptr, count: {paramName}Utf8Len), encoding: .utf8)!");
         }
 
         // Reconstruct cdecl functions from pointers — one per non-Optional closure.
@@ -440,10 +455,24 @@ public static class MethodClosureBridge
                     {
                         directArgs.Add((i, $"Unmanaged.passUnretained({paramName}).toOpaque()"));
                     }
+                    else if (IsOptionalClassArg(argType, env))
+                    {
+                        // Optional<Class/ObjC>: nil-propagate via `?.map`. nil stays nil (IntPtr.Zero
+                        // on the C# side); non-nil becomes a borrowed opaque pointer.
+                        directArgs.Add((i, $"{paramName}.map {{ Unmanaged.passUnretained($0).toOpaque() }}"));
+                    }
                     else if (env.ClosureHandler.IsComplexEnum(argType))
                     {
                         // D1: Complex enums use heap allocation — C# takes ownership via SwiftSafeHandle
                         heapAllocArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
+                    }
+                    else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true } enumInfo)
+                    {
+                        // Simple enums with numeric raw values marshal as their underlying scalar.
+                        // Swift's raw value type (e.g., `Int`) and the cdecl scalar (e.g., `Int64`)
+                        // are nominally distinct, so wrap in an explicit conversion to satisfy the
+                        // @convention(c) signature.
+                        directArgs.Add((i, $"{enumInfo.swiftScalar}({paramName}.rawValue)"));
                     }
                     else
                     {
@@ -509,8 +538,9 @@ public static class MethodClosureBridge
                 {
                     var label = GetSwiftArgLabel(passable.arg);
                     var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
-                    // PayloadHandle params were loaded from pointer → use {name}Val
-                    var valSuffix = passable.category == ParamAbiCategory.PayloadHandle ? "Val" : "";
+                    // PayloadHandle/Utf8Slice params are reconstructed into a local → use {name}Val
+                    var valSuffix = passable.category is ParamAbiCategory.PayloadHandle
+                        or ParamAbiCategory.Utf8Slice ? "Val" : "";
                     allCallArgs.Add($"{label}{paramName}{valSuffix}");
                 }
             }
@@ -742,8 +772,9 @@ public static class MethodClosureBridge
             {
                 var label = GetSwiftArgLabel(passable.arg);
                 var paramName = NameProvider.EscapeSwiftKeyword(passable.csName);
-                // PayloadHandle params were loaded from pointer → use {name}Val
-                var valSuffix = passable.category == ParamAbiCategory.PayloadHandle ? "Val" : "";
+                // PayloadHandle/Utf8Slice params were reconstructed → use {name}Val
+                var valSuffix = passable.category is ParamAbiCategory.PayloadHandle
+                    or ParamAbiCategory.Utf8Slice ? "Val" : "";
                 allCallArgs.Add($"{label}{paramName}{valSuffix}");
             }
         }
@@ -873,6 +904,10 @@ public static class MethodClosureBridge
                         pinvokeParams.Add($"[MarshalAs(UnmanagedType.U1)] bool {csName}");
                     else
                         pinvokeParams.Add($"{GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
+                    break;
+                case ParamAbiCategory.Utf8Slice:
+                    pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
+                    pinvokeParams.Add($"nint {csName}Utf8Len");
                     break;
             }
         }
@@ -1054,7 +1089,7 @@ public static class MethodClosureBridge
                 csWriter.Indent++;
                 for (int i = 0; i < ci.ClosureArgs.Count; i++)
                 {
-                    EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i);
+                    EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i, env);
                 }
                 var userArgs = string.Join(", ", Enumerable.Range(0, ci.ClosureArgs.Count).Select(i => $"__a{i}"));
                 csWriter.WriteLine($"return {ci.ParamName}({userArgs});");
@@ -1070,7 +1105,7 @@ public static class MethodClosureBridge
                     csWriter.Indent++;
                     for (int i = 0; i < ci.ClosureArgs.Count; i++)
                     {
-                        EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i);
+                        EmitArgMarshal(csWriter, ci.ClosureArgs[i], closureArgCSharpTypes[i], i, env);
                     }
                     var userArgs = string.Join(", ", Enumerable.Range(0, ci.ClosureArgs.Count).Select(i => $"__a{i}"));
                     csWriter.WriteLine($"{ci.ParamName}({userArgs});");
@@ -1095,6 +1130,17 @@ public static class MethodClosureBridge
             }
         }
 
+        // Utf8Slice params: allocate UTF-8 bytes up front; pin via `fixed` around the P/Invoke call below.
+        // `bareName` strips any `@` verbatim prefix from `csName` so the local identifiers are valid.
+        var utf8SliceLocals = new List<(string csName, string bareName)>();
+        foreach (var (_, csName, _, category) in passableNonClosureParams)
+        {
+            if (category != ParamAbiCategory.Utf8Slice) continue;
+            var bareName = NameProvider.StripVerbatimPrefix(csName);
+            utf8SliceLocals.Add((csName, bareName));
+            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+        }
+
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
 
@@ -1111,6 +1157,11 @@ public static class MethodClosureBridge
                     break;
                 case ParamAbiCategory.Primitive:
                     callArgs.Add(csName);
+                    break;
+                case ParamAbiCategory.Utf8Slice:
+                    var bareName = NameProvider.StripVerbatimPrefix(csName);
+                    callArgs.Add($"(IntPtr)__{bareName}Ptr");
+                    callArgs.Add($"(nint)__{bareName}Utf8.Length");
                     break;
             }
         }
@@ -1145,6 +1196,16 @@ public static class MethodClosureBridge
                 : selfHandle);
         }
 
+        // Pin UTF-8 byte arrays for Swift.String params so the Swift @_cdecl adapter can read
+        // them via UnsafeBufferPointer. Fixed block must wrap the entire P/Invoke call (and its
+        // return-value marshalling for class returns, since the Swift side may still be reading).
+        foreach (var (_, bareName) in utf8SliceLocals)
+        {
+            csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
         if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
@@ -1160,6 +1221,12 @@ public static class MethodClosureBridge
             csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
         }
 
+        for (int i = 0; i < utf8SliceLocals.Count; i++)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
@@ -1171,7 +1238,8 @@ public static class MethodClosureBridge
         CSharpWriter csWriter,
         TypeSpec argType,
         string csharpType,
-        int index)
+        int index,
+        MethodEnvironment env)
     {
         if (argType is NamedTypeSpec named && named.Name == "Swift.Bool")
         {
@@ -1204,6 +1272,22 @@ public static class MethodClosureBridge
             // via the VWT (InitializeWithCopy), so the SafeHandle owns the copy — must NOT
             // suppress finalization (that's MarshalBorrowedFromSwift's job). Use MarshalFromSwift.
             csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
+        }
+        else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true })
+        {
+            // Simple enum with numeric raw value — Swift wrapper passed `.rawValue`, so the
+            // callback receives the underlying integer directly. Cast to the typed enum.
+            csWriter.WriteLine($"var __a{index} = ({csharpType})__p{index};");
+        }
+        else if (IsOptionalClassArg(argType, env) &&
+                 argType is NamedTypeSpec optClassArg &&
+                 optClassArg.GenericParameters[0] is NamedTypeSpec innerClassSpec &&
+                 env.TypeDatabase.TryGetTypeRecord(innerClassSpec, out var innerClassRec))
+        {
+            // Optional<Class/ObjC> — Swift passed nil as IntPtr.Zero; non-nil is a borrowed ref.
+            // MarshalBorrowedFromSwift suppresses the finalizer (caller owns lifetime).
+            var innerCs = innerClassRec.CSharpTypeName.FullyQualifiedName;
+            csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : SwiftMarshal.MarshalBorrowedFromSwift<{innerCs}>(__p{index});");
         }
         else
         {
@@ -1340,6 +1424,28 @@ public static class MethodClosureBridge
         // Primitives
         if (MarshallingHelpers.IsSwiftPrimitive(named.Name)) return true;
 
+        // Optional<Class/ObjC>: nil-pointer ABI — Swift passes the class as
+        // `UnsafeMutableRawPointer?`, C# receives `IntPtr` (Zero = nil). Arrays, dictionaries,
+        // sets, optionals-of-primitive, optional-of-struct remain unsupported to keep the
+        // existing rejection surface minimal.
+        if (named.ContainsGenericParameters && named.Name == "Swift.Optional" &&
+            named.GenericParameters.Count == 1 &&
+            named.GenericParameters[0] is NamedTypeSpec optInner &&
+            !MarshallingHelpers.IsSwiftPrimitive(optInner.Name))
+        {
+            try
+            {
+                if (typeDatabase.TryGetTypeRecord(
+                    SwiftTypeName.FromModuleQualifiedName(optInner.Name), out var innerRecord))
+                {
+                    if (innerRecord.Kind == TypeRecordKind.Class ||
+                        MarshallingHelpers.IsObjCBridged(innerRecord))
+                        return true;
+                }
+            }
+            catch (ArgumentException) { }
+        }
+
         // Bound generics — check base type resolves and each generic arg is valid
         if (named.ContainsGenericParameters)
         {
@@ -1387,12 +1493,18 @@ public static class MethodClosureBridge
             if (typeDatabase.TryGetTypeRecord(
                 SwiftTypeName.FromModuleQualifiedName(named.Name), out var record))
             {
-                // D1: Complex enums supported via heap-allocated pointer ABI.
-                // Simple enums are excluded — they're blittable integers but MCB's
-                // pointer ABI (IntPtr + MarshalFromSwift<T>) doesn't support C# enum types.
-                if (record.Kind == TypeRecordKind.Enum &&
-                    (record.Flags & TypeRecordFlags.SimpleEnum) == 0)
-                    return true;
+                if (record.Kind == TypeRecordKind.Enum)
+                {
+                    // Complex enums: heap-allocated pointer ABI.
+                    if ((record.Flags & TypeRecordFlags.SimpleEnum) == 0)
+                        return true;
+
+                    // Simple enums: pass raw value as the underlying integer across the cdecl
+                    // boundary. String-backed raw values fall outside the integer ABI — skip
+                    // those (they would need a pointer path).
+                    return !string.IsNullOrEmpty(record.RawValueTypeName) &&
+                           record.RawValueTypeName != "String";
+                }
 
                 return record.Kind == TypeRecordKind.Class ||
                        MarshallingHelpers.IsObjCBridged(record);
@@ -1426,7 +1538,8 @@ public static class MethodClosureBridge
         var category = ClassifyParam(arg, typeDatabase);
         return category is ParamAbiCategory.Primitive
             or ParamAbiCategory.ObjCHandle
-            or ParamAbiCategory.PayloadHandle;
+            or ParamAbiCategory.PayloadHandle
+            or ParamAbiCategory.Utf8Slice;
     }
 
     /// <summary>
@@ -1476,6 +1589,9 @@ public static class MethodClosureBridge
                     return (record.CSharpTypeName.FullyQualifiedName, category);
                 return ("IntPtr", category);
 
+            case ParamAbiCategory.Utf8Slice:
+                return ("string", category);
+
             default:
                 return ("IntPtr", ParamAbiCategory.Unsupported);
         }
@@ -1500,6 +1616,15 @@ public static class MethodClosureBridge
             if (namedArg.Name == "Swift.Bool") return "bool";
             if (MarshallingHelpers.IsSwiftPrimitive(namedArg.Name))
                 return GetCSharpPrimitiveType(namedArg.Name);
+
+            // Optional<Class/ObjC>: project as `ClassT?` — the user-facing delegate receives
+            // a nullable reference. Matches the nil-pointer ABI handled by EmitArgMarshal.
+            if (IsOptionalClassArg(argType, env) &&
+                namedArg.GenericParameters[0] is NamedTypeSpec innerClass &&
+                env.TypeDatabase.TryGetTypeRecord(innerClass, out var innerRecord))
+            {
+                return $"{innerRecord.CSharpTypeName.FullyQualifiedName}?";
+            }
 
             // Bound generic (e.g., DataResponse<Data, AFError>) — use BoundGenericsHandler
             if (namedArg.ContainsGenericParameters)
@@ -1570,10 +1695,43 @@ public static class MethodClosureBridge
             if (named.Name == "Swift.Bool") return "byte";
             if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                 return GetCSharpPrimitiveType(named.Name);
+
+            // Simple enum: pass raw value via the enum's C# underlying integer type.
+            var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
+            if (enumInfo != null)
+                return enumInfo.Value.csUnderlying;
+
+            // Optional<Class/ObjC>: nil-pointer ABI — IntPtr (Zero = nil).
+            if (IsOptionalClassArg(argType, env)) return "IntPtr";
         }
 
         // Bound generics, classes: IntPtr (pointer ABI)
         return "IntPtr";
+    }
+
+    /// <summary>
+    /// Checks whether <paramref name="argType"/> is <c>Swift.Optional&lt;T&gt;</c> where
+    /// <c>T</c> is a Swift class or ObjC-bridged class. These use the nil-pointer ABI
+    /// (IntPtr.Zero signals nil; non-zero is a borrowed reference).
+    /// </summary>
+    private static bool IsOptionalClassArg(TypeSpec argType, MethodEnvironment env)
+    {
+        if (argType is not NamedTypeSpec named) return false;
+        if (named.Name != "Swift.Optional") return false;
+        if (named.GenericParameters.Count != 1) return false;
+        if (named.GenericParameters[0] is not NamedTypeSpec inner) return false;
+        if (MarshallingHelpers.IsSwiftPrimitive(inner.Name)) return false;
+        try
+        {
+            if (env.TypeDatabase.TryGetTypeRecord(
+                SwiftTypeName.FromModuleQualifiedName(inner.Name), out var record))
+            {
+                return record.Kind == TypeRecordKind.Class ||
+                       MarshallingHelpers.IsObjCBridged(record);
+            }
+        }
+        catch (ArgumentException) { }
+        return false;
     }
 
     /// <summary>
@@ -1690,6 +1848,8 @@ public static class MethodClosureBridge
         FrozenStruct,
         /// <summary>Pointer/buffer types (UnsafePointer, etc.) — NOT passable. Mapped to System.IntPtr, no Payload.</summary>
         PointerType,
+        /// <summary>Swift.String → split into (UTF-8 byte pointer, length) pair, C# side pins via fixed.</summary>
+        Utf8Slice,
         /// <summary>Unknown/unresolvable type — NOT passable.</summary>
         Unsupported,
     }
@@ -1705,6 +1865,9 @@ public static class MethodClosureBridge
 
         if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
             return ParamAbiCategory.Primitive;
+
+        if (named.Name == "Swift.String")
+            return ParamAbiCategory.Utf8Slice;
 
         if (IsSwiftPointerType(named.Name))
             return ParamAbiCategory.PointerType;

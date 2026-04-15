@@ -923,8 +923,10 @@ namespace BindingsGeneration
                     if (usesCdecl && cdeclReconstructionLines.Count > 0)
                     {
                         var label_ = !string.IsNullOrEmpty(p.PrivateName) ? p.PrivateName : p.Name;
-                        // Check if this param had a reconstruction (has a Val suffix variable)
-                        if (cdeclReconstructionLines.Any(line => line.Contains($"let {label_}Val ")))
+                        // Reconstruction lines appear in two shapes: `let NameVal = ...` (no type
+                        // annotation) and `let NameVal: Type = ...` (existential path). Match both.
+                        if (cdeclReconstructionLines.Any(line =>
+                                line.Contains($"let {label_}Val ") || line.Contains($"let {label_}Val:")))
                         {
                             var argLabel = p.Name switch
                             {

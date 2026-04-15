@@ -192,8 +192,16 @@ namespace BindingsGeneration
             if (deprecationMsg != null)
                 issues.Insert(0, $"Deprecated: {deprecationMsg}");
 
-            // No wrapper/thunk warning (skip accessors — see property deferral)
-            if (!_env.MethodDecl.IsAccessor && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
+            // No wrapper/thunk warning (skip accessors — see property deferral).
+            // UsesFreeFunctionWrapper means a Swift @_silgen_name wrapper exists — C# calls it with
+            // CallConvSwift matching the wrapper's swiftcc, so there's no ABI mismatch risk.
+            // Also skip when every P/Invoke type is blittable: CallConvSwift on a blittable
+            // signature is ABI-stable on both Mono and NativeAOT, so there is no JIT risk.
+            if (!_env.MethodDecl.IsAccessor
+                && !_env.MethodDecl.UsesCdeclWrapper
+                && !_env.MethodDecl.UsesNativeThunk
+                && !_env.MethodDecl.UsesFreeFunctionWrapper
+                && WrapperValidation.HasNonBlittablePInvokeTypes(_env))
             {
                 hasJitRisk = true;
                 issues.Add("No @_cdecl wrapper or native thunk available. " +

@@ -68,6 +68,24 @@ public class DatabaseReader {
     }
 }
 
+// MARK: - Swift.String as MCB non-closure param (Stripe pattern)
+
+/// Fixture exercising a `Swift.String` non-closure parameter on an MCB-eligible
+/// method. MCB activates via the `Result<T, any Error>` closure arg; the String
+/// must be passed as a UTF-8 (pointer, length) pair via the Utf8Slice category
+/// so the C# wrapper can pin the bytes with `fixed` rather than allocating a
+/// SwiftString payload buffer.
+public final class StringParamMCBFixture {
+    public init() {}
+
+    /// Returns the length of the input string as a Result wrapped in the
+    /// completion callback. The name mirrors Stripe's `possibleBrands(forNumber:)`
+    /// signature — single String non-closure param + Result closure.
+    public func measure(input: String, completion: @escaping (Result<Int32, any Error>) -> Void) {
+        completion(.success(Int32(input.utf8.count)))
+    }
+}
+
 // MARK: - Optional MCB closure (Nuke / GRDB / Kingfisher pattern)
 
 /// Non-generic class exposing an Optional closure whose argument is `any Error` —

@@ -1376,6 +1376,13 @@ public static class WrapperValidation
     /// </summary>
     internal static bool HasNonBlittablePInvokeTypes(MethodEnvironment env)
     {
+        // Async methods always go through a Swift-side @_silgen_name (or @_cdecl) wrapper that
+        // converts non-blittable params to UnsafeRawPointer and boxes non-frozen self. The C#
+        // P/Invoke signature is uniformly blittable: callback/errorCallback/taskId + IntPtrs +
+        // function pointers. CallConvSwift on that shape is ABI-stable on both Mono and NativeAOT.
+        if (env.MethodDecl.IsAsync)
+            return false;
+
         // Non-frozen struct instance members: self is IntPtr (non-blittable with CallConvSwift)
         if (IsNonFrozenStructInstanceMember(env))
             return true;

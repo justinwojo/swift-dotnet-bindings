@@ -43,6 +43,37 @@ public class GenericClosureBridgeTests : TestBase
         TestLogger.Info("GenericProcessor.RunWithFilter MCB generic parent test passed");
     }
 
+    // ─── Swift.String as MCB non-closure param (Stripe pattern) ──────
+
+    /// <summary>
+    /// MCB passes a Swift.String non-closure parameter as a UTF-8 (pointer, length)
+    /// pair. C# pins the bytes via `fixed`, Swift rebuilds the String, and the
+    /// Result-returning callback surfaces the rebuilt length back to the caller.
+    /// Round-trip must match the UTF-8 byte count for an ASCII input and a
+    /// multi-byte-character input.
+    /// </summary>
+    public void TestStringParamMCB_RoundTrip()
+    {
+        using var fixture = new StringParamMCBFixture();
+
+        int? asciiCount = null;
+        fixture.Measure("hello", result =>
+        {
+            if (result.IsSuccess) asciiCount = result.Success;
+        });
+        AssertEqual(5, asciiCount, "ASCII UTF-8 count round-tripped through Utf8Slice");
+
+        int? multiByteCount = null;
+        fixture.Measure("héllo", result =>
+        {
+            if (result.IsSuccess) multiByteCount = result.Success;
+        });
+        // "héllo": h(1) + é(2) + l(1) + l(1) + o(1) = 6 UTF-8 bytes
+        AssertEqual(6, multiByteCount, "Multi-byte UTF-8 count round-tripped through Utf8Slice");
+
+        TestLogger.Info("Swift.String non-closure MCB param round-trip passed");
+    }
+
     // ─── Optional MCB closure (Nuke/GRDB/Kingfisher pattern) ───────────
 
     /// <summary>

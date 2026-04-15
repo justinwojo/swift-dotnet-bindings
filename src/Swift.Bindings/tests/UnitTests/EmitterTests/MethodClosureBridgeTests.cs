@@ -510,6 +510,17 @@ public class MethodClosureBridgeTests
     }
 
     [Fact]
+    public void ClassifyParam_SwiftString_ReturnsUtf8Slice()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var arg = CreateArgument("name", new NamedTypeSpec("Swift.String"), CreateModuleDecl("TestModule"));
+
+        var result = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+
+        Assert.Equal(MethodClosureBridge.ParamAbiCategory.Utf8Slice, result);
+    }
+
+    [Fact]
     public void ClassifyParam_ObjCBridged_ReturnsObjCHandle()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -610,6 +621,76 @@ public class MethodClosureBridgeTests
         var closureHandler = new ClosureHandler(typeDatabase);
 
         Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void IsEligible_ResultClosure_SwiftStringParam_ReturnsTrue()
+    {
+        // Pattern C: Swift.String as a non-closure parameter on an MCB-eligible method.
+        // MCB activates via the Result<T, any Error> closure arg; the string must be
+        // accepted as Utf8Slice so MCB generates a fixed-block-pinned UTF-8 pair.
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("Swift.String"), "cardNumber");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
+    [Fact]
+    public void TryEmit_SwiftStringNonClosureParam_EmitsUtf8SliceAndFixedBlock()
+    {
+        var typeDatabase = CreateTypeDatabaseWithResultTypes();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var resultArg = new NamedTypeSpec("Swift.Result",
+            new NamedTypeSpec("TestModule.MyData"), new NamedTypeSpec("TestModule.MyError"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)resultArg }), TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDeclWithNonClosureParam("loadImage", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "completion",
+            new NamedTypeSpec("Swift.String"), "cardNumber");
+        var env = new MethodEnvironment(method, typeDatabase);
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        var emitted = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(emitted);
+        var swift = swiftOutput.ToString();
+        var cs = csOutput.ToString();
+
+        // Swift wrapper splits the string into (pointer, length) and rebuilds via String(bytes:encoding:)
+        Assert.Contains("cardNumberUtf8Ptr: UnsafePointer<UInt8>", swift);
+        Assert.Contains("cardNumberUtf8Len: Int", swift);
+        Assert.Contains("String(bytes: UnsafeBufferPointer(start: cardNumberUtf8Ptr, count: cardNumberUtf8Len), encoding: .utf8)!", swift);
+        // And invokes the original Swift method with the reconstructed Val.
+        Assert.Contains("cardNumberVal", swift);
+
+        // C# public method accepts a string, pins UTF-8 bytes via fixed, and passes (ptr, len).
+        Assert.Contains("string cardNumber", cs);
+        Assert.Contains("System.Text.Encoding.UTF8.GetBytes(cardNumber)", cs);
+        Assert.Contains("fixed (byte* __cardNumberPtr = __cardNumberUtf8)", cs);
+
+        // P/Invoke signature has IntPtr + nint pair, not a SwiftString.Buffer.
+        Assert.Contains("IntPtr cardNumberUtf8Ptr", cs);
+        Assert.Contains("nint cardNumberUtf8Len", cs);
     }
 
     [Fact]

@@ -966,10 +966,11 @@ namespace BindingsGeneration
                 asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
                     if (p.IsGeneric) return false;
                     if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
-                    if (CdeclParamMapper.IsProtocolExistentialType(p.SwiftTypeSpec, methodEnv.TypeDatabase)) return false;
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
                     // Frozen blittable struct params are now supported in async via heap allocation
                     // (NativeMemory.Alloc instead of stackalloc). See WrapperEmitter.Async.cs.
+                    // Protocol existentials are marshalled as UnsafeRawPointer to the
+                    // ExistentialContainer1 heap allocation — see CdeclParamMapper.
                     return true;
                 });
             }
@@ -1413,7 +1414,7 @@ namespace BindingsGeneration
             var awaitResult = resultTypeName != null ? "return await tcs.Task;" : "await tcs.Task;";
 
             // Propagate SB0001/SB0002 safety attributes from the underlying method
-            var safetyAttr = GetSafetyObsoleteAttribute(methodDecl);
+            var safetyAttr = GetSafetyObsoleteAttribute(methodEnv);
 
             // Emit the overload
             csWriter.WriteLines($$"""
@@ -1442,13 +1443,25 @@ namespace BindingsGeneration
         /// Returns the [Obsolete] attribute string for SB0001/SB0002 safety diagnostics if the method
         /// has JIT risk or missing symbol issues, or null if no safety attribute is needed.
         /// Used to propagate safety attributes to derived methods (e.g., async wrappers).
+        /// Mirrors the gate in <see cref="WrapperEmitter.EmitSafetyObsolete"/>: SB0001 only
+        /// fires when there is no wrapper AND the P/Invoke signature contains non-blittable types.
         /// </summary>
-        internal static string? GetSafetyObsoleteAttribute(MethodDecl methodDecl)
+        internal static string? GetSafetyObsoleteAttribute(MethodEnvironment env)
         {
+            var methodDecl = env.MethodDecl;
             bool hasJitRisk = false;
             var issues = new List<string>();
 
-            if (!methodDecl.UsesCdeclWrapper && !methodDecl.UsesNativeThunk)
+            // UsesFreeFunctionWrapper means a Swift-side wrapper (either @_cdecl or @_silgen_name)
+            // exists with a signature the P/Invoke declaration matches. @_silgen_name wrappers keep
+            // swiftcc and C# calls them with CallConvSwift — still a matched pair, not a JIT risk.
+            // When every P/Invoke type is blittable, CallConvSwift is ABI-stable on Mono/NativeAOT
+            // even without a wrapper.
+            if (!methodDecl.IsAccessor
+                && !methodDecl.UsesCdeclWrapper
+                && !methodDecl.UsesNativeThunk
+                && !methodDecl.UsesFreeFunctionWrapper
+                && WrapperValidation.HasNonBlittablePInvokeTypes(env))
             {
                 hasJitRisk = true;
                 issues.Add("No @_cdecl wrapper or native thunk available. " +

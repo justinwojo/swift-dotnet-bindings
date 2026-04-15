@@ -26,7 +26,9 @@ public class ConsumerSafetyAttributeTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("handle", classDecl, moduleDecl);
-        // No @_cdecl wrapper or native thunk → gets warning
+        // Swift.String (16-byte frozen+RefFields) makes the P/Invoke signature non-blittable,
+        // so the narrowed SB0001 gate still fires when no wrapper/thunk is present.
+        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
@@ -34,6 +36,21 @@ public class ConsumerSafetyAttributeTests
         Assert.Contains("No @_cdecl wrapper or native thunk available", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         Assert.DoesNotContain(", true)]", csOutput);
+    }
+
+    [Fact]
+    public void NoWrapperOrThunk_BlittableSignature_NoObsolete()
+    {
+        // A sync CallConvSwift P/Invoke with only blittable types is ABI-stable on both
+        // Mono and NativeAOT, so the SB0001 gate must not fire even without a wrapper.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("handle", classDecl, moduleDecl);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("DiagnosticId = \"SB0001\"", csOutput);
     }
 
     [Fact]
@@ -73,6 +90,9 @@ public class ConsumerSafetyAttributeTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var ctor = CreateConstructor(classDecl, moduleDecl);
+        // Swift.String forces a non-blittable P/Invoke signature so the narrowed
+        // SB0001 gate still triggers without a @_cdecl constructor wrapper.
+        ctor.CSSignature.Add(CreateArg("label", new NamedTypeSpec("Swift.String"), moduleDecl));
 
         var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
 
@@ -184,6 +204,8 @@ public class ConsumerSafetyAttributeTests
         var method = CreateMethod("crash", classDecl, moduleDecl, isStatic: true);
         // No @_cdecl wrapper + missing symbol → both warnings combined
         method.IsMissingExportedSymbol = true;
+        // Non-blittable param keeps SB0001 in scope under the narrower blittability gate.
+        method.CSSignature.Add(CreateArg("tag", new NamedTypeSpec("Swift.String"), moduleDecl));
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
@@ -346,10 +368,13 @@ public class ConsumerSafetyAttributeTests
     [Fact]
     public void GetSafetyObsoleteAttribute_NoWrapperOrThunk_ReturnsSB0001()
     {
-        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
-        // No @_cdecl wrapper or native thunk → gets SB0001
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
+        // Non-blittable param so the narrowed SB0001 gate actually fires.
+        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+        var env = new MethodEnvironment(method, CreateTypeDatabase());
 
-        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
 
         Assert.NotNull(attr);
         Assert.Contains("SB0001", attr);
@@ -357,13 +382,29 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
+    public void GetSafetyObsoleteAttribute_BlittableSignature_ReturnsNull()
+    {
+        // No wrapper, but the P/Invoke signature is fully blittable — SB0001 must not fire
+        // for the propagated completion-handler overload either.
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
+        var env = new MethodEnvironment(method, CreateTypeDatabase());
+
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
+
+        Assert.Null(attr);
+    }
+
+    [Fact]
     public void GetSafetyObsoleteAttribute_MissingSymbol_ReturnsSB0002()
     {
-        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
         method.UsesCdeclMethodWrapper = true; // Has wrapper, so no SB0001 warning
         method.IsMissingExportedSymbol = true;
+        var env = new MethodEnvironment(method, CreateTypeDatabase());
 
-        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
 
         Assert.NotNull(attr);
         Assert.Contains("SB0002", attr);
@@ -373,10 +414,12 @@ public class ConsumerSafetyAttributeTests
     [Fact]
     public void GetSafetyObsoleteAttribute_CdeclWrapped_ReturnsNull()
     {
-        var method = CreateMethod("present", CreateClassDecl("Foo", CreateModuleDecl()), CreateModuleDecl());
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
         method.UsesCdeclMethodWrapper = true;
+        var env = new MethodEnvironment(method, CreateTypeDatabase());
 
-        var attr = MethodHandler.GetSafetyObsoleteAttribute(method);
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
 
         Assert.Null(attr);
     }
@@ -522,7 +565,8 @@ public class ConsumerSafetyAttributeTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                 MetadataAccessor = "$sSSMa",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
-                Kind = TypeRecordKind.Struct
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16
             });
         typeDb.AddModuleDatabase(swiftModule);
 
