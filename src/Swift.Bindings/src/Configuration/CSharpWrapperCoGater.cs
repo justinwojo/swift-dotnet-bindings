@@ -853,7 +853,35 @@ namespace BindingsGeneration
             if (trimmed.Contains('('))
                 return false;
 
+            // Events, delegates, and nested type declarations also lack '(' and have brace
+            // bodies — exclude them so the heuristic does not misidentify them as
+            // property-shaped and emit invalid get/set accessor replacements.
+            if (ContainsKeywordToken(trimmed, "event") ||
+                ContainsKeywordToken(trimmed, "class") ||
+                ContainsKeywordToken(trimmed, "struct") ||
+                ContainsKeywordToken(trimmed, "interface") ||
+                ContainsKeywordToken(trimmed, "enum") ||
+                ContainsKeywordToken(trimmed, "delegate"))
+                return false;
+
             return ExtractMemberName(trimmed) != null;
+        }
+
+        private static bool ContainsKeywordToken(string line, string keyword)
+        {
+            int start = 0;
+            while (true)
+            {
+                int idx = line.IndexOf(keyword, start, StringComparison.Ordinal);
+                if (idx < 0) return false;
+                char left = idx == 0 ? ' ' : line[idx - 1];
+                int endIdx = idx + keyword.Length;
+                char right = endIdx >= line.Length ? ' ' : line[endIdx];
+                bool leftBoundary = !char.IsLetterOrDigit(left) && left != '_';
+                bool rightBoundary = !char.IsLetterOrDigit(right) && right != '_';
+                if (leftBoundary && rightBoundary) return true;
+                start = idx + 1;
+            }
         }
 
         private static bool IsKeyword(string name)
@@ -1529,13 +1557,14 @@ namespace BindingsGeneration
                     // Private/internal methods that aren't property helpers can be stripped safely.
                     bool isPublicMember = trimmed.StartsWith("public ", StringComparison.Ordinal);
                     bool isPropertyHelper = memberName != null && IsPropertyHelperName(memberName);
+                    bool isEventDecl = ContainsKeywordToken(trimmed, "event");
 
                     // Detect property declarations: body contains get/set accessors, or the
                     // declaration itself is property-shaped. The latter covers co-gating of
                     // generated proxy interface properties whose invalid proxy body is replaced
                     // before any accessor token can be observed.
                     bool hasSetter = false;
-                    bool isPropertyDecl = isPublicMember &&
+                    bool isPropertyDecl = isPublicMember && !isEventDecl &&
                         IsPropertyDeclaration(trimmed, lines, braceOpenLine, blockEnd, out hasSetter);
 
                     if (isPropertyDecl)
@@ -1545,6 +1574,16 @@ namespace BindingsGeneration
                         var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
                         replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
                             isVoidReturn: false, isProperty: true, propertySetter: hasSetter);
+                    }
+                    else if (isEventDecl)
+                    {
+                        // Events need add/remove accessors inside braces; a bare throw body is
+                        // invalid C#. The generator does not currently emit events from Swift
+                        // surface, so the safe default is to fully strip an event that references
+                        // a suppressed proxy rather than emit uncompilable accessor replacements.
+                        int preambleStart = ScanBackwardForPreamble(lines, i);
+                        for (int j = preambleStart; j <= blockEnd; j++)
+                            removals.Add(j);
                     }
                     else if (isPublicMember || isPropertyHelper)
                     {
