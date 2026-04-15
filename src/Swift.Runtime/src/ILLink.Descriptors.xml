@@ -20,6 +20,7 @@
     <type fullname="Swift.SwiftSet`1" preserve="all" />
     <type fullname="Swift.Data" preserve="all" />
     <type fullname="Swift.AnyHashable" preserve="all" />
+    <type fullname="Swift.Measurement`1" preserve="all" />
     <!-- Existential containers -->
     <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />

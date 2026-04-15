@@ -17,7 +17,13 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
 {
     private SwiftSafeHandle<Measurement<T>> _payload = SwiftSafeHandle<Measurement<T>>.Zero;
     private bool _disposed;
-    private static TypeMetadata? _cachedMetadata;
+
+    // Routes through SwiftObjectHelper so RunClassConstructor (the NativeAOT fallback in
+    // TypeMetadata.TryGetTypeMetadataUncached / SwiftMarshal.MarshalFromSwiftCore) both
+    // populates TypeMetadata.Cache AND registers the NewFromPayload factory. Direct
+    // registration without the factory causes SIGSEGV when MarshalFromSwift falls back
+    // to reflection on closed generic instantiations under NativeAOT. Mirrors SwiftOptional<T>.
+    private static readonly nuint _payloadSize = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata().Size;
 
     public SwiftSafeHandle<Measurement<T>> Payload => _payload;
 
@@ -25,8 +31,8 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
 
     /// <summary>The numeric value of the measurement.</summary>
     /// <remarks>
-    /// Reads the Double at offset 0 of the VWT-managed payload. This assumes the
-    /// Measurement layout starts with the value field, which has been stable since iOS 10.
+    /// Swift's Foundation.Measurement is declared as <c>{ unit: UnitType; value: Double }</c>,
+    /// so with an 8-byte class reference for <c>unit</c>, the Double lives at offset 8.
     /// A fully resilient approach would require per-unit-type Swift property accessors,
     /// which is impractical for a generic C# projection.
     /// </remarks>
@@ -40,7 +46,7 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    return *(double*)_payload.DangerousGetHandle();
+                    return *(double*)((byte*)_payload.DangerousGetHandle() + sizeof(IntPtr));
                 }
                 finally
                 {
@@ -65,7 +71,7 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
                 _payload.DangerousAddRef(ref success);
                 try
                 {
-                    return *(IntPtr*)((byte*)_payload.DangerousGetHandle() + sizeof(double));
+                    return *(IntPtr*)_payload.DangerousGetHandle();
                 }
                 finally
                 {
@@ -75,24 +81,21 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
         }
     }
 
-    static TypeMetadata ISwiftObject.GetTypeMetadata()
-        => _cachedMetadata ??= InitializeMetadata();
-
-    private static TypeMetadata InitializeMetadata()
+    static TypeMetadata ISwiftObject.GetTypeMetadata() => TypeMetadata.Cache.GetOrAdd(typeof(Measurement<T>), _ =>
     {
-        // T is an NSUnit subclass whose C# name matches the ObjC class name
-        // (e.g., NSUnitTemperature → "NSUnitTemperature"). The ObjC class pointer
-        // IS the Swift type metadata for ObjC-bridged classes.
+        // T is an NSUnit subclass whose C# name matches the ObjC class name.
+        // Route through swift_getObjCClassMetadata so the Swift runtime returns
+        // proper type metadata with a valid VWT — the raw ObjC class pointer is
+        // not interchangeable with Swift generic argument metadata on NativeAOT
+        // and passing it directly crashes the Measurement metadata accessor.
         var unitClassName = typeof(T).Name;
-        var unitClassHandle = ObjCInterop.GetObjCClassHandle(unitClassName);
-        var metadata = MeasurementInterop.GetMeasurementMetadata(TypeMetadata.FromHandle(unitClassHandle));
-        _cachedMetadata = metadata;
-        return metadata;
-    }
+        var unitMetadata = ObjCInterop.GetTypeMetadata(unitClassName);
+        return MeasurementInterop.GetMeasurementMetadata(unitMetadata);
+    });
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
-        var metadata = _cachedMetadata ??= InitializeMetadata();
+        var metadata = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata();
         unsafe
         {
             var size = (int)metadata.Size;
@@ -104,7 +107,7 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
 
     int ISwiftObject.MarshalToSwift(ref Span<byte> swiftDestSpan)
     {
-        var metadata = _cachedMetadata ??= InitializeMetadata();
+        var metadata = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata();
         if ((int)metadata.Size > swiftDestSpan.Length)
             throw new ArgumentException($"Span size mismatch: expected {(int)metadata.Size}, got {swiftDestSpan.Length}");
         unsafe

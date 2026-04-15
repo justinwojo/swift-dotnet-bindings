@@ -763,10 +763,15 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // The eager helper-PInvoke field initializer must be emitted.
+        // The eager helper-PInvoke field initializer must be emitted. The PInvoke call is
+        // wrapped in TypeMetadata.RegisterAndGetSize so RunClassConstructor → static field
+        // init populates both TypeMetadata.Cache AND the NewFromPayloadDispatcher factory
+        // (via NewFromPayloadCore), avoiding reflection for MarshalFromSwift on closed
+        // generic instantiations.
         Assert.Contains(
-            "static nuint _payloadSize = ValueProviderStorage_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete,",
+            "static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof(ValueProviderStorage<T>), ValueProviderStorage_PInvoke.PInvoke_getMetadata(TypeMetadataRequest.Complete,",
             csOutput);
+        Assert.Contains("NewFromPayloadCore", csOutput);
         // The Mono-JIT-crashing form must NEVER appear for generic enums.
         Assert.DoesNotContain(
             "static nuint _payloadSize = SwiftObjectHelper<ValueProviderStorage<T>>",

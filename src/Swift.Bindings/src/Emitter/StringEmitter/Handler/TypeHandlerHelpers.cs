@@ -258,14 +258,21 @@ namespace BindingsGeneration
             // private SwiftHandle-taking constructor, avoiding CS0121 ambiguity against any
             // public single-arg constructor whose parameter accepts an implicit IntPtr conversion
             // (e.g. SwiftOptional<IntPtr> for non-bridged optional parameters).
+            //
+            // NewFromPayloadCore is factored out so the `_payloadSize` static initializer can
+            // hand it to TypeMetadata.RegisterAndGetSize as the NewFromPayloadDispatcher factory.
+            // This removes the NativeAOT reflection fallback for generic instantiations.
             var text = $$"""
             [EditorBrowsable(EditorBrowsableState.Never)]
-            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
+            private static ISwiftObject NewFromPayloadCore(IntPtr handle)
             {
                 var obj = new {{_typeNameWithGenerics}}(new SwiftHandle(handle));
                 Swift.Runtime.SwiftDisposeScope.TryRegister(obj);
                 return obj;
             }
+
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle) => NewFromPayloadCore(handle);
             """;
 
             _writer.WriteLines(text);

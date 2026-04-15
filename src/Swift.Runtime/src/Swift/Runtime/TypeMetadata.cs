@@ -321,6 +321,21 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
+    /// Registers Swift type metadata and the NewFromPayload factory, then returns the
+    /// metadata size. Used as a `_payloadSize` initializer for generated bound-generic
+    /// types so that on NativeAOT, RunClassConstructor → static field init populates both
+    /// the metadata cache AND NewFromPayloadDispatcher. Registering the factory here
+    /// makes MarshalFromSwift trim-safe for generic instantiations instead of relying on
+    /// reflection on explicit interface implementations.
+    /// </summary>
+    public static nuint RegisterAndGetSize(Type type, TypeMetadata metadata, Func<IntPtr, object> newFromPayloadFactory)
+    {
+        RegisterMetadata(type, metadata);
+        Swift.Runtime.InteropServices.NewFromPayloadDispatcher.Register(type, newFromPayloadFactory);
+        return metadata.Size;
+    }
+
+    /// <summary>
     /// Attempt to get the Swift type metadata but without accessing the cache
     /// </summary>
     /// <typeparam name="T">The type of the object</typeparam>

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -37,6 +38,10 @@ public class ClosureOverloadCollisionTests : TestBase
         AssertTrue(result.Contains("set:"), "Set overload (Process2) returns set-prefixed result");
     }
 
+    // [DynamicDependency] preserves Process2 through NativeAOT trimming. The only other
+    // caller (TestCollectionProcessorSetOverload) is skipped, so without this attribute
+    // ILC sees no live edge and trims the virtual method.
+    [DynamicDependency("Process2", typeof(CollectionProcessor))]
     public void TestCollectionProcessorDisambiguatedMethodExists()
     {
         // Verify Process2 exists as a method — compile-time proof that
@@ -57,6 +62,7 @@ public class ClosureOverloadCollisionTests : TestBase
         AssertTrue(result.Contains("array:"), "Free function array overload works");
     }
 
+    [DynamicDependency("TransformCollection2", typeof(TestLibFunctions))]
     public void TestTransformCollectionDisambiguatedMethodExists()
     {
         // Verify TransformCollection2 exists as a method on the Functions class

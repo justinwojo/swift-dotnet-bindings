@@ -203,11 +203,19 @@ namespace BindingsGeneration
                     // (mini-generic-sharing.c:2759) because the nested generic instantiation
                     // cannot be compiled without the type argument's metadata.
                     //
+                    // Route through TypeMetadata.RegisterAndGetSize so RunClassConstructor →
+                    // static field init populates both TypeMetadata.Cache and the
+                    // NewFromPayloadDispatcher factory. Passing NewFromPayloadCore as the
+                    // factory lets MarshalFromSwift resolve generic instantiations without
+                    // falling back to reflection on explicit interface implementations
+                    // (which NativeAOT may not enumerate via Type.GetMethods on closed
+                    // generic instantiations).
+                    //
                     // Note: when (num_metadata + num_pwts) > 3, TypeMetadataAccessorSkipGate
                     // already skips the type before we reach this point, so PwtEntries is
                     // always populated correctly here.
                     var metadataArgs = string.Join(", ", ownPInvokeContext.GetTypeMetadataAccessorArgumentList());
-                    csWriter.WriteLine($"static nuint _payloadSize = {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}).Size;");
+                    csWriter.WriteLine($"static nuint _payloadSize = TypeMetadata.RegisterAndGetSize(typeof({typeNameWithGenerics}), {ownPInvokeContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs}), NewFromPayloadCore);");
                 }
                 else
                 {
