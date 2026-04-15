@@ -111,20 +111,9 @@ namespace BindingsGeneration
             // Platform-aware database loading: skip databases for frameworks that are
             // entirely absent on the target platform. Unused entries are harmless (lookup-based),
             // but skipping them avoids spurious type resolution for unavailable frameworks.
-            string[] builtInDatabases = { "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml", "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml", "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml", "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml", "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml", "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml", "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml", "ManagedSettingsDatabase.xml" };
-            foreach (var database in builtInDatabases)
+            foreach (var database in GetBuiltInDatabases(platform))
             {
                 LoadBuiltInDatabase(database);
-            }
-            // UIKit: available on all platforms except macOS (Catalyst has UIKit)
-            if (platform != ApplePlatform.macOS)
-            {
-                LoadBuiltInDatabase("UIKitDatabase.xml");
-            }
-            // AppKit: macOS and Catalyst only (Catalyst has AppKit compatibility layer)
-            if (platform == null || platform == ApplePlatform.macOS || platform == ApplePlatform.MacCatalyst)
-            {
-                LoadBuiltInDatabase("AppKitDatabase.xml");
             }
 
             // Load dependency module databases for cross-module type resolution
@@ -546,6 +535,35 @@ namespace BindingsGeneration
                 ReportCollector.Reset();
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Returns the list of built-in database XML file names to load for a given platform.
+        /// Apple-framework stubs that are absent on the target platform are filtered out so
+        /// lookups don't accidentally resolve types that can't exist at runtime.
+        /// </summary>
+        internal static IReadOnlyList<string> GetBuiltInDatabases(ApplePlatform? platform)
+        {
+            var result = new List<string>
+            {
+                "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml",
+                "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml",
+                "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml",
+                "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml",
+                "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml",
+                "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml",
+                "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml", "ManagedSettingsDatabase.xml",
+            };
+            // UIKit: available on all platforms except macOS (Catalyst has UIKit)
+            if (platform != ApplePlatform.macOS)
+                result.Add("UIKitDatabase.xml");
+            // HealthKit: unavailable on macOS per apple-frameworks.json
+            if (platform != ApplePlatform.macOS)
+                result.Add("HealthKitDatabase.xml");
+            // AppKit: macOS and Catalyst only (Catalyst has AppKit compatibility layer)
+            if (platform == null || platform == ApplePlatform.macOS || platform == ApplePlatform.MacCatalyst)
+                result.Add("AppKitDatabase.xml");
+            return result;
         }
 
         /// <summary>

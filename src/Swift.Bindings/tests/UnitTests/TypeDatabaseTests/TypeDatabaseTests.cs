@@ -616,6 +616,7 @@ public class TypeDatabaseTests
         [Theory]
         [InlineData("HealthKit.HKWorkoutActivityType", TypeRecordKind.Enum, true, "UInt")]
         [InlineData("HealthKit.HKWorkoutSessionLocationType", TypeRecordKind.Enum, true, "Int")]
+        [InlineData("HealthKit.HKWorkoutSwimmingLocationType", TypeRecordKind.Enum, true, "Int")]
         public async Task HealthKitDatabase_EnumTypes_ResolvesCorrectly(
             string typeName, TypeRecordKind expectedKind, bool expectedSimpleEnum, string expectedRawValue)
         {
@@ -750,6 +751,44 @@ public class TypeDatabaseTests
             var unknownAlias = SwiftTypeName.FromModuleQualifiedName("FamilyControls.NonExistentToken");
             Assert.False(typeDatabase.TryGetTypeRecord(unknownAlias, out _),
                 "Unknown type alias should not resolve");
+        }
+
+        [Fact]
+        public void GetBuiltInDatabases_NullPlatform_IncludesAllOptionalDatabases()
+        {
+            var databases = BindingsGenerator.GetBuiltInDatabases(platform: null);
+            Assert.Contains("HealthKitDatabase.xml", databases);
+            Assert.Contains("UIKitDatabase.xml", databases);
+            Assert.Contains("AppKitDatabase.xml", databases);
+        }
+
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        public void GetBuiltInDatabases_MobilePlatforms_IncludeHealthKitAndUIKit_ExcludeAppKit(ApplePlatform platform)
+        {
+            var databases = BindingsGenerator.GetBuiltInDatabases(platform);
+            Assert.Contains("HealthKitDatabase.xml", databases);
+            Assert.Contains("UIKitDatabase.xml", databases);
+            Assert.DoesNotContain("AppKitDatabase.xml", databases);
+        }
+
+        [Fact]
+        public void GetBuiltInDatabases_macOS_ExcludesHealthKitAndUIKit_IncludesAppKit()
+        {
+            var databases = BindingsGenerator.GetBuiltInDatabases(ApplePlatform.macOS);
+            Assert.DoesNotContain("HealthKitDatabase.xml", databases);
+            Assert.DoesNotContain("UIKitDatabase.xml", databases);
+            Assert.Contains("AppKitDatabase.xml", databases);
+        }
+
+        [Fact]
+        public void GetBuiltInDatabases_MacCatalyst_IncludesHealthKitUIKitAndAppKit()
+        {
+            var databases = BindingsGenerator.GetBuiltInDatabases(ApplePlatform.MacCatalyst);
+            Assert.Contains("HealthKitDatabase.xml", databases);
+            Assert.Contains("UIKitDatabase.xml", databases);
+            Assert.Contains("AppKitDatabase.xml", databases);
         }
 
         /// <summary>

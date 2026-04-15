@@ -7,5 +7,8 @@
         <entity managedNameSpace="HealthKit" managedTypeName="HKWorkoutSessionLocationType">
             <typedeclaration kind="enum" name="HKWorkoutSessionLocationType" module="HealthKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
+        <entity managedNameSpace="HealthKit" managedTypeName="HKWorkoutSwimmingLocationType">
+            <typedeclaration kind="enum" name="HKWorkoutSwimmingLocationType" module="HealthKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+        </entity>
     </entities>
 </swifttypedatabase>
