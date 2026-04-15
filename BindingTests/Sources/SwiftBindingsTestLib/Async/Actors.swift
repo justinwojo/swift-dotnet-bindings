@@ -80,6 +80,30 @@ public actor AsyncProcessor {
     }
 }
 
+// MARK: - Actor with Throwing Isolated Method
+
+public enum ActorVaultError: Error {
+    case keyMissing
+}
+
+/// An actor whose isolated method throws — exercises `try await self.method()` in the wrapper.
+public actor ActorVault {
+    private var secrets: [String: String] = [:]
+
+    public init() {}
+
+    /// Isolated non-throwing writer.
+    public func store(key: String, value: String) {
+        secrets[key] = value
+    }
+
+    /// Isolated throwing reader — exercises try/await on an actor.
+    public func reveal(key: String) throws -> String {
+        guard let v = secrets[key] else { throw ActorVaultError.keyMissing }
+        return v
+    }
+}
+
 // MARK: - Free Functions
 
 /// Creates a Counter actor.
@@ -95,4 +119,9 @@ public func createCounterWithInitial(_ initial: Int32) -> Counter {
 /// Creates an AsyncProcessor actor.
 public func createAsyncProcessor() -> AsyncProcessor {
     return AsyncProcessor()
+}
+
+/// Creates an ActorVault actor.
+public func createActorVault() -> ActorVault {
+    return ActorVault()
 }

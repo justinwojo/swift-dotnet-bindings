@@ -81,8 +81,11 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void HasCdeclCompatibleFunctionShape_ActorParent_ReturnsFalse()
+    public void HasCdeclCompatibleFunctionShape_ActorParent_SyncMethod_ReturnsFalse()
     {
+        // Synthetic: a sync method on an actor parent that somehow bypassed parser normalization.
+        // The parser turns actor-isolated instance methods into async ones; a sync method here
+        // has no path to dispatch safely and must be rejected.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyActor");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -92,6 +95,24 @@ public class SilgenNameTrampolineTests
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
+    [Fact]
+    public void HasCdeclCompatibleFunctionShape_ActorParent_AsyncMethod_ReturnsTrue()
+    {
+        // Actor-isolated async instance methods route through the async @_cdecl wrapper —
+        // Task { await self.method() } handles the executor hop automatically.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyActor");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyActor", moduleDecl);
+        parentDecl.IsActor = true;
+        var method = CreateMethodDecl("fetchCount", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"), isAsync: true, throws: false,
+            methodType: MethodType.Instance);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
     }
 
     [Fact]
@@ -517,7 +538,7 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Async_ActorParent_NoConversion()
+    public void Async_ActorParent_UsesCdecl()
     {
         var typeDatabase = CreateAsyncTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -530,9 +551,11 @@ public class SilgenNameTrampolineTests
 
         var (_, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Actor parent → remains @_silgen_name
-        Assert.Contains("@_silgen_name", swiftOutput);
-        Assert.DoesNotContain("@_cdecl", swiftOutput);
+        // Actor parent with async instance method → routed through @_cdecl async wrapper.
+        // Task { await self.method() } hops to the actor's executor automatically,
+        // unblocking SB0001 fallbacks for sync-on-actor APIs like BlinkID's actor types.
+        Assert.Contains("@_cdecl", swiftOutput);
+        Assert.DoesNotContain("@_silgen_name", swiftOutput);
     }
 
     [Fact]

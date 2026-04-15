@@ -1657,6 +1657,23 @@ namespace BindingsGeneration
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
             }
 
+            // Actor-isolated instance methods are effectively async from outside the actor —
+            // Swift requires `await` at the call site even for sync declarations. Route them
+            // through the async @_cdecl wrapper pipeline so the Swift wrapper emits
+            // `Task { await self.method() }` and the C# side surfaces a Task<T>-returning API.
+            // Scope: instance methods only, skipping constructors (actor init is sync-from-outside),
+            // nonisolated (opts out of isolation), and @MainActor (exposed as sync per Xamarin.iOS precedent).
+            if (!methodDecl.IsAsync &&
+                !methodDecl.IsConstructor &&
+                methodDecl.MethodType == MethodType.Instance &&
+                !methodDecl.IsNonisolated &&
+                !methodDecl.IsMainActorIsolated)
+            {
+                bool parentIsActor = parentDecl is ClassDecl { IsActor: true };
+                if (parentIsActor || methodDecl.IsActorIsolated)
+                    methodDecl.IsAsync = true;
+            }
+
             PopulateDocumentation(methodDecl, node);
 
             // Look up internal parameter names from swiftinterface data

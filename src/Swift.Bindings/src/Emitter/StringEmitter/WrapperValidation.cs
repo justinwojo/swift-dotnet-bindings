@@ -759,7 +759,10 @@ public static class WrapperValidation
             return false;
         // Guard 6b: Not actor parent (nonisolated members opt out, unless the signature
         // contains a parameterized-protocol type that requires iOS 16+ runtime support).
-        if (parentTypeDecl is ClassDecl { IsActor: true } &&
+        // Async methods (including instance methods normalized from actor isolation) route
+        // through the async @_cdecl wrapper and are safe — Task { await self.method() }
+        // handles the actor hop automatically.
+        if (parentTypeDecl is ClassDecl { IsActor: true } && !env.MethodDecl.IsAsync &&
             (!env.MethodDecl.IsNonisolated ||
              SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
             return false;
