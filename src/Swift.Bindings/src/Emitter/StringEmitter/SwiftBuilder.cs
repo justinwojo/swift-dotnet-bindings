@@ -107,6 +107,15 @@ public static class SwiftBuilder
                 return "UnsafeMutableRawPointer?";
             }
 
+            // Optional<any Error> — existential uses pointer-to-container ABI; nil-pointer is none.
+            // Matches MCB's marshalling path (Swift.AnyError? in C#, IntPtr.Zero sentinel).
+            if (named.ContainsGenericParameters &&
+                named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
+                MethodClosureBridge.IsAnyErrorExistential(named.GenericParameters[0]))
+            {
+                return "UnsafeMutableRawPointer?";
+            }
+
             // Optional<Bool/SimpleEnum/FrozenStruct (non-primitive)> uses nil-for-none pointer ABI: UnsafeMutableRawPointer?
             // Swift unwraps the optional, passes inner value pointer (nil for .none).
             // Primitives (Int32, Double, etc.) are frozen structs in stdlib but use the

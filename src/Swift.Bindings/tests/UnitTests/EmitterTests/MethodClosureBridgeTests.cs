@@ -181,6 +181,32 @@ public class MethodClosureBridgeTests
         Assert.True(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
+    [Fact]
+    public void IsEligible_ClosureWithMultipleOptionalAnyErrorArgs_ReturnsFalse()
+    {
+        // `((any Error)?, (any Error)?) -> Void` — the Swift body emitter only supports a
+        // single if-let branch for Optional<any Error>; two would require nested branching
+        // that isn't implemented. Reject at the eligibility gate so generation falls back
+        // cleanly to the SB0001 diagnostic path instead of crashing mid-emit.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("MyClass", moduleDecl);
+
+        var errorExistential = new NamedTypeSpec("Swift.Error") { IsAny = true };
+        var optionalError = new NamedTypeSpec("Swift.Optional", errorExistential);
+
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { (TypeSpec)optionalError, (TypeSpec)optionalError }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onTwoErrors", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, closureType, "handler");
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        Assert.False(MethodClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+    }
+
     // ─── TryEmit: Swift Wrapper ───────────────────────────────────────
 
     [Fact]

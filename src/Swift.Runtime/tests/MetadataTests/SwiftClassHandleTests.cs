@@ -17,10 +17,12 @@ namespace Swift.Runtime.Tests;
 /// Real Swift object ARC verification happens in BindingTests runtime tests.
 /// </summary>
 /// <remarks>
-/// Uses xunit collection serialization because many of these tests toggle
-/// <c>SwiftExitGuard.SetProcessExitingForTest</c>, a process-global flag. Parallel
-/// execution with <c>ProxyLifetimeTrackerTests</c> (or with each other) would race
-/// on the flag and produce non-deterministic failures — already observed in CI.
+/// Uses xunit collection serialization (via <c>[Collection]</c>) AND a Monitor-lock
+/// scope (<see cref="SwiftExitGuardTestScope"/>) because many tests toggle
+/// <c>SwiftExitGuard.SetProcessExitingForTest</c>, a process-global flag. The
+/// Monitor lock is belt-and-suspenders on top of collection isolation — rare
+/// flakes were observed under full-suite runs where collection alone didn't
+/// serialize reliably.
 /// </remarks>
 [Collection(SwiftExitGuardCollection.Name)]
 public class SwiftClassHandleTests
@@ -58,14 +60,9 @@ public class SwiftClassHandleTests
 
         // Must clean up with exit guard to prevent Arc.Release on mock pointer.
         // Without this, the GC finalizer would call swift_isDeallocating(0x12345678) → SIGSEGV.
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Close();
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -96,14 +93,9 @@ public class SwiftClassHandleTests
         Assert.Equal(ptr, handle.DangerousGetHandle());
 
         // Clean up with exit guard to prevent Arc.Release on mock pointer.
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Close();
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -177,14 +169,9 @@ public class SwiftClassHandleTests
         // With SwiftClassHandle, no dereference is needed
 
         // Clean up with exit guard to prevent Arc.Release on mock pointer.
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Close();
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -228,15 +215,9 @@ public class SwiftClassHandleTests
     public void ProcessExitFlag_SetByExitGuard()
     {
         // Verify that the exit guard flag can be set and read.
-        // Save and restore state to avoid polluting other tests.
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             Assert.True(SwiftExitGuard.IsProcessExiting);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -244,8 +225,7 @@ public class SwiftClassHandleTests
     public void ProcessExitFlag_DefaultFalse()
     {
         // The flag should be false by default (not during process exit).
-        // Reset in case a prior test set it.
-        SwiftExitGuard.SetProcessExitingForTest(false);
+        using var _ = SwiftExitGuardTestScope.Enter(processExiting: false);
         // Note: IsProcessExiting also checks Environment.HasShutdownStarted,
         // but that is always false during test execution.
         Assert.False(SwiftExitGuard.IsProcessExiting);
@@ -259,15 +239,17 @@ public class SwiftClassHandleTests
         // During tests, HasShutdownStarted is always false, so we verify:
         // 1. With flag false + HasShutdownStarted false → false
         // 2. With flag true + HasShutdownStarted false → true
-        SwiftExitGuard.SetProcessExitingForTest(false);
-        Assert.False(SwiftExitGuard.IsProcessExiting);
+        using (SwiftExitGuardTestScope.Enter(processExiting: false))
+        {
+            Assert.False(SwiftExitGuard.IsProcessExiting);
 
-        SwiftExitGuard.SetProcessExitingForTest(true);
-        Assert.True(SwiftExitGuard.IsProcessExiting);
+            SwiftExitGuard.SetProcessExitingForTest(true);
+            Assert.True(SwiftExitGuard.IsProcessExiting);
 
-        SwiftExitGuard.SetProcessExitingForTest(false);
-        // We can't test HasShutdownStarted=true without actually shutting down,
-        // but the OR logic is verified by the property implementation.
+            SwiftExitGuard.SetProcessExitingForTest(false);
+            // We can't test HasShutdownStarted=true without actually shutting down,
+            // but the OR logic is verified by the property implementation.
+        }
     }
 
     [Fact]
@@ -281,18 +263,13 @@ public class SwiftClassHandleTests
         var ptr = new IntPtr(0x1);
         var handle = new SwiftClassHandle<MockSwiftClass>(ptr);
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             // Close() triggers ReleaseHandle without setting _explicitDispose.
             // With exit guard + !_explicitDispose, Arc.Release is skipped (no crash
             // on mock pointer 0x1).
             handle.Close();
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -309,15 +286,10 @@ public class SwiftClassHandleTests
         // cover this path with a mock destroy action that doesn't P/Invoke.
         var handle = new SwiftClassHandle<MockSwiftClass>(IntPtr.Zero);
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Dispose(); // explicit Dispose on zero handle — early exit
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
         // The real explicit-dispose-during-exit behavior is tested by
         // SwiftSafeHandleShutdownTests.ExplicitDispose_DuringProcessExit_StillCallsDestroy
@@ -358,17 +330,12 @@ public class SwiftSafeHandleShutdownTests
         // VWT Destroy but still free the .NET-allocated buffer.
         var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             // Simulate finalizer path (no explicit Dispose — just close the handle).
             // SafeHandle.Close() calls ReleaseHandle without setting _explicitDispose.
             handle.Close();
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -380,15 +347,10 @@ public class SwiftSafeHandleShutdownTests
         // but the exception is swallowed per SafeHandle contract).
         var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Dispose(); // explicit Dispose — ReleaseHandle should still run
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -400,7 +362,7 @@ public class SwiftSafeHandleShutdownTests
         // because _metadataHandle is IntPtr.Zero due to GetTypeMetadata() throwing).
         var handle = new SwiftSafeHandle<MockSwiftStruct>(AllocMockBuffer());
 
-        SwiftExitGuard.SetProcessExitingForTest(false);
+        using var _ = SwiftExitGuardTestScope.Enter(processExiting: false);
         handle.Dispose();
         Assert.True(handle.IsClosed);
     }
@@ -727,19 +689,13 @@ public class HandleGCLifecycleTests
         // During process exit, the exit guard should kick in and skip VWT Destroy.
         var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
-
             // Close() triggers ReleaseHandle with _explicitDispose=false.
             // With the exit guard active, HandleProcessExitCleanup runs (frees buffer only).
             SwiftDispose.FinalizerCleanup(handle);
 
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -750,15 +706,10 @@ public class HandleGCLifecycleTests
         // Close() does not set _explicitDispose, so the exit guard skips VWT Destroy.
         var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Close(); // finalizer path — _explicitDispose=false → exit guard
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 
@@ -769,15 +720,10 @@ public class HandleGCLifecycleTests
         // VWT Destroy should still be attempted (for Swift deinit side effects).
         var handle = new SwiftSafeHandle<MockSwiftStructType>(AllocMockBuffer());
 
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
-            SwiftExitGuard.SetProcessExitingForTest(true);
             handle.Dispose(); // explicit — _explicitDispose=true → HandleNormalRelease
             Assert.True(handle.IsClosed);
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
     }
 

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Swift.Runtime;
+using Swift.Runtime.Tests;
 using Xunit;
 
 namespace Swift.RuntimeTests;
@@ -9,6 +10,12 @@ namespace Swift.RuntimeTests;
 /// <summary>
 /// Tests for SwiftObjectRegistry, which maps Swift existential containers to C# proxy objects.
 /// </summary>
+/// <remarks>
+/// Joins <see cref="SwiftExitGuardCollection"/> because the registry is process-global —
+/// parallel test classes that also Register/Unregister (notably <c>ProxyLifetimeTrackerTests</c>)
+/// would otherwise race with <c>Count_ReflectsRegisteredProxies</c> and similar assertions.
+/// </remarks>
+[Collection(SwiftExitGuardCollection.Name)]
 public class SwiftObjectRegistryTests
 {
     // Use a simple test class to act as a proxy

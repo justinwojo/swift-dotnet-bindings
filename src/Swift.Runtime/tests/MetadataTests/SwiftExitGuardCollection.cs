@@ -6,16 +6,22 @@ using Xunit;
 namespace Swift.Runtime.Tests;
 
 /// <summary>
-/// xunit collection definition that serializes any test class touching
-/// <see cref="SwiftExitGuard.SetProcessExitingForTest"/>. The flag is a single
-/// process-global volatile bool — if two test classes interleave their
-/// set-true/set-false calls, one class can observe the other's state and
-/// short-circuit code paths it expected to exercise (e.g., the deinit
-/// callback in <c>ProxyLifetimeTracker.OnEveryProtocolDeinitCore</c>).
+/// xunit collection definition that serializes test classes sharing process-global
+/// state: <see cref="SwiftExitGuard"/>'s exit flag and/or <see cref="SwiftObjectRegistry"/>'s
+/// handle→proxy map. Both are single-process globals — if two test classes run in
+/// parallel, one can observe or mutate the other's state (e.g., interleaved
+/// SetProcessExitingForTest true/false calls make <c>OnEveryProtocolDeinitCore</c>
+/// short-circuit a code path a test expected to exercise, and concurrent
+/// Register/Unregister calls break count-based assertions in
+/// <c>SwiftObjectRegistryTests</c>).
 ///
 /// Apply <c>[Collection(SwiftExitGuardCollection.Name)]</c> to any test class
-/// that calls <c>SetProcessExitingForTest</c>; xunit will then run all such
-/// classes serially within the test process.
+/// that calls <c>SetProcessExitingForTest</c> or mutates the registry; xunit
+/// will then run all such classes serially within the test process. Tests that
+/// touch the exit flag should ALSO wrap mutations in
+/// <see cref="SwiftExitGuardTestScope"/> as a belt-and-suspenders Monitor lock —
+/// rare flakes were observed under full-suite runs where the collection alone
+/// didn't serialize reliably.
 /// </summary>
 [CollectionDefinition(Name)]
 public sealed class SwiftExitGuardCollection

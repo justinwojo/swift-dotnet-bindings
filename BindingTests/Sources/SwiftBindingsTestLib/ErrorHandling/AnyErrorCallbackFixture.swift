@@ -70,4 +70,57 @@ public final class AnyErrorCallbackFixture {
         )
         callback(error)
     }
+
+    // MARK: - Session 2 Pattern A: `(any Error)?` closure parameter
+    //
+    // Mirrors `PaymentSheet.FlowController.update(intentConfiguration:completion:)`
+    // where Stripe delivers either a nil error (success) or an existential
+    // error (failure) through a single closure parameter.
+
+    /// Invokes `callback` with `nil` (success) or a `MathError` (failure),
+    /// depending on `shouldSucceed`. Exercises `(any Error)?` as a single
+    /// closure parameter.
+    public func reportOptionalError(shouldSucceed: Bool, callback: ((any Error)?) -> Void) {
+        if shouldSucceed {
+            callback(nil)
+        } else {
+            callback(MathError.divisionByZero)
+        }
+    }
+
+    // MARK: - Session 2 Pattern A (3-arg): `(T, U, (any Error)?)` closure parameter
+    //
+    // Exercises Optional<any Error> in the trailing slot of a multi-arg closure,
+    // mirroring the Stripe pattern `(STPIssuingCardPin?, STPPinStatus, (any Error)?)`
+    // with blittable stand-ins for the first two slots (Optional<class> and Optional<Int>
+    // in closure args are a separate pattern tracked for future work).
+
+    /// Invokes `callback` with three arguments: a pin code (Int32), a status (Int32),
+    /// and an optional error. Success (kind 0) → (1234, 1, nil); failure (kind 1) →
+    /// (0, 0, MathError); other (default) → (0, 2, ValidationError).
+    public func reportPinDetails(kind: Int32, callback: (Int32, Int32, (any Error)?) -> Void) {
+        switch kind {
+        case 0: callback(1234, 1, nil)                         // success
+        case 1: callback(0, 0, MathError.divisionByZero)       // error
+        default: callback(0, 2, ValidationError.tooLong(maxLength: 10))
+        }
+    }
+
+    // MARK: - Session 2 Pattern B: `Result<T, any Error>` closure parameter
+    //
+    // Mirrors Stripe's completion handler shape:
+    //   `(Result<PaymentSheet.FlowController, any Error>) -> Void`
+    // Success carries a concrete value (Int32 here); failure carries an existential error.
+    // The Swift adapter wraps the Result enum via `withUnsafePointer(to:)` so the C#
+    // callback receives a stack-lifetime pointer; the C# side heap-copies into a
+    // `SwiftResult<Int32, ExistentialContainer1>` owned via SafeHandle.
+
+    /// Invokes `callback` with either `.success(42)` or `.failure(MathError.divisionByZero)`.
+    public func reportResult(shouldSucceed: Bool, callback: (Result<Int32, any Error>) -> Void) {
+        if shouldSucceed {
+            callback(.success(42))
+        } else {
+            callback(.failure(MathError.divisionByZero))
+        }
+    }
 }

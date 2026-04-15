@@ -14,10 +14,12 @@ namespace Swift.Runtime.Tests;
 /// to short-circuit release calls on mock pointers.
 /// </summary>
 /// <remarks>
-/// Uses xunit collection serialization because <c>SwiftExitGuard.SetProcessExitingForTest</c>
-/// mutates a process-global flag. Parallel execution with other tests in this class
-/// (or the existing <c>SwiftClassHandle</c> tests) would race on the flag and produce
-/// non-deterministic failures.
+/// Uses xunit collection serialization (via <c>[Collection]</c>) AND a Monitor-lock
+/// scope (<see cref="SwiftExitGuardTestScope"/>) because
+/// <c>SwiftExitGuard.SetProcessExitingForTest</c> mutates a process-global flag.
+/// The Monitor lock is belt-and-suspenders on top of collection isolation — we've
+/// observed rare flakes under full-suite runs where the collection alone didn't
+/// serialize reliably, so every flag-touching test takes the lock explicitly.
 /// </remarks>
 [Collection(SwiftExitGuardCollection.Name)]
 public class ProxyLifetimeTrackerTests
@@ -120,18 +122,19 @@ public class ProxyLifetimeTrackerTests
 
             // During process exit, the deinit callback short-circuits so we don't
             // touch a partially-torn-down Swift runtime or managed state.
-            SwiftExitGuard.SetProcessExitingForTest(true);
-            ProxyLifetimeTracker.OnEveryProtocolDeinitCore(handle);
+            using (SwiftExitGuardTestScope.Enter(processExiting: true))
+            {
+                ProxyLifetimeTracker.OnEveryProtocolDeinitCore(handle);
 
-            // The handle is still "tracked" from the tracker's perspective because
-            // NotifyDeinit was skipped — this is expected (shutdown leaks are fine).
-            Assert.True(ProxyLifetimeTracker.IsTrackedForTest(handle));
+                // The handle is still "tracked" from the tracker's perspective because
+                // NotifyDeinit was skipped — this is expected (shutdown leaks are fine).
+                Assert.True(ProxyLifetimeTracker.IsTrackedForTest(handle));
+            }
         }
         finally
         {
             // Drop the entry so the finalizer doesn't try to Arc.Release a mock handle.
             ProxyLifetimeTracker.TryDropAllForTest(impl);
-            SwiftExitGuard.SetProcessExitingForTest(false);
             GC.KeepAlive(impl);
         }
     }
@@ -139,11 +142,11 @@ public class ProxyLifetimeTrackerTests
     [Fact]
     public void OnEveryProtocolDeinit_RemovesRegistryAndHandle()
     {
-        // Guard against a concurrent test leaving the process-exit flag set —
-        // this test exercises the *non-exiting* code path, and any racing
-        // SwiftClassHandle test that toggles the flag would otherwise make
+        // Hold the flag-sync lock for the whole test — this exercises the
+        // *non-exiting* code path, and without the lock a racing
+        // SwiftClassHandle test that toggles the flag could make
         // OnEveryProtocolDeinitCore short-circuit.
-        SwiftExitGuard.SetProcessExitingForTest(false);
+        using var scope = SwiftExitGuardTestScope.Enter(processExiting: false);
 
         // Register a dummy proxy in the strong registry; OnEveryProtocolDeinit
         // should drop both the strong registry root and the tracker entry.
@@ -220,8 +223,7 @@ public class ProxyLifetimeTrackerTests
         var weakImpl = TrackAndReturnWeakRef(handle);
 
         // Cleanup finalizer would otherwise run swift_release on the mock pointer.
-        SwiftExitGuard.SetProcessExitingForTest(true);
-        try
+        using (SwiftExitGuardTestScope.Enter(processExiting: true))
         {
             // Drive the impl to "definitely collected" state. Conservative-stack-scan
             // GCs (like Mono iOS sim) may keep the local alive across a single GC
@@ -235,10 +237,6 @@ public class ProxyLifetimeTrackerTests
             }
             Assert.False(weakImpl.IsAlive,
                 "Impl should be GC'd before NotifyDeinit runs — otherwise this test does NOT cover the dead-impl path it claims to.");
-        }
-        finally
-        {
-            SwiftExitGuard.SetProcessExitingForTest(false);
         }
 
         // CRITICAL: by the time NotifyDeinit runs, the impl object is already gone.

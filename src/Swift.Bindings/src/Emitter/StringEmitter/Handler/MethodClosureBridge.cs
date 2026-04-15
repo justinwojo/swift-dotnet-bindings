@@ -61,6 +61,7 @@ public static class MethodClosureBridge
                 if (cts.IsAsync) return false;
 
                 // Check closure args for bound generic types, complex enums, and any Error existentials
+                int optionalAnyErrorArgsInThisClosure = 0;
                 foreach (var closureArgType in cts.EachArgument())
                 {
                     if (IsBoundGenericClosureArg(closureArgType))
@@ -69,12 +70,23 @@ public static class MethodClosureBridge
                     if (closureHandler.IsComplexEnum(closureArgType))
                         hasComplexEnumInClosure = true;
 
-                    if (IsAnyErrorExistential(closureArgType))
+                    if (IsAnyErrorExistential(closureArgType) ||
+                        IsOptionalAnyErrorExistential(closureArgType) ||
+                        IsSwiftResultWithAnyErrorFailure(closureArgType))
                         hasErrorExistentialInClosure = true;
+
+                    if (IsOptionalAnyErrorExistential(closureArgType))
+                        optionalAnyErrorArgsInThisClosure++;
 
                     if (!IsClosureArgSupported(closureArgType, typeDatabase))
                         return false;
                 }
+
+                // The Swift body emitter only supports one Optional<any Error> arg per closure
+                // (single if-let branch). Multiple would require nested/composed branching that
+                // isn't implemented — reject at the gate rather than crash during emission.
+                if (optionalAnyErrorArgsInThisClosure > 1)
+                    return false;
 
                 // Check closure return type
                 if (!cts.ReturnType.IsEmptyTuple)
@@ -392,7 +404,7 @@ public static class MethodClosureBridge
 
         // Track whether any closure needs withUnsafePointer wrapping or heap allocation
         bool anyClosureNeedsComplexPath = false;
-        var perClosureAnalysis = new Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)>();
+        var perClosureAnalysis = new Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs, List<(int index, string swiftType)> optionalExistentialArgs)>();
 
         foreach (var ci in closures)
         {
@@ -400,6 +412,7 @@ public static class MethodClosureBridge
             var pointerWrapArgs = new List<(int index, string swiftType)>();
             var directArgs = new List<(int index, string conversion)>();
             var heapAllocArgs = new List<(int index, string swiftType)>();
+            var optionalExistentialArgs = new List<(int index, string swiftType)>();
 
             for (int i = 0; i < ci.ClosureArgs.Count; i++)
             {
@@ -407,7 +420,14 @@ public static class MethodClosureBridge
                 var paramName = $"__p{ci.Index}_{i}";
                 paramDecls.Add(paramName);
 
-                if (argType is NamedTypeSpec named)
+                // Optional<any Error> needs if-let branching (nil passes IntPtr.Zero to cdecl,
+                // non-nil wraps the container with withUnsafePointer). Route to its own bucket
+                // so the body emitter can split branches cleanly.
+                if (IsOptionalAnyErrorExistential(argType))
+                {
+                    optionalExistentialArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
+                }
+                else if (argType is NamedTypeSpec named)
                 {
                     if (MarshallingHelpers.IsSwiftPrimitive(named.Name))
                     {
@@ -436,14 +456,14 @@ public static class MethodClosureBridge
                 }
             }
 
-            if (pointerWrapArgs.Count > 0 || heapAllocArgs.Count > 0)
+            if (pointerWrapArgs.Count > 0 || heapAllocArgs.Count > 0 || optionalExistentialArgs.Count > 0)
                 anyClosureNeedsComplexPath = true;
             // Optional closures need a let-bound adapter (Optional type annotation required
             // for Swift type inference + .map-based nil handling), so always take the
             // complex-path emission.
             if (ci.IsOptional)
                 anyClosureNeedsComplexPath = true;
-            perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs, heapAllocArgs);
+            perClosureAnalysis[ci] = (paramDecls, pointerWrapArgs, directArgs, heapAllocArgs, optionalExistentialArgs);
         }
 
         if (anyClosureNeedsComplexPath)
@@ -515,7 +535,7 @@ public static class MethodClosureBridge
         MethodEnvironment env,
         List<ClosureInfo> closures,
         List<(ArgumentDecl arg, string csName, string csType, ParamAbiCategory category)> passableNonClosureParams,
-        Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs)> perClosureAnalysis,
+        Dictionary<ClosureInfo, (List<string> paramDecls, List<(int index, string swiftType)> pointerWrapArgs, List<(int index, string conversion)> directArgs, List<(int index, string swiftType)> heapAllocArgs, List<(int index, string swiftType)> optionalExistentialArgs)> perClosureAnalysis,
         string returnPrefix,
         string returnSuffix,
         string callTarget)
@@ -579,49 +599,55 @@ public static class MethodClosureBridge
             // Optional adapters have two extra open braces (`.map { __fp in` and `return {...}`),
             // so their body sits one extra indent level deeper and closes with an extra `}`.
             var bodyBaseIndent = ci.IsOptional ? indent + indent + indent : indent + indent;
-            if (analysis.pointerWrapArgs.Count > 0 || analysis.heapAllocArgs.Count > 0)
+
+            // D1: Heap allocations sit outside any if-let branch — they're independent of
+            // optional-existential nil-vs-not and C# takes ownership either way (VWT Destroy
+            // + NativeMemory.Free on disposal). Duplicating them per-branch would leak.
+            foreach (var (idx, swiftType) in analysis.heapAllocArgs)
             {
-                var currentIndent = bodyBaseIndent;
+                swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+                swiftWriter.WriteLine($"{bodyBaseIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
+            }
 
-                // D1: Emit heap allocation for complex enum args (flat, before withUnsafePointer nesting).
-                // No defer — C# takes ownership of the heap memory via SwiftSafeHandle
-                // (VWT Destroy + NativeMemory.Free on disposal). Deallocating here would
-                // cause use-after-free because MarshalFromSwift wraps the pointer without copying.
-                foreach (var (idx, swiftType) in analysis.heapAllocArgs)
-                {
-                    swiftWriter.WriteLine($"{currentIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
-                    swiftWriter.WriteLine($"{currentIndent}__heap{ci.Index}_{idx}.initializeMemory(as: {swiftType}.self, repeating: __p{ci.Index}_{idx}, count: 1)");
-                }
-
-                // withUnsafePointer nesting for bound generic struct args
+            // Local helper: emits the withUnsafePointer nesting over pointerWrapArgs, the cdecl
+            // call, and the closing braces. `optOverrides[i]` replaces the argument expression
+            // at slot `i` (used by the Optional<any Error> if-let branches to inject `nil` or
+            // `UnsafeMutableRawPointer(mutating:__ptr)` explicitly).
+            void EmitCdeclInvocation(string baseIndent, Dictionary<int, string> optOverrides)
+            {
+                var currentIndent = baseIndent;
                 for (int w = 0; w < analysis.pointerWrapArgs.Count; w++)
                 {
-                    var (idx, _) = analysis.pointerWrapArgs[w];
-                    swiftWriter.WriteLine($"{currentIndent}withUnsafePointer(to: __p{ci.Index}_{idx}) {{ __ptr{ci.Index}_{idx} in");
+                    var (pwIdx, _) = analysis.pointerWrapArgs[w];
+                    swiftWriter.WriteLine($"{currentIndent}withUnsafePointer(to: __p{ci.Index}_{pwIdx}) {{ __ptr{ci.Index}_{pwIdx} in");
                     currentIndent += indent;
                 }
 
                 var cdeclCallArgs = new List<string>();
                 for (int i = 0; i < ci.ClosureArgs.Count; i++)
                 {
+                    if (optOverrides.TryGetValue(i, out var ovr))
+                    {
+                        cdeclCallArgs.Add(ovr);
+                        continue;
+                    }
+
                     var heapArg = analysis.heapAllocArgs.FirstOrDefault(h => h.index == i);
                     if (heapArg != default)
                     {
                         cdeclCallArgs.Add($"__heap{ci.Index}_{i}");
+                        continue;
                     }
-                    else
+
+                    var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
+                    if (ptrArg != default)
                     {
-                        var ptrArg = analysis.pointerWrapArgs.FirstOrDefault(p => p.index == i);
-                        if (ptrArg != default)
-                        {
-                            cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
-                        }
-                        else
-                        {
-                            var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
-                            cdeclCallArgs.Add(direct.conversion);
-                        }
+                        cdeclCallArgs.Add($"UnsafeMutableRawPointer(mutating: __ptr{ci.Index}_{i})");
+                        continue;
                     }
+
+                    var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                    cdeclCallArgs.Add(direct.conversion);
                 }
                 cdeclCallArgs.Add($"{closureCsName}Context");
 
@@ -636,21 +662,55 @@ public static class MethodClosureBridge
                     swiftWriter.WriteLine($"{currentIndent}}}");
                 }
             }
+
+            if (analysis.optionalExistentialArgs.Count == 0)
+            {
+                if (analysis.pointerWrapArgs.Count > 0 || analysis.heapAllocArgs.Count > 0)
+                {
+                    EmitCdeclInvocation(bodyBaseIndent, new Dictionary<int, string>());
+                }
+                else
+                {
+                    // All args direct — skip the withUnsafePointer scaffolding for clarity
+                    var cdeclCallArgs = new List<string>();
+                    for (int i = 0; i < ci.ClosureArgs.Count; i++)
+                    {
+                        var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
+                        cdeclCallArgs.Add(direct.conversion);
+                    }
+                    cdeclCallArgs.Add($"{closureCsName}Context");
+                    var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
+                    if (!ci.Spec.ReturnType.IsEmptyTuple)
+                        cdeclExpr += " != 0";
+                    swiftWriter.WriteLine($"{bodyBaseIndent}{cdeclExpr}");
+                }
+            }
+            else if (analysis.optionalExistentialArgs.Count == 1)
+            {
+                // Pattern A: `(any Error)?` — nil passes IntPtr.Zero to cdecl, non-nil passes a
+                // pointer to a withUnsafePointer-borrowed ExistentialContainer. Two cdecl calls
+                // (one per branch) are simpler than trying to lift the pointer out of the block.
+                var (optIdx, _) = analysis.optionalExistentialArgs[0];
+                var valName = $"__val{ci.Index}_{optIdx}";
+                var ptrName = $"__ptr{ci.Index}_{optIdx}";
+                swiftWriter.WriteLine($"{bodyBaseIndent}if let {valName} = __p{ci.Index}_{optIdx} {{");
+                var ifBodyIndent = bodyBaseIndent + indent;
+                swiftWriter.WriteLine($"{ifBodyIndent}withUnsafePointer(to: {valName}) {{ {ptrName} in");
+                EmitCdeclInvocation(
+                    ifBodyIndent + indent,
+                    new Dictionary<int, string> { [optIdx] = $"UnsafeMutableRawPointer(mutating: {ptrName})" });
+                swiftWriter.WriteLine($"{ifBodyIndent}}}");
+                swiftWriter.WriteLine($"{bodyBaseIndent}}} else {{");
+                EmitCdeclInvocation(
+                    bodyBaseIndent + indent,
+                    new Dictionary<int, string> { [optIdx] = "nil" });
+                swiftWriter.WriteLine($"{bodyBaseIndent}}}");
+            }
             else
             {
-                // All args direct
-                var cdeclCallArgs = new List<string>();
-                for (int i = 0; i < ci.ClosureArgs.Count; i++)
-                {
-                    var direct = analysis.directArgs.FirstOrDefault(d => d.index == i);
-                    cdeclCallArgs.Add(direct.conversion);
-                }
-                cdeclCallArgs.Add($"{closureCsName}Context");
-
-                var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
-                if (!ci.Spec.ReturnType.IsEmptyTuple)
-                    cdeclExpr += " != 0";
-                swiftWriter.WriteLine($"{bodyBaseIndent}{cdeclExpr}");
+                throw new InvalidOperationException(
+                    $"MethodClosureBridge: closures with more than one Optional<any Error> parameter " +
+                    $"are not yet supported (method: {method.Name}, count: {analysis.optionalExistentialArgs.Count}).");
             }
 
             // Close the adapter closure. Optional adapters also close the `.map { __fp in }` wrapper.
@@ -1131,6 +1191,20 @@ public static class MethodClosureBridge
             // normal existential-copy semantics by the caller — we read bytes, we do not take ownership.
             csWriter.WriteLine($"var __a{index} = new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
         }
+        else if (IsOptionalAnyErrorExistential(argType))
+        {
+            // Optional<any Error>: Swift adapter sends nil via IntPtr.Zero; otherwise pointer to
+            // a borrowed ExistentialContainer1. Copy out to produce a managed-lifetime AnyError?.
+            csWriter.WriteLine($"global::Swift.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+        }
+        else if (IsSwiftResultWithAnyErrorFailure(argType))
+        {
+            // Swift.Result<T, any Error>: Swift adapter wraps the enum with withUnsafePointer
+            // so we receive a stack-lifetime pointer. NewFromPayload heap-copies the payload
+            // via the VWT (InitializeWithCopy), so the SafeHandle owns the copy — must NOT
+            // suppress finalization (that's MarshalBorrowedFromSwift's job). Use MarshalFromSwift.
+            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
+        }
         else
         {
             // Bound generics / classes come as IntPtr — marshal via MarshalBorrowedFromSwift.
@@ -1168,6 +1242,11 @@ public static class MethodClosureBridge
     /// </summary>
     private static string RenderSwiftClosureArgType(TypeSpec typeSpec)
     {
+        // Optional<any Error> must render as `(any Swift.Error)?` so Swift 6 accepts the
+        // closure signature — `Swift.Error?` loses the existential `any` keyword.
+        if (IsOptionalAnyErrorExistential(typeSpec))
+            return "(any Swift.Error)?";
+
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
         // ProtocolListTypeSpec already renders with an "any " prefix; only NamedTypeSpec
         // existentials need it added here. Guard prevents "any any Error".
@@ -1211,6 +1290,35 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
+    /// Checks whether a TypeSpec is <c>Optional&lt;any Swift.Error&gt;</c> — Session 2 Pattern A.
+    /// Stripe completion handlers (<c>PaymentSheet.FlowController.update</c>, etc.) deliver
+    /// errors via this shape: nil on success, existential container on failure.
+    /// ABI: <c>UnsafeMutableRawPointer?</c> — nil maps to C# <c>Swift.AnyError?</c> = null.
+    /// </summary>
+    internal static bool IsOptionalAnyErrorExistential(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec named) return false;
+        if (named.Name != "Swift.Optional") return false;
+        if (named.GenericParameters.Count != 1) return false;
+        return IsAnyErrorExistential(named.GenericParameters[0]);
+    }
+
+    /// <summary>
+    /// Checks whether a TypeSpec is <c>Swift.Result&lt;T, any Swift.Error&gt;</c> — Session 2 Pattern B.
+    /// Stripe's <c>(Result&lt;PaymentSheet.FlowController, any Error&gt;) -&gt; Void</c> completion
+    /// handlers pass this shape. Routed through <c>withUnsafePointer</c> on the Swift side so
+    /// the C# callback receives a pointer to the Result enum payload; the C# wrapper then
+    /// heap-copies via <c>SwiftResult&lt;T, ExistentialContainer1&gt;.NewFromPayload</c>.
+    /// </summary>
+    internal static bool IsSwiftResultWithAnyErrorFailure(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec named) return false;
+        if (named.Name != "Swift.Result") return false;
+        if (named.GenericParameters.Count != 2) return false;
+        return IsAnyErrorExistential(named.GenericParameters[1]);
+    }
+
+    /// <summary>
     /// Checks if a closure argument type is supported by this emitter.
     /// Supports: primitives, classes, ObjC-bridged types, bound generics whose base
     /// type resolves in TypeDatabase, and <c>any Swift.Error</c> existential.
@@ -1219,6 +1327,13 @@ public static class MethodClosureBridge
     {
         // any Swift.Error — bridged through ExistentialContainer1 pointer, wrapped as AnyError in C#.
         if (IsAnyErrorExistential(typeSpec)) return true;
+
+        // Optional<any Error> — nil-pointer ABI (UnsafeMutableRawPointer?), C# = Swift.AnyError?.
+        if (IsOptionalAnyErrorExistential(typeSpec)) return true;
+
+        // Result<T, any Error> — stdlib generic not in TypeDatabase; recognize explicitly.
+        // Bridged via withUnsafePointer (Swift) + SwiftResult<T, ExistentialContainer1>.NewFromPayload (C#).
+        if (IsSwiftResultWithAnyErrorFailure(typeSpec)) return true;
 
         if (typeSpec is not NamedTypeSpec named) return false;
 
@@ -1374,6 +1489,10 @@ public static class MethodClosureBridge
         // any Swift.Error existential → Swift.AnyError runtime struct
         if (IsAnyErrorExistential(argType))
             return "Swift.AnyError";
+
+        // Optional<any Error> → nullable struct so callbacks can observe the nil branch.
+        if (IsOptionalAnyErrorExistential(argType))
+            return "Swift.AnyError?";
 
         if (argType is NamedTypeSpec namedArg)
         {
